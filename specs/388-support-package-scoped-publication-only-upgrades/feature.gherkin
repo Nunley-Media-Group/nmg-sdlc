@@ -22,8 +22,11 @@ Feature: Support package-scoped publication-only upgrades
   Scenario: Approval binds exact single-package authority
     Given one selected publication-only package
     When its approval id is calculated
-    Then it binds canonical root package and complete locale-independent inventory
-    And it binds exact-string issue digits, regular-file digests/identities, and exact rewrite/finding content
+    Then it binds canonical root package and separately globally sorted regular-file and directory inventories
+    And each directory record binds one repository-relative POSIX path high-resolution identity and captured deterministic name-type listing
+    And reversing raw directory traversal order yields identical records file inventory and approval id
+    And it binds exact-string issue digits file digests high-resolution identities and exact rewrite/finding content
+    And final apply requires exact directory-record and approval-id equality before target proof
 
   @SCN003 @regression
   Scenario: Apply performs only selected publication writes
@@ -57,20 +60,28 @@ Feature: Support package-scoped publication-only upgrades
   Scenario Outline: Stale foreign or interrupted apply fails closed
     Given an approved single-package report and a cooperatively honored exclusive root lock
     When apply observes <change> before the final validated boundary
-    Then it fails before rename and does not install unapproved bytes
-    And foreign lock or staged identities detected before pathname cleanup are not overwritten or deleted
+    Then it fails before target rename and does not install unapproved bytes
+    And foreign or mutated lock and staged identities detected before pathname cleanup are not overwritten or deleted
     Examples:
       | change |
       | changed source bytes |
-      | added package content after staging |
-      | same-byte target identity replacement during descriptor read |
-      | staged identity replacement |
-      | staged byte mutation |
+      | late package content inserted during directory traversal |
+      | same-byte target identity replacement during the authority rerun |
+      | same-byte target identity replacement during final target descriptor read |
+      | equal-byte non-tasks file replacement during inventory descriptor read |
+      | replacement of an empty nested directory with an identical empty listing |
+      | replacement of a non-empty directory with identical listing bytes and descendant inode |
+      | directory replacement by symlink before recursive inventory traversal |
+      | directory replacement by a plain directory during traversal |
+      | staged identity replacement during the authority rerun |
+      | staged byte mutation during the authority rerun |
       | duplicate task declarations |
       | a different package root or report id |
       | a pre-existing foreign lock |
       | a partial or wrong-byte owner write |
       | a same-token foreign lock replacement |
+      | a same-token lock replacement during final lock proof |
+      | a same-size lock mutation during final lock proof |
       | an injected atomic rename failure without external interference |
 
   @SCN006 @regression
@@ -100,15 +111,19 @@ Feature: Support package-scoped publication-only upgrades
     And publication-command positionals and command-named option values remain ignored whenever a legacy command resolves
 
   @SCN009 @regression
-  Scenario: Applied cleanup failure remains truthful
+  Scenario Outline: Applied cleanup failure remains truthful
     Given the one staged tasks output has atomically replaced its target
-    When exact owned lock unlink returns EACCES
+    When <cleanup failure> occurs
     Then the stable outcome is publication_files_cleanup_failed
     And state is applied_cleanup_failed with applied true
-    And the valid root lock remains as ownership evidence
+    And the unproven root lock remains for inspection
+    Examples:
+      | cleanup failure |
+      | exact owned lock unlink returns EACCES |
+      | equal-length lock mutation after exact owner bytes are read |
 
   Rule: Cooperative filesystem boundary
     Authorized nmg-sdlc invocations honor the exclusive root lock.
-    A non-cooperative same-credential actor that deliberately mutates or replaces
-    the lock stage or target after final validation and inside renameSync or
-    unlinkSync is undefined external interference outside this contract.
+    Non-target inventory mutation after the completed authority rerun is outside this contract.
+    Non-cooperative same-credential mutation or replacement after a target stage or lock
+    final proof inside the immediately following pathname syscall gap is undefined external interference.

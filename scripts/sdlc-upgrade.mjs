@@ -185,6 +185,18 @@ function lstatOrNull(target) {
   }
 }
 
+function publicationLstatOrNull(target) {
+  try {
+    return fs.lstatSync(target, { bigint: true });
+  } catch {
+    return null;
+  }
+}
+
+function publicationFstat(descriptor) {
+  return fs.fstatSync(descriptor, { bigint: true });
+}
+
 function rejectSymlinkedPath(target) {
   const raw = String(target);
   const absolute = path.isAbsolute(raw)
@@ -221,24 +233,58 @@ function publicationFileIdentity(stat) {
   return {
     device: String(stat.dev),
     inode: String(stat.ino),
-    mode: stat.mode,
-    size: stat.size,
+    mode: String(stat.mode),
+    size: String(stat.size),
+    mtimeNs: stat.mtimeNs === undefined ? String(stat.mtimeMs) : String(stat.mtimeNs),
+    ctimeNs: stat.ctimeNs === undefined ? String(stat.ctimeMs) : String(stat.ctimeNs),
   };
 }
 
+function samePublicationIdentity(stat, identity) {
+  if (!stat || stat.isSymbolicLink() || !identity) return false;
+  const observed = publicationFileIdentity(stat);
+  return observed.device === identity.device
+    && observed.inode === identity.inode
+    && observed.mode === identity.mode
+    && observed.size === identity.size
+    && observed.mtimeNs === identity.mtimeNs
+    && observed.ctimeNs === identity.ctimeNs;
+}
+
 function samePublicationFileIdentity(stat, identity) {
-  return Boolean(stat)
-    && stat.isFile()
-    && !stat.isSymbolicLink()
-    && Boolean(identity)
-    && String(stat.dev) === identity.device
-    && String(stat.ino) === identity.inode
-    && stat.mode === identity.mode
-    && stat.size === identity.size;
+  return Boolean(stat?.isFile()) && samePublicationIdentity(stat, identity);
 }
 function comparePublicationPaths(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
+function publicationDirectoryEntryType(entry) {
+  if (entry.isDirectory()) return 'directory';
+  if (entry.isFile()) return 'file';
+  if (entry.isSymbolicLink()) return 'symlink';
+  if (entry.isBlockDevice()) return 'block';
+  if (entry.isCharacterDevice()) return 'character';
+  if (entry.isFIFO()) return 'fifo';
+  if (entry.isSocket()) return 'socket';
+  return 'unknown';
+}
+
+function publicationDirectoryEntries(directory) {
+  return fs.readdirSync(directory, { withFileTypes: true })
+    .sort((left, right) => comparePublicationPaths(left.name, right.name));
+}
+
+function publicationDirectoryListing(entries) {
+  return entries.map((entry) => ({
+    name: entry.name,
+    type: publicationDirectoryEntryType(entry),
+  }));
+}
+
+function samePublicationDirectoryListing(left, right) {
+  return JSON.stringify(publicationDirectoryListing(left))
+    === JSON.stringify(publicationDirectoryListing(right));
+}
+
 
 function requireApprovedIssueFrontmatter(source, issueDigits, relativePath) {
   const issueLines = [...source.matchAll(/^\*\*(Issues?)\*\*:\s*(.*?)\s*$/gm)];
@@ -264,42 +310,112 @@ function requireApprovedIssueFrontmatter(source, issueDigits, relativePath) {
 function inventoryPublicationPackage(root, specDir) {
   const packageFull = path.join(root, ...specDir.split('/'));
   const files = [];
-  const visit = (directory, relativeDirectory) => {
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+  const directories = [];
+  const sources = new Map();
+  const visit = (directory, relativeDirectory, expectedIdentity) => {
+    const directoryStat = publicationLstatOrNull(directory);
+    if (
+      !directoryStat?.isDirectory()
+      || directoryStat.isSymbolicLink()
+      || (expectedIdentity && !samePublicationIdentity(directoryStat, expectedIdentity))
+    ) {
+      throw publicationContractError(
+        'publication_spec_entry_invalid',
+        `Selected spec package directory identity changed: ${relativeDirectory}`,
+      );
+    }
+    const directoryIdentity = publicationFileIdentity(directoryStat);
+    const entries = publicationDirectoryEntries(directory);
+    if (!samePublicationIdentity(publicationLstatOrNull(directory), directoryIdentity)) {
+      throw publicationContractError(
+        'publication_spec_entry_invalid',
+        `Selected spec package directory identity changed while listing: ${relativeDirectory}`,
+      );
+    }
+    for (const entry of entries) {
       const full = path.join(directory, entry.name);
       const relativePath = `${relativeDirectory}/${entry.name}`;
-      if (entry.isSymbolicLink()) {
+      const before = publicationLstatOrNull(full);
+      if (before?.isSymbolicLink()) {
         throw publicationContractError(
           'publication_spec_symlink',
           `Selected spec package contains a symlink: ${relativePath}`,
         );
       }
-      if (entry.isDirectory()) {
-        visit(full, relativePath);
-      } else if (entry.isFile()) {
-        const stat = fs.lstatSync(full);
-        if (!stat.isFile() || stat.isSymbolicLink()) {
+      if (entry.isDirectory() && before?.isDirectory()) {
+        visit(full, relativePath, publicationFileIdentity(before));
+      } else if (entry.isFile() && before?.isFile()) {
+        let descriptor;
+        try {
+          descriptor = fs.openSync(full, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+          const opened = publicationFstat(descriptor);
+          const identity = publicationFileIdentity(before);
+          if (!samePublicationFileIdentity(opened, identity)) {
+            throw publicationContractError(
+              'publication_spec_entry_invalid',
+              `Selected spec package entry identity changed: ${relativePath}`,
+            );
+          }
+          const bytes = fs.readFileSync(descriptor);
+          const after = publicationLstatOrNull(full);
+          if (!samePublicationFileIdentity(after, identity)) {
+            throw publicationContractError(
+              'publication_spec_entry_invalid',
+              `Selected spec package entry identity changed: ${relativePath}`,
+            );
+          }
+          files.push({
+            path: relativePath,
+            sourceDigest: createHash('sha256').update(bytes).digest('hex'),
+            identity,
+          });
+          sources.set(relativePath, bytes);
+        } catch (error) {
+          if (error?.reasonCode === 'publication_spec_entry_invalid') throw error;
           throw publicationContractError(
             'publication_spec_entry_invalid',
-            `Selected spec package entry identity changed: ${relativePath}`,
+            `Selected spec package entry could not be validated: ${relativePath}: ${error.message}`,
           );
+        } finally {
+          if (descriptor !== undefined) fs.closeSync(descriptor);
         }
-        const bytes = fs.readFileSync(full);
-        files.push({
-          path: relativePath,
-          sourceDigest: createHash('sha256').update(bytes).digest('hex'),
-          identity: publicationFileIdentity(stat),
-        });
       } else {
         throw publicationContractError(
           'publication_spec_entry_invalid',
-          `Selected spec package contains an unsupported entry: ${relativePath}`,
+          `Selected spec package entry identity changed: ${relativePath}`,
         );
       }
     }
+    if (!samePublicationIdentity(publicationLstatOrNull(directory), directoryIdentity)) {
+      throw publicationContractError(
+        'publication_spec_entry_invalid',
+        `Selected spec package directory identity changed after traversal: ${relativeDirectory}`,
+      );
+    }
+    const finalEntries = publicationDirectoryEntries(directory);
+    const finalListing = publicationDirectoryListing(finalEntries);
+    if (
+      !samePublicationIdentity(publicationLstatOrNull(directory), directoryIdentity)
+      || !samePublicationDirectoryListing(entries, finalEntries)
+    ) {
+      throw publicationContractError(
+        'publication_spec_entry_invalid',
+        `Selected spec package directory listing changed during traversal: ${relativeDirectory}`,
+      );
+    }
+    directories.push({
+      path: relativeDirectory,
+      identity: directoryIdentity,
+      listing: finalListing,
+    });
   };
-  visit(packageFull, specDir);
-  return files.sort((left, right) => comparePublicationPaths(left.path, right.path));
+  const packageIdentity = publicationLstatOrNull(packageFull);
+  visit(packageFull, specDir, packageIdentity && publicationFileIdentity(packageIdentity));
+  return {
+    files: files.sort((left, right) => comparePublicationPaths(left.path, right.path)),
+    directories: directories.sort((left, right) => comparePublicationPaths(left.path, right.path)),
+    sources,
+  };
 }
 
 function validatePublicationSpecDirs(root, specDirs) {
@@ -362,23 +478,25 @@ function validatePublicationSpecDirs(root, specDirs) {
         `Selected spec package is outside the canonical specs root: ${normalized}`,
       );
     }
+    const inventory = inventoryPublicationPackage(rootReal, normalized);
     for (const name of REQUIRED_SPEC_FILES) {
       const relativePath = `${normalized}/${name}`;
-      const full = path.join(packageFull, name);
-      const stat = lstatOrNull(full);
-      if (!stat?.isFile() || stat.isSymbolicLink()) {
+      const source = inventory.sources.get(relativePath);
+      if (!source) {
         throw publicationContractError(
           'publication_spec_incomplete',
           `Selected spec package requires a plain ${relativePath}`,
         );
       }
-      requireApprovedIssueFrontmatter(fs.readFileSync(full, 'utf8'), match[1], relativePath);
+      requireApprovedIssueFrontmatter(source.toString('utf8'), match[1], relativePath);
     }
     selected.push({
       name: path.basename(normalized),
       full: packageFull,
       rel: normalized,
-      files: inventoryPublicationPackage(rootReal, normalized),
+      files: inventory.files,
+      directories: inventory.directories,
+      sources: inventory.sources,
     });
   }
   return {
@@ -1274,13 +1392,18 @@ function recoverTaskPublicationDeclarations(sourceLines, relativePath, taskId) {
   return { rewrites: [], findings: [] };
 }
 
-function publicationFilesUpgrade(root, specDirs) {
+function publicationFilesUpgrade(specDirs) {
   const packages = [];
   for (const specDir of specDirs) {
     if (!/^[1-9]\d*-[a-z0-9-]+$/.test(specDir.name)) continue;
     const relativePath = `${specDir.rel}/tasks.md`;
-    const sourceBytes = safeReadBuffer(path.join(root, relativePath));
-    if (sourceBytes == null) continue;
+    const sourceBytes = specDir.sources?.get(relativePath);
+    if (sourceBytes == null) {
+      throw publicationContractError(
+        'publication_spec_entry_invalid',
+        `Descriptor-bound publication source is missing: ${relativePath}`,
+      );
+    }
     // Latin-1 is a reversible byte view. The publication grammar is ASCII, so
     // parsing and rewriting this view cannot normalize unrelated invalid UTF-8.
     const source = sourceBytes.toString('latin1');
@@ -1324,6 +1447,21 @@ function publicationFilesUpgrade(root, specDirs) {
   };
 }
 
+function legacyPublicationFilesUpgrade(root, specDirs) {
+  const sourced = [];
+  for (const specDir of specDirs) {
+    if (!/^[1-9]\d*-[a-z0-9-]+$/.test(specDir.name)) continue;
+    const relativePath = `${specDir.rel}/tasks.md`;
+    const sourceBytes = safeReadBuffer(path.join(root, relativePath));
+    if (sourceBytes == null) continue;
+    sourced.push({
+      ...specDir,
+      sources: new Map([[relativePath, sourceBytes]]),
+    });
+  }
+  return publicationFilesUpgrade(sourced);
+}
+
 function publicationUpgradeSpecDirs(root, specDirs, upgradeItems) {
   const candidates = new Map(
     specDirs
@@ -1360,12 +1498,12 @@ function durableCreateFile(target, bytes, mode = 0o600) {
     | (fs.constants.O_NOFOLLOW ?? 0);
   const descriptor = fs.openSync(target, flags, mode);
   try {
-    const stat = fs.fstatSync(descriptor);
+    const stat = publicationFstat(descriptor);
     if (!stat.isFile()) throw new Error(`Publication artifact is not a regular file: ${target}`);
     fs.writeFileSync(descriptor, bytes);
     fs.fchmodSync(descriptor, mode);
     fs.fsyncSync(descriptor);
-    return publicationFileIdentity(fs.fstatSync(descriptor));
+    return publicationFileIdentity(publicationFstat(descriptor));
   } finally {
     fs.closeSync(descriptor);
   }
@@ -1383,16 +1521,16 @@ function withPublicationMutationLock(root, action) {
   let lockIdentity;
   const matchesOwnedLock = () => {
     if (!lockIdentity) return false;
-    const before = lstatOrNull(lockPath);
+    const before = publicationLstatOrNull(lockPath);
     if (!samePublicationFileIdentity(before, lockIdentity)) return false;
     let current;
     try {
       current = fs.openSync(lockPath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
-      const opened = fs.fstatSync(current);
+      const opened = publicationFstat(current);
       if (!samePublicationFileIdentity(opened, lockIdentity)) return false;
       const currentBytes = fs.readFileSync(current);
-      const after = lstatOrNull(lockPath);
-      return samePublicationFileIdentity(after, lockIdentity) && currentBytes.equals(ownerBytes);
+      const after = publicationLstatOrNull(lockPath);
+      return currentBytes.equals(ownerBytes) && samePublicationFileIdentity(after, lockIdentity);
     } catch {
       return false;
     } finally {
@@ -1401,15 +1539,15 @@ function withPublicationMutationLock(root, action) {
   };
   try {
     descriptor = fs.openSync(lockPath, flags, 0o600);
-    lockIdentity = publicationFileIdentity(fs.fstatSync(descriptor));
+    lockIdentity = publicationFileIdentity(publicationFstat(descriptor));
     fs.writeFileSync(descriptor, ownerBytes);
     fs.fchmodSync(descriptor, 0o600);
     fs.fsyncSync(descriptor);
-    lockIdentity = publicationFileIdentity(fs.fstatSync(descriptor));
+    lockIdentity = publicationFileIdentity(publicationFstat(descriptor));
   } catch (error) {
     if (descriptor !== undefined) {
       try {
-        lockIdentity = publicationFileIdentity(fs.fstatSync(descriptor));
+        lockIdentity = publicationFileIdentity(publicationFstat(descriptor));
       } catch {
         // Preserve the last proven identity.
       }
@@ -1471,7 +1609,7 @@ function withPublicationMutationLock(root, action) {
   let outcome;
   let primaryError = null;
   try {
-    outcome = action({ token });
+    outcome = action({ token, matchesOwnedLock });
   } catch (error) {
     if (error?.retainPublicationLock) throw error;
     primaryError = error;
@@ -1543,7 +1681,7 @@ function applyPublicationBufferRewrite(line, rewrite) {
 }
 
 function readPublicationTargetSnapshot(target, { expectedIdentity, expectedBytes, expectedDigest } = {}) {
-  const before = lstatOrNull(target);
+  const before = publicationLstatOrNull(target);
   if (!before?.isFile() || before.isSymbolicLink()) {
     throw publicationContractError(
       'publication_files_plan_stale',
@@ -1553,7 +1691,7 @@ function readPublicationTargetSnapshot(target, { expectedIdentity, expectedBytes
   let descriptor;
   try {
     descriptor = fs.openSync(target, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
-    const opened = fs.fstatSync(descriptor);
+    const opened = publicationFstat(descriptor);
     const beforeIdentity = publicationFileIdentity(before);
     if (
       !samePublicationFileIdentity(opened, beforeIdentity)
@@ -1565,7 +1703,7 @@ function readPublicationTargetSnapshot(target, { expectedIdentity, expectedBytes
       );
     }
     const source = fs.readFileSync(descriptor);
-    const after = lstatOrNull(target);
+    const after = publicationLstatOrNull(target);
     if (
       !samePublicationFileIdentity(after, beforeIdentity)
       || (expectedBytes && !source.equals(expectedBytes))
@@ -1578,7 +1716,7 @@ function readPublicationTargetSnapshot(target, { expectedIdentity, expectedBytes
     }
     return {
       source,
-      mode: opened.mode,
+      mode: Number(opened.mode),
       identity: publicationFileIdentity(opened),
     };
   } catch (error) {
@@ -1642,29 +1780,34 @@ function applySinglePublicationFile(root, item, { revalidate } = {}) {
       'Single-package publication apply requires exactly one actionable tasks file',
     );
   }
-  return withPublicationMutationLock(root, ({ token }) => {
+  return withPublicationMutationLock(root, ({ token, matchesOwnedLock }) => {
     const output = publicationOutputSnapshot(root, plans[0]);
     const stagedPath = path.join(root, `.nmg-sdlc-publication.${token}.staged`);
     let stagedIdentity;
     try {
       stagedIdentity = durableCreateFile(stagedPath, output.output, output.mode);
       revalidate?.();
-      const liveTarget = readPublicationTargetSnapshot(output.target, {
+      readPublicationTargetSnapshot(output.target, {
         expectedIdentity: output.identity,
         expectedBytes: output.source,
       });
-      if (!liveTarget.source.equals(output.source)) {
-        throw publicationContractError(
-          'publication_files_plan_stale',
-          'Publication target identity or bytes changed immediately before commit',
-        );
+      try {
+        readPublicationTargetSnapshot(stagedPath, {
+          expectedIdentity: stagedIdentity,
+          expectedBytes: output.output,
+        });
+      } catch (error) {
+        error.state = 'plan_stale';
+        error.applied = false;
+        error.stagedPath = stagedPath;
+        error.transactionId = token;
+        error.retainPublicationLock = true;
+        throw error;
       }
-      const stagedBytes = safeReadBuffer(stagedPath);
-      const stagedStat = lstatOrNull(stagedPath);
-      if (!samePublicationFileIdentity(stagedStat, stagedIdentity)) {
+      if (!matchesOwnedLock()) {
         const failure = publicationContractError(
           'publication_files_plan_stale',
-          'Publication staged artifact identity changed before commit',
+          'Publication lock ownership changed immediately before commit',
         );
         failure.state = 'plan_stale';
         failure.applied = false;
@@ -1672,12 +1815,6 @@ function applySinglePublicationFile(root, item, { revalidate } = {}) {
         failure.transactionId = token;
         failure.retainPublicationLock = true;
         throw failure;
-      }
-      if (!stagedBytes?.equals(output.output)) {
-        throw publicationContractError(
-          'publication_files_plan_stale',
-          'Publication staged artifact bytes changed before commit',
-        );
       }
       try {
         fs.renameSync(stagedPath, output.target);
@@ -1698,7 +1835,7 @@ function applySinglePublicationFile(root, item, { revalidate } = {}) {
       };
     } catch (error) {
       if (error?.retainPublicationLock) throw error;
-      const stagedStat = lstatOrNull(stagedPath);
+      const stagedStat = publicationLstatOrNull(stagedPath);
       if (stagedStat) {
         if (!samePublicationFileIdentity(stagedStat, stagedIdentity)) {
           const failure = publicationContractError(
@@ -1735,13 +1872,17 @@ function applySinglePublicationFile(root, item, { revalidate } = {}) {
 
 function detectPublicationUpgrade(root, { specDirs } = {}) {
   const validated = validatePublicationSpecDirs(root, specDirs);
-  const detected = publicationFilesUpgrade(validated.root, validated.selected);
-  const selections = validated.selected.map(({ rel, files }) => ({
+  const detected = publicationFilesUpgrade(validated.selected);
+  const selections = validated.selected.map(({ rel, files, directories }) => ({
     path: rel,
     files,
+    directories,
   }));
   const selectedInventory = selections
     .flatMap(({ files }) => files)
+    .sort((left, right) => comparePublicationPaths(left.path, right.path));
+  const selectedDirectories = selections
+    .flatMap(({ directories }) => directories)
     .sort((left, right) => comparePublicationPaths(left.path, right.path));
   const selectedFiles = new Map(selectedInventory.map((file) => [file.path, file]));
   const packages = (detected?.packages ?? []).map((plan) => {
@@ -1761,6 +1902,7 @@ function detectPublicationUpgrade(root, { specDirs } = {}) {
     root: validated.root,
     specDir: selection.path,
     inventory: selectedInventory,
+    directories: selectedDirectories,
     package: packages[0] ?? null,
   };
   const digest = createHash('sha256').update(JSON.stringify(authority)).digest('hex');
@@ -1778,6 +1920,7 @@ function detectPublicationUpgrade(root, { specDirs } = {}) {
     specDirs: [authority.specDir],
     selections,
     selectedInventory,
+    selectedDirectories,
     writeCount: packages.reduce((count, plan) => count + plan.rewrites.length, 0),
     findingCount: packages.reduce((count, plan) => count + plan.findings.length, 0),
     item,
@@ -1815,7 +1958,10 @@ function applyPublicationUpgrade(root, approvedItemId, { specDirs } = {}) {
             `Selected publication target became invalid before commit: ${error.reasonCode ?? error.message}`,
           );
         }
-        if (finalReport.item.id !== approvedItemId) {
+        if (
+          finalReport.item.id !== approvedItemId
+          || JSON.stringify(finalReport.selectedDirectories) !== JSON.stringify(report.selectedDirectories)
+        ) {
           throw publicationContractError(
             'publication_files_plan_stale',
             'Selected publication package inventory or identity changed before commit',
@@ -2015,7 +2161,7 @@ function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRu
       }
     }
   }
-  const publicationFiles = publicationFilesUpgrade(
+  const publicationFiles = legacyPublicationFilesUpgrade(
     rootAbs,
     publicationUpgradeSpecDirs(rootAbs, specDirs, items),
   );
@@ -2471,7 +2617,7 @@ function applyUpgrade(root, approvedItemIds = [], run, {
     }
     results.push(res);
   }
-  const postTransformPublication = publicationFilesUpgrade(rootAbs, listSpecDirs(rootAbs));
+  const postTransformPublication = legacyPublicationFilesUpgrade(rootAbs, listSpecDirs(rootAbs));
   for (const publicationPackage of postTransformPublication?.packages ?? []) {
     const issue = /^specs\/([1-9]\d*)-/.exec(publicationPackage.path)?.[1];
     if (issue) invalidPublicationIssues.add(Number(issue));

@@ -28,11 +28,11 @@
 - [x] Export `detectPublicationUpgrade` and `applyPublicationUpgrade`
 - [x] Require exactly one complete Approved singular issue-owned package and compare issue digits exactly
 - [x] Reject symlinked roots and invalid, repeated, multiple, stale, or ambiguous selections with stable reasons
-- [x] Bind exact root/package, complete sorted inventory/digests/identities, and rewrite/finding plan
-- [x] Acquire one exclusive fsynced regular root lock and, within the cooperative model, validate pre-open, descriptor, post-read identity plus exact owner bytes before pathname unlink
-- [x] Stage one exact Buffer output at repository root, fsync, revalidate full authority/stage, and validate final target through pre-lstat, descriptor fstat/bytes, and post-lstat before atomic rename
-- [x] State that deliberate same-credential replacement after final validation inside `renameSync` or `unlinkSync` is undefined out-of-scope external interference
-- [x] Report post-rename cleanup failure with `applied: true` while retaining validated lock evidence
+- [x] Bind exact root/package, separate globally sorted regular-file records and JSON-safe directory records (POSIX path, high-resolution identity, deterministic name/type listing), and rewrite/finding plan from the privately carried descriptor-bound tasks Buffer
+- [x] Acquire one exclusive fsynced regular root lock and validate matching high-resolution pre-open, descriptor, and post-read identity plus exact owner bytes immediately before rename and adjacent to unlink
+- [x] Stage and fsync one exact Buffer output, then run authority/approval equality, target proof, stage proof, lock proof, and one immediate atomic rename without unrelated work between
+- [x] State that non-target inventory mutation after authority completion and non-cooperative mutation after each final target/stage/lock proof inside the following pathname syscall gap are undefined out-of-scope external interference
+- [x] Report post-rename cleanup failure with `applied: true` while retaining unproven lock evidence
 - [x] Preserve existing `detectUpgrade` and `applyUpgrade` behavior
 
 ### T002: Expose CLI and workflow contract
@@ -58,16 +58,17 @@
 **Acceptance**:
 - [x] Selected single-package apply leaves unselected rewrites/findings byte-identical
 - [x] Selected apply causes no spec-created-label, dependency, or GitHub side effect
-- [x] Stale source bytes, changed package inventory/identity, different root/report/package, and invalid selections fail before the final validated boundary
+- [x] Stale source bytes, empty and non-empty identical-listing directory replacement after approval, directory replacement before or during recursive traversal, late directory entries, descriptor-read package file replacement, different root/report/package, and invalid selections fail before the final validated boundary
 - [x] Symlinked root, symlinked ancestor, and symlink-before-`..` spellings fail with the stable root-symlink reason
-- [x] Final target validation uses one opened descriptor and rejects same-byte replacement during its read boundary before rename
-- [x] Stage replacement and byte mutation detected before rename do not install unapproved bytes
+- [x] Final target validation uses one phase-gated final opened descriptor and rejects same-byte replacement during the authority rerun or its read boundary before rename
+- [x] Stage replacement and byte mutation during the authority rerun are detected by final descriptor-bound stage proof and do not install unapproved bytes
+- [x] Lock replacement and same-size mutation detected by final lock proof cause zero target renames and retain inspection evidence
 - [x] Injected atomic rename failure without external interference leaves original target bytes and identity untouched
 - [x] Pre-existing, symlinked, and same-token replacement locks detected before cleanup receive zero writes/deletes
 - [x] Partial and wrong-byte owner setup failures retain unproven lock evidence
-- [x] Post-commit lock unlink failure reports `applied: true` and retains valid owner bytes
-- [x] Complete inventory order is locale-independent and large issue digits compare exactly
+- [x] Post-commit unlink failure and equal-length mutation after cleanup owner read report `applied: true` and retain the lock
 - [x] Invalid UTF-8, mixed line endings, duplicate findings, fenced/commented duplicate headings, escaped-backtick visibility, strict CLI, and legacy command-position parsing remain covered
+- [x] Directory records are separately globally path-sorted, contain no duplicates or raw Buffers, and deterministically preserve captured name/type order
 - [x] Run a disposable actual-source fixture with unrelated dirty packages; do not install
 
 ### T004: Update public and contribution evidence

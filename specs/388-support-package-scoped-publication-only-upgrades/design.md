@@ -14,7 +14,7 @@
 
 `applyUpgrade()` accepts ids, recomputes the full report, routes every approved category, then unconditionally calls `backfillSpecCreatedLabels()`. A repository-wide publication id therefore cannot represent package-limited authority, and the general apply path cannot promise publication-only effects.
 
-The existing publication item digest covers package rewrite/finding records and the `tasks.md` digest, but not repository identity, explicit selection identity, or every file in the selected package. Identical reports from another root and post-approval package inventory changes are therefore not independently rejected.
+The existing publication item digest covers package rewrite/finding records and the `tasks.md` digest, but not repository identity, explicit selection identity, or every file in the selected package. The first #388 implementation transiently validates recursive directory identity/listings but discards directories from the returned and hashed inventory, so replacing an empty directory—or a non-empty directory while retaining identical listing and descendant file authority—does not independently change approval.
 
 ## Fix Strategy
 
@@ -22,8 +22,8 @@ The existing publication item digest covers package rewrite/finding records and 
 
 Add a narrow sibling contract rather than overloading `includeIssueDependencies` or weakening `applyUpgrade()`:
 
-- `detectPublicationUpgrade(root, { specDirs })` requires exactly one package, rejects symlinked caller-root components, inventories every regular file without following symlinks, sorts repository-relative paths with a locale-independent comparator, compares issue digits as exact strings, and hashes exact root/package/inventory/rewrite/finding authority.
-- `applyPublicationUpgrade(root, approvedItemId, { specDirs })` recomputes that report, acquires one exclusive fsynced root lock file, creates one unique exclusive root stage, writes/fsyncs the Buffer, reruns the report, validates the target through one opened descriptor plus the stage, then performs one atomic rename. It never calls `applyUpgrade()`.
+- `detectPublicationUpgrade(root, { specDirs })` requires exactly one package. For every inventory directory it binds lstat identity before and after the initial deterministic listing, traverses those captured names/types, then revalidates identity and an identical deterministic listing at completion. It carries exactly one JSON-safe directory record containing repository-relative POSIX path, high-resolution identity, and captured sorted name/type listing. Every regular file remains in a separate inventory and is read through one descriptor with matching pre-open lstat, `O_RDONLY | O_NOFOLLOW` where supported, fstat, exact bytes/hash, and post-read lstat. Directory and file inventories are independently globally path-sorted; the descriptor-bound `tasks.md` Buffer is carried privately into rewrite planning and digest authority.
+- `applyPublicationUpgrade(root, approvedItemId, { specDirs })` recomputes that report, acquires one exclusive fsynced root lock file, creates and fsyncs one unique exclusive root stage, then performs the uninterrupted final sequence: complete descriptor-bound package inventory/authority rerun with exact approval-id and directory-record equality, descriptor-bound target identity/byte proof, descriptor-bound staged identity/exact-output proof, descriptor-bound lock identity/exact-owner proof, and immediate atomic rename. It never calls `applyUpgrade()`.
 - CLI command resolution first scans with the pre-#388 legacy command set and option-value consumption. If any legacy `detect` or `apply` command resolves, publication-command tokens in positional locations remain ignored; only when no legacy command resolves may a publication command select strict parsing.
 - Existing unbounded `detect`/`apply`, exports, ignored command-looking positionals, command-named option values, and behavior remain unchanged.
 
@@ -36,7 +36,7 @@ The single selected package must:
 3. Resolve as a real direct child of the repository's plain `specs/` directory without symlink traversal.
 4. Contain regular `requirements.md`, `design.md`, `tasks.md`, and `feature.gherkin`.
 5. Declare one singular `**Issue**: #N` whose digit string exactly matches the directory prefix, plus `**Status**: Approved`, in every required file.
-6. Inventory every regular file recursively and sort paths with `a.path < b.path ? -1 : a.path > b.path ? 1 : 0`.
+6. Inventory every directory into one repository-relative POSIX record with high-resolution identity and deterministic name/type listing; inventory every regular file separately through one descriptor with matching pre-open lstat, descriptor fstat, exact bytes/hash, and post-read lstat; reject symlinks, nonregular entries, replacements, and duplicates; independently sort both inventories by `a.path < b.path ? -1 : a.path > b.path ? 1 : 0`.
 
 ### Approval envelope
 
@@ -44,18 +44,19 @@ The item remains `publication-files:<sha256>` for compatibility with approval pr
 
 - schema version and `publication-only` mode;
 - canonical real repository root and the one exact package path;
-- the package's complete sorted file inventory with SHA-256 digest and stable regular-file lstat identity (`device`, `inode`, `mode`, `size`);
-- the exact `tasks.md` source digest/identity and compatible rewrite/finding plan.
+- the package's complete sorted regular-file inventory with SHA-256 digest and high-resolution identity (`device`, `inode`, `mode`, `size`, `mtimeNs`, `ctimeNs`);
+- the package's complete separately sorted directory inventory with repository-relative POSIX path, high-resolution identity, and captured deterministic name/type listing;
+- the exact `tasks.md` source digest/high-resolution identity and compatible rewrite/finding plan.
 
 An item exists even when no rewrites/findings exist so the selected report remains explicit. `actionable` is true only when at least one rewrite exists. Repeated detection after apply therefore has the same validated selection but `writeCount: 0` and no actionable item.
 
 ### Cooperative filesystem threat model
 
-Authorized nmg-sdlc invocations cooperate by honoring the exclusive root lock. Every inventory, lock, stage, and target change observed before its final validated boundary fails closed. Node has no portable identity-conditional pathname rename or unlink, so a non-cooperative same-credential actor that deliberately replaces or mutates the lock, stage, or target after the last identity/byte validation and inside the following `renameSync` or `unlinkSync` syscall boundary is out of scope and produces undefined external interference. The design therefore makes no absolute claim about replacement during either pathname syscall.
+Authorized invocations cooperate by honoring the exclusive root lock. The final boundary completes package authority first, then proves target, stage, and lock in order immediately before `renameSync`. Node has no portable identity-conditional pathname primitive, so mutation of non-target inventory after the completed authority rerun, and non-cooperative same-credential mutation or replacement after a target, stage, or lock final proof inside the immediately following pathname syscall gap, are out-of-scope undefined external interference.
 
 ### Byte safety and transaction
 
-`publicationFilesUpgrade()` retains its compatible report shape and reversible Latin-1 grammar view. Task ID discovery masks Markdown-fenced and HTML-commented headings with the same visibility semantics used for declaration validation, so hidden duplicate headings neither create false expected counts nor suppress a visible task. `applySinglePublicationFile()` constructs the final output with minimal ASCII Buffer slices. The root lock is one regular `.nmg-sdlc-publication.lock` file created `O_EXCL`, written with token/pid JSON, fsynced, and bound to exact identity/bytes. Cleanup validates matching regular-file lstat identity before open, matching opened-descriptor identity, exact bytes, and matching lstat after read; `O_NOFOLLOW` is additional protection where available. Partial/wrong owner bytes remain unproven. The staged output is one unique regular root file created `O_EXCL`, written/fsynced, then checked for exact identity and bytes. Immediately before commit, the target is validated through one `O_RDONLY | O_NOFOLLOW` descriptor where supported: pre-open lstat, descriptor fstat, exact descriptor bytes, and post-read path identity. Without `O_NOFOLLOW`, the same lstat/fstat/post-lstat chain is the proof within the cooperative model. A final authority rerun precedes these checks, followed by one `renameSync(stage, target)`. Successful rename sets `applied: true` before lock cleanup; cleanup failure retains the validated lock and reports `applied_cleanup_failed`.
+`publicationFilesUpgrade()` retains its compatible report shape and reversible Latin-1 grammar view. Selected publication planning consumes the exact descriptor-bound `tasks.md` Buffer carried privately from `inventoryPublicationPackage()`; JSON reports expose file and directory metadata but no raw Buffer. Task ID discovery masks Markdown-fenced and HTML-commented headings with the same visibility semantics used for declaration validation. `applySinglePublicationFile()` constructs the final output with minimal ASCII Buffer slices. Inventory, target, and stage reads bind pre-open lstat, one no-follow descriptor where supported, fstat, exact descriptor bytes/hash, and post-read lstat. Every inventory directory emits exactly one record only after identity/listing revalidation. Directory records and regular-file records are globally path-sorted separately and both enter approval authority; final apply requires exact directory-record equality as well as exact approval-id equality before target proof.
 
 ### Affected files
 
@@ -76,10 +77,10 @@ Authorized nmg-sdlc invocations cooperate by honoring the exclusive root lock. E
 | Package validation rejects legitimate issue packages | Medium | Require only the documented four files/frontmatter and exactly one explicit package |
 | Report ids vary by platform locale | Low | Sort the complete single-package inventory with direct string comparison |
 | Symlink escapes expose outside bytes | Low | Reject symlinked roots, specs directories, package paths, and recursive entries |
-| Stale or tampered bytes install | Low within cooperative model | Recompute full authority; validate target through pre-lstat, descriptor fstat/bytes, and post-lstat; directly verify stage before atomic rename |
-| Lock ownership is spoofed | Low within cooperative model | Require exact regular-file identity and full owner bytes before pathname unlink |
-| Pathname syscall race | Undefined external interference | Explicitly exclude deliberate same-credential replacement after final validation inside `renameSync`/`unlinkSync`; Node has no portable identity-conditional primitive |
-| Commit succeeds but cleanup fails | Low | Report `applied: true` and retain the validated root lock as evidence |
+| Stale or tampered bytes/directories install | Low within cooperative model | Hash separately sorted file and directory inventories; require exact directory-record and approval equality first, then prove target, stage, and lock in order immediately before atomic rename |
+| Lock ownership is spoofed | Low within cooperative model | Compare high-resolution identity across pre-open/descriptor/post-read observations and exact owner bytes immediately before rename and adjacent to unlink |
+| Pathname syscall gap | Undefined external interference | Exclude non-target inventory mutation after authority completion and non-cooperative target/stage/lock mutation after its final proof inside the immediately following pathname syscall gap; Node has no portable identity-conditional primitive |
+| Commit succeeds but cleanup fails | Low | Report `applied: true` and retain the unproven root lock as evidence |
 
 ## Alternatives Considered
 
