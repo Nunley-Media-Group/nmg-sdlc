@@ -32,6 +32,20 @@
 - Active #390 structured scope inspection — passed with 12 tracked, zero untracked, 12 allowed, four read-only spec inputs, and four task records.
 - `git diff --check` — passed.
 
+## Final-Tree Revalidation
+
+After the final production parser changes and portable workflow materialization:
+
+- `cd scripts && npm test -- --runInBand __tests__/sdlc-safe-recoveries.test.mjs` — passed, 105 tests. This final run covers unsupported task-level `Type`, explicit valid path overrides, slash/pipe/`or` ambiguity, unsupported operation notes, ordinary notes, spec-path exclusion, Acquire provenance, and the exact PathCast 18/12/6 exercise.
+- `cd scripts && npm test -- --runInBand __tests__/sdlc-execute.test.mjs` — passed, 295 tests. This final run proves worker prompts materialize the three literal plugin-root command operands and retain no unresolved placeholder or user-specific installation path.
+- `cd scripts && npm test -- --runInBand __tests__/sdlc-apply-review.test.mjs` — passed, 16 tests.
+- `cd scripts && npm test -- --runInBand __tests__/sdlc-deliver.test.mjs` — passed, 115 tests.
+- `node scripts/verify-plugin-surface.mjs --root . --label repository` — passed.
+- `node scripts/verify-current-specs.mjs` — passed.
+- `node scripts/skill-inventory-audit.mjs --check` — passed.
+- VERSION/package comparison — passed at `3.21.3`.
+- `git diff --check` — passed.
+
 ## Changed-Path Alignment
 
 - Behavior for `scripts/sdlc-safe-recoveries.mjs`: returns structured scope and exposes a native no-write owner-bound probe.
