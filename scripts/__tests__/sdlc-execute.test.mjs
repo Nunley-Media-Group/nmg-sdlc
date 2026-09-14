@@ -1868,7 +1868,7 @@ describe('runExecute controller', () => {
     }
   }
 
-  function makeRepairedPublicationFixture({ repaired = true, goalEvidence = true } = {}) {
+  function makeRepairedPublicationFixture({ repaired = true } = {}) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-repaired-publication-'));
     roots.push(root);
     const branch = '108-establish-claim-specific-ip-and-product-safety-guardrails';
@@ -1971,27 +1971,25 @@ describe('runExecute controller', () => {
     put(handoffPath, `${JSON.stringify(handoff, null, 2)}\n`);
     put('.omp/sdlc/safe-recoveries.json', `${JSON.stringify(safeState, null, 2)}\n`);
     if (repaired) put(tasksPath, canonicalTasks);
-    if (goalEvidence) {
-      put('.pi-glla/session-owner.json', JSON.stringify({
-        pid: 1677,
-        at: '2026-09-13T21:11:48.309Z',
-        generation: 1,
-        ownerSessionId: '01a09c9c-0fbc-7e19-aef6-59dc0de150b6',
-        shutdownReason: 'quit',
-        shutdownAt: '2026-09-13T21:12:14.792Z',
-      }));
-      put('.pi-glla/owner.json', JSON.stringify({
-        instanceId: '1677:1789333869437',
-        pid: 1677,
-        at: 1789333908303,
-      }));
-      put('.pi-glla/active.jsonl', [
-        '{"type":"session_rebound","value":{"reason":"startup"},"at":"2026-09-13T21:11:48.303Z"}',
-        '{"type":"session_waiting_for_load","value":{"reason":"startup"},"at":"2026-09-13T21:11:48.309Z"}',
-        '{"type":"session_shutdown","value":{"reason":"quit"},"at":"2026-09-13T21:12:14.790Z"}',
-        '',
-      ].join('\n'));
-    }
+    put('.pi-glla/session-owner.json', JSON.stringify({
+      pid: 1677,
+      at: '2026-09-13T21:11:48.309Z',
+      generation: 1,
+      ownerSessionId: '01a09c9c-0fbc-7e19-aef6-59dc0de150b6',
+      shutdownReason: 'quit',
+      shutdownAt: '2026-09-13T21:12:14.792Z',
+    }));
+    put('.pi-glla/owner.json', JSON.stringify({
+      instanceId: '1677:1789333869437',
+      pid: 1677,
+      at: 1789333908303,
+    }));
+    put('.pi-glla/active.jsonl', [
+      '{"type":"session_rebound","value":{"reason":"startup"},"at":"2026-09-13T21:11:48.303Z"}',
+      '{"type":"session_waiting_for_load","value":{"reason":"startup"},"at":"2026-09-13T21:11:48.309Z"}',
+      '{"type":"session_shutdown","value":{"reason":"quit"},"at":"2026-09-13T21:12:14.790Z"}',
+      '',
+    ].join('\n'));
     const run = (command, args, options = {}) => {
       if (command === 'gh' && args[0] === 'auth') return { status: 0, stdout: '', stderr: '' };
       if (command === 'gh' && args[0] === 'issue' && args[1] === 'view') {
@@ -2072,11 +2070,9 @@ describe('runExecute controller', () => {
       trackedPaths,
       evidencePaths,
       canonicalTasks,
-      preRepairTasks,
       run,
       herdr,
       starts,
-      closed,
       put,
       git,
       readJson,

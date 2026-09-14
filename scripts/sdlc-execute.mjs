@@ -35,7 +35,7 @@ import { inspectReviewReceipts } from '../src/sdlc-review-isolation.mjs';
 import {
   consumeSafeRecovery,
   inspectPublicationScope,
-  inspectSafeRecoveryRecord,
+  hasSafeRecoveryRecord,
   probePublicationScope,
   resolveRecoveryOwner,
 } from './sdlc-safe-recoveries.mjs';
@@ -632,22 +632,28 @@ function parseBoundedJsonFile(root, relativePath) {
     || stat.size > MAX_GOAL_EVIDENCE_BYTES) {
     throw new Error('workflow_evidence_unproven');
   }
-  const bytes = readFileSync(target);
   try {
-    return { bytes, value: JSON.parse(bytes.toString('utf8')) };
+    return JSON.parse(readFileSync(target, 'utf8'));
   } catch {
     throw new Error('workflow_evidence_unproven');
   }
 }
 
+function isCanonicalIsoTime(value) {
+  return typeof value === 'string'
+    && Number.isFinite(Date.parse(value))
+    && new Date(value).toISOString() === value;
+}
+
 function proveTerminalGoalEvidence(root, untrackedPaths) {
   if (untrackedPaths.length === 0) return [];
   const paths = [...new Set(untrackedPaths)].sort();
-  if (JSON.stringify(paths) !== JSON.stringify(TERMINAL_GOAL_EVIDENCE_PATHS)) {
+  if (paths.length !== TERMINAL_GOAL_EVIDENCE_PATHS.length
+    || paths.some((path, index) => path !== TERMINAL_GOAL_EVIDENCE_PATHS[index])) {
     throw new Error('workflow_evidence_unproven');
   }
-  const session = parseBoundedJsonFile(root, '.pi-glla/session-owner.json').value;
-  const owner = parseBoundedJsonFile(root, '.pi-glla/owner.json').value;
+  const session = parseBoundedJsonFile(root, '.pi-glla/session-owner.json');
+  const owner = parseBoundedJsonFile(root, '.pi-glla/owner.json');
   const activeFile = join(root, '.pi-glla/active.jsonl');
   const activeStat = lstatSync(activeFile);
   if (!activeStat.isFile() || activeStat.isSymbolicLink() || activeStat.size <= 0
@@ -661,28 +667,24 @@ function proveTerminalGoalEvidence(root, untrackedPaths) {
   } catch {
     throw new Error('workflow_evidence_unproven');
   }
-  const isoTime = (value) => typeof value === 'string'
-    && Number.isFinite(Date.parse(value))
-    && new Date(value).toISOString() === value;
   if (!session || typeof session !== 'object' || Array.isArray(session)
     || !Number.isSafeInteger(session.pid) || session.pid <= 0
     || !Number.isSafeInteger(session.generation) || session.generation <= 0
     || typeof session.ownerSessionId !== 'string' || !session.ownerSessionId
     || typeof session.shutdownReason !== 'string' || !session.shutdownReason
-    || !isoTime(session.at) || !isoTime(session.shutdownAt)
+    || !isCanonicalIsoTime(session.at) || !isCanonicalIsoTime(session.shutdownAt)
     || !owner || typeof owner !== 'object' || Array.isArray(owner)
     || owner.pid !== session.pid || !Number.isSafeInteger(owner.at) || owner.at <= 0
     || typeof owner.instanceId !== 'string'
     || !new RegExp(`^${session.pid}:[1-9]\\d*$`).test(owner.instanceId)
     || active.length !== 3
-    || JSON.stringify(active.map(({ type }) => type)) !== JSON.stringify([
-      'session_rebound',
-      'session_waiting_for_load',
-      'session_shutdown',
-    ])
+    || active[0]?.type !== 'session_rebound'
+    || active[1]?.type !== 'session_waiting_for_load'
+    || active[2]?.type !== 'session_shutdown'
     || active.some((event) => !event || typeof event !== 'object' || Array.isArray(event)
       || !event.value || typeof event.value !== 'object' || Array.isArray(event.value)
-      || typeof event.value.reason !== 'string' || !event.value.reason || !isoTime(event.at))
+      || typeof event.value.reason !== 'string' || !event.value.reason
+      || !isCanonicalIsoTime(event.at))
     || active[2].value.reason !== session.shutdownReason
     || Math.abs(Date.parse(active[2].at) - Date.parse(session.shutdownAt)) > 1000) {
     throw new Error('workflow_evidence_unproven');
@@ -751,7 +753,7 @@ export function inspectRepairedPublicationIntervention({
   if (lease && !(allowOwnedLease && lease.runId === checkpoint.runId && lease.pid === process.pid)) {
     throw new Error('controller_lease_held');
   }
-  if (inspectSafeRecoveryRecord({
+  if (hasSafeRecoveryRecord({
     cwd: root,
     ownerId: probe.ownerId,
     issue: checkpoint.currentIssue,
@@ -767,13 +769,14 @@ export function inspectRepairedPublicationIntervention({
   const status = porcelainStatusEntries(run('git', [
     'status', '--porcelain=v1', '-z', '--untracked-files=all',
   ], { cwd: root }));
-  const staged = status.filter(({ status: code }) => /[MADRCUT]/.test(code[0]));
-  if (staged.length > 0) throw new Error('staged_changes_unproven');
+  if (status.some(({ status: code }) => /[MADRCUT]/.test(code[0]))) {
+    throw new Error('staged_changes_unproven');
+  }
   const trackedPaths = status
     .filter(({ status: code }) => code !== '??')
     .flatMap(({ paths }) => paths)
     .sort();
-  if (JSON.stringify(trackedPaths) !== JSON.stringify([tasksPath])) {
+  if (trackedPaths.length !== 1 || trackedPaths[0] !== tasksPath) {
     throw new Error('tracked_changes_unproven');
   }
   const untrackedPaths = status
@@ -783,7 +786,7 @@ export function inspectRepairedPublicationIntervention({
   const changedFromHead = nulPathList(run('git', [
     'diff', '--name-only', '-z', checkpoint.head, '--',
   ], { cwd: root }));
-  if (JSON.stringify(changedFromHead) !== JSON.stringify([tasksPath])) {
+  if (changedFromHead.length !== 1 || changedFromHead[0] !== tasksPath) {
     throw new Error('tracked_changes_unproven');
   }
   if (nulPathList(run('git', ['diff', '--cached', '--name-only', '-z', '--'], { cwd: root })).length) {

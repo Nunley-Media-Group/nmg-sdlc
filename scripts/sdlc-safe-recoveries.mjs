@@ -625,7 +625,7 @@ export function assertRecoveryOwner({ cwd = process.cwd(), ownerId, issue, step,
   return matches[0].ownerId;
 }
 
-export function inspectSafeRecoveryRecord({
+export function hasSafeRecoveryRecord({
   cwd = process.cwd(),
   ownerId,
   issue,
@@ -650,12 +650,11 @@ export function inspectSafeRecoveryRecord({
   if (owners.length !== 1) {
     throw safeError(owners.length ? 'recovery_owner_ambiguous' : 'recovery_owner_missing');
   }
-  const record = safe.records.find((entry) =>
+  return safe.records.some((entry) =>
     entry.class === className
     && entry.runId === ownerId
     && entry.issue === issueNumber
     && entry.step === step);
-  return record ? structuredClone(record) : null;
 }
 
 export function consumeSafeRecovery({
