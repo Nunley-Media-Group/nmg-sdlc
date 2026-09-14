@@ -6,7 +6,7 @@
 **Spec**: `specs/394-resume-consumed-repaired-publication-dispatch-after-pane-split-failure/`
 **Branch**: `fix/394-consumed-dispatch-resumption`
 **Base**: `38ba70d4d07ac52112b28198e7684c282dc3ecbd`
-**Verified implementation head**: `5aaea63285e6359febafbf8cc65fdb099e7e6f50`
+**Verified implementation head**: `43efcc809c7fedbad9114dd4f66b3bec9245cabf`
 
 ## Acceptance Results
 
@@ -72,6 +72,8 @@ The repository had no local `scripts/node_modules`; verification used the alread
 - `86a6fbd556cf0466fd9ae2814b5438ca128e7a24` — `fix: resume consumed dispatch for #394`
 - `fba4f238a68212a69e05b5e2ecec0e94a0863676` — `docs: record verification for #394`
 - `5aaea63285e6359febafbf8cc65fdb099e7e6f50` — `fix: harden consumed dispatch admission for #394`
+
+- `43efcc809c7fedbad9114dd4f66b3bec9245cabf` — `refactor: simplify consumed dispatch validation`
 
 ## Residual Risk
 
