@@ -208,6 +208,10 @@ Explicit lists are deduplicated in the supplied order. Every selected issue must
 
 Start from a clean tree. Resume may preserve partial work already on the target issue branch; the controller never stashes, discards, resets, or force-pushes your changes. Use one execute controller per canonical project root and do not run unrelated branch-changing work concurrently.
 
+One narrow intervention state is recoverable after an operator repairs publication authority. For an `implementation_failed` implement handoff, bare `/sdlc-execute` requires the failed run, strict handoff, exact current HEAD, actual branch, run-bound unique incomplete owner, and current read-only owner-bound probe to agree. The only tracked difference from run HEAD must be one unstaged singular Approved `tasks.md`. The package-scoped publication detector must prove that every changed byte is a selected `**Files**:` to `**File(s)**:` label replacement, preserve every other byte and line ending, and report zero remaining selected rewrites or findings. Every implementation `scope.allowedPaths` entry must remain clean; a controller lock or prior matching recovery record blocks.
+
+Untracked evidence is not broadly ignored. The current OMP goal-ledger evidence is preserved only when its exact bounded regular-file set proves one structurally related terminal session; partial, live, extra, symlinked, oversized, malformed, or arbitrary untracked files block. The directory or basename alone grants nothing. Discovery performs no mutation. Bare run repeats the proof under its controller lease, consumes one durable `repaired_publication_intervention` record, records the original failed handoff in recovery history, and dispatches only the implement remediation. Explicit issue lists, optional flags, prose changes, new commits, and plugin upgrades cannot grant or replenish this allowance. Repeat discovery reports the recovery consumed or blocked.
+
 ### Stage sequence
 
 | Stage | What must finish before advancement |

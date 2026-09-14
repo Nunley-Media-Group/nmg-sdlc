@@ -1,0 +1,85 @@
+**Issue**: #392
+**Date**: 2026-09-14
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/390-read-only-owner-bound-implementation-scope-probe/
+
+# File: scripts/__tests__/sdlc-execute.test.mjs
+# Generated from: specs/392-recover-repaired-publication-interventions-before-implementation/requirements.md
+
+Feature: Recover repaired publication interventions before implementation
+  Bare execute may resume one stopped implementation only when existing authority
+  proves the intervention was repaired by an exact canonical publication rewrite.
+
+  @AC1 @SCN001
+  Scenario: Discovery offers the existing one-time recovery tuple
+    Given a failed implement run and intervention handoff bind one exact current head and incomplete owner
+    And the actual owner branch differs only from the explicitly stale recorded run branch
+    And the current read-only owner-bound probe returns nonempty canonical allowed paths
+    When bare recovery discovery proves every repaired-publication invariant
+    Then discovery returns the existing one-time recovery tuple and resume action for implement
+
+  @AC2 @SCN002
+  Scenario: Four publication labels are the complete byte change
+    Given the run-head task bytes contain four detector-supported Files labels
+    And the working task document is singular and Approved
+    When publication repair proof projects the detector-selected rewrites
+    Then only the four Files tokens become File(s) tokens
+    And every other byte and line separator is identical
+    And current selected publication detection converges to zero
+
+  @AC3 @SCN003
+  Scenario: Terminal workflow evidence is preserved through structure
+    Given no implementation path is dirty and the only untracked files form the bounded terminal goal-ledger evidence set
+    When repaired intervention discovery classifies the worktree
+    Then the related regular files, identities, event sequence, shutdown reason, and byte bounds are proven
+    And recovery does not ignore arbitrary untracked or ignored paths by basename
+
+  @AC4 @SCN004
+  Scenario: Bare run consumes and dispatches implement once
+    Given discovery offers a repaired-publication recovery
+    When parameter-free bare run re-proves it under the controller lease
+    Then one durable repaired-publication record and one checkpoint recovery tuple are consumed
+    And the failed handoff and history remain byte-identical
+    And only the standard implement worker is dispatched through the controlled boundary
+    And repeated discovery never offers the same recovery
+
+  @AC5 @SCN005
+  Scenario Outline: Unsafe repaired interventions stay blocked
+    Given an otherwise exact repaired-publication fixture with <defect>
+    When bare recovery discovery runs
+    Then implementation_failed remains blocked
+    And no run, recovery, handoff, task, product, or workflow-evidence bytes change
+
+    Examples:
+      | defect |
+      | changed product path |
+      | arbitrary spec edit |
+      | unsupported publication rewrite |
+      | unrelated byte mismatch |
+      | staged task change |
+      | wrong current head |
+      | wrong issue or step |
+      | wrong run or owner |
+      | malformed handoff |
+      | claimed implementation artifact |
+      | missing or empty scope probe |
+      | controller lock |
+      | prior recovery record |
+      | complete owner |
+      | arbitrary untracked path |
+      | partial or live goal-ledger evidence |
+
+  @AC6 @SCN006
+  Scenario: Existing recoveries retain their behavior
+    Given resumable, consumed, exhausted-loop, stale-lease, and retained-worker fixtures
+    When recovery and execute suites run
+    Then only the newly proven repaired-publication state gains an implement recovery
+    And every existing blocker and one-time recovery remains unchanged
+
+  @AC6 @SCN007
+  Scenario: Public guidance documents the narrow recovery
+    Given contributor, execute workflow, README, and changelog surfaces
+    When the defect is implemented
+    Then they document exact proof, under-lease revalidation, one-time consumption, preserved failure history, implement-only dispatch, and fail-closed evidence handling
+    And VERSION and package version do not change

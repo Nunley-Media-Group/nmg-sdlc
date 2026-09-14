@@ -7,6 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
+  discoverRecovery,
+  inspectRepairedPublicationIntervention,
   parseArgs,
   VALID_STEPS,
   selectBacklog,
@@ -41,6 +43,10 @@ const SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../sd
 const ISOLATION_MODULE = pathToFileURL(fs.realpathSync(
   path.join(REPOSITORY_ROOT, 'src/sdlc-review-isolation.mjs'),
 )).href;
+const PATHCAST_PUBLICATION_TASKS = path.join(
+  REPOSITORY_ROOT,
+  'scripts/__fixtures__/pathcast-108-publication-scope/tasks.md',
+);
 
 function appendReviewReceipts(environment, rows = [], start = {}, includeStart = true) {
   const bytes = fs.readFileSync(environment.NMG_SDLC_REVIEW_ASSIGNMENT);
@@ -1861,6 +1867,419 @@ describe('runExecute controller', () => {
         : paneClose(paneId);
     }
   }
+
+  function makeRepairedPublicationFixture({ repaired = true, goalEvidence = true } = {}) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-repaired-publication-'));
+    roots.push(root);
+    const branch = '108-establish-claim-specific-ip-and-product-safety-guardrails';
+    const runId = '5045d7eb-1038-49d7-9d81-d17ba22e7a62';
+    const spec = 'specs/108-coordinate-the-pathcast-to-miledar-prelaunch-rebrand';
+    const tasksPath = `${spec}/tasks.md`;
+    const handoffPath = '.omp/sdlc/handoffs/108-implement.json';
+    const trackedPaths = [
+      '.github/workflows/miledar-ip-guardrails.yml',
+      'api/package.json',
+      'api/src/__tests__/features/miledar_ip_guardrails.feature',
+      'api/src/__tests__/steps/miledar_ip_guardrails.steps.ts',
+      'api/src/__tests__/unit/ip-guardrails/reconciliation.test.ts',
+      'api/src/scripts/capture-miledar-ip-evidence.ts',
+      'api/src/scripts/reconcile-miledar-ip-guardrails.ts',
+      'api/src/services/ip-guardrails/semantic.ts',
+      'api/src/services/ip-guardrails/service.ts',
+      'api/src/services/ip-guardrails/types.ts',
+      'docs/release/miledar-ip-guardrails.json',
+      'docs/release/miledar-ip-product-safety.md',
+    ];
+    const evidencePaths = [
+      'api/.artifacts/miledar-ip-guardrails/evidence.json',
+      'artifacts/issue-108/hosted-check.json',
+      'artifacts/issue-108/live-ruleset.json',
+      'artifacts/issue-108/local-results.json',
+      'artifacts/issue-108/merged-inputs.json',
+      'artifacts/issue-108/reconciliation.json',
+    ];
+    const put = (relativePath, value) => {
+      const target = path.join(root, relativePath);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, value);
+    };
+    const git = (...args) => {
+      const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+      if (result.status !== 0) throw new Error(`git ${args.join(' ')}: ${result.stderr}`);
+      return result.stdout.trim();
+    };
+    git('init', '-b', branch);
+    git('config', 'user.name', 'Repaired publication fixture');
+    git('config', 'user.email', 'fixture@example.test');
+    git('config', 'commit.gpgsign', 'false');
+    put('.gitignore', '.omp/sdlc/\n');
+    for (const relativePath of trackedPaths) put(relativePath, `tracked fixture ${relativePath}\n`);
+    const header = '**Issue**: #108\n**Status**: Approved\n\n';
+    put(`${spec}/requirements.md`, `${header}### AC1: Preserve exact scope\n`);
+    put(`${spec}/design.md`, `${header}Use structured scope.\n`);
+    const canonicalTasks = fs.readFileSync(PATHCAST_PUBLICATION_TASKS);
+    const preRepairTasks = Buffer.from(
+      canonicalTasks.toString('utf8').replaceAll('**File(s)**:', '**Files**:'),
+    );
+    expect(preRepairTasks.toString('utf8').match(/^\*\*Files\*\*:/gm)).toHaveLength(4);
+    put(tasksPath, preRepairTasks);
+    put(`${spec}/feature.gherkin`, `${header}Feature: Scope\n  Scenario: Preserve exact scope\n`);
+    git('add', '.');
+    git('commit', '-m', 'chore: seed stopped implementation');
+    const head = git('rev-parse', 'HEAD');
+    const runState = {
+      schemaVersion: 1,
+      projectRoot: fs.realpathSync(root),
+      runId,
+      issue: 108,
+      branch: 'main',
+      head,
+      issues: [108],
+      revision: 11,
+      currentIssue: 108,
+      currentStep: 'implement',
+      completed: { 108: ['start'] },
+      failed: { issue: 108, step: 'implement', reasonCode: 'implementation_failed' },
+      startedAt: '2026-09-13T16:54:56.386Z',
+      workers: {},
+    };
+    const handoff = {
+      schemaVersion: 1,
+      issue: 108,
+      step: 'implement',
+      status: 'failed',
+      intervention: true,
+      summary: 'Implementation stopped before any product output.',
+      artifacts: [tasksPath, handoffPath],
+      next: null,
+      reasonCode: 'implementation_failed',
+    };
+    const safeState = {
+      schemaVersion: 1,
+      revision: 6,
+      owners: [{
+        ownerId: runId,
+        projectRoot: fs.realpathSync(root),
+        issue: 108,
+        branch,
+        step: 'implement',
+        status: 'incomplete',
+      }],
+      records: [],
+    };
+    put('.omp/sdlc/run.json', `${JSON.stringify(runState, null, 2)}\n`);
+    put(handoffPath, `${JSON.stringify(handoff, null, 2)}\n`);
+    put('.omp/sdlc/safe-recoveries.json', `${JSON.stringify(safeState, null, 2)}\n`);
+    if (repaired) put(tasksPath, canonicalTasks);
+    if (goalEvidence) {
+      put('.pi-glla/session-owner.json', JSON.stringify({
+        pid: 1677,
+        at: '2026-09-13T21:11:48.309Z',
+        generation: 1,
+        ownerSessionId: '01a09c9c-0fbc-7e19-aef6-59dc0de150b6',
+        shutdownReason: 'quit',
+        shutdownAt: '2026-09-13T21:12:14.792Z',
+      }));
+      put('.pi-glla/owner.json', JSON.stringify({
+        instanceId: '1677:1789333869437',
+        pid: 1677,
+        at: 1789333908303,
+      }));
+      put('.pi-glla/active.jsonl', [
+        '{"type":"session_rebound","value":{"reason":"startup"},"at":"2026-09-13T21:11:48.303Z"}',
+        '{"type":"session_waiting_for_load","value":{"reason":"startup"},"at":"2026-09-13T21:11:48.309Z"}',
+        '{"type":"session_shutdown","value":{"reason":"quit"},"at":"2026-09-13T21:12:14.790Z"}',
+        '',
+      ].join('\n'));
+    }
+    const run = (command, args, options = {}) => {
+      if (command === 'gh' && args[0] === 'auth') return { status: 0, stdout: '', stderr: '' };
+      if (command === 'gh' && args[0] === 'issue' && args[1] === 'view') {
+        return {
+          status: 0,
+          stdout: JSON.stringify(args.some((arg) => String(arg).includes('labels'))
+            ? { number: 108, labels: [{ name: 'spec-created' }] }
+            : { title: 'Establish claim-specific IP and product safety guardrails' }),
+          stderr: '',
+        };
+      }
+      return spawnSync(command, args, { cwd: root, encoding: 'utf8', ...options });
+    };
+    const starts = [];
+    const closed = [];
+    let pane = 0;
+    const herdr = {
+      integrationStatus: () => ({ status: 0, stdout: 'omp: current (v8)\n' }),
+      listAgents: () => starts
+        .filter(({ paneId }) => !closed.includes(paneId))
+        .map(({ name, paneId }) => ({ name, pane_id: paneId, state: 'done' })),
+      listPanes: () => starts
+        .filter(({ paneId }) => !closed.includes(paneId))
+        .map(({ paneId }) => ({ pane_id: paneId })),
+      paneLayout: () => ({ result: { width: 120, height: 40 } }),
+      paneSplit: () => ({ result: { pane: { pane_id: `pane-${++pane}` } } }),
+      paneClose: (paneId) => {
+        closed.push(paneId);
+        return { status: 0 };
+      },
+      agentStart: (input) => {
+        starts.push(input);
+        return { status: 0 };
+      },
+      agentPrompt: ({ name }) => {
+        expect(name).toBe('r108-implement');
+        put(handoffPath, `${JSON.stringify({
+          schemaVersion: 1,
+          issue: 108,
+          step: 'implement',
+          status: 'failed',
+          intervention: true,
+          summary: 'Controlled worker boundary stopped before product implementation.',
+          artifacts: [],
+          next: null,
+          reasonCode: 'controlled_boundary',
+        })}\n`);
+        return { status: 0 };
+      },
+      agentGet: () => ({ result: { state: 'done' } }),
+      agentWait: () => ({ status: 0 }),
+      agentRead: () => '',
+      agentSendKeys: () => ({ status: 0 }),
+      observationPause: () => {},
+      notificationShow: () => {},
+    };
+    const readJson = (relativePath) => JSON.parse(fs.readFileSync(path.join(root, relativePath), 'utf8'));
+    const snapshot = () => Object.fromEntries([
+      tasksPath,
+      handoffPath,
+      '.omp/sdlc/run.json',
+      '.omp/sdlc/safe-recoveries.json',
+      ...trackedPaths,
+      ...TERMINAL_TEST_EVIDENCE_PATHS,
+    ].map((relativePath) => {
+      const target = path.join(root, relativePath);
+      return [relativePath, fs.existsSync(target)
+        ? createHash('sha256').update(fs.readFileSync(target)).digest('hex')
+        : null];
+    }));
+    return {
+      root,
+      branch,
+      runId,
+      spec,
+      tasksPath,
+      handoffPath,
+      trackedPaths,
+      evidencePaths,
+      canonicalTasks,
+      preRepairTasks,
+      run,
+      herdr,
+      starts,
+      closed,
+      put,
+      git,
+      readJson,
+      snapshot,
+      repair: () => put(tasksPath, canonicalTasks),
+    };
+  }
+
+  const TERMINAL_TEST_EVIDENCE_PATHS = [
+    '.pi-glla/active.jsonl',
+    '.pi-glla/owner.json',
+    '.pi-glla/session-owner.json',
+  ];
+
+  it('discovers the exact repaired PathCast-like 18/12/6 intervention', () => {
+    const fixture = makeRepairedPublicationFixture({ repaired: false });
+    expect(discoverRecovery({
+      cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
+    })).toMatchObject({
+      state: 'blocked',
+      reasonCode: 'implementation_failed',
+    });
+    fixture.repair();
+    const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+    const handoff = fixture.readJson(fixture.handoffPath);
+    const proof = inspectRepairedPublicationIntervention({
+      cwd: fixture.root, checkpoint, handoff, run: fixture.run,
+    });
+    expect(proof).toMatchObject({
+      class: 'repaired_publication_intervention',
+      issue: 108,
+      step: 'implement',
+      runId: fixture.runId,
+      ownerId: fixture.runId,
+      branch: fixture.branch,
+      publication: { rewriteCount: 4 },
+      workflowEvidencePaths: TERMINAL_TEST_EVIDENCE_PATHS,
+      discrepancies: [{
+        field: 'branch',
+        run: 'main',
+        actual: fixture.branch,
+        owner: fixture.branch,
+      }],
+    });
+    expect(proof.scope.trackedWritablePaths).toHaveLength(12);
+    expect(proof.scope.untrackedEvidencePaths).toHaveLength(6);
+    expect(proof.scope.allowedPaths).toHaveLength(18);
+    const before = fixture.snapshot();
+    expect(discoverRecovery({
+      cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
+    })).toMatchObject({
+      state: 'loop-recovery-available',
+      issue: 108,
+      step: 'implement',
+      runId: fixture.runId,
+      branch: fixture.branch,
+      recoveryClass: 'repaired_publication_intervention',
+      recoveryEvidence: {
+        ownerId: fixture.runId,
+        tasksPath: fixture.tasksPath,
+        publication: { rewriteCount: 4 },
+      },
+    });
+    expect(fixture.snapshot()).toEqual(before);
+  });
+
+  it.each([
+    ['changed product path', (f) => f.put(f.trackedPaths[0], 'changed product\n')],
+    ['arbitrary spec edit', (f) => fs.appendFileSync(path.join(f.root, f.spec, 'requirements.md'), 'changed\n')],
+    ['unrelated task byte', (f) => fs.appendFileSync(path.join(f.root, f.tasksPath), 'changed\n')],
+    ['unsupported publication payload', (f) => f.put(
+      f.tasksPath,
+      Buffer.from(f.canonicalTasks.toString().replace('api/package.json', 'api/other.json')),
+    )],
+    ['staged task repair', (f) => f.git('add', f.tasksPath)],
+    ['wrong checkpoint head', (f) => {
+      const runState = f.readJson('.omp/sdlc/run.json');
+      runState.head = 'b'.repeat(40);
+      f.put('.omp/sdlc/run.json', `${JSON.stringify(runState)}\n`);
+    }],
+    ['wrong actual branch', (f) => f.git('switch', '-c', '108-other-branch')],
+    ['missing scope owner', (f) => {
+      const safe = f.readJson('.omp/sdlc/safe-recoveries.json');
+      safe.owners = [];
+      f.put('.omp/sdlc/safe-recoveries.json', `${JSON.stringify(safe)}\n`);
+    }],
+    ['wrong owner', (f) => {
+      const safe = f.readJson('.omp/sdlc/safe-recoveries.json');
+      safe.owners[0].ownerId = 'foreign-run';
+      f.put('.omp/sdlc/safe-recoveries.json', `${JSON.stringify(safe)}\n`);
+    }],
+    ['malformed handoff', (f) => f.put(f.handoffPath, '{')],
+    ['wrong handoff step', (f) => {
+      const handoff = f.readJson(f.handoffPath);
+      handoff.step = 'verify';
+      f.put(f.handoffPath, `${JSON.stringify(handoff)}\n`);
+    }],
+    ['claimed implementation output', (f) => {
+      const handoff = f.readJson(f.handoffPath);
+      handoff.artifacts.push(f.trackedPaths[0]);
+      f.put(f.handoffPath, `${JSON.stringify(handoff)}\n`);
+    }],
+    ['prior recovery record', (f) => {
+      const safe = f.readJson('.omp/sdlc/safe-recoveries.json');
+      safe.records.push({
+        class: 'repaired_publication_intervention',
+        runId: f.runId,
+        issue: 108,
+        step: 'implement',
+        invocationId: 'prior-invocation',
+        consumedAt: '2026-09-14T00:00:00.000Z',
+        disposition: 'consumed',
+        evidence: {},
+      });
+      f.put('.omp/sdlc/safe-recoveries.json', `${JSON.stringify(safe)}\n`);
+    }],
+    ['complete owner', (f) => {
+      const safe = f.readJson('.omp/sdlc/safe-recoveries.json');
+      safe.owners[0].status = 'complete';
+      f.put('.omp/sdlc/safe-recoveries.json', `${JSON.stringify(safe)}\n`);
+    }],
+    ['arbitrary untracked file', (f) => f.put('scratch.txt', 'unowned\n')],
+    ['partial goal evidence', (f) => fs.rmSync(path.join(f.root, '.pi-glla/owner.json'))],
+    ['dirty allowed untracked evidence', (f) => f.put(f.evidencePaths[1], 'unimplemented\n')],
+  ])('keeps repaired intervention blocked for %s without discovery mutation', (_name, mutate) => {
+    const fixture = makeRepairedPublicationFixture();
+    mutate(fixture);
+    const before = fixture.snapshot();
+    expect(discoverRecovery({
+      cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
+    }).state).toBe('blocked');
+    expect(fixture.snapshot()).toEqual(before);
+  });
+
+  it('blocks repaired intervention while any controller lease exists', () => {
+    const fixture = makeRepairedPublicationFixture();
+    const lease = acquireControllerLease({
+      projectRoot: fixture.root,
+      runId: fixture.runId,
+      controllerPaneId: 'existing-controller',
+    });
+    try {
+      expect(discoverRecovery({
+        cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
+      })).toMatchObject({
+        state: 'blocked',
+        reasonCode: 'implementation_failed',
+        recoveryEvidenceReasonCode: 'controller_lease_held',
+      });
+    } finally {
+      releaseControllerLease(lease);
+    }
+  });
+
+  it('bare run consumes repaired publication recovery once and dispatches only implement', () => {
+    const fixture = makeRepairedPublicationFixture();
+    const originalHandoff = fixture.readJson(fixture.handoffPath);
+    const originalDigest = createHash('sha256')
+      .update(fs.readFileSync(path.join(fixture.root, fixture.handoffPath)))
+      .digest('hex');
+    const result = runExecute({
+      args: '',
+      cwd: fixture.root,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    expect(result.status).toBe(1);
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['r108-implement']);
+    const safe = fixture.readJson('.omp/sdlc/safe-recoveries.json');
+    expect(safe.records).toEqual([
+      expect.objectContaining({
+        class: 'repaired_publication_intervention',
+        runId: fixture.runId,
+        issue: 108,
+        step: 'implement',
+        disposition: 'consumed',
+        evidence: expect.objectContaining({
+          handoff: originalHandoff,
+          handoffDigest: originalDigest,
+          publication: expect.objectContaining({ rewriteCount: 4 }),
+        }),
+      }),
+    ]);
+    const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+    expect(checkpoint.recoveries).toEqual([
+      expect.objectContaining({
+        runId: fixture.runId,
+        issue: 108,
+        step: 'implement',
+        disposition: 'stopped',
+        handoff: originalHandoff,
+      }),
+    ]);
+    expect(checkpoint.remediation.history[0]).toMatchObject({
+      attempt: 0,
+      reasonCode: 'implementation_failed',
+      artifacts: originalHandoff.artifacts,
+    });
+    expect(discoverRecovery({
+      cwd: fixture.root, run: fixture.run, herdr: fixture.herdr,
+    }).state).not.toBe('loop-recovery-available');
+  });
 
   it('fails before Herdr mutation when the session environment is missing', () => {
     const fixture = makeControllerFixture();

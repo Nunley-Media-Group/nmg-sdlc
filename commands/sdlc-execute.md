@@ -20,6 +20,10 @@ Bare recovery preserves the persisted queue, completed stages and prior failure 
 
 Only a parameter-free invocation grants the one-time exhausted recovery allowance. Optional flags may retain their existing resume or ownership behavior, but neither `--recover-stale` alone nor `--retain-worker` grants fresh repair work.
 
+A failed `implement` intervention may enter that same one-time bare recovery only as a proven repaired-publication state. Require the run, strict handoff, exact current HEAD, actual branch, run-bound unique incomplete owner and current read-only owner-bound probe to agree; permit only the probe's explicit stale run-branch discrepancy. The combined tracked diff from run HEAD must be one unstaged singular Approved `tasks.md`, and the package-scoped detector must prove one or more selected `Files` to `File(s)` label-only changes with every other byte preserved and current detection converged to zero. No allowed implementation path may be modified, staged or untracked; no controller lock or prior recovery record may exist. Preserve untracked goal-ledger failure evidence only when the complete bounded regular-file terminal-session ownership contract validates; never infer permission from `.pi-glla`, another basename, ignore rules, or prose alone.
+
+Discovery is read-only. Parameter-free bare `run` must repeat the complete proof after acquiring its own lease, consume `repaired_publication_intervention` through the existing durable owner, append the existing checkpoint recovery tuple by CAS, retain the failed handoff in recovery evidence/history, and dispatch only the implement remediation. Any mismatch remains the original intervention blocker. A consumed, failed, cancelled, ambiguous or lost dispatch is never offered again.
+
 Current reviews use controller-owned per-slice snapshots and host receipts, not
 unbounded nested review agents. A proven contamination consumes one replacement
 for the whole review stage; missing proof, empty output, or a failed replacement

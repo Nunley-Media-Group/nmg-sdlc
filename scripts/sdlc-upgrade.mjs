@@ -1447,6 +1447,91 @@ function publicationFilesUpgrade(specDirs) {
   };
 }
 
+function publicationLineSegments(source) {
+  const segments = [];
+  let start = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    if (source[index] !== '\r' && source[index] !== '\n') continue;
+    const width = source[index] === '\r' && source[index + 1] === '\n' ? 2 : 1;
+    segments.push({ content: source.slice(start, index), ending: source.slice(index, index + width) });
+    index += width - 1;
+    start = index + 1;
+  }
+  segments.push({ content: source.slice(start), ending: '' });
+  return segments;
+}
+
+export function provePublicationLabelRepair({ beforeBytes, currentBytes, tasksPath } = {}) {
+  if (!Buffer.isBuffer(beforeBytes) || !Buffer.isBuffer(currentBytes)
+    || typeof tasksPath !== 'string') {
+    throw publicationContractError(
+      'publication_repair_unproven',
+      'Publication repair proof requires before/current Buffers and one task path',
+    );
+  }
+  const match = /^specs\/([1-9]\d*-[a-z0-9-]+)\/tasks\.md$/.exec(tasksPath);
+  if (!match) {
+    throw publicationContractError(
+      'publication_repair_unproven',
+      'Publication repair proof requires one canonical issue task path',
+    );
+  }
+  const selected = (bytes) => publicationFilesUpgrade([{
+    name: match[1],
+    rel: `specs/${match[1]}`,
+    sources: new Map([[tasksPath, bytes]]),
+  }]);
+  const detected = selected(beforeBytes);
+  const publication = detected?.packages?.find(({ path }) => path === tasksPath);
+  if (!publication || publication.findings.length > 0 || publication.rewrites.length === 0) {
+    throw publicationContractError(
+      'publication_repair_unproven',
+      'Run-head task bytes are not a supported publication-label repair',
+    );
+  }
+  const source = beforeBytes.toString('latin1');
+  const segments = publicationLineSegments(source);
+  const byLine = new Map();
+  for (const rewrite of publication.rewrites) {
+    const nearMiss = /^(\*\*Files\*\*:\s*)(.*)$/.exec(rewrite.before);
+    if (!nearMiss
+      || rewrite.after !== `${nearMiss[1].replace('Files', 'File(s)')}${nearMiss[2]}`
+      || byLine.has(rewrite.line)) {
+      throw publicationContractError(
+        'publication_repair_unproven',
+        'Publication repair changed more than the canonical label token',
+      );
+    }
+    byLine.set(rewrite.line, rewrite);
+  }
+  for (const [line, rewrite] of byLine) {
+    const segment = segments[line - 1];
+    if (!segment || segment.content !== rewrite.before) {
+      throw publicationContractError(
+        'publication_repair_unproven',
+        'Publication repair line evidence does not match run-head bytes',
+      );
+    }
+    segment.content = rewrite.after;
+  }
+  const projected = Buffer.from(
+    segments.map(({ content, ending }) => `${content}${ending}`).join(''),
+    'latin1',
+  );
+  if (!projected.equals(currentBytes) || selected(currentBytes) !== null) {
+    throw publicationContractError(
+      'publication_repair_unproven',
+      'Current task bytes are not the exact converged publication-label repair',
+    );
+  }
+  return {
+    tasksPath,
+    rewriteCount: publication.rewrites.length,
+    beforeDigest: createHash('sha256').update(beforeBytes).digest('hex'),
+    currentDigest: createHash('sha256').update(currentBytes).digest('hex'),
+  };
+}
+
 function legacyPublicationFilesUpgrade(root, specDirs) {
   const sourced = [];
   for (const specDir of specDirs) {

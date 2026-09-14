@@ -10,6 +10,7 @@ import {
   applyUpgrade,
   detectIssueDependencyUpgrade,
   detectPublicationUpgrade,
+  provePublicationLabelRepair,
   detectUpgrade,
 } from '../sdlc-upgrade.mjs';
 import { parseDeliveryTaskFileLines } from '../sdlc-safe-recoveries.mjs';
@@ -1184,6 +1185,46 @@ describe('package-scoped publication-only upgrade (#388)', () => {
     const repeated = detectPublicationUpgrade(root, { specDirs: [selected] });
     expect(repeated.writeCount).toBe(0);
     expect(repeated.item.actionable).toBe(false);
+  });
+
+  it('proves only detector-selected label bytes and exact converged output', () => {
+    const tasksPath = 'specs/108-coordinate-the-pathcast-to-miledar-prelaunch-rebrand/tasks.md';
+    const beforeBytes = Buffer.from([
+      '**Issue**: #108',
+      '**Status**: Approved',
+      '### T001: First',
+      '**Files**: `src/a.ts` (Modify)',
+      '### T002: Second',
+      '**Files**: `src/b.ts` (Create)',
+      '',
+    ].join('\r\n'));
+    const currentBytes = Buffer.from(beforeBytes.toString().replaceAll('**Files**:', '**File(s)**:'));
+    expect(provePublicationLabelRepair({ beforeBytes, currentBytes, tasksPath })).toMatchObject({
+      tasksPath,
+      rewriteCount: 2,
+      beforeDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+      currentDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+    expect(() => provePublicationLabelRepair({
+      beforeBytes,
+      currentBytes: Buffer.concat([currentBytes, Buffer.from('changed\n')]),
+      tasksPath,
+    })).toThrow(expect.objectContaining({ reasonCode: 'publication_repair_unproven' }));
+    expect(() => provePublicationLabelRepair({
+      beforeBytes,
+      currentBytes: Buffer.from(currentBytes.toString().replace('src/b.ts', 'src/c.ts')),
+      tasksPath,
+    })).toThrow(expect.objectContaining({ reasonCode: 'publication_repair_unproven' }));
+    const payloadRepair = Buffer.from(beforeBytes.toString().replace(
+      '**Files**: `src/a.ts` (Modify)',
+      '**Files**: Modify src/a.ts',
+    ));
+    expect(() => provePublicationLabelRepair({
+      beforeBytes: payloadRepair,
+      currentBytes: Buffer.from(payloadRepair.toString()
+        .replace('**Files**: Modify src/a.ts', '**File(s)**: `src/a.ts`')),
+      tasksPath,
+    })).toThrow(expect.objectContaining({ reasonCode: 'publication_repair_unproven' }));
   });
 
   it('binds one complete deterministic inventory, rewrites, and findings into approval', () => {

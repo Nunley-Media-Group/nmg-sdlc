@@ -35,8 +35,11 @@ import { inspectReviewReceipts } from '../src/sdlc-review-isolation.mjs';
 import {
   consumeSafeRecovery,
   inspectPublicationScope,
+  inspectSafeRecoveryRecord,
+  probePublicationScope,
   resolveRecoveryOwner,
 } from './sdlc-safe-recoveries.mjs';
+import { provePublicationLabelRepair } from './sdlc-upgrade.mjs';
 import { runReviewMain } from './sdlc-review-main.mjs';
 
 import {
@@ -577,9 +580,249 @@ function inspectRecoveryWorkers(data, herdr) {
   return { absent, present };
 }
 
+const REPAIRED_PUBLICATION_RECOVERY = 'repaired_publication_intervention';
+const TERMINAL_GOAL_EVIDENCE_PATHS = Object.freeze([
+  '.pi-glla/active.jsonl',
+  '.pi-glla/owner.json',
+  '.pi-glla/session-owner.json',
+]);
+const MAX_GOAL_EVIDENCE_BYTES = 256 * 1024;
+
+function resultBytes(result) {
+  if (!commandSucceeded(result)) throw new Error('publication_repair_unproven');
+  return Buffer.isBuffer(result.stdout)
+    ? result.stdout
+    : Buffer.from(String(result.stdout ?? ''), 'utf8');
+}
+
+function nulPathList(result) {
+  const value = resultBytes(result).toString('utf8');
+  if (!value) return [];
+  if (!value.endsWith('\0')) throw new Error('publication_state_unreadable');
+  return value.slice(0, -1).split('\0');
+}
+
+function porcelainStatusEntries(result) {
+  const records = nulPathList(result);
+  const entries = [];
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
+    if (!/^(?:[ MADRCUT?!]{2}) /.test(record)) throw new Error('publication_state_unreadable');
+    const status = record.slice(0, 2);
+    const paths = [record.slice(3)];
+    if (!paths[0] || isAbsolute(paths[0]) || paths[0].split('/').includes('..')) {
+      throw new Error('publication_state_unreadable');
+    }
+    if (status.includes('R') || status.includes('C')) {
+      const source = records[++index];
+      if (!source || isAbsolute(source) || source.split('/').includes('..')) {
+        throw new Error('publication_state_unreadable');
+      }
+      paths.push(source);
+    }
+    entries.push({ status, paths });
+  }
+  return entries;
+}
+
+function parseBoundedJsonFile(root, relativePath) {
+  const target = join(root, relativePath);
+  const stat = lstatSync(target);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size <= 0
+    || stat.size > MAX_GOAL_EVIDENCE_BYTES) {
+    throw new Error('workflow_evidence_unproven');
+  }
+  const bytes = readFileSync(target);
+  try {
+    return { bytes, value: JSON.parse(bytes.toString('utf8')) };
+  } catch {
+    throw new Error('workflow_evidence_unproven');
+  }
+}
+
+function proveTerminalGoalEvidence(root, untrackedPaths) {
+  if (untrackedPaths.length === 0) return [];
+  const paths = [...new Set(untrackedPaths)].sort();
+  if (JSON.stringify(paths) !== JSON.stringify(TERMINAL_GOAL_EVIDENCE_PATHS)) {
+    throw new Error('workflow_evidence_unproven');
+  }
+  const session = parseBoundedJsonFile(root, '.pi-glla/session-owner.json').value;
+  const owner = parseBoundedJsonFile(root, '.pi-glla/owner.json').value;
+  const activeFile = join(root, '.pi-glla/active.jsonl');
+  const activeStat = lstatSync(activeFile);
+  if (!activeStat.isFile() || activeStat.isSymbolicLink() || activeStat.size <= 0
+    || activeStat.size > MAX_GOAL_EVIDENCE_BYTES) {
+    throw new Error('workflow_evidence_unproven');
+  }
+  const activeLines = readFileSync(activeFile, 'utf8').split(/\r?\n/).filter(Boolean);
+  let active;
+  try {
+    active = activeLines.map((line) => JSON.parse(line));
+  } catch {
+    throw new Error('workflow_evidence_unproven');
+  }
+  const isoTime = (value) => typeof value === 'string'
+    && Number.isFinite(Date.parse(value))
+    && new Date(value).toISOString() === value;
+  if (!session || typeof session !== 'object' || Array.isArray(session)
+    || !Number.isSafeInteger(session.pid) || session.pid <= 0
+    || !Number.isSafeInteger(session.generation) || session.generation <= 0
+    || typeof session.ownerSessionId !== 'string' || !session.ownerSessionId
+    || typeof session.shutdownReason !== 'string' || !session.shutdownReason
+    || !isoTime(session.at) || !isoTime(session.shutdownAt)
+    || !owner || typeof owner !== 'object' || Array.isArray(owner)
+    || owner.pid !== session.pid || !Number.isSafeInteger(owner.at) || owner.at <= 0
+    || typeof owner.instanceId !== 'string'
+    || !new RegExp(`^${session.pid}:[1-9]\\d*$`).test(owner.instanceId)
+    || active.length !== 3
+    || JSON.stringify(active.map(({ type }) => type)) !== JSON.stringify([
+      'session_rebound',
+      'session_waiting_for_load',
+      'session_shutdown',
+    ])
+    || active.some((event) => !event || typeof event !== 'object' || Array.isArray(event)
+      || !event.value || typeof event.value !== 'object' || Array.isArray(event.value)
+      || typeof event.value.reason !== 'string' || !event.value.reason || !isoTime(event.at))
+    || active[2].value.reason !== session.shutdownReason
+    || Math.abs(Date.parse(active[2].at) - Date.parse(session.shutdownAt)) > 1000) {
+    throw new Error('workflow_evidence_unproven');
+  }
+  return paths;
+}
+
+export function inspectRepairedPublicationIntervention({
+  cwd = process.cwd(),
+  checkpoint,
+  handoff,
+  run = defaultRun,
+  allowOwnedLease = false,
+} = {}) {
+  const root = realpathSync(cwd);
+  if (!checkpoint || !validRunIdentity(checkpoint)
+    || checkpoint.projectRoot !== root
+    || checkpoint.currentStep !== 'implement'
+    || checkpoint.failed?.issue !== checkpoint.currentIssue
+    || checkpoint.failed?.step !== 'implement'
+    || checkpoint.failed?.reasonCode !== 'implementation_failed'
+    || Object.keys(checkpoint.workers || {}).length !== 0
+    || (checkpoint.absentWorkers || []).some((worker) =>
+      worker.issue === checkpoint.currentIssue && worker.step === 'implement')
+    || !handoff || handoff.issue !== checkpoint.currentIssue || handoff.step !== 'implement'
+    || handoff.status !== 'failed' || handoff.intervention !== true
+    || handoff.reasonCode !== 'implementation_failed' || handoff.next !== null) {
+    throw new Error('repaired_intervention_unproven');
+  }
+  const checkout = currentCheckout(root, run);
+  if (!checkout || checkout.head !== checkpoint.head) throw new Error('checkpoint_head_mismatch');
+  const spec = specStatus(checkpoint.currentIssue, root);
+  if (!spec.approved || !spec.dir) throw new Error(spec.reasonCode || 'spec_not_approved');
+  const specRelative = isAbsolute(spec.dir)
+    ? relative(root, spec.dir).split('\\').join('/')
+    : spec.dir.split('\\').join('/');
+  const tasksPath = `${specRelative}/tasks.md`;
+  const handoffPath = `${HANDOFF_DIR}/${checkpoint.currentIssue}-implement.json`;
+  const permittedArtifacts = new Set([
+    tasksPath,
+    handoffPath,
+    RUN_FILE,
+    `${RUN_DIR}/safe-recoveries.json`,
+  ]);
+  if (!handoff.artifacts.includes(tasksPath) || !handoff.artifacts.includes(handoffPath)
+    || new Set(handoff.artifacts).size !== handoff.artifacts.length
+    || handoff.artifacts.some((artifact) => !permittedArtifacts.has(artifact))) {
+    throw new Error('handoff_artifacts_unproven');
+  }
+  const probe = probePublicationScope({
+    cwd: root,
+    issue: checkpoint.currentIssue,
+    step: 'implement',
+    spec: specRelative,
+    controllerRunId: checkpoint.runId,
+    run,
+  });
+  if (!probe.passed || probe.ownerId !== checkpoint.runId
+    || !Array.isArray(probe.scope?.allowedPaths) || probe.scope.allowedPaths.length === 0
+    || probe.binding.actualBranch !== checkout.branch
+    || probe.binding.recoveryOwner?.branch !== checkout.branch
+    || probe.binding.discrepancies.some(({ field }) => field !== 'branch')) {
+    throw new Error('publication_scope_unproven');
+  }
+  const lease = readControllerLease(root);
+  if (lease && !(allowOwnedLease && lease.runId === checkpoint.runId && lease.pid === process.pid)) {
+    throw new Error('controller_lease_held');
+  }
+  if (inspectSafeRecoveryRecord({
+    cwd: root,
+    ownerId: probe.ownerId,
+    issue: checkpoint.currentIssue,
+    step: 'implement',
+    class: REPAIRED_PUBLICATION_RECOVERY,
+  })) {
+    throw new Error('recovery_consumed');
+  }
+  if (checkpoint.recoveries?.some((entry) => entry.runId === checkpoint.runId
+    && entry.issue === checkpoint.currentIssue && entry.step === 'implement')) {
+    throw new Error('recovery_consumed');
+  }
+  const status = porcelainStatusEntries(run('git', [
+    'status', '--porcelain=v1', '-z', '--untracked-files=all',
+  ], { cwd: root }));
+  const staged = status.filter(({ status: code }) => /[MADRCUT]/.test(code[0]));
+  if (staged.length > 0) throw new Error('staged_changes_unproven');
+  const trackedPaths = status
+    .filter(({ status: code }) => code !== '??')
+    .flatMap(({ paths }) => paths)
+    .sort();
+  if (JSON.stringify(trackedPaths) !== JSON.stringify([tasksPath])) {
+    throw new Error('tracked_changes_unproven');
+  }
+  const untrackedPaths = status
+    .filter(({ status: code }) => code === '??')
+    .flatMap(({ paths }) => paths);
+  const workflowEvidencePaths = proveTerminalGoalEvidence(root, untrackedPaths);
+  const changedFromHead = nulPathList(run('git', [
+    'diff', '--name-only', '-z', checkpoint.head, '--',
+  ], { cwd: root }));
+  if (JSON.stringify(changedFromHead) !== JSON.stringify([tasksPath])) {
+    throw new Error('tracked_changes_unproven');
+  }
+  if (nulPathList(run('git', ['diff', '--cached', '--name-only', '-z', '--'], { cwd: root })).length) {
+    throw new Error('staged_changes_unproven');
+  }
+  const ignoredTrackedState = porcelainStatusEntries(run('git', [
+    'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=matching',
+    '--', ...probe.scope.trackedWritablePaths,
+  ], { cwd: root }));
+  if (ignoredTrackedState.length > 0) throw new Error('implementation_paths_dirty');
+  const beforeBytes = resultBytes(run('git', [
+    'show', `${checkpoint.head}:${tasksPath}`,
+  ], { cwd: root, encoding: null }));
+  const currentBytes = readFileSync(join(root, tasksPath));
+  const publication = provePublicationLabelRepair({ beforeBytes, currentBytes, tasksPath });
+  const handoffBytes = readFileSync(join(root, handoffPath));
+  return {
+    class: REPAIRED_PUBLICATION_RECOVERY,
+    issue: checkpoint.currentIssue,
+    step: 'implement',
+    runId: checkpoint.runId,
+    ownerId: probe.ownerId,
+    branch: checkout.branch,
+    head: checkout.head,
+    tasksPath,
+    publication,
+    workflowEvidencePaths,
+    handoff: structuredClone(handoff),
+    handoffDigest: createHash('sha256').update(handoffBytes).digest('hex'),
+    scope: probe.scope,
+    discrepancies: probe.binding.discrepancies,
+  };
+}
+
 export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr = defaultHerdr(run, cwd) } = {}) {
-  const blocked = (reasonCode) => ({
-    state: 'blocked', reasonCode,
+  const blocked = (reasonCode, recoveryEvidenceReasonCode = null) => ({
+    state: 'blocked',
+    reasonCode,
+    ...(recoveryEvidenceReasonCode ? { recoveryEvidenceReasonCode } : {}),
     action: `Resolve ${reasonCode} using the checkpoint and ownership evidence before execution.`,
   });
   try {
@@ -626,12 +869,29 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
       const dirty = run('git', ['status', '--porcelain'], { cwd });
       if (!commandSucceeded(dirty) || String(dirty.stdout ?? '').trim()) return blocked('dirty_tree');
     }
-    const handoff = readExpectedHandoff(
+    const handoffResult = readExpectedHandoff(
       join(cwd, HANDOFF_DIR, `${data.currentIssue}-${data.currentStep}.json`),
       data.currentIssue, data.currentStep,
-    ).handoff;
-    if ((data.failed?.intervention && !validatedPassedWorkerHandoff(cwd, data.currentIssue, data.currentStep, run))
-      || handoff?.intervention || handoff?.status === 'blocked') {
+    );
+    const handoff = handoffResult.handoff;
+    let repairedPublication = null;
+    if (data.currentStep === 'implement' && data.failed?.reasonCode === 'implementation_failed') {
+      if (!handoff) return blocked('implementation_failed', handoffResult.reasonCode);
+      if (handoff.status === 'failed' && handoff.intervention === true
+        && handoff.reasonCode === 'implementation_failed') {
+        try {
+          repairedPublication = inspectRepairedPublicationIntervention({
+            cwd, checkpoint: data, handoff, run,
+          });
+        } catch (error) {
+          return blocked('implementation_failed', error?.message || 'repaired_intervention_unproven');
+        }
+      }
+    }
+    if (!repairedPublication && (
+      (data.failed?.intervention && !validatedPassedWorkerHandoff(cwd, data.currentIssue, data.currentStep, run))
+      || handoff?.intervention || handoff?.status === 'blocked'
+    )) {
       return blocked(handoff?.reasonCode || data.failed?.reasonCode || 'intervention_required');
     }
     const lease = readControllerLease(cwd);
@@ -663,12 +923,25 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
       && ownership.present.some((worker) => worker.issue === data.currentIssue && worker.step === data.currentStep)) {
       return blocked('retained_worker_mismatch');
     }
-    const state = recovery ? 'recovery-consumed' : exhausted ? 'loop-recovery-available' : 'resumable';
+    const state = recovery ? 'recovery-consumed'
+      : exhausted || repairedPublication ? 'loop-recovery-available'
+        : 'resumable';
     return {
       state, issues: data.issues, runId: data.runId, branch: linked,
       issue: data.currentIssue, step: data.currentStep,
       reasonCode: data.failed?.reasonCode ?? null,
       cleanupReasonCode: data.failed?.cleanupReasonCode ?? null,
+      ...(repairedPublication ? {
+        recoveryClass: repairedPublication.class,
+        recoveryEvidence: {
+          ownerId: repairedPublication.ownerId,
+          head: repairedPublication.head,
+          tasksPath: repairedPublication.tasksPath,
+          publication: repairedPublication.publication,
+          workflowEvidencePaths: repairedPublication.workflowEvidencePaths,
+          discrepancies: repairedPublication.discrepancies,
+        },
+      } : {}),
       action: recovery
         ? 'Inspect the consumed recovery evidence; repair the blocker and supply a validated passed handoff. Do not repeat unchanged execution.'
         : 'Run /sdlc-execute with no parameters to resume this exact queue.',
@@ -2203,6 +2476,7 @@ export function runExecute({
   let issues = parsedArgs.issues;
   let recoveryIssue = null;
   let recoveryBranch = null;
+  let repairedRecoveryClass = null;
   const bareRecovery = parsedArgs.defaultBacklog && !parsedArgs.recoverStale && !parsedArgs.retainWorker;
   if (parsedArgs.defaultBacklog) {
     const discovery = discoverRecovery({ cwd, run, herdr: herdrApi });
@@ -2213,6 +2487,7 @@ export function runExecute({
       issues = discovery.issues;
       recoveryIssue = discovery.issue;
       recoveryBranch = discovery.branch;
+      repairedRecoveryClass = discovery.recoveryClass ?? null;
     } else {
       let specified;
       try {
@@ -2558,6 +2833,89 @@ export function runExecute({
   }
   const resumedPromptActivations = new Set();
   let recoveryDispatch = null;
+  if (repairedRecoveryClass) {
+    const issue = runState.currentIssue;
+    const step = runState.currentStep;
+    const handoffResult = readExpectedHandoff(
+      join(cwd, HANDOFF_DIR, `${issue}-${step}.json`), issue, step,
+    );
+    let proof;
+    try {
+      if (!bareRecovery || repairedRecoveryClass !== REPAIRED_PUBLICATION_RECOVERY) {
+        throw new Error('repaired_intervention_unproven');
+      }
+      proof = inspectRepairedPublicationIntervention({
+        cwd,
+        checkpoint: runState,
+        handoff: handoffResult.handoff,
+        run,
+        allowOwnedLease: true,
+      });
+      const consumed = consumeSafeRecovery({
+        cwd,
+        ownerId: proof.ownerId,
+        issue,
+        step,
+        class: proof.class,
+        evidence: {
+          head: proof.head,
+          branch: proof.branch,
+          tasksPath: proof.tasksPath,
+          publication: proof.publication,
+          workflowEvidencePaths: proof.workflowEvidencePaths,
+          handoff: proof.handoff,
+          handoffDigest: proof.handoffDigest,
+          discrepancies: proof.discrepancies,
+        },
+      });
+      if (!consumed.consumed) throw new Error('recovery_consumed');
+      runState.recoveries ||= [];
+      runState.recoveries.push({
+        runId: runState.runId,
+        issue,
+        step,
+        invocationId: consumed.record.invocationId,
+        consumedAt: consumed.record.consumedAt,
+        source: {
+          class: proof.class,
+          tasksPath: proof.tasksPath,
+          publication: proof.publication,
+          handoffDigest: proof.handoffDigest,
+        },
+        failure: structuredClone(runState.failed),
+        handoff: proof.handoff,
+        disposition: 'consumed',
+      });
+      runState.remediation = {
+        issue,
+        step,
+        attempt: 1,
+        completedAttempts: 0,
+        status: 'active',
+        reasonCode: proof.handoff.reasonCode,
+        summary: proof.handoff.summary,
+        artifacts: [...proof.handoff.artifacts],
+        closedWorker: null,
+        remWorker: null,
+        history: [{
+          attempt: 0,
+          reasonCode: proof.handoff.reasonCode,
+          artifacts: [...proof.handoff.artifacts],
+          closedName: null,
+          closedPaneId: null,
+          at: consumed.record.consumedAt,
+        }],
+      };
+      persistRunState(runState, cwd);
+      recoveryDispatch = `${issue}:${step}`;
+    } catch (error) {
+      return {
+        status: 1,
+        stdout: `${output.join('\n')}${output.length ? '\n' : ''}`,
+        stderr: `${error?.reasonCode || error?.message || 'repaired_intervention_unproven'}\n`,
+      };
+    }
+  }
 
   function recoverPendingWorkerPrompts() {
     for (const worker of Object.values(runState.workers)) {
@@ -3245,7 +3603,8 @@ export function runExecute({
       && runState.remediation.step === step ? runState.remediation : null;
     const consumedRecovery = runState.recoveries?.find((entry) =>
       entry.runId === runState.runId && entry.issue === issue && entry.step === step);
-    if (consumedRecovery && !validatedPassedWorkerHandoff(cwd, issue, step, run)) {
+    if (consumedRecovery && recoveryDispatch !== `${issue}:${step}`
+      && !validatedPassedWorkerHandoff(cwd, issue, step, run)) {
       return stop({
         issue, step, paneId: 'none', agentName: remAgentName(issue, step),
         reasonCode: 'recovery_consumed', runState, cwd, herdr: herdrApi, output,
@@ -3261,7 +3620,8 @@ export function runExecute({
       const handoff = readExpectedHandoff(
         join(cwd, HANDOFF_DIR, `${issue}-${step}.json`), issue, step,
       ).handoff;
-      if (handoff && (handoff.status === 'blocked' || handoff.intervention)) {
+      if (handoff && recoveryDispatch !== `${issue}:${step}`
+        && (handoff.status === 'blocked' || handoff.intervention)) {
         return stop({
           issue, step,
           paneId: resumeAgent?.pane_id ?? resumeAgent?.paneId ?? 'none',
