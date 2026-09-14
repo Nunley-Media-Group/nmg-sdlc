@@ -260,6 +260,7 @@ function makeRoot({
   version = '3.4.5',
   approvedMajor = false,
   stack = 'node',
+  taskDeclaration = '`scripts/sdlc-deliver.mjs`, `VERSION`, `package.json`, `CHANGELOG.md`',
 } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-deliver-'));
   const spec = path.join(root, 'specs', `${issue}-delivery`);
@@ -268,7 +269,7 @@ function makeRoot({
   const documents = {
     'requirements.md': '### AC1: Deliver verified changes\n\n| FR1 | Deliver only current evidence | Must |\n',
     'design.md': 'Publish exact-head verification before delivery.\n',
-    'tasks.md': '### T001: Deliver verified changes\n\n**File(s)**: `scripts/sdlc-deliver.mjs`, `VERSION`, `package.json`, `CHANGELOG.md`\n',
+    'tasks.md': `### T001: Deliver verified changes\n\n**File(s)**: ${taskDeclaration}\n`,
     'feature.gherkin': 'Feature: Delivery\n  Scenario: Deliver current evidence\n    Given verification passed\n    When delivery runs\n    Then the verified changes are delivered\n',
   };
   for (const [name, body] of Object.entries(documents)) {
@@ -550,9 +551,20 @@ function seedComplete(root, { pullRequest = 77, expectedHead = H1 } = {}) {
   fs.writeFileSync(runPath, `${JSON.stringify(runState, null, 2)}\n`);
 }
 
-function mergeabilityFixture({ conflict = false, mergeStateStatus = 'BEHIND', sourceFile = 'scripts/sdlc-deliver.mjs' } = {}) {
+function mergeabilityFixture({
+  conflict = false,
+  mergeStateStatus = 'BEHIND',
+  sourceFile = 'scripts/sdlc-deliver.mjs',
+  taskDeclaration,
+} = {}) {
   const pr = openPr({ mergeStateStatus });
-  const options = { version: '3.5.0', deliveryCommit: true, existingPr: pr, views: [pr] };
+  const options = {
+    version: '3.5.0',
+    deliveryCommit: true,
+    existingPr: pr,
+    views: [pr],
+    ...(taskDeclaration === undefined ? {} : { taskDeclaration }),
+  };
   const f = fixture(options);
   roots.push(f.root);
   const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-deliver-remote-'));
@@ -665,6 +677,28 @@ describe('sdlc delivery controller', () => {
     expect(runDeliver(options)).toMatchObject({ status: 1, handoff: { reasonCode: 'mergeability_defect' } });
     expect(JSON.parse(fs.readFileSync(path.join(f.root, '.omp/sdlc/safe-recoveries.json'), 'utf8')).records).toEqual(records);
     expect(f.calls.slice(before).some((call) => call[0] === 'git' && ['merge-tree', 'merge', 'push'].includes(call[1]))).toBe(false);
+  });
+
+  test('@SCN005 never admits a rejected annotation through delivery allowedPaths', () => {
+    const f = mergeabilityFixture({
+      conflict: true,
+      mergeStateStatus: 'CONFLICTING',
+      taskDeclaration: '`scripts/sdlc-deliver.mjs` (Archive)',
+    });
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+    expect(result).toMatchObject({
+      status: 1,
+      handoff: { reasonCode: 'publication_scope_unproven' },
+    });
+    expect(f.calls.some((call) => call[0] === 'git' && call[1] === 'merge-tree')).toBe(false);
+    expect(f.calls.some((call) => call[0] === 'git' && call[1] === 'push')).toBe(false);
   });
 
   test('@SCN005 preserves unrelated local work instead of attempting base reconciliation', () => {

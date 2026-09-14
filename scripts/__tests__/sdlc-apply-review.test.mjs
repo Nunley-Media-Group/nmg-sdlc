@@ -119,6 +119,25 @@ describe('runApplyReview', () => {
     expect(fs.readFileSync(path.join(f.root, 'unrelated.txt'), 'utf8')).toBe('retain this\n');
   });
 
+  test('never admits a rejected path annotation through the consumed allowedPaths boundary', () => {
+    const f = fixture();
+    fs.writeFileSync(
+      path.join(f.root, 'specs/42-feature/tasks.md'),
+      '**Issue**: #42\n**Status**: Approved\n\n### T001: Apply review fixes\n\n**File(s)**: `src/code.mjs` (Modify), `unrelated.txt` (Archive)\n',
+    );
+    fs.writeFileSync(path.join(f.root, 'unrelated.txt'), 'must remain outside authority\n');
+    const outcome = f.apply({ applied: true });
+    expect(outcome).toMatchObject({
+      status: 1,
+      handoff: { reasonCode: 'publication_scope_unproven' },
+    });
+    expect(mutations(f.calls)).toEqual([]);
+    expect(f.git('status', '--porcelain').split('\n').map((line) => line.trimStart()).sort()).toEqual([
+      '?? unrelated.txt',
+      'M specs/42-feature/tasks.md',
+    ]);
+  });
+
   test('automatically recovers the failed first push without duplicate commit, then only acknowledges remote state', () => {
     const f = fixture();
     fs.writeFileSync(path.join(f.root, 'src/code.mjs'), 'export const value = 2;\n');

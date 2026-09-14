@@ -1,7 +1,7 @@
 # Verification Report: Read-only owner-bound implementation scope probe
 
 **Issue**: #390
-**Date**: 2026-09-13
+**Date**: 2026-09-14
 **Status**: Passed
 **Spec**: `specs/390-read-only-owner-bound-implementation-scope-probe/`
 
@@ -13,38 +13,35 @@
 | AC2 | Pass | Exact PathCast exercise compares SHA-256 and base64 bytes before/after, observes no controller lock, and leaves run, recovery, handoff, spec, product, and `.pi-glla` state unchanged. |
 | AC3 | Pass | Structured scope has exactly five fields and separates tracked, explicitly untracked, task provenance, read-only, and combined allowed paths. |
 | AC4 | Pass | Exact PathCast T001-T004 fixture returns 18 allowed, 12 tracked, six untracked evidence paths, one stale-branch discrepancy, and no writable spec path. |
-| AC5 | Pass | Parser tests retain duplicate task-relative provenance, reduce Create then Modify, prefer writable authority over read-only input, and reject unsupported/missing/near-miss/duplicate declarations. |
-| AC6 | Pass | Safe-recovery, execute, apply-review, and delivery suites pass after all consumers moved to `scope.allowedPaths`; bind/reconcile remain state-changing actions. |
+| AC5 | Pass | Closed path-annotation grammar accepts only Create, Modify, Delete, Download untracked, Generate untracked, and the minimal current-spec/test non-operation allowlist; case-insensitive archive/rename/move/recursive-delete and comma/slash/pipe/`or` combinations fail with located `publication_scope_unproven`. |
+| AC6 | Pass | Safe-recovery, execute, apply-review, and delivery suites pass with explicit apply-review and deliver regressions proving rejected annotations never reach a consumer allowlist. |
 | AC7 | Pass | README, write-code workflow, changelog, plugin surface, current spec archive, workflow inventory stability, version sync, and contribution evidence are verified. |
 
 ## Commands and Outcomes
 
-- `cd scripts && npm test -- --runInBand __tests__/sdlc-safe-recoveries.test.mjs` — passed, 105 tests.
+- `cd scripts && npm test -- --runInBand __tests__/sdlc-safe-recoveries.test.mjs` — passed, 106 tests.
 - `cd scripts && npm test -- --runInBand __tests__/sdlc-execute.test.mjs` — passed, 295 tests.
-- `cd scripts && npm test -- --runInBand __tests__/sdlc-apply-review.test.mjs` — passed, 16 tests.
-- `cd scripts && npm test -- --runInBand __tests__/sdlc-deliver.test.mjs` — passed, 115 tests.
-- `cd scripts && npm test -- --runInBand __tests__/sdlc-safe-recoveries.test.mjs -t "reports exact PathCast 18/12/6 scope"` — passed, one disposable real-Git PathCast-state copy exercise; 104 unrelated tests skipped by name filter.
+- `cd scripts && npm test -- --runInBand __tests__/sdlc-apply-review.test.mjs` — passed, 17 tests.
+- `cd scripts && npm test -- --runInBand __tests__/sdlc-deliver.test.mjs` — passed, 116 tests.
+- Four affected suites — passed, 534 tests total.
+- `cd scripts && npm test -- --runInBand __tests__/sdlc-safe-recoveries.test.mjs -t "reports exact PathCast 18/12/6 scope"` — passed, one disposable real-Git PathCast-state copy exercise; 105 unrelated tests skipped by name filter.
 - `node scripts/verify-plugin-surface.mjs --root . --label repository` — passed.
 - `node scripts/verify-current-specs.mjs` — passed: 79 genuine issue specs, 16 required archive specs, 16 rewrite capabilities, 16 active workflow mappings, one deprecated stub.
 - `node scripts/skill-inventory-audit.mjs --check` — passed: 43 items mapped.
 - VERSION/package comparison — passed at `3.21.3`; no implementation-time bump.
-- `node scripts/contribution-evidence.mjs --root . .omp/sdlc/contribution-390.json` — passed with `{\"ok\":true,\"errors\":[]}`; the temporary input was removed.
+- Contribution evidence — passed with `{\"ok\":true,\"errors\":[]}`; temporary input removed.
 - Active #390 structured scope inspection — passed with 12 tracked, zero untracked, 12 allowed, four read-only spec inputs, and four task records.
-- `git diff --check` — passed.
+- Changed JavaScript syntax checks and `git diff --check` — passed.
+- Temporary `scripts/node_modules` dependency link was removed after the focused suites.
+
+## Independent-Review Findings
+
+- **HIGH — open path-annotation operation grammar: remediated.** The parser no longer treats unknown parenthetical notes as task-Type fallback. Exact supported operations remain case-insensitive for existing canonical lowercase declarations; all unsupported operation-bearing notes and ambiguous combinations fail closed with task/file/line diagnostics. `delivery-owner only` remains excluded. Current-spec/test notes are an explicit finite allowlist.
+- **HIGH — incomplete execute checkpoint accepted by probe: remediated.** The probe validates schema, canonical project root, run id, run-level issue membership, unique positive issues, current issue/step, 40-character lowercase hexadecimal head, positive revision, branch, completed/failed structures, and complete worker tuples before selecting an owner or inspecting scope. The exact truncated review fixture and per-field missing/invalid variants fail closed. The complete stale-branch PathCast checkpoint succeeds only with its explicit branch discrepancy.
 
 ## Final-Tree Revalidation
 
-After the final production parser changes and portable workflow materialization:
-
-- `cd scripts && npm test -- --runInBand __tests__/sdlc-safe-recoveries.test.mjs` — passed, 105 tests. This final run covers unsupported task-level `Type`, explicit valid path overrides, slash/pipe/`or` ambiguity, unsupported operation notes, ordinary notes, spec-path exclusion, PathCast Acquire provenance, root-level `README.md` Acquire input retention with metadata/output flag exclusion, and the exact PathCast 18/12/6 exercise.
-- `cd scripts && npm test -- --runInBand __tests__/sdlc-execute.test.mjs` — passed, 295 tests. This final run proves worker prompts materialize the three literal plugin-root command operands and retain no unresolved placeholder or user-specific installation path.
-- `cd scripts && npm test -- --runInBand __tests__/sdlc-apply-review.test.mjs` — passed, 16 tests.
-- `cd scripts && npm test -- --runInBand __tests__/sdlc-deliver.test.mjs` — passed, 115 tests.
-- `node scripts/verify-plugin-surface.mjs --root . --label repository` — passed.
-- `node scripts/verify-current-specs.mjs` — passed.
-- `node scripts/skill-inventory-audit.mjs --check` — passed.
-- VERSION/package comparison — passed at `3.21.3`.
-- `git diff --check` — passed.
+The final production and regression tree passed the four focused suites and exact PathCast exercise listed above. Apply-review and delivery each have a consumer-level regression that presents an `Archive` path annotation and observes `publication_scope_unproven` before commit, push, or merge-tree execution. The PathCast exercise confirms 18 allowed, 12 tracked, six explicit untracked paths, one stale-branch discrepancy, byte-identical protected state, and no controller lock.
 
 ## Changed-Path Alignment
 

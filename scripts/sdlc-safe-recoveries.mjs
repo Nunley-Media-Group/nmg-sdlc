@@ -45,6 +45,54 @@ function safeError(reasonCode, details = {}) {
   return Object.assign(new Error(reasonCode), { reasonCode, ...details });
 }
 
+function objectRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function validExecuteCheckpoint(runData) {
+  if (!objectRecord(runData)
+    || runData.schemaVersion !== 1
+    || typeof runData.projectRoot !== 'string' || !runData.projectRoot
+    || typeof runData.runId !== 'string' || !runData.runId
+    || !Number.isSafeInteger(runData.issue) || runData.issue <= 0
+    || typeof runData.branch !== 'string' || !runData.branch
+    || typeof runData.head !== 'string' || !/^[0-9a-f]{40}$/.test(runData.head)
+    || !Array.isArray(runData.issues) || runData.issues.length === 0
+    || !runData.issues.every((issue) => Number.isSafeInteger(issue) && issue > 0)
+    || new Set(runData.issues).size !== runData.issues.length
+    || !runData.issues.includes(runData.issue)
+    || !Number.isSafeInteger(runData.revision) || runData.revision <= 0
+    || !Number.isSafeInteger(runData.currentIssue)
+    || !runData.issues.includes(runData.currentIssue)
+    || !VALID_STEPS.includes(runData.currentStep)
+    || !objectRecord(runData.completed)
+    || !Object.entries(runData.completed).every(([issue, steps]) =>
+      runData.issues.map(String).includes(issue)
+      && Array.isArray(steps)
+      && new Set(steps).size === steps.length
+      && steps.every((step) => VALID_STEPS.includes(step)))
+    || !(runData.failed === null || (objectRecord(runData.failed)
+      && Number.isSafeInteger(runData.failed.issue) && runData.issues.includes(runData.failed.issue)
+      && VALID_STEPS.includes(runData.failed.step)
+      && typeof runData.failed.reasonCode === 'string' && runData.failed.reasonCode.length > 0
+      && (runData.failed.cleanupReasonCode === undefined
+        || (typeof runData.failed.cleanupReasonCode === 'string'
+          && runData.failed.cleanupReasonCode.length > 0))))
+    || !objectRecord(runData.workers)) return false;
+  return Object.entries(runData.workers).every(([name, worker]) => objectRecord(worker)
+    && worker.name === name
+    && typeof worker.paneId === 'string' && worker.paneId.length > 0
+    && worker.projectRoot === runData.projectRoot
+    && worker.runId === runData.runId
+    && Number.isSafeInteger(worker.issue) && runData.issues.includes(worker.issue)
+    && VALID_STEPS.includes(worker.step)
+    && typeof worker.branch === 'string' && worker.branch.length > 0
+    && typeof worker.head === 'string' && /^[0-9a-f]{40}$/.test(worker.head)
+    && (worker.promptDelivery === undefined
+      || ['pending', 'activating', 'delivered'].includes(worker.promptDelivery))
+    && (worker.promptDeliveryVersion === undefined || worker.promptDeliveryVersion === 2));
+}
+
 function validSafeState(data) {
   return !!data
     && data.schemaVersion === 1
@@ -763,7 +811,7 @@ function validPublicationPath(file) {
     && (firstGlob < 0 || (firstGlob > 0 && /[A-Za-z0-9_-]/.test(file.slice(0, firstGlob))));
 }
 
-export const PUBLICATION_FILE_SYNTAX = 'Each admitted task must contain exactly one canonical `**File(s)**:` declaration using repository-relative paths as `path`, comma/semicolon-separated lists, or bounded directory/glob entries; optional parenthetical notes may follow an entry.';
+export const PUBLICATION_FILE_SYNTAX = 'Each admitted task must contain exactly one canonical `**File(s)**:` declaration using repository-relative paths as `path`, comma/semicolon-separated lists, or bounded directory/glob entries; parenthetical notes must be an exact supported operation or documented non-operation note.';
 
 function publicationFileDeclarations(value) {
   const declarations = [];
@@ -803,7 +851,9 @@ function publicationFileDeclarations(value) {
 export function publicationFileEntries(value) {
   const entries = [];
   for (const { path, note } of publicationFileDeclarations(value)) {
-    if (!/\bdelivery[- ]owner\s+only\b/i.test(note)) entries.push(path);
+    if (/\bdelivery[- ]owner\s+only\b/i.test(note)) continue;
+    pathAnnotationOperation(note);
+    entries.push(path);
   }
   return entries;
 }
@@ -950,26 +1000,36 @@ const WRITABLE_OPERATIONS = new Map([
   ['create', 'Create'],
   ['modify', 'Modify'],
   ['delete', 'Delete'],
-  ['remove', 'Delete'],
   ['download untracked', 'Download untracked'],
   ['generate untracked', 'Generate untracked'],
 ]);
 
+const NON_OPERATION_NOTES = new Set([
+  'as needed',
+  'existing shared helpers as needed for one authoritative classifier',
+  'as applicable',
+  'existing fixtures only as needed',
+  'only if audit requires it',
+  'see `notes.txt`; not authority',
+  'existing affected command/surface tests',
+  'after `skill://skill-creator`',
+  'workflows after `skill://skill-creator`',
+]);
 const READ_ONLY_OPERATIONS = new Set(['Read-only', 'Acquire']);
 const UNTRACKED_OPERATIONS = new Set(['Download untracked', 'Generate untracked']);
 const SPEC_INPUT_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
 
+function pathAnnotationOperation(note) {
+  const normalized = note.trim().replace(/\s+/g, ' ').toLowerCase();
+  if (!normalized || NON_OPERATION_NOTES.has(normalized)) return null;
+  const operation = WRITABLE_OPERATIONS.get(normalized);
+  if (operation) return operation;
+  throw safeError('publication_scope_unproven');
+}
+
 function declaredOperation(note, typeValue) {
-  const rawNote = note.trim();
-  const normalizedNote = rawNote.replace(/\s+/g, ' ').toLowerCase();
-  if (WRITABLE_OPERATIONS.has(normalizedNote)) return WRITABLE_OPERATIONS.get(normalizedNote);
-  if (normalizedNote && (
-    /^(?:download|generate)(?:\s+\S+)?$/i.test(rawNote)
-    || /^[A-Z][A-Za-z]*$/.test(rawNote)
-    || /^(?:create|modify|delete|remove)(?:\s*(?:\/|\||\bor\b)\s*\S+)+$/i.test(rawNote)
-  )) {
-    throw safeError('publication_scope_unproven');
-  }
+  const pathOperation = pathAnnotationOperation(note);
+  if (pathOperation) return pathOperation;
   const typeText = String(typeValue ?? '').trim();
   if (!typeText) return 'Modify';
   const operations = new Set();
@@ -1065,6 +1125,7 @@ export function parseDeliveryTaskFileLines(content, {
       for (const item of declared) {
         if (/\bdelivery[- ]owner\s+only\b/i.test(item.note)) continue;
         if (!structured) {
+          pathAnnotationOperation(item.note);
           entries.push(item.path);
           continue;
         }
@@ -1302,11 +1363,9 @@ export function probePublicationScope({
   } catch {
     throw safeError('recovery_owner_unreadable');
   }
-  if (!runData || runData.schemaVersion !== 1 || runData.runId !== controllerRunId
+  if (!validExecuteCheckpoint(runData) || runData.runId !== controllerRunId
     || runData.projectRoot !== canonicalRoot
-    || !Array.isArray(runData.issues) || !runData.issues.includes(issueNumber)
-    || runData.currentIssue !== issueNumber || runData.currentStep !== step
-    || typeof runData.branch !== 'string' || !runData.branch) {
+    || runData.currentIssue !== issueNumber || runData.currentStep !== step) {
     throw safeError('recovery_owner_ambiguous');
   }
 

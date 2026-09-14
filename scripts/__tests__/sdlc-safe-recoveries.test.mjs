@@ -290,7 +290,7 @@ describe('approved publication scope', () => {
     const spec = 'specs/42-feature';
     f.put(`${spec}/requirements.md`, `${header}### AC1: Apply approved changes\n\n| FR1 | Publish only approved paths | Must |\n`);
     f.put(`${spec}/design.md`, `${header}Use approved paths only.\n`);
-    f.put(`${spec}/tasks.md`, `${header}### T001: Apply changes\n\n**File(s)**: \`src/\` (after \`skill://skill-creator\`), \`deleted.txt\` (remove), \`${REPORT}\`, \`${spec}/design.md\`, \`specs/other/input.md\`\n\n## Notes\n\n**File(s)**: \`unrelated.txt\`\n`);
+    f.put(`${spec}/tasks.md`, `${header}### T001: Apply changes\n\n**File(s)**: \`src/\` (after \`skill://skill-creator\`), \`deleted.txt\` (Delete), \`${REPORT}\`, \`${spec}/design.md\`, \`specs/other/input.md\`\n\n## Notes\n\n**File(s)**: \`unrelated.txt\`\n`);
     f.put(`${spec}/feature.gherkin`, `${header}Feature: Scope\n  Scenario: Publish approved paths\n    Given approved tasks\n    When changes publish\n    Then only approved paths publish\n`);
     f.put('unrelated.txt', 'not authorized\n');
     const scope = inspectPublicationScope({ cwd: f.root, issue: 42, step: 'fix1', spec, run: f.run });
@@ -694,9 +694,14 @@ describe('read-only owner-bound publication probe', () => {
       runId,
       issue: 108,
       branch: 'main',
+      head: git('rev-parse', 'HEAD'),
       issues: [108],
+      revision: 1,
       currentIssue: 108,
       currentStep: 'implement',
+      completed: { 108: ['start'] },
+      failed: null,
+      workers: {},
     }, null, 2)}\n`);
     put('.omp/sdlc/safe-recoveries.json', `${JSON.stringify({
       schemaVersion: 1,
@@ -808,13 +813,27 @@ describe('read-only owner-bound publication probe', () => {
     expect(operations).toHaveLength(2);
     expect(operations.flatMap((task) => task.operations).filter((item) => item.path === 'src/shared.mjs'))
       .toHaveLength(4);
-    for (const note of ['Download tracked', 'Archive', 'Create / Modify', 'Create | Modify']) {
+    for (const note of [
+      'Download tracked',
+      'Archive',
+      'archive',
+      'Rename',
+      'MOVE',
+      'delete recursively',
+      'Create / Modify',
+      'Create | Modify',
+      'Create or Modify',
+      'Create, Modify',
+      'Modify/Delete',
+      'Generate',
+    ]) {
       expect(() => parseDeliveryTaskFileLines([
         '### T001: Unsupported',
         `**File(s)**: \`src/shared.mjs\` (${note})`,
       ].join('\n'), { structured: true })).toThrow(expect.objectContaining({
         reasonCode: 'publication_scope_unproven',
         taskId: 'T001',
+        line: 2,
       }));
     }
     expect(parseDeliveryTaskFileLines([
@@ -845,6 +864,72 @@ describe('read-only owner-bound publication probe', () => {
     expect(acquireOperations).toEqual([
       expect.objectContaining({ path: 'README.md', operation: 'Acquire' }),
     ]);
+  });
+
+  test('rejects incomplete execute checkpoints before owner selection or scope authority', () => {
+    const f = pathCastFixture();
+    const runPath = path.join(f.root, '.omp/sdlc/run.json');
+    const valid = JSON.parse(fs.readFileSync(runPath, 'utf8'));
+    const safeBytes = fs.readFileSync(path.join(f.root, '.omp/sdlc/safe-recoveries.json'));
+    const exactReviewedFixture = {
+      schemaVersion: 1,
+      projectRoot: fs.realpathSync(f.root),
+      runId,
+      issue: 108,
+      branch: 'main',
+      issues: [108],
+      currentIssue: 108,
+      currentStep: 'implement',
+    };
+    const without = (field) => {
+      const checkpoint = structuredClone(valid);
+      delete checkpoint[field];
+      return checkpoint;
+    };
+    const invalidCheckpoints = [
+      exactReviewedFixture,
+      ...[
+        'schemaVersion',
+        'projectRoot',
+        'runId',
+        'issue',
+        'branch',
+        'head',
+        'issues',
+        'revision',
+        'currentIssue',
+        'currentStep',
+        'completed',
+        'failed',
+        'workers',
+      ].map(without),
+      { ...valid, schemaVersion: 2 },
+      { ...valid, projectRoot: `${valid.projectRoot}-other` },
+      { ...valid, runId: '' },
+      { ...valid, issue: 109 },
+      { ...valid, issues: [108, 108] },
+      { ...valid, currentIssue: 109 },
+      { ...valid, currentStep: null },
+      { ...valid, head: valid.head.slice(0, 39) },
+      { ...valid, revision: 0 },
+      { ...valid, branch: 42 },
+      { ...valid, completed: null },
+      { ...valid, completed: { 109: [] } },
+      { ...valid, failed: {} },
+      { ...valid, workers: [] },
+      { ...valid, workers: { broken: { name: 'broken' } } },
+    ];
+    for (const checkpoint of invalidCheckpoints) {
+      fs.writeFileSync(runPath, `${JSON.stringify(checkpoint, null, 2)}\n`);
+      expect(() => probePublicationScope({
+        cwd: f.root,
+        issue: 108,
+        step: 'implement',
+        spec: 'specs/not-approved',
+        controllerRunId: runId,
+      })).toThrow('recovery_owner_ambiguous');
+      expect(fs.readFileSync(path.join(f.root, '.omp/sdlc/safe-recoveries.json'))).toEqual(safeBytes);
+    }
   });
 
   test('rejects missing or mismatched owner-bound inputs without creating state', () => {
@@ -916,7 +1001,7 @@ describe('publication CLI lease ownership boundary', () => {
 
 ### T004: Preserve quoted declarations
 
-**File(s)**: \`src/code.mjs\` (see \`notes.txt\`; not authority), \`deleted.txt\` (remove)
+**File(s)**: \`src/code.mjs\` (see \`notes.txt\`; not authority), \`deleted.txt\` (Delete)
 **Notes**: \`prose.txt\`
 
 ### T000: Not an admitted task identifier
