@@ -12,7 +12,7 @@ An exclusive implement worker can advance the issue branch, close, and leave a f
 
 ## Reproduction
 
-PathCast issue #81 has checkpoint HEAD `308f5d152781277cfb00db419d3c25d40686a86c`, current descendant HEAD `a5b125269a027322c382556149a9015b519d2802`, branch `81-suppress-stale-concurrent-route-display-errors`, empty workers, one incomplete owner whose id equals the run id, and a failed implement handoff. T001 and T002 are already committed. T003 requires `specs/81-stale-displayroute-error/verification-report.md`, but `inspectPublicationScope` currently forces every `specs/` path read-only.
+PathCast issue #81 has checkpoint HEAD `308f5d152781277cfb00db419d3c25d40686a86c`, current strict-descendant HEAD `a5b125269a027322c382556149a9015b519d2802`, branch `81-suppress-stale-concurrent-route-display-errors`, empty workers, one incomplete owner whose id equals the run id, and a failed implement handoff. T001 and T002 are already committed. The earlier File(s)-based publication policy also blocked T003's verification report; issue #398 independently replaced that policy with outcome-based publication.
 
 ## Expected Behavior
 
@@ -20,14 +20,14 @@ Execute recognizes this closed exclusive worker as a one-shot investigative resu
 
 ## Actual Behavior
 
-Recovery stops at `checkpoint_head_mismatch`. Ordinary redispatch would replay fresh implement work and can exhaust the same unchanged prerequisite again. An explicitly authorized verification report cannot be created because its spec path is classified read-only.
+Recovery stops at `checkpoint_head_mismatch`. Ordinary redispatch would replay fresh implement work and can exhaust the same unchanged prerequisite again. Without commit ownership and path proof, accepting ancestor-or-equal HEAD would also mistake an unchanged failure or unrelated later commit for exclusive worker progress.
 
 ## Acceptance Criteria
 
 ### AC1: Discover safe exclusive implement resume
-**Given** an exclusive implement failure, an issue-branch current HEAD descended from or equal to `run.head`, a unique incomplete owner whose id equals `runId`, empty workers, and a failed implement handoff
+**Given** an exclusive implement failure, an issue-branch current HEAD that is a strict one-commit descendant of `run.head`, a unique incomplete owner whose id equals `runId`, empty workers, a failed implement handoff, and an owner-planned subject matching that non-merge commit
 **When** `discover-recovery` runs
-**Then** it reports `loop-recovery-available` with recovery class `exclusive_implement_resume` and mutates no checkpoint, handoff, or safe-recovery evidence.
+**Then** it reports `loop-recovery-available` with recovery class `exclusive_implement_resume`, records the observed non-denied commit paths, and mutates no checkpoint, handoff, or safe-recovery evidence.
 
 ### AC2: Consume and dispatch the resume once
 **Given** exclusive implement resume discovery
@@ -45,14 +45,14 @@ Recovery stops at `checkpoint_head_mismatch`. Ordinary redispatch would replay f
 **Then** it remains `repaired_publication_intervention` and dispatches ordinary implement without the exclusive-resume header.
 
 ### AC5: Unsafe evidence stays blocked
-**Given** a wrong branch, live worker, non-ancestor HEAD, missing unique owner, or previously consumed exclusive recovery
+**Given** an equal or non-ancestor HEAD, multiple or merge commits, a subject not owned by the recovery owner, a denied commit path, a wrong branch, live worker, dirty or unsafe ignored product state, missing unique owner, or previously consumed exclusive recovery
 **When** execute evaluates recovery
 **Then** it remains blocked and starts no worker.
 
-### AC6: Authorized verification report is writable
-**Given** implement `tasks.md` lists `specs/{N}-{slug}/verification-report.md (Create)` under `**File(s)**`
-**When** publication scope is inspected
-**Then** that exact path is in `trackedWritablePaths` and `allowedPaths`, not `readOnlyPaths`, while all other spec inputs remain read-only.
+### AC6: Outcome publication permits the current verification report
+**Given** implement tasks omit the current `verification-report.md` from optional `File(s)` hints
+**When** outcome publication scope and denied-path policy are inspected
+**Then** `mutationPolicy` is `outcome`, the current verification report is not denied, and the four Approved spec inputs plus every other `specs/` path remain denied.
 
 ### AC7: Failed consumed resume cannot replay
 **Given** a consumed exclusive resume whose worker writes another failed implement handoff
@@ -63,14 +63,14 @@ Recovery stops at `checkpoint_head_mismatch`. Ordinary redispatch would replay f
 
 | ID | Requirement | Priority |
 |---|---|---|
-| FR1 | Classify only a proven closed exclusive implement owner on the exact issue branch with ancestor-or-equal HEAD. | Must |
+| FR1 | Classify only a proven closed exclusive implement owner on the exact issue branch with one strict-descendant, single-parent, owner-subject commit. | Must |
 | FR2 | Consume the recovery before one investigative `sN-implement` dispatch and advance checkpoint HEAD by CAS. | Must |
 | FR3 | Preserve durable no-replay semantics for the same run, issue, and implement step. | Must |
 | FR4 | Keep repaired-publication classification and prompt behavior unchanged. | Must |
-| FR5 | Allow only an explicitly listed issue verification report operation through implement publication scope. | Must |
+| FR5 | Require outcome scope, immutable spec inputs, non-denied observed commit paths, and fail-closed dirty/ignored workspace evidence. | Must |
 
 ## Scope
 
-In scope: execute recovery classifier, exclusive resume prompt and dispatch, focused publication-scope exception, regression tests, execute/write-code workflow contracts, changelog, and patch version.
+In scope: execute recovery classifier, exclusive resume prompt and dispatch, outcome-policy integration, regression tests, execute/write-code workflow contracts, changelog, and patch version.
 
 Out of scope: PathCast product edits, nmg-sdlc self-execute, fresh implement replay, remediation dispatch, checkpoint reset, or changes to unrelated safe-recovery owners.

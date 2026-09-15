@@ -8,7 +8,7 @@
 
 ## Root Cause
 
-The existing repaired-publication recovery proves exact HEAD and a narrow tasks-file discrepancy. It cannot accept a normal exclusive implement worker that committed authorized work before failing. The general recovery path therefore interprets the descendant current HEAD as a checkpoint mismatch. Separately, `inspectPublicationScope` marks `specs/` read-only before considering whether the approved implement task explicitly creates its verification report.
+The existing repaired-publication recovery proves exact HEAD and a narrow tasks-file discrepancy. It cannot accept a normal exclusive implement worker that committed authorized work before failing. The general recovery path therefore interprets the strict-descendant current HEAD as a checkpoint mismatch. Issue #398 separately replaced File(s)-based publication authorization with outcome policy, so this recovery must consume that policy rather than recreate a verification-report allowlist.
 
 ## Recovery Classifier
 
@@ -18,16 +18,19 @@ The classifier must prove:
 
 1. The checkpoint is an incomplete execute run at implement.
 2. The worker map is empty.
-3. Exactly one incomplete safe-recovery owner exists, with `ownerId === runId` and implement identity.
+3. Exactly one incomplete safe-recovery owner exists, with `ownerId === runId`, implement identity, and a nonempty planned subject.
 4. Current branch is the issue branch.
-5. `git merge-base --is-ancestor checkpoint.head checkout.head` succeeds; failure is `checkpoint_head_mismatch`.
-6. The implement handoff is readable and failed, whether `intervention` is true or false.
-7. No recovery tuple for the same run, issue, step, and `exclusive_implement_resume` class was consumed.
-8. Lease evidence satisfies the same unowned or owner-bound proof used by repaired publication.
+5. Current HEAD differs from checkpoint HEAD and `git merge-base --is-ancestor checkpoint.head checkout.head` succeeds.
+6. The range contains exactly one single-parent commit whose parent is checkpoint HEAD and whose subject equals the owner's planned subject.
+7. Every observed commit path passes the outcome-policy denied-path classifier.
+8. The implement handoff is readable, failed with `implementation_failed`, and has boolean intervention plus null next.
+9. The owner-bound probe reports `mutationPolicy: outcome`, the four Approved inputs in `readOnlyPaths`, matching branch/owner identity, and no discrepancy except the stale checkpoint branch.
+10. No recovery tuple for the same run, issue, step, and `exclusive_implement_resume` class was consumed.
+11. Lease, controller-state, clean tracked/untracked state, ignored implementation paths, bounded workspaces, and terminal goal evidence satisfy the repaired-publication safety predicates.
 
-Return `{ class, issue, step: 'implement', runId, ownerId, branch, head: checkout.head, handoff, handoffPath, handoffDigest, handoffIdentity, scope, discrepancies }`.
+Return `{ class, issue, step: 'implement', runId, ownerId, branch, head, publicationPaths, workflowEvidencePaths, handoff, handoffPath, handoffDigest, handoffIdentity, scope, discrepancies }`.
 
-Discovery order is repaired publication first, exclusive implement resume second, and the existing intervention block last. Exclusive discovery evidence is `{ ownerId, head, checkpointHead: checkpoint.head, discrepancies }`. Discovery never mutates files.
+Discovery order is repaired publication first, exclusive implement resume second, and the existing intervention block last. Exclusive discovery evidence includes owner, checkpoint/current HEAD, observed publication paths, and discrepancies. Discovery never mutates files.
 
 ## Exclusive Resume Prompt
 
@@ -50,20 +53,20 @@ Generalize the repaired recovery branch to accept `repaired_publication_interven
 2. Re-run the matching inspector with `allowOwnedLease: true`.
 3. Archive the failed handoff read-only under the class-specific history directory. Exclusive archives use `.omp/sdlc/history/exclusive-implement-resume/{issue}-implement-{digest}.json`.
 4. Consume safe recovery for the proven class.
-5. Append a recovery tuple whose source records class, archive, pre-CAS `checkpointHead`, `currentHead`, and failed handoff.
-6. Set `runState.head = proof.head`, clear `failed`, delete remediation, and persist.
+5. Append a recovery tuple whose source records class, archive, pre-CAS `checkpointHead`, `currentHead`, observed publication paths, workflow evidence, and failed handoff.
+6. Set `runState.head = proof.head`, clear `failed`, delete remediation, and persist through the old-head CAS.
 7. Set `recoveryDispatch` to `${issue}:implement`.
 
 When the pending worker is `s${issue}-implement` and the invocation-local recovery dispatch points to implement with latest recovery source class `exclusive_implement_resume`, render `exclusiveResumePrompt`. Repaired publication continues to use ordinary `workerPrompt`. Never create remediation state or `rN-implement` for exclusive resume.
 
-## Publication Scope
+## Outcome Publication Integration
 
-Inside `inspectPublicationScope`, before the general `specs/` read-only branch, recognize only the exact `${spec}/verification-report.md` operation. A non-read-only Create/Modify operation is tracked writable; an explicitly untracked operation follows the existing untracked classification. Continue immediately. The exception exists only when the exact path is declared in approved `tasks.md`; all other spec paths remain read-only.
+Exclusive recovery does not grant paths from task File(s). It requires the probe's `mutationPolicy: outcome`, preserves the four current spec inputs in `readOnlyPaths`, and validates the observed implementation commit through `publicationPathDenied`. The current verification report remains publishable under issue #398 even when omitted from File(s); every other `specs/` path remains denied.
 
 ## Failure Boundaries
 
-Wrong branch, live worker, absent or ambiguous owner, non-ancestor HEAD, unreadable handoff, mismatched lifecycle identity, unsafe worktree scope, lease conflict, or consumed recovery remains blocked. No branch rewrite or product rollback is permitted. Persistence precedes dispatch; ambiguous dispatch cannot be reconstructed into a second allowance.
+Equal or non-ancestor HEAD, multiple or merge commits, a non-owner subject, denied commit paths, wrong branch, live worker, absent or ambiguous owner, unreadable or mismatched handoff, dirty tracked/untracked work, unsafe ignored implementation state, invalid terminal evidence, lease conflict, or consumed recovery remains blocked. No branch rewrite or product rollback is permitted. Persistence precedes dispatch; ambiguous dispatch cannot be reconstructed into a second allowance.
 
 ## Verification
 
-Focused Jest fixtures create commit A as checkpoint and clean descendant commit B as current HEAD. They prove read-only discovery, one `s81-implement` exclusive prompt, archived handoff, checkpoint CAS, consumed no-replay, repaired-publication compatibility, adversarial blocks, and writable verification-report scope. Run `cd scripts && npm test -- sdlc-execute.test.mjs`.
+Focused Jest fixtures create commit A as checkpoint and one owner-subject commit B as current HEAD. They prove read-only discovery, observed non-denied paths, one `s81-implement` exclusive prompt, archived handoff, checkpoint CAS, consumed no-replay, repaired-publication compatibility, outcome-scope integration, ignored-state safety, and adversarial equal/multiple/merge/subject/path blocks. Run focused execute and safe-recoveries suites, then the complete repository suite.

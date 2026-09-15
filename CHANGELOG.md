@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.22.1] - 2026-09-15
+
+### Fixed
+
+- Resume a closed exclusive implement worker exactly once only after proving one strict-descendant, single-parent, owner-subject commit with non-denied outcome paths and clean tracked, untracked, ignored, and terminal evidence; investigate remaining Acceptance instead of replaying completed work (#396).
+
 ## [3.22.0] - 2026-09-14
 
 ### Changed
@@ -18,8 +24,6 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ### Fixed
 
-- Investigate a closed exclusive implement worker exactly once when current issue-branch HEAD descends from the checkpoint, using an evidence-mapping `sN-implement` resume prompt instead of replaying fresh implementation or remediation (#396).
-- Treat an explicitly declared implement Create/Modify of `specs/{N}-{slug}/verification-report.md` as tracked writable while every other approved spec input remains read-only (#396).
 - Reject admitted delivery tasks with missing, near-miss, or duplicate canonical `File(s)` declarations before spec publication or execute worker dispatch (#383).
 - Detect a singular recoverable `Files` task label during digest-bound publication upgrade and rewrite it to canonical `File(s)` without weakening fail-closed delivery parsing (#386).
 - Support digest-bound single-package publication-only detection/apply with exactly one spec, legacy-first command resolution, descriptor-bound files and stable directory listings, descriptor-carried task planning, high-resolution identities, exact large issue digits, hidden-task visibility, byte-preserving rewrites, fsynced root staging, final authority/target/stage/lock ordering, cooperative exclusive locking, one atomic rename, and truthful applied cleanup failure—without unrelated upgrade phases, GitHub label backfill, native dependencies, or impossible identity-conditional pathname guarantees (#388).

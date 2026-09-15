@@ -1006,6 +1006,63 @@ function proveTerminalGoalEvidence(root, untrackedPaths) {
   return paths;
 }
 
+function recoveryWorkspaceAuthority({
+  root,
+  run,
+  probe,
+  spec,
+  observedTrackedPaths = [],
+  protectedRoots = [],
+}) {
+  const taskHintPaths = probe.scope.taskOperations
+    .flatMap(({ operations }) => operations
+      .filter(({ operation }) => !['Download untracked', 'Generate untracked'].includes(operation))
+      .map(({ path }) => path))
+    .filter((path) => !publicationPathDenied(path, {
+      spec,
+      readOnlyPaths: probe.scope.readOnlyPaths,
+    }));
+  const taskComponents = [...new Set(taskHintPaths.map((path) => path.split('/')[0]))]
+    .filter((component) => /^[A-Za-z0-9._-]+$/.test(component));
+  const taskManifestPaths = taskComponents.flatMap((component) =>
+    ['package.json', 'pubspec.yaml', 'pyproject.toml', 'Cargo.toml', 'go.mod']
+      .map((manifest) => `${component}/${manifest}`));
+  const observedTaskPaths = taskHintPaths.length
+    ? nulPathList(run('git', [
+      'ls-files', '--cached', '-z', '--', ...taskHintPaths, ...taskManifestPaths,
+    ], { cwd: root }))
+    : [];
+  const observedAuthorityPaths = [
+    ...new Set([
+      ...probe.scope.trackedWritablePaths,
+      ...observedTaskPaths,
+      ...observedTrackedPaths,
+    ]),
+  ].filter((path) => !publicationPathDenied(path, {
+    spec,
+    readOnlyPaths: probe.scope.readOnlyPaths,
+  }));
+  const protectedPaths = [
+    ...protectedRoots,
+    ...observedAuthorityPaths,
+    ...probe.scope.untrackedEvidencePaths,
+    ...probe.scope.readOnlyPaths,
+  ];
+  const workspaceAuthorityPaths = [
+    ...observedAuthorityPaths,
+    ...probe.scope.readOnlyPaths,
+  ];
+  const ignoredImplementationPaths = nulPathList(run('git', [
+    'ls-files', '--others', '--ignored', '--exclude-standard', '-z', '--',
+    ...new Set([
+      ...observedAuthorityPaths,
+      ...probe.scope.untrackedEvidencePaths,
+    ]),
+  ], { cwd: root }));
+  if (ignoredImplementationPaths.length > 0) throw new Error('implementation_paths_dirty');
+  return { protectedPaths, workspaceAuthorityPaths };
+}
+
 export function inspectRepairedPublicationIntervention({
   cwd = process.cwd(),
   checkpoint,
@@ -1108,51 +1165,14 @@ export function inspectRepairedPublicationIntervention({
   const ordinaryUntrackedPaths = status
     .filter(({ status: code }) => code === '??')
     .flatMap(({ paths }) => paths);
-  const taskHintPaths = probe.scope.taskOperations
-    .flatMap(({ operations }) => operations
-      .filter(({ operation }) => !['Download untracked', 'Generate untracked'].includes(operation))
-      .map(({ path }) => path))
-    .filter((path) => !publicationPathDenied(path, {
-      spec: specRelative,
-      readOnlyPaths: probe.scope.readOnlyPaths,
-    }));
-  const taskComponents = [...new Set(taskHintPaths.map((path) => path.split('/')[0]))]
-    .filter((component) => /^[A-Za-z0-9._-]+$/.test(component));
-  const taskManifestPaths = taskComponents.flatMap((component) =>
-    ['package.json', 'pubspec.yaml', 'pyproject.toml', 'Cargo.toml', 'go.mod']
-      .map((manifest) => `${component}/${manifest}`));
-  const observedTaskPaths = taskHintPaths.length
-    ? nulPathList(run('git', [
-      'ls-files', '--cached', '-z', '--', ...taskHintPaths, ...taskManifestPaths,
-    ], { cwd: root }))
-    : [];
-  const observedAuthorityPaths = [
-    ...new Set([...probe.scope.trackedWritablePaths, ...observedTaskPaths, ...trackedPaths]),
-  ].filter((path) => !publicationPathDenied(path, {
+  const { protectedPaths, workspaceAuthorityPaths } = recoveryWorkspaceAuthority({
+    root,
+    run,
+    probe,
     spec: specRelative,
-    readOnlyPaths: probe.scope.readOnlyPaths,
-  }));
-  const protectedPaths = [
-    tasksPath,
-    specRelative,
-    RUN_DIR,
-    '.pi-glla',
-    ...observedAuthorityPaths,
-    ...probe.scope.untrackedEvidencePaths,
-    ...probe.scope.readOnlyPaths,
-  ];
-  const workspaceAuthorityPaths = [
-    ...observedAuthorityPaths,
-    ...probe.scope.readOnlyPaths,
-  ];
-  const ignoredImplementationPaths = nulPathList(run('git', [
-    'ls-files', '--others', '--ignored', '--exclude-standard', '-z', '--',
-    ...new Set([
-      ...observedAuthorityPaths,
-      ...probe.scope.untrackedEvidencePaths,
-    ]),
-  ], { cwd: root }));
-  if (ignoredImplementationPaths.length > 0) throw new Error('implementation_paths_dirty');
+    observedTrackedPaths: trackedPaths,
+    protectedRoots: [tasksPath, specRelative, RUN_DIR, '.pi-glla'],
+  });
   assertKnownControllerState(root, allowOwnedLease, checkpoint);
   const ignoredPaths = status
     .filter(({ status: code }) => code === '!!')
@@ -1222,7 +1242,7 @@ export function inspectExclusiveImplementResume({
   if (!checkout || !checkout.branch.startsWith(`${checkpoint.currentIssue}-`)) {
     throw new Error('checkpoint_branch_mismatch');
   }
-  if (!commandSucceeded(run('git', [
+  if (checkout.head === checkpoint.head || !commandSucceeded(run('git', [
     'merge-base', '--is-ancestor', checkpoint.head, checkout.head,
   ], { cwd: root }))) {
     throw new Error('checkpoint_head_mismatch');
@@ -1241,6 +1261,7 @@ export function inspectExclusiveImplementResume({
   );
   handoff = handoffSnapshot.handoff;
   if (handoff.status !== 'failed'
+    || handoff.reasonCode !== 'implementation_failed'
     || typeof handoff.intervention !== 'boolean'
     || handoff.next !== null) {
     throw new Error('exclusive_implement_resume_unproven');
@@ -1253,11 +1274,48 @@ export function inspectExclusiveImplementResume({
     controllerRunId: checkpoint.runId,
     run,
   });
+  const requiredReadOnlyPaths = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']
+    .map((file) => `${specRelative}/${file}`);
   if (!probe.passed || probe.ownerId !== checkpoint.runId
+    || probe.scope?.mutationPolicy !== 'outcome'
+    || !Array.isArray(probe.scope?.readOnlyPaths)
+    || requiredReadOnlyPaths.some((path) => !probe.scope.readOnlyPaths.includes(path))
     || probe.binding.actualBranch !== checkout.branch
     || probe.binding.recoveryOwner?.branch !== checkout.branch
     || probe.binding.discrepancies.some(({ field }) => field !== 'branch')) {
     throw new Error('publication_scope_unproven');
+  }
+  const plannedSubject = probe.binding.recoveryOwner?.plannedSubject;
+  const commitResult = run('git', [
+    'rev-list', '--reverse', `${checkpoint.head}..${checkout.head}`,
+  ], { cwd: root });
+  const commits = commandSucceeded(commitResult)
+    ? String(commitResult.stdout ?? '').trim().split('\n').filter(Boolean)
+    : [];
+  if (commits.length !== 1 || commits[0] !== checkout.head) {
+    throw new Error('exclusive_implement_publication_unproven');
+  }
+  const parentsResult = run('git', [
+    'rev-list', '--parents', '-n', '1', checkout.head,
+  ], { cwd: root });
+  const parents = commandSucceeded(parentsResult)
+    ? String(parentsResult.stdout ?? '').trim().split(/\s+/)
+    : [];
+  const subjectResult = run('git', ['log', '-1', '--format=%s', checkout.head], { cwd: root });
+  if (parents.length !== 2 || parents[0] !== checkout.head || parents[1] !== checkpoint.head
+    || typeof plannedSubject !== 'string' || !plannedSubject
+    || !commandSucceeded(subjectResult)
+    || String(subjectResult.stdout ?? '').trim() !== plannedSubject) {
+    throw new Error('exclusive_implement_publication_unproven');
+  }
+  const publicationPaths = nulPathList(run('git', [
+    'diff-tree', '--no-commit-id', '--name-only', '--no-renames', '-r', '-z', checkout.head,
+  ], { cwd: root }));
+  if (!publicationPaths.length || publicationPaths.some((path) => publicationPathDenied(path, {
+    spec: specRelative,
+    readOnlyPaths: probe.scope.readOnlyPaths,
+  }))) {
+    throw new Error('exclusive_implement_publication_unproven');
   }
   const lease = readControllerLease(root);
   if (lease && !(allowOwnedLease && lease.runId === checkpoint.runId && lease.pid === process.pid)) {
@@ -1280,9 +1338,39 @@ export function inspectExclusiveImplementResume({
   }
   assertKnownControllerState(root, allowOwnedLease, checkpoint, true);
   const status = porcelainStatusEntries(run('git', [
-    'status', '--porcelain=v1', '-z', '--untracked-files=all',
+    'status', '--porcelain=v1', '-z', '--ignored=matching', '--untracked-files=all',
   ], { cwd: root }));
-  if (status.length > 0) throw new Error('dirty_tree');
+  if (status.some(({ status: code }) => !['??', '!!'].includes(code))) {
+    throw new Error('dirty_tree');
+  }
+  const ordinaryUntrackedPaths = status
+    .filter(({ status: code }) => code === '??')
+    .flatMap(({ paths }) => paths);
+  const { protectedPaths, workspaceAuthorityPaths } = recoveryWorkspaceAuthority({
+    root,
+    run,
+    probe,
+    spec: specRelative,
+    observedTrackedPaths: publicationPaths,
+    protectedRoots: [specRelative, RUN_DIR, '.pi-glla'],
+  });
+  const ignoredPaths = status
+    .filter(({ status: code }) => code === '!!')
+    .flatMap(({ paths }) => paths);
+  for (const ignoredPath of ignoredPaths) {
+    if (pathWithin(ignoredPath, RUN_DIR) || pathWithin(RUN_DIR, ignoredPath)) continue;
+    if (TERMINAL_GOAL_EVIDENCE_PATHS.some((path) =>
+      pathWithin(ignoredPath, path) || pathWithin(path, ignoredPath))
+      || !isIrrelevantIgnoredState(
+        root,
+        ignoredPath,
+        protectedPaths,
+        workspaceAuthorityPaths,
+      )) {
+      throw new Error('workflow_evidence_unproven');
+    }
+  }
+  const workflowEvidencePaths = proveTerminalGoalEvidence(root, ordinaryUntrackedPaths);
   return {
     class: EXCLUSIVE_IMPLEMENT_RESUME,
     issue: checkpoint.currentIssue,
@@ -1291,6 +1379,8 @@ export function inspectExclusiveImplementResume({
     ownerId: probe.ownerId,
     branch: checkout.branch,
     head: checkout.head,
+    publicationPaths,
+    workflowEvidencePaths,
     handoff: structuredClone(handoff),
     handoffPath,
     handoffDigest: handoffSnapshot.digest,
@@ -1446,6 +1536,8 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
           ownerId: exclusiveResume.ownerId,
           head: exclusiveResume.head,
           checkpointHead: data.head,
+          publicationPaths: exclusiveResume.publicationPaths,
+          workflowEvidencePaths: exclusiveResume.workflowEvidencePaths,
           discrepancies: exclusiveResume.discrepancies,
         },
       } : {}),
@@ -3455,6 +3547,7 @@ export function runExecute({
           branch: proof.branch,
           tasksPath: proof.tasksPath,
           publication: proof.publication,
+          publicationPaths: proof.publicationPaths,
           workflowEvidencePaths: proof.workflowEvidencePaths,
           handoffArchive: archivedHandoff,
           checkpointHead,
@@ -3474,6 +3567,8 @@ export function runExecute({
           class: proof.class,
           tasksPath: proof.tasksPath,
           publication: proof.publication,
+          publicationPaths: proof.publicationPaths,
+          workflowEvidencePaths: proof.workflowEvidencePaths,
           handoffArchive: archivedHandoff,
           checkpointHead,
           currentHead: proof.head,

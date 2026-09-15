@@ -43,6 +43,7 @@ import {
   expectedExecuteHandoffSlots,
   resolveRecoveryOwner,
   inspectPublicationScope,
+  publicationPathDenied,
 } from '../sdlc-safe-recoveries.mjs';
 
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -2124,10 +2125,11 @@ describe('runExecute controller', () => {
     fixtureGit('config', 'commit.gpgsign', 'false');
     put('.gitignore', '.omp/sdlc/\n');
     put(productPath, 'route planner v1\n');
+    put('mobile/pubspec.yaml', 'name: exclusive_resume_fixture\n');
     const header = '**Issue**: #81\n**Status**: Approved\n\n';
     put(`${spec}/requirements.md`, `${header}### AC1: Suppress stale failures\n`);
     put(`${spec}/design.md`, `${header}Use operation identity.\n`);
-    put(`${spec}/tasks.md`, `${header}### T001: Implement stale display suppression\n**File(s)**: \`${productPath}\` (Modify)\n**Type**: Modify\n**Acceptance**:\n- [ ] Stale display failures do not reach the rider.\n\n### T003: Record verification evidence\n**File(s)**: \`${reportPath}\` (Create)\n**Type**: Create\n**Acceptance**:\n- [ ] Record the verified behavior.\n`);
+    put(`${spec}/tasks.md`, `${header}### T001: Implement stale display suppression\n**File(s)**: \`${productPath}\` (Modify)\n**Type**: Modify\n**Acceptance**:\n- [ ] Stale display failures do not reach the rider.\n\n### T003: Record verification evidence\n**Type**: Create\n**Acceptance**:\n- [ ] Record the verified behavior.\n`);
     put(`${spec}/feature.gherkin`, `${header}Feature: Stale display failures\n  Scenario: Suppress stale failure\n`);
     fixtureGit('add', '.');
     fixtureGit('commit', '-m', 'docs: approve spec for #81');
@@ -2158,7 +2160,7 @@ describe('runExecute controller', () => {
       step: 'implement',
       status: 'failed',
       intervention: true,
-      summary: 'T001 and T002 passed; T003 verification report remained read-only.',
+      summary: 'T001 and T002 passed; the prior plugin blocked T003 publication.',
       artifacts: [`commit:${currentHead}`, productPath],
       next: null,
       reasonCode: 'implementation_failed',
@@ -2291,6 +2293,8 @@ describe('runExecute controller', () => {
       ownerId: fixture.runId,
       branch: fixture.branch,
       head: fixture.currentHead,
+      publicationPaths: [fixture.productPath],
+      workflowEvidencePaths: [],
     });
     const before = fixture.snapshot();
     expect(discoverRecovery({
@@ -2304,6 +2308,8 @@ describe('runExecute controller', () => {
         ownerId: fixture.runId,
         head: fixture.currentHead,
         checkpointHead: fixture.checkpointHead,
+        publicationPaths: [fixture.productPath],
+        workflowEvidencePaths: [],
       },
     });
     expect(fixture.snapshot()).toEqual(before);
@@ -2339,6 +2345,8 @@ describe('runExecute controller', () => {
         evidence: expect.objectContaining({
           checkpointHead: fixture.checkpointHead,
           currentHead: fixture.currentHead,
+          publicationPaths: [fixture.productPath],
+          workflowEvidencePaths: [],
           handoffArchive: expect.objectContaining({
             path: expect.stringMatching(/^\.omp\/sdlc\/history\/exclusive-implement-resume\/81-implement-[0-9a-f]{64}\.json$/),
           }),
@@ -2359,6 +2367,8 @@ describe('runExecute controller', () => {
           class: 'exclusive_implement_resume',
           checkpointHead: fixture.checkpointHead,
           currentHead: fixture.currentHead,
+          publicationPaths: [fixture.productPath],
+          workflowEvidencePaths: [],
           handoffArchive: archive,
         }),
       }),
@@ -2381,6 +2391,39 @@ describe('runExecute controller', () => {
   });
 
   it.each([
+    ['equal HEAD', (fixture) => {
+      const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+      checkpoint.head = fixture.currentHead;
+      fixture.put('.omp/sdlc/run.json', `${JSON.stringify(checkpoint)}\n`);
+    }],
+    ['multiple descendant commits', (fixture) => {
+      fixture.put(fixture.productPath, 'route planner v3\n');
+      fixture.git('add', fixture.productPath);
+      fixture.git('commit', '-m', 'fix: suppress stale route display errors (#81)');
+    }],
+    ['merge history', (fixture) => {
+      fixture.git('switch', '-c', 'resume-side', fixture.checkpointHead);
+      fixture.put('mobile/side.dart', 'side change\n');
+      fixture.git('add', 'mobile/side.dart');
+      fixture.git('commit', '-m', 'fix: suppress stale route display errors (#81)');
+      fixture.git('switch', fixture.branch);
+      fixture.git('merge', '--no-ff', '-m', 'fix: suppress stale route display errors (#81)', 'resume-side');
+    }],
+    ['foreign commit subject', (fixture) => {
+      fixture.git('commit', '--amend', '-m', 'fix: unrelated publication (#81)');
+    }],
+    ['denied commit path', (fixture) => {
+      fs.appendFileSync(path.join(fixture.root, fixture.spec, 'tasks.md'), '\nDenied mutation.\n');
+      fixture.git('add', `${fixture.spec}/tasks.md`);
+      fixture.git('commit', '--amend', '--no-edit');
+    }],
+    ['dirty tracked product', (fixture) => {
+      fixture.put(fixture.productPath, 'dirty route planner\n');
+    }],
+    ['ignored product', (fixture) => {
+      fixture.put('.git/info/exclude', '.omp/sdlc/\nmobile/ignored-product.dart\n');
+      fixture.put('mobile/ignored-product.dart', 'ignored product\n');
+    }],
     ['non-ancestor HEAD', (fixture) => {
       const checkpoint = fixture.readJson('.omp/sdlc/run.json');
       checkpoint.head = 'f'.repeat(40);
@@ -2428,7 +2471,7 @@ describe('runExecute controller', () => {
     expect(fixture.starts).toEqual([]);
   });
 
-  it('tracks an explicitly created issue verification report as implement-writable', () => {
+  it('permits the current verification report without a File(s) hint', () => {
     const fixture = makeExclusiveImplementResumeFixture();
     const scope = inspectPublicationScope({
       cwd: fixture.root,
@@ -2437,15 +2480,31 @@ describe('runExecute controller', () => {
       step: 'implement',
       run: fixture.run,
     });
-    expect(scope.trackedWritablePaths).toContain(fixture.reportPath);
-    expect(scope.allowedPaths).toContain(fixture.reportPath);
-    expect(scope.readOnlyPaths).not.toContain(fixture.reportPath);
-    expect(scope.readOnlyPaths).toEqual(expect.arrayContaining([
-      `${fixture.spec}/requirements.md`,
+    expect(scope).toMatchObject({
+      mutationPolicy: 'outcome',
+      trackedWritablePaths: [],
+      untrackedEvidencePaths: [],
+      taskOperations: [],
+      allowedPaths: [],
+    });
+    expect(scope.readOnlyPaths).toEqual([
       `${fixture.spec}/design.md`,
-      `${fixture.spec}/tasks.md`,
       `${fixture.spec}/feature.gherkin`,
-    ]));
+      `${fixture.spec}/requirements.md`,
+      `${fixture.spec}/tasks.md`,
+    ]);
+    expect(publicationPathDenied(fixture.reportPath, {
+      spec: fixture.spec,
+      readOnlyPaths: scope.readOnlyPaths,
+    })).toBe(false);
+    expect(publicationPathDenied(`${fixture.spec}/tasks.md`, {
+      spec: fixture.spec,
+      readOnlyPaths: scope.readOnlyPaths,
+    })).toBe(true);
+    expect(publicationPathDenied('specs/82-other/verification-report.md', {
+      spec: fixture.spec,
+      readOnlyPaths: scope.readOnlyPaths,
+    })).toBe(true);
   });
 
 

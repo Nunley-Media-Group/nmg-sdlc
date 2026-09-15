@@ -10,10 +10,12 @@ Feature: Investigate closed exclusive implement failures without replay
 
   @AC1 @regression
   Scenario: Discover a safe exclusive implement resume without mutation
-    Given implement failed after an exclusive worker advanced the issue branch from checkpoint HEAD to a descendant HEAD
+    Given implement failed after an exclusive worker created one strict-descendant commit
+    And the commit is single-parent with the owner-planned subject and only non-denied paths
     And workers are empty and the unique incomplete owner id equals the run id
     When recovery discovery runs
     Then it reports loop-recovery-available with class exclusive_implement_resume
+    And it reports the observed commit paths
     And checkpoint handoff and safe-recovery bytes are unchanged
 
   @AC2 @regression
@@ -43,18 +45,19 @@ Feature: Investigate closed exclusive implement failures without replay
 
   @AC5 @regression
   Scenario: Unsafe exclusive recovery remains blocked
-    Given the branch is wrong or a worker is live or current HEAD is not a checkpoint descendant or the owner is missing
+    Given HEAD is equal, non-descendant, multiple commits, a merge, or not owner-subject publication
+    Or the branch, worker, owner, commit paths, dirty state, ignored state, or terminal evidence is unsafe
     When recovery is evaluated
     Then no recovery is available
     And no worker starts
 
   @AC6 @regression
-  Scenario: Explicit verification report create is writable
-    Given implement tasks list the exact issue verification-report path with operation Create
-    When publication scope is inspected
-    Then the report path is tracked writable and allowed
-    And the report path is not read-only
-    And the four approved spec inputs remain read-only
+  Scenario: Outcome policy permits the current verification report
+    Given implement tasks omit the current verification-report path from optional File(s)
+    When publication scope and exclusive recovery are inspected
+    Then mutationPolicy is outcome
+    And the current verification report is not denied
+    And the four Approved spec inputs and every other specs path remain denied
 
   @AC7 @regression
   Scenario: Consumed failed resume cannot replay
