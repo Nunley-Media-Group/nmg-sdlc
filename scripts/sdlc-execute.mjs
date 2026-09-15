@@ -584,6 +584,7 @@ function inspectRecoveryWorkers(data, herdr) {
 }
 
 const REPAIRED_PUBLICATION_RECOVERY = 'repaired_publication_intervention';
+const EXCLUSIVE_IMPLEMENT_RESUME = 'exclusive_implement_resume';
 const TERMINAL_GOAL_EVIDENCE_PATHS = Object.freeze([
   '.pi-glla/active.jsonl',
   '.pi-glla/owner.json',
@@ -716,7 +717,13 @@ function archiveFailedHandoff(root, proof) {
     )) {
     throw new Error('invalid_handoff');
   }
-  const historyDirectory = `${RUN_DIR}/history/repaired-publication`;
+  const historyName = proof.class === REPAIRED_PUBLICATION_RECOVERY
+    ? 'repaired-publication'
+    : proof.class === EXCLUSIVE_IMPLEMENT_RESUME
+      ? 'exclusive-implement-resume'
+      : null;
+  if (!historyName) throw new Error('handoff_archive_failed');
+  const historyDirectory = `${RUN_DIR}/history/${historyName}`;
   ensureControllerHistoryDirectory(root, historyDirectory);
   const archivePath = `${historyDirectory}/${proof.issue}-implement-${proof.handoffDigest}.json`;
   const target = join(root, archivePath);
@@ -843,11 +850,25 @@ function knownControllerStatePath(relativePath, allowOwnedLease, expectedHandoff
   return /^verification\/[1-9]\d*\.json$/.test(local);
 }
 
-function assertKnownControllerState(root, allowOwnedLease, checkpoint) {
+function assertKnownControllerState(
+  root,
+  allowOwnedLease,
+  checkpoint,
+  allowOwnerHandoffPaths = false,
+) {
   const safeState = parseBoundedJsonFile(root, `${RUN_DIR}/safe-recoveries.json`);
+  const expectedSlots = [...expectedExecuteHandoffSlots(checkpoint, safeState)];
+  if (allowOwnerHandoffPaths) {
+    for (const owner of safeState.owners) {
+      if (owner.projectRoot !== checkpoint.projectRoot) continue;
+      const lastStep = VALID_STEPS.indexOf(owner.step);
+      for (const step of VALID_STEPS.slice(0, lastStep + 1)) {
+        expectedSlots.push(`${owner.issue}-${step}`);
+      }
+    }
+  }
   const expectedHandoffPaths = new Set(
-    [...expectedExecuteHandoffSlots(checkpoint, safeState)]
-      .map((slot) => `${HANDOFF_DIR}/${slot}.json`),
+    expectedSlots.map((slot) => `${HANDOFF_DIR}/${slot}.json`),
   );
   const runtime = join(root, RUN_DIR);
   const pending = [[runtime, RUN_DIR]];
@@ -985,6 +1006,63 @@ function proveTerminalGoalEvidence(root, untrackedPaths) {
   return paths;
 }
 
+function recoveryWorkspaceAuthority({
+  root,
+  run,
+  probe,
+  spec,
+  observedTrackedPaths = [],
+  protectedRoots = [],
+}) {
+  const taskHintPaths = probe.scope.taskOperations
+    .flatMap(({ operations }) => operations
+      .filter(({ operation }) => !['Download untracked', 'Generate untracked'].includes(operation))
+      .map(({ path }) => path))
+    .filter((path) => !publicationPathDenied(path, {
+      spec,
+      readOnlyPaths: probe.scope.readOnlyPaths,
+    }));
+  const taskComponents = [...new Set(taskHintPaths.map((path) => path.split('/')[0]))]
+    .filter((component) => /^[A-Za-z0-9._-]+$/.test(component));
+  const taskManifestPaths = taskComponents.flatMap((component) =>
+    ['package.json', 'pubspec.yaml', 'pyproject.toml', 'Cargo.toml', 'go.mod']
+      .map((manifest) => `${component}/${manifest}`));
+  const observedTaskPaths = taskHintPaths.length
+    ? nulPathList(run('git', [
+      'ls-files', '--cached', '-z', '--', ...taskHintPaths, ...taskManifestPaths,
+    ], { cwd: root }))
+    : [];
+  const observedAuthorityPaths = [
+    ...new Set([
+      ...probe.scope.trackedWritablePaths,
+      ...observedTaskPaths,
+      ...observedTrackedPaths,
+    ]),
+  ].filter((path) => !publicationPathDenied(path, {
+    spec,
+    readOnlyPaths: probe.scope.readOnlyPaths,
+  }));
+  const protectedPaths = [
+    ...protectedRoots,
+    ...observedAuthorityPaths,
+    ...probe.scope.untrackedEvidencePaths,
+    ...probe.scope.readOnlyPaths,
+  ];
+  const workspaceAuthorityPaths = [
+    ...observedAuthorityPaths,
+    ...probe.scope.readOnlyPaths,
+  ];
+  const ignoredImplementationPaths = nulPathList(run('git', [
+    'ls-files', '--others', '--ignored', '--exclude-standard', '-z', '--',
+    ...new Set([
+      ...observedAuthorityPaths,
+      ...probe.scope.untrackedEvidencePaths,
+    ]),
+  ], { cwd: root }));
+  if (ignoredImplementationPaths.length > 0) throw new Error('implementation_paths_dirty');
+  return { protectedPaths, workspaceAuthorityPaths };
+}
+
 export function inspectRepairedPublicationIntervention({
   cwd = process.cwd(),
   checkpoint,
@@ -1087,51 +1165,14 @@ export function inspectRepairedPublicationIntervention({
   const ordinaryUntrackedPaths = status
     .filter(({ status: code }) => code === '??')
     .flatMap(({ paths }) => paths);
-  const taskHintPaths = probe.scope.taskOperations
-    .flatMap(({ operations }) => operations
-      .filter(({ operation }) => !['Download untracked', 'Generate untracked'].includes(operation))
-      .map(({ path }) => path))
-    .filter((path) => !publicationPathDenied(path, {
-      spec: specRelative,
-      readOnlyPaths: probe.scope.readOnlyPaths,
-    }));
-  const taskComponents = [...new Set(taskHintPaths.map((path) => path.split('/')[0]))]
-    .filter((component) => /^[A-Za-z0-9._-]+$/.test(component));
-  const taskManifestPaths = taskComponents.flatMap((component) =>
-    ['package.json', 'pubspec.yaml', 'pyproject.toml', 'Cargo.toml', 'go.mod']
-      .map((manifest) => `${component}/${manifest}`));
-  const observedTaskPaths = taskHintPaths.length
-    ? nulPathList(run('git', [
-      'ls-files', '--cached', '-z', '--', ...taskHintPaths, ...taskManifestPaths,
-    ], { cwd: root }))
-    : [];
-  const observedAuthorityPaths = [
-    ...new Set([...probe.scope.trackedWritablePaths, ...observedTaskPaths, ...trackedPaths]),
-  ].filter((path) => !publicationPathDenied(path, {
+  const { protectedPaths, workspaceAuthorityPaths } = recoveryWorkspaceAuthority({
+    root,
+    run,
+    probe,
     spec: specRelative,
-    readOnlyPaths: probe.scope.readOnlyPaths,
-  }));
-  const protectedPaths = [
-    tasksPath,
-    specRelative,
-    RUN_DIR,
-    '.pi-glla',
-    ...observedAuthorityPaths,
-    ...probe.scope.untrackedEvidencePaths,
-    ...probe.scope.readOnlyPaths,
-  ];
-  const workspaceAuthorityPaths = [
-    ...observedAuthorityPaths,
-    ...probe.scope.readOnlyPaths,
-  ];
-  const ignoredImplementationPaths = nulPathList(run('git', [
-    'ls-files', '--others', '--ignored', '--exclude-standard', '-z', '--',
-    ...new Set([
-      ...observedAuthorityPaths,
-      ...probe.scope.untrackedEvidencePaths,
-    ]),
-  ], { cwd: root }));
-  if (ignoredImplementationPaths.length > 0) throw new Error('implementation_paths_dirty');
+    observedTrackedPaths: trackedPaths,
+    protectedRoots: [tasksPath, specRelative, RUN_DIR, '.pi-glla'],
+  });
   assertKnownControllerState(root, allowOwnedLease, checkpoint);
   const ignoredPaths = status
     .filter(({ status: code }) => code === '!!')
@@ -1170,6 +1211,175 @@ export function inspectRepairedPublicationIntervention({
     head: checkout.head,
     tasksPath,
     publication,
+    workflowEvidencePaths,
+    handoff: structuredClone(handoff),
+    handoffPath,
+    handoffDigest: handoffSnapshot.digest,
+    handoffIdentity: handoffSnapshot.identity,
+    scope: probe.scope,
+    discrepancies: probe.binding.discrepancies,
+  };
+}
+
+export function inspectExclusiveImplementResume({
+  cwd = process.cwd(),
+  checkpoint,
+  handoff,
+  run = defaultRun,
+  allowOwnedLease = false,
+} = {}) {
+  const root = realpathSync(cwd);
+  if (!checkpoint || !validRunIdentity(checkpoint)
+    || checkpoint.projectRoot !== root
+    || checkpoint.currentStep !== 'implement'
+    || checkpoint.failed?.issue !== checkpoint.currentIssue
+    || checkpoint.failed?.step !== 'implement'
+    || checkpoint.failed?.reasonCode !== 'implementation_failed'
+    || Object.keys(checkpoint.workers || {}).length !== 0) {
+    throw new Error('exclusive_implement_resume_unproven');
+  }
+  const checkout = currentCheckout(root, run);
+  if (!checkout || !checkout.branch.startsWith(`${checkpoint.currentIssue}-`)) {
+    throw new Error('checkpoint_branch_mismatch');
+  }
+  if (checkout.head === checkpoint.head || !commandSucceeded(run('git', [
+    'merge-base', '--is-ancestor', checkpoint.head, checkout.head,
+  ], { cwd: root }))) {
+    throw new Error('checkpoint_head_mismatch');
+  }
+  const spec = specStatus(checkpoint.currentIssue, root);
+  if (!spec.approved || !spec.dir) throw new Error(spec.reasonCode || 'spec_not_approved');
+  const specRelative = isAbsolute(spec.dir)
+    ? relative(root, spec.dir).split('\\').join('/')
+    : spec.dir.split('\\').join('/');
+  const handoffPath = `${HANDOFF_DIR}/${checkpoint.currentIssue}-implement.json`;
+  const handoffSnapshot = readStrictHandoffSnapshot(
+    root,
+    handoffPath,
+    checkpoint.currentIssue,
+    'implement',
+  );
+  handoff = handoffSnapshot.handoff;
+  if (handoff.status !== 'failed'
+    || handoff.reasonCode !== 'implementation_failed'
+    || typeof handoff.intervention !== 'boolean'
+    || handoff.next !== null) {
+    throw new Error('exclusive_implement_resume_unproven');
+  }
+  const probe = probePublicationScope({
+    cwd: root,
+    issue: checkpoint.currentIssue,
+    step: 'implement',
+    spec: specRelative,
+    controllerRunId: checkpoint.runId,
+    run,
+  });
+  const requiredReadOnlyPaths = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']
+    .map((file) => `${specRelative}/${file}`);
+  if (!probe.passed || probe.ownerId !== checkpoint.runId
+    || probe.scope?.mutationPolicy !== 'outcome'
+    || !Array.isArray(probe.scope?.readOnlyPaths)
+    || requiredReadOnlyPaths.some((path) => !probe.scope.readOnlyPaths.includes(path))
+    || probe.binding.actualBranch !== checkout.branch
+    || probe.binding.recoveryOwner?.branch !== checkout.branch
+    || probe.binding.discrepancies.some(({ field }) => field !== 'branch')) {
+    throw new Error('publication_scope_unproven');
+  }
+  const plannedSubject = probe.binding.recoveryOwner?.plannedSubject;
+  const commitResult = run('git', [
+    'rev-list', '--reverse', `${checkpoint.head}..${checkout.head}`,
+  ], { cwd: root });
+  const commits = commandSucceeded(commitResult)
+    ? String(commitResult.stdout ?? '').trim().split('\n').filter(Boolean)
+    : [];
+  if (commits.length !== 1 || commits[0] !== checkout.head) {
+    throw new Error('exclusive_implement_publication_unproven');
+  }
+  const parentsResult = run('git', [
+    'rev-list', '--parents', '-n', '1', checkout.head,
+  ], { cwd: root });
+  const parents = commandSucceeded(parentsResult)
+    ? String(parentsResult.stdout ?? '').trim().split(/\s+/)
+    : [];
+  const subjectResult = run('git', ['log', '-1', '--format=%s', checkout.head], { cwd: root });
+  if (parents.length !== 2 || parents[0] !== checkout.head || parents[1] !== checkpoint.head
+    || typeof plannedSubject !== 'string' || !plannedSubject
+    || !commandSucceeded(subjectResult)
+    || String(subjectResult.stdout ?? '').trim() !== plannedSubject) {
+    throw new Error('exclusive_implement_publication_unproven');
+  }
+  const publicationPaths = nulPathList(run('git', [
+    'diff-tree', '--no-commit-id', '--name-only', '--no-renames', '-r', '-z', checkout.head,
+  ], { cwd: root }));
+  if (!publicationPaths.length || publicationPaths.some((path) => publicationPathDenied(path, {
+    spec: specRelative,
+    readOnlyPaths: probe.scope.readOnlyPaths,
+  }))) {
+    throw new Error('exclusive_implement_publication_unproven');
+  }
+  const lease = readControllerLease(root);
+  if (lease && !(allowOwnedLease && lease.runId === checkpoint.runId && lease.pid === process.pid)) {
+    throw new Error('controller_lease_held');
+  }
+  if (hasSafeRecoveryRecord({
+    cwd: root,
+    ownerId: probe.ownerId,
+    issue: checkpoint.currentIssue,
+    step: 'implement',
+    class: EXCLUSIVE_IMPLEMENT_RESUME,
+  })) {
+    throw new Error('recovery_consumed');
+  }
+  if (checkpoint.recoveries?.some((entry) => entry.runId === checkpoint.runId
+    && entry.issue === checkpoint.currentIssue && entry.step === 'implement'
+    && (entry.class === EXCLUSIVE_IMPLEMENT_RESUME
+      || entry.source?.class === EXCLUSIVE_IMPLEMENT_RESUME))) {
+    throw new Error('recovery_consumed');
+  }
+  assertKnownControllerState(root, allowOwnedLease, checkpoint, true);
+  const status = porcelainStatusEntries(run('git', [
+    'status', '--porcelain=v1', '-z', '--ignored=matching', '--untracked-files=all',
+  ], { cwd: root }));
+  if (status.some(({ status: code }) => !['??', '!!'].includes(code))) {
+    throw new Error('dirty_tree');
+  }
+  const ordinaryUntrackedPaths = status
+    .filter(({ status: code }) => code === '??')
+    .flatMap(({ paths }) => paths);
+  const { protectedPaths, workspaceAuthorityPaths } = recoveryWorkspaceAuthority({
+    root,
+    run,
+    probe,
+    spec: specRelative,
+    observedTrackedPaths: publicationPaths,
+    protectedRoots: [specRelative, RUN_DIR, '.pi-glla'],
+  });
+  const ignoredPaths = status
+    .filter(({ status: code }) => code === '!!')
+    .flatMap(({ paths }) => paths);
+  for (const ignoredPath of ignoredPaths) {
+    if (pathWithin(ignoredPath, RUN_DIR) || pathWithin(RUN_DIR, ignoredPath)) continue;
+    if (TERMINAL_GOAL_EVIDENCE_PATHS.some((path) =>
+      pathWithin(ignoredPath, path) || pathWithin(path, ignoredPath))
+      || !isIrrelevantIgnoredState(
+        root,
+        ignoredPath,
+        protectedPaths,
+        workspaceAuthorityPaths,
+      )) {
+      throw new Error('workflow_evidence_unproven');
+    }
+  }
+  const workflowEvidencePaths = proveTerminalGoalEvidence(root, ordinaryUntrackedPaths);
+  return {
+    class: EXCLUSIVE_IMPLEMENT_RESUME,
+    issue: checkpoint.currentIssue,
+    step: 'implement',
+    runId: checkpoint.runId,
+    ownerId: probe.ownerId,
+    branch: checkout.branch,
+    head: checkout.head,
+    publicationPaths,
     workflowEvidencePaths,
     handoff: structuredClone(handoff),
     handoffPath,
@@ -1237,6 +1447,8 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
     );
     const handoff = handoffResult.handoff;
     let repairedPublication = null;
+    let exclusiveResume = null;
+    let repairedPublicationError = null;
     if (data.currentStep === 'implement' && data.failed?.reasonCode === 'implementation_failed') {
       if (!handoff) return blocked('implementation_failed', handoffResult.reasonCode);
       if (handoff.status === 'failed' && handoff.intervention === true
@@ -1246,11 +1458,26 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
             cwd, checkpoint: data, handoff, run,
           });
         } catch (error) {
-          return blocked('implementation_failed', error?.message || 'repaired_intervention_unproven');
+          repairedPublicationError = error;
+        }
+      }
+      if (!repairedPublication && handoff.status === 'failed') {
+        try {
+          exclusiveResume = inspectExclusiveImplementResume({
+            cwd, checkpoint: data, handoff, run,
+          });
+        } catch (error) {
+          const evidenceError = checkout.head === data.head && repairedPublicationError
+            ? repairedPublicationError
+            : error;
+          return blocked(
+            'implementation_failed',
+            evidenceError?.message || 'exclusive_implement_resume_unproven',
+          );
         }
       }
     }
-    if (!repairedPublication && (
+    if (!repairedPublication && !exclusiveResume && (
       (data.failed?.intervention && !validatedPassedWorkerHandoff(cwd, data.currentIssue, data.currentStep, run))
       || handoff?.intervention || handoff?.status === 'blocked'
     )) {
@@ -1286,7 +1513,7 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
       return blocked('retained_worker_mismatch');
     }
     const state = recovery ? 'recovery-consumed'
-      : exhausted || repairedPublication ? 'loop-recovery-available'
+      : exhausted || repairedPublication || exclusiveResume ? 'loop-recovery-available'
         : 'resumable';
     return {
       state, issues: data.issues, runId: data.runId, branch: linked,
@@ -1302,6 +1529,16 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
           publication: repairedPublication.publication,
           workflowEvidencePaths: repairedPublication.workflowEvidencePaths,
           discrepancies: repairedPublication.discrepancies,
+        },
+      } : exclusiveResume ? {
+        recoveryClass: exclusiveResume.class,
+        recoveryEvidence: {
+          ownerId: exclusiveResume.ownerId,
+          head: exclusiveResume.head,
+          checkpointHead: data.head,
+          publicationPaths: exclusiveResume.publicationPaths,
+          workflowEvidencePaths: exclusiveResume.workflowEvidencePaths,
+          discrepancies: exclusiveResume.discrepancies,
         },
       } : {}),
       action: recovery
@@ -1394,6 +1631,7 @@ export function writeRunAt(
   runFile = RUN_FILE,
   handoffDirectory = HANDOFF_DIR,
   expectedRevision = 0,
+  { expectedHead = null } = {},
 ) {
   if (
     !runData
@@ -1403,6 +1641,7 @@ export function writeRunAt(
     || !validRunIdentity(runData)
     || !validPromptDeliveryStates(runData)
     || runData.revision !== expectedRevision + 1
+    || (expectedHead !== null && !/^[0-9a-f]{40}$/.test(expectedHead))
   ) {
     throw new Error('invalid run schema');
   }
@@ -1451,7 +1690,8 @@ export function writeRunAt(
         if (!bindable) throw new Error('identity_mismatch');
       } else {
         if (existing.revision !== expectedRevision) throw new Error('stale_revision');
-        if (!sameRunIdentity(existing, runData)) throw new Error('identity_mismatch');
+        const identity = expectedHead === null ? runData : { ...runData, head: expectedHead };
+        if (!sameRunIdentity(existing, identity)) throw new Error('identity_mismatch');
       }
     } else if (expectedRevision !== 0) {
       throw new Error('stale_revision');
@@ -1480,6 +1720,18 @@ function persistRunState(runState, root) {
   runState.revision = expectedRevision + 1;
   try {
     writeRun(runState, root, expectedRevision);
+  } catch (error) {
+    runState.revision = previous;
+    throw error;
+  }
+}
+
+function persistRunStateWithHeadCas(runState, root, expectedHead) {
+  const expectedRevision = Number.isSafeInteger(runState.revision) ? runState.revision : 0;
+  const previous = runState.revision;
+  runState.revision = expectedRevision + 1;
+  try {
+    writeRunAt(runState, root, RUN_FILE, HANDOFF_DIR, expectedRevision, { expectedHead });
   } catch (error) {
     runState.revision = previous;
     throw error;
@@ -1780,6 +2032,48 @@ export function remediationPrompt({
   });
   const contract = stepPrompt;
   return `${header}\n---\n${contract}`;
+}
+
+export function exclusiveResumePrompt({
+  issue,
+  cwd,
+  controllerRunId,
+  checkpointHead,
+  currentHead,
+  branch,
+  handoff,
+} = {}) {
+  const artifacts = Array.isArray(handoff?.artifacts) && handoff.artifacts.length > 0
+    ? handoff.artifacts.map((artifact) => `- ${artifact}`).join('\n')
+    : '- (none)';
+  const header = [
+    `You are resuming exclusive implement for issue #${issue} after the prior worker closed.`,
+    'This is not a fresh implement and not a remediation retry.',
+    `checkpointHead: ${checkpointHead}`,
+    `currentHead: ${currentHead}`,
+    `branch: ${branch}`,
+    `reasonCode: ${handoff?.reasonCode}`,
+    `summary: ${handoff?.summary}`,
+    'artifacts:',
+    artifacts,
+    '',
+    'Required investigation before any edit:',
+    '1. Read the approved spec (requirements.md, design.md, tasks.md, feature.gherkin).',
+    `2. Read .omp/sdlc/handoffs/${issue}-implement.json and the archived exclusive-resume handoff if present.`,
+    `3. Inspect git log and diff ${checkpointHead}..${currentHead} plus porcelain.`,
+    '4. Map every tasks.md acceptance bullet to: already satisfied in the current tree, remaining authorized work, or still-blocked prerequisite.',
+    '5. Do not re-implement satisfied tasks. Do not reset, rebase, or discard current HEAD.',
+    '6. Perform only remaining authorized work that advances the spec.',
+    '7. If remaining work is only a previously recorded prerequisite that the current owner-bound probe still forbids, write status failed, intervention true, reasonCode implementation_failed, next null, naming the exact current prerequisite; make no empty or duplicate product commit.',
+    '8. If remaining work is authorized, complete it, run appended Simplify if present, then existing implement commit/push/reconcile gates, and write a passed implement handoff.',
+    `9. Never call ask. Never write rem step identity. Keep step implement and path .omp/sdlc/handoffs/${issue}-implement.json.`,
+  ].join('\n');
+  return `${header}\n---\n${workerPrompt({
+    step: 'implement',
+    issue,
+    cwd,
+    controllerRunId,
+  })}`;
 }
 
 function workerPromptFailureReason(error) {
@@ -3156,6 +3450,24 @@ export function runExecute({
 
   function promptForPendingWorker(worker) {
     if (worker.name === `s${worker.issue}-${worker.step}`) {
+      const recovery = recoveryDispatch === `${worker.issue}:${worker.step}`
+        ? runState.recoveries?.findLast((entry) => entry.runId === runState.runId
+          && entry.issue === worker.issue && entry.step === worker.step
+          && entry.source?.class === EXCLUSIVE_IMPLEMENT_RESUME)
+        : null;
+      if (recovery) {
+        const checkout = currentCheckout(cwd, run);
+        if (!checkout) throw new Error('checkpoint_unreadable');
+        return exclusiveResumePrompt({
+          issue: worker.issue,
+          cwd,
+          controllerRunId: runState.runId,
+          checkpointHead: recovery.source.checkpointHead,
+          currentHead: runState.head,
+          branch: checkout.branch,
+          handoff: recovery.handoff,
+        });
+      }
       return workerPrompt({
         step: worker.step,
         issue: worker.issue,
@@ -3200,8 +3512,11 @@ export function runExecute({
   if (repairedRecoveryClass) {
     let proof;
     try {
-      if (!bareRecovery || repairedRecoveryClass !== REPAIRED_PUBLICATION_RECOVERY) {
-        throw new Error('repaired_intervention_unproven');
+      if (!bareRecovery || ![
+        REPAIRED_PUBLICATION_RECOVERY,
+        EXCLUSIVE_IMPLEMENT_RESUME,
+      ].includes(repairedRecoveryClass)) {
+        throw new Error('safe_recovery_unproven');
       }
       runState = latestMatchingRunState(runState, cwd);
       if (runState.currentIssue !== recoveryIssue || runState.currentStep !== recoveryStep
@@ -3210,7 +3525,11 @@ export function runExecute({
       }
       const issue = runState.currentIssue;
       const step = runState.currentStep;
-      proof = inspectRepairedPublicationIntervention({
+      const checkpointHead = runState.head;
+      const inspect = repairedRecoveryClass === REPAIRED_PUBLICATION_RECOVERY
+        ? inspectRepairedPublicationIntervention
+        : inspectExclusiveImplementResume;
+      proof = inspect({
         cwd,
         checkpoint: runState,
         run,
@@ -3228,8 +3547,11 @@ export function runExecute({
           branch: proof.branch,
           tasksPath: proof.tasksPath,
           publication: proof.publication,
+          publicationPaths: proof.publicationPaths,
           workflowEvidencePaths: proof.workflowEvidencePaths,
           handoffArchive: archivedHandoff,
+          checkpointHead,
+          currentHead: proof.head,
           discrepancies: proof.discrepancies,
         },
       });
@@ -3245,21 +3567,27 @@ export function runExecute({
           class: proof.class,
           tasksPath: proof.tasksPath,
           publication: proof.publication,
+          publicationPaths: proof.publicationPaths,
+          workflowEvidencePaths: proof.workflowEvidencePaths,
           handoffArchive: archivedHandoff,
+          checkpointHead,
+          currentHead: proof.head,
+          branch: proof.branch,
         },
         failure: structuredClone(runState.failed),
         handoff: proof.handoff,
         disposition: 'consumed',
       });
+      runState.head = proof.head;
       runState.failed = null;
       delete runState.remediation;
-      persistRunState(runState, cwd);
+      persistRunStateWithHeadCas(runState, cwd, checkpointHead);
       recoveryDispatch = `${issue}:${step}`;
     } catch (error) {
       return {
         status: 1,
         stdout: `${output.join('\n')}${output.length ? '\n' : ''}`,
-        stderr: `${error?.reasonCode || error?.message || 'repaired_intervention_unproven'}\n`,
+        stderr: `${error?.reasonCode || error?.message || 'safe_recovery_unproven'}\n`,
       };
     }
   }
@@ -4518,10 +4846,7 @@ export function runExecute({
       const reviewStep = step === 'review1' || step === 'review2';
       let prompt;
       try {
-        const stepPrompt = workerPrompt({
-          step, issue, cwd, controllerRunId: runState.runId,
-        });
-        prompt = stepPrompt;
+        prompt = promptForPendingWorker({ name: agentName, issue, step });
       } catch (error) {
         const reasonCode = workerPromptFailureReason(error);
         const closed = closePane(herdrApi, paneId);

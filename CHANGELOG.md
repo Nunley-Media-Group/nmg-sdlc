@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.22.1] - 2026-09-15
+
+### Fixed
+
+- Resume a closed exclusive implement worker exactly once only after proving one strict-descendant, single-parent, owner-subject commit with non-denied outcome paths and clean tracked, untracked, ignored, and terminal evidence; investigate remaining Acceptance instead of replaying completed work (#396).
+
 ## [3.22.0] - 2026-09-14
 
 ### Changed

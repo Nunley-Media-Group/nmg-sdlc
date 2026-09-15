@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   discoverRecovery,
   inspectRepairedPublicationIntervention,
+  inspectExclusiveImplementResume,
   parseArgs,
   VALID_STEPS,
   selectBacklog,
@@ -22,6 +23,7 @@ import {
   remAgentName,
   isRemediableFailedHandoff,
   remediationPrompt,
+  exclusiveResumePrompt,
   writeRun,
   cleanupCompletedRun,
   runExecute,
@@ -40,6 +42,8 @@ import {
   consumeSafeRecovery,
   expectedExecuteHandoffSlots,
   resolveRecoveryOwner,
+  inspectPublicationScope,
+  publicationPathDenied,
 } from '../sdlc-safe-recoveries.mjs';
 
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -2016,6 +2020,7 @@ describe('runExecute controller', () => {
       return spawnSync(command, args, { cwd: root, encoding: 'utf8', ...options });
     };
     const starts = [];
+    const prompts = [];
     const closed = [];
     let pane = 0;
     const herdr = {
@@ -2036,7 +2041,8 @@ describe('runExecute controller', () => {
         starts.push(input);
         return { status: 0 };
       },
-      agentPrompt: ({ name }) => {
+      agentPrompt: ({ name, prompt }) => {
+        prompts.push(prompt);
         expect(name).toBe('s108-implement');
         put(handoffPath, `${JSON.stringify({
           schemaVersion: 1,
@@ -2085,6 +2091,7 @@ describe('runExecute controller', () => {
       run,
       herdr,
       starts,
+      prompts,
       put,
       git,
       readJson,
@@ -2093,11 +2100,413 @@ describe('runExecute controller', () => {
     };
   }
 
+  function makeExclusiveImplementResumeFixture() {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-exclusive-resume-'));
+    roots.push(root);
+    const branch = '81-suppress-stale-concurrent-route-display-errors';
+    const runId = '6fbedcb2-7ff6-4143-90d9-b6cc286f6a22';
+    const spec = 'specs/81-stale-displayroute-error';
+    const reportPath = `${spec}/verification-report.md`;
+    const handoffPath = '.omp/sdlc/handoffs/81-implement.json';
+    const productPath = 'mobile/lib/screens/route_planner_screen.dart';
+    const put = (relativePath, value) => {
+      const target = path.join(root, relativePath);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, value);
+    };
+    const fixtureGit = (...args) => {
+      const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+      if (result.status !== 0) throw new Error(`git ${args.join(' ')}: ${result.stderr}`);
+      return result.stdout.trim();
+    };
+    fixtureGit('init', '-b', branch);
+    fixtureGit('config', 'user.name', 'Exclusive resume fixture');
+    fixtureGit('config', 'user.email', 'fixture@example.test');
+    fixtureGit('config', 'commit.gpgsign', 'false');
+    put('.gitignore', '.omp/sdlc/\n');
+    put(productPath, 'route planner v1\n');
+    put('mobile/pubspec.yaml', 'name: exclusive_resume_fixture\n');
+    const header = '**Issue**: #81\n**Status**: Approved\n\n';
+    put(`${spec}/requirements.md`, `${header}### AC1: Suppress stale failures\n`);
+    put(`${spec}/design.md`, `${header}Use operation identity.\n`);
+    put(`${spec}/tasks.md`, `${header}### T001: Implement stale display suppression\n**File(s)**: \`${productPath}\` (Modify)\n**Type**: Modify\n**Acceptance**:\n- [ ] Stale display failures do not reach the rider.\n\n### T003: Record verification evidence\n**Type**: Create\n**Acceptance**:\n- [ ] Record the verified behavior.\n`);
+    put(`${spec}/feature.gherkin`, `${header}Feature: Stale display failures\n  Scenario: Suppress stale failure\n`);
+    fixtureGit('add', '.');
+    fixtureGit('commit', '-m', 'docs: approve spec for #81');
+    const checkpointHead = fixtureGit('rev-parse', 'HEAD');
+    put(productPath, 'route planner v2\n');
+    fixtureGit('add', productPath);
+    fixtureGit('commit', '-m', 'fix: suppress stale route display errors (#81)');
+    const currentHead = fixtureGit('rev-parse', 'HEAD');
+    const runState = {
+      schemaVersion: 1,
+      projectRoot: fs.realpathSync(root),
+      runId,
+      issue: 81,
+      branch: 'main',
+      head: checkpointHead,
+      issues: [81],
+      revision: 11,
+      currentIssue: 81,
+      currentStep: 'implement',
+      completed: { 81: ['start'] },
+      failed: { issue: 81, step: 'implement', reasonCode: 'implementation_failed' },
+      startedAt: '2026-09-15T02:52:59.133Z',
+      workers: {},
+    };
+    const handoff = {
+      schemaVersion: 1,
+      issue: 81,
+      step: 'implement',
+      status: 'failed',
+      intervention: true,
+      summary: 'T001 and T002 passed; the prior plugin blocked T003 publication.',
+      artifacts: [`commit:${currentHead}`, productPath],
+      next: null,
+      reasonCode: 'implementation_failed',
+    };
+    const safeState = {
+      schemaVersion: 1,
+      revision: 4,
+      owners: [{
+        ownerId: runId,
+        projectRoot: fs.realpathSync(root),
+        issue: 81,
+        branch,
+        step: 'implement',
+        plannedSubject: 'fix: suppress stale route display errors (#81)',
+        status: 'incomplete',
+      }],
+      records: [],
+    };
+    put('.omp/sdlc/run.json', `${JSON.stringify(runState, null, 2)}\n`);
+    put(handoffPath, `${JSON.stringify(handoff, null, 2)}\n`);
+    put('.omp/sdlc/safe-recoveries.json', `${JSON.stringify(safeState, null, 2)}\n`);
+    const run = (command, args, options = {}) => {
+      if (command === 'gh' && args[0] === 'auth') return { status: 0, stdout: '', stderr: '' };
+      if (command === 'gh' && args[0] === 'issue' && args[1] === 'view') {
+        return {
+          status: 0,
+          stdout: JSON.stringify(args.some((arg) => String(arg).includes('labels'))
+            ? { number: 81, labels: [{ name: 'spec-created' }] }
+            : { title: 'Suppress stale concurrent route-display errors' }),
+          stderr: '',
+        };
+      }
+      return spawnSync(command, args, { cwd: root, encoding: 'utf8', ...options });
+    };
+    const starts = [];
+    const prompts = [];
+    const closed = [];
+    let pane = 0;
+    const herdr = {
+      integrationStatus: () => ({ status: 0, stdout: 'omp: current (v8)\n' }),
+      listAgents: () => starts
+        .filter(({ paneId }) => !closed.includes(paneId))
+        .map(({ name, paneId }) => ({ name, pane_id: paneId, state: 'done' })),
+      listPanes: () => starts
+        .filter(({ paneId }) => !closed.includes(paneId))
+        .map(({ paneId }) => ({ pane_id: paneId })),
+      paneLayout: () => ({ result: { width: 120, height: 40 } }),
+      paneSplit: () => ({ result: { pane: { pane_id: `pane-${++pane}` } } }),
+      paneClose: (paneId) => {
+        closed.push(paneId);
+        return { status: 0 };
+      },
+      agentStart: (input) => {
+        starts.push(input);
+        return { status: 0 };
+      },
+      agentPrompt: ({ name, prompt }) => {
+        prompts.push(prompt);
+        expect(name).toBe('s81-implement');
+        put(handoffPath, `${JSON.stringify({
+          schemaVersion: 1,
+          issue: 81,
+          step: 'implement',
+          status: 'failed',
+          intervention: true,
+          summary: 'Controlled owner-bound prerequisite remains.',
+          artifacts: [],
+          next: null,
+          reasonCode: 'controlled_boundary',
+        })}\n`);
+        return { status: 0 };
+      },
+      agentGet: () => ({ result: { state: 'done' } }),
+      agentWait: () => ({ status: 0 }),
+      agentRead: () => '',
+      agentSendKeys: () => ({ status: 0 }),
+      observationPause: () => {},
+      notificationShow: () => {},
+    };
+    const readJson = (relativePath) => JSON.parse(fs.readFileSync(path.join(root, relativePath), 'utf8'));
+    const snapshot = () => Object.fromEntries([
+      handoffPath,
+      '.omp/sdlc/run.json',
+      '.omp/sdlc/safe-recoveries.json',
+    ].map((relativePath) => [
+      relativePath,
+      createHash('sha256').update(fs.readFileSync(path.join(root, relativePath))).digest('hex'),
+    ]));
+    return {
+      root,
+      branch,
+      runId,
+      spec,
+      reportPath,
+      handoffPath,
+      productPath,
+      checkpointHead,
+      currentHead,
+      handoff,
+      run,
+      herdr,
+      starts,
+      prompts,
+      put,
+      git: fixtureGit,
+      readJson,
+      snapshot,
+    };
+  }
+
   const TERMINAL_TEST_EVIDENCE_PATHS = [
     '.pi-glla/active.jsonl',
     '.pi-glla/owner.json',
     '.pi-glla/session-owner.json',
   ];
+  it('discovers descendant-HEAD exclusive implement resume without mutation', () => {
+    const fixture = makeExclusiveImplementResumeFixture();
+    const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+    const proof = inspectExclusiveImplementResume({
+      cwd: fixture.root,
+      checkpoint,
+      handoff: fixture.handoff,
+      run: fixture.run,
+    });
+    expect(proof).toMatchObject({
+      class: 'exclusive_implement_resume',
+      issue: 81,
+      step: 'implement',
+      runId: fixture.runId,
+      ownerId: fixture.runId,
+      branch: fixture.branch,
+      head: fixture.currentHead,
+      publicationPaths: [fixture.productPath],
+      workflowEvidencePaths: [],
+    });
+    const before = fixture.snapshot();
+    expect(discoverRecovery({
+      cwd: fixture.root,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    })).toMatchObject({
+      state: 'loop-recovery-available',
+      recoveryClass: 'exclusive_implement_resume',
+      recoveryEvidence: {
+        ownerId: fixture.runId,
+        head: fixture.currentHead,
+        checkpointHead: fixture.checkpointHead,
+        publicationPaths: [fixture.productPath],
+        workflowEvidencePaths: [],
+      },
+    });
+    expect(fixture.snapshot()).toEqual(before);
+  });
+
+  it('bare run consumes exclusive resume and dispatches investigative implement once', () => {
+    const fixture = makeExclusiveImplementResumeFixture();
+    const originalHandoffBytes = fs.readFileSync(path.join(fixture.root, fixture.handoffPath));
+    const result = runExecute({
+      args: '',
+      cwd: fixture.root,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    expect(result.status).toBe(1);
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['s81-implement']);
+    expect(fixture.starts.some(({ name }) => name === 'r81-implement')).toBe(false);
+    expect(fixture.prompts).toHaveLength(1);
+    expect(fixture.prompts[0]).toMatch(/^You are resuming exclusive implement for issue #81/);
+    expect(fixture.prompts[0]).toContain(`checkpointHead: ${fixture.checkpointHead}`);
+    expect(fixture.prompts[0]).toContain(`currentHead: ${fixture.currentHead}`);
+    expect(fixture.prompts[0]).toContain(fixture.handoff.summary);
+    expect(fixture.prompts[0]).toContain('Map every tasks.md acceptance bullet');
+    const safe = fixture.readJson('.omp/sdlc/safe-recoveries.json');
+    expect(safe.records).toEqual([
+      expect.objectContaining({
+        class: 'exclusive_implement_resume',
+        runId: fixture.runId,
+        issue: 81,
+        step: 'implement',
+        disposition: 'consumed',
+        evidence: expect.objectContaining({
+          checkpointHead: fixture.checkpointHead,
+          currentHead: fixture.currentHead,
+          publicationPaths: [fixture.productPath],
+          workflowEvidencePaths: [],
+          handoffArchive: expect.objectContaining({
+            path: expect.stringMatching(/^\.omp\/sdlc\/history\/exclusive-implement-resume\/81-implement-[0-9a-f]{64}\.json$/),
+          }),
+        }),
+      }),
+    ]);
+    const archive = safe.records[0].evidence.handoffArchive;
+    expect(fs.readFileSync(path.join(fixture.root, archive.path))).toEqual(originalHandoffBytes);
+    const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+    expect(checkpoint.head).toBe(fixture.currentHead);
+    expect(checkpoint.remediation).toBeUndefined();
+    expect(checkpoint.recoveries).toEqual([
+      expect.objectContaining({
+        issue: 81,
+        step: 'implement',
+        disposition: 'stopped',
+        source: expect.objectContaining({
+          class: 'exclusive_implement_resume',
+          checkpointHead: fixture.checkpointHead,
+          currentHead: fixture.currentHead,
+          publicationPaths: [fixture.productPath],
+          workflowEvidencePaths: [],
+          handoffArchive: archive,
+        }),
+      }),
+    ]);
+    expect(discoverRecovery({
+      cwd: fixture.root,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    }).state).not.toBe('loop-recovery-available');
+
+    const second = runExecute({
+      args: '',
+      cwd: fixture.root,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    expect(second.status).toBe(1);
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['s81-implement']);
+  });
+
+  it.each([
+    ['equal HEAD', (fixture) => {
+      const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+      checkpoint.head = fixture.currentHead;
+      fixture.put('.omp/sdlc/run.json', `${JSON.stringify(checkpoint)}\n`);
+    }],
+    ['multiple descendant commits', (fixture) => {
+      fixture.put(fixture.productPath, 'route planner v3\n');
+      fixture.git('add', fixture.productPath);
+      fixture.git('commit', '-m', 'fix: suppress stale route display errors (#81)');
+    }],
+    ['merge history', (fixture) => {
+      fixture.git('switch', '-c', 'resume-side', fixture.checkpointHead);
+      fixture.put('mobile/side.dart', 'side change\n');
+      fixture.git('add', 'mobile/side.dart');
+      fixture.git('commit', '-m', 'fix: suppress stale route display errors (#81)');
+      fixture.git('switch', fixture.branch);
+      fixture.git('merge', '--no-ff', '-m', 'fix: suppress stale route display errors (#81)', 'resume-side');
+    }],
+    ['foreign commit subject', (fixture) => {
+      fixture.git('commit', '--amend', '-m', 'fix: unrelated publication (#81)');
+    }],
+    ['denied commit path', (fixture) => {
+      fs.appendFileSync(path.join(fixture.root, fixture.spec, 'tasks.md'), '\nDenied mutation.\n');
+      fixture.git('add', `${fixture.spec}/tasks.md`);
+      fixture.git('commit', '--amend', '--no-edit');
+    }],
+    ['dirty tracked product', (fixture) => {
+      fixture.put(fixture.productPath, 'dirty route planner\n');
+    }],
+    ['ignored product', (fixture) => {
+      fixture.put('.git/info/exclude', '.omp/sdlc/\nmobile/ignored-product.dart\n');
+      fixture.put('mobile/ignored-product.dart', 'ignored product\n');
+    }],
+    ['non-ancestor HEAD', (fixture) => {
+      const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+      checkpoint.head = 'f'.repeat(40);
+      fixture.put('.omp/sdlc/run.json', `${JSON.stringify(checkpoint)}\n`);
+    }],
+    ['wrong branch', (fixture) => fixture.git('switch', '-c', '82-wrong-issue')],
+    ['live worker', (fixture) => {
+      const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+      checkpoint.workers['s81-implement'] = {
+        name: 's81-implement',
+        paneId: 'live-pane',
+        projectRoot: fs.realpathSync(fixture.root),
+        runId: fixture.runId,
+        issue: 81,
+        step: 'implement',
+        branch: fixture.branch,
+        head: fixture.currentHead,
+      };
+      fixture.put('.omp/sdlc/run.json', `${JSON.stringify(checkpoint)}\n`);
+    }],
+    ['missing owner', (fixture) => {
+      const safe = fixture.readJson('.omp/sdlc/safe-recoveries.json');
+      safe.owners = [];
+      fixture.put('.omp/sdlc/safe-recoveries.json', `${JSON.stringify(safe)}\n`);
+    }],
+    ['prior exclusive recovery', (fixture) => {
+      const checkpoint = fixture.readJson('.omp/sdlc/run.json');
+      checkpoint.recoveries = [{
+        runId: fixture.runId,
+        issue: 81,
+        step: 'implement',
+        source: { class: 'exclusive_implement_resume' },
+        disposition: 'consumed',
+      }];
+      fixture.put('.omp/sdlc/run.json', `${JSON.stringify(checkpoint)}\n`);
+    }],
+  ])('keeps exclusive implement resume blocked for %s', (_name, mutate) => {
+    const fixture = makeExclusiveImplementResumeFixture();
+    mutate(fixture);
+    expect(discoverRecovery({
+      cwd: fixture.root,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    }).state).toBe('blocked');
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('permits the current verification report without a File(s) hint', () => {
+    const fixture = makeExclusiveImplementResumeFixture();
+    const scope = inspectPublicationScope({
+      cwd: fixture.root,
+      issue: 81,
+      spec: fixture.spec,
+      step: 'implement',
+      run: fixture.run,
+    });
+    expect(scope).toMatchObject({
+      mutationPolicy: 'outcome',
+      trackedWritablePaths: [],
+      untrackedEvidencePaths: [],
+      taskOperations: [],
+      allowedPaths: [],
+    });
+    expect(scope.readOnlyPaths).toEqual([
+      `${fixture.spec}/design.md`,
+      `${fixture.spec}/feature.gherkin`,
+      `${fixture.spec}/requirements.md`,
+      `${fixture.spec}/tasks.md`,
+    ]);
+    expect(publicationPathDenied(fixture.reportPath, {
+      spec: fixture.spec,
+      readOnlyPaths: scope.readOnlyPaths,
+    })).toBe(false);
+    expect(publicationPathDenied(`${fixture.spec}/tasks.md`, {
+      spec: fixture.spec,
+      readOnlyPaths: scope.readOnlyPaths,
+    })).toBe(true);
+    expect(publicationPathDenied('specs/82-other/verification-report.md', {
+      spec: fixture.spec,
+      readOnlyPaths: scope.readOnlyPaths,
+    })).toBe(true);
+  });
+
 
   it('discovers the exact repaired PathCast-like 18/12/6 intervention', () => {
     const fixture = makeRepairedPublicationFixture({ repaired: false });
@@ -2599,6 +3008,8 @@ describe('runExecute controller', () => {
     });
     expect(result.status).toBe(1);
     expect(fixture.starts.map(({ name }) => name)).toEqual(['s108-implement']);
+    expect(fixture.prompts).toHaveLength(1);
+    expect(fixture.prompts[0]).not.toMatch(/^You are resuming exclusive implement/);
     const safe = fixture.readJson('.omp/sdlc/safe-recoveries.json');
     const archive = safe.records[0].evidence.handoffArchive;
     expect(safe.records).toEqual([
