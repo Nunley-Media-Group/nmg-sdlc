@@ -59,6 +59,15 @@ The resolved `skill://skill-creator` validator was run against temporary `SKILL.
 
 Passed: `write-code` valid at 122 lines; `write-spec` valid at 198 lines. Temporary validation files were deleted.
 
+### Prompt portability regressions
+
+```text
+cd scripts
+npm test -- extension-commands.test.mjs rendered-prompt-contract.test.mjs --runInBand
+```
+
+Passed: 2 suites, 10 tests, 0 failures. Source workflow commands use the portable `<plugin-root>` token and retain the pre-staging failure boundary.
+
 ### Plugin surface
 
 ```text
