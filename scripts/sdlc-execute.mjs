@@ -39,6 +39,7 @@ import {
   inspectPublicationScope,
   hasSafeRecoveryRecord,
   probePublicationScope,
+  publicationPathDenied,
   resolveRecoveryOwner,
   expectedExecuteHandoffSlots,
 } from './sdlc-safe-recoveries.mjs';
@@ -1042,8 +1043,12 @@ export function inspectRepairedPublicationIntervention({
     controllerRunId: checkpoint.runId,
     run,
   });
+  const requiredReadOnlyPaths = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']
+    .map((file) => `${specRelative}/${file}`);
   if (!probe.passed || probe.ownerId !== checkpoint.runId
-    || !Array.isArray(probe.scope?.allowedPaths) || probe.scope.allowedPaths.length === 0
+    || probe.scope?.mutationPolicy !== 'outcome'
+    || !Array.isArray(probe.scope?.readOnlyPaths)
+    || requiredReadOnlyPaths.some((path) => !probe.scope.readOnlyPaths.includes(path))
     || probe.binding.actualBranch !== checkout.branch
     || probe.binding.recoveryOwner?.branch !== checkout.branch
     || probe.binding.discrepancies.some(({ field }) => field !== 'branch')) {
@@ -1082,24 +1087,47 @@ export function inspectRepairedPublicationIntervention({
   const ordinaryUntrackedPaths = status
     .filter(({ status: code }) => code === '??')
     .flatMap(({ paths }) => paths);
+  const taskHintPaths = probe.scope.taskOperations
+    .flatMap(({ operations }) => operations
+      .filter(({ operation }) => !['Download untracked', 'Generate untracked'].includes(operation))
+      .map(({ path }) => path))
+    .filter((path) => !publicationPathDenied(path, {
+      spec: specRelative,
+      readOnlyPaths: probe.scope.readOnlyPaths,
+    }));
+  const taskComponents = [...new Set(taskHintPaths.map((path) => path.split('/')[0]))]
+    .filter((component) => /^[A-Za-z0-9._-]+$/.test(component));
+  const taskManifestPaths = taskComponents.flatMap((component) =>
+    ['package.json', 'pubspec.yaml', 'pyproject.toml', 'Cargo.toml', 'go.mod']
+      .map((manifest) => `${component}/${manifest}`));
+  const observedTaskPaths = taskHintPaths.length
+    ? nulPathList(run('git', [
+      'ls-files', '--cached', '-z', '--', ...taskHintPaths, ...taskManifestPaths,
+    ], { cwd: root }))
+    : [];
+  const observedAuthorityPaths = [
+    ...new Set([...probe.scope.trackedWritablePaths, ...observedTaskPaths, ...trackedPaths]),
+  ].filter((path) => !publicationPathDenied(path, {
+    spec: specRelative,
+    readOnlyPaths: probe.scope.readOnlyPaths,
+  }));
   const protectedPaths = [
     tasksPath,
     specRelative,
     RUN_DIR,
     '.pi-glla',
-    ...probe.scope.trackedWritablePaths,
+    ...observedAuthorityPaths,
     ...probe.scope.untrackedEvidencePaths,
     ...probe.scope.readOnlyPaths,
-    ...probe.scope.allowedPaths,
   ];
   const workspaceAuthorityPaths = [
-    ...probe.scope.trackedWritablePaths,
+    ...observedAuthorityPaths,
     ...probe.scope.readOnlyPaths,
   ];
   const ignoredImplementationPaths = nulPathList(run('git', [
     'ls-files', '--others', '--ignored', '--exclude-standard', '-z', '--',
     ...new Set([
-      ...probe.scope.trackedWritablePaths,
+      ...observedAuthorityPaths,
       ...probe.scope.untrackedEvidencePaths,
     ]),
   ], { cwd: root }));

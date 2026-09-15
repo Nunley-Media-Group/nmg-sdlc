@@ -1,0 +1,60 @@
+**Issue**: #398
+**Date**: 2026-09-14
+**Status**: Approved
+**Author**: NMG
+
+# File: scripts/__tests__/sdlc-safe-recoveries.test.mjs
+# Generated from: specs/398-stop-execute-file-allowlist/requirements.md
+
+Feature: Stop execute File(s) allowlisting
+  Execute workers satisfy Approved outcomes while immutable inputs and unsafe
+  publication paths remain denied.
+
+  @AC1 @SCN001
+  Scenario: Missing File(s) does not block implement preflight
+    Given a singular Approved spec whose tasks omit File(s)
+    When execute inspects publication scope before implement dispatch
+    Then inspection succeeds with mutationPolicy outcome
+    And it does not report publication_scope_unproven
+    And all four current spec inputs are read-only
+
+  @AC2 @SCN002
+  Scenario: PathCast-shaped fix publishes extra required paths
+    Given an Approved task names only one product file in File(s)
+    And fix1 dirties additional mobile/test/features/step files
+    And fix1 dirties the current specs/398-stop-execute-file-allowlist/verification-report.md
+    When apply-review publishes with --applied
+    Then it commits every observed dirty path with the review-fix subject
+    And it does not emit Review fixes exceed approved task scope
+
+  @AC3 @SCN003
+  Scenario: Dirty Approved spec input fails closed
+    Given apply-review dirties specs/398-stop-execute-file-allowlist/tasks.md
+    When it inspects observed publication paths
+    Then publication fails closed naming that denied path
+    And no commit or push occurs
+
+  @AC4 @SCN004
+  Scenario: Parsed File(s) remain optional hints
+    Given an Approved task lists a subset of required product paths
+    When implement, fix1, and fix2 publication scope is inspected
+    Then each scope reports mutationPolicy outcome
+    And allowedPaths contains only parsed hints rather than a mutation ceiling
+    And readOnlyPaths contains requirements.md, design.md, tasks.md, and feature.gherkin
+
+  @AC5 @SCN005
+  Scenario: Reconciliation proves the observed commit set
+    Given a fix stage observes valid product and current verification-report paths
+    When it commits and reconciles those paths
+    Then every commit path is valid and non-denied
+    And evidence allowedPaths equals the observed commit path set
+    But verify remains closed to the current verification report
+    And deliver retains its explicit artifact lists
+
+  @AC6 @SCN006
+  Scenario: Worker contracts authorize outcomes instead of task paths
+    Given write-code receives a passing outcome-policy probe
+    When Acceptance requires a valid path omitted from File(s)
+    Then write-code may mutate and publish that non-denied path
+    And it never edits a readOnlyPaths entry
+    And write-spec treats canonical File(s) declarations as optional hints

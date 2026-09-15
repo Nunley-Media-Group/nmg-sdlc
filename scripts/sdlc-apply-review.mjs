@@ -7,7 +7,13 @@ import { dirname, join } from 'node:path';
 import { isCliEntry } from './plugin-controller-path.mjs';
 import { enterControllerLease, releaseControllerLease } from './sdlc-controller-lease.mjs';
 import { resolveReviewArtifacts, resolveSpecDir } from './sdlc-execute.mjs';
-import { assertInitialStagePublication, inspectPublicationScope, reconcileStagePublication, resolveRecoveryOwner } from './sdlc-safe-recoveries.mjs';
+import {
+  assertInitialStagePublication,
+  inspectPublicationScope,
+  publicationPathDenied,
+  reconcileStagePublication,
+  resolveRecoveryOwner,
+} from './sdlc-safe-recoveries.mjs';
 
 const USAGE = 'Usage: node scripts/sdlc-apply-review.mjs --issue N --step fix1|fix2 [--applied] [--controller-run-id ID]';
 const FIX_STEPS = new Set(['fix1', 'fix2']);
@@ -44,7 +50,15 @@ function porcelainPaths(stdout) {
       if (source !== '.omp' && !source.startsWith('.omp/')) paths.push(source);
     }
   }
-  return paths;
+  return [...new Set(paths)];
+}
+
+function headCommitPaths(run, cwd) {
+  const result = run('git', [
+    'diff-tree', '--no-commit-id', '--name-only', '--no-renames', '-r', '-z', 'HEAD',
+  ], { cwd });
+  const output = String(result?.stdout ?? '');
+  return result?.status === 0 && output.endsWith('\0') ? output.slice(0, -1).split('\0') : null;
 }
 
 function runApplyReviewUnlocked({
@@ -82,16 +96,32 @@ function runApplyReviewUnlocked({
   const identityPath = join(cwd, `.omp/sdlc/reviews/${issueNumber}-${step}.publication.json`);
 
   const expectedSubject = `fix: apply ${reviewStep} findings for #${issueNumber}`;
-  let allowedPaths;
+  let publicationScope;
+  let specRelative;
   try {
     const specRoot = resolveSpecDir(cwd, issueNumber);
     if (!specRoot) return fail('Approved review-fix scope is unavailable', 'spec_not_approved');
-    allowedPaths = inspectPublicationScope({
-      cwd, issue: issueNumber, step, spec: `specs/${specRoot.split(/[\\/]/).at(-1)}`, run,
-    }).allowedPaths;
+    specRelative = `specs/${specRoot.split(/[\\/]/).at(-1)}`;
+    publicationScope = inspectPublicationScope({
+      cwd, issue: issueNumber, step, spec: specRelative, run,
+    });
   } catch (error) {
     return fail(`Review-fix scope is unavailable: ${error.message}`, error.reasonCode ?? 'spec_not_approved');
   }
+  const deniedPath = (paths) => paths.find((path) => publicationPathDenied(path, {
+    spec: specRelative,
+    readOnlyPaths: publicationScope.readOnlyPaths,
+  }));
+  const reconcileObserved = (allowedPaths) => reconcileStagePublication({
+    cwd,
+    issue: issueNumber,
+    step,
+    spec: specRelative,
+    ownerId,
+    run,
+    expectedSubject,
+    allowedPaths,
+  });
   const status = run('git', ['status', '--porcelain=v1', '-z'], { cwd });
   if (status?.status !== 0) return fail(`Failed to inspect review fixes for #${issueNumber}`, 'apply_review_failed');
   const paths = porcelainPaths(status.stdout);
@@ -121,8 +151,13 @@ function runApplyReviewUnlocked({
           return { status: 3, stdout: `NMG_SDLC_APPLY_REVIEW: ${JSON.stringify(packet)}\n`, stderr: '', handoff: null, handoffPath };
         }
         // Explicit --applied no-change invocation may acknowledge current findings only after
-        // reconcileStagePublication validates publication. Persist current identity; rejected must not.
-        const publication = reconcileStagePublication({ cwd, issue: issueNumber, step, ownerId, run, expectedSubject, allowedPaths });
+        // reconcileStagePublication validates the observed HEAD publication.
+        const commitPaths = headCommitPaths(run, cwd);
+        const denied = commitPaths && deniedPath(commitPaths);
+        if (!commitPaths || denied) {
+          return fail(denied ? `Review fixes include denied path ${denied}` : 'Review-fix commit paths are unreadable', 'apply_review_failed');
+        }
+        const publication = reconcileObserved(commitPaths);
         if (!publication.passed) return fail(publication.summary, 'apply_review_failed');
         const publicationIdentity = {
           schemaVersion: 1,
@@ -137,7 +172,12 @@ function runApplyReviewUnlocked({
         fs.writeFileSync(identityPath, `${JSON.stringify(publicationIdentity, null, 2)}\n`);
         return pass(`Reconciled published ${reviewStep} findings for #${issueNumber}`);
       }
-      const publication = reconcileStagePublication({ cwd, issue: issueNumber, step, ownerId, run, expectedSubject, allowedPaths });
+      const commitPaths = headCommitPaths(run, cwd);
+      const denied = commitPaths && deniedPath(commitPaths);
+      if (!commitPaths || denied) {
+        return fail(denied ? `Review fixes include denied path ${denied}` : 'Review-fix commit paths are unreadable', 'apply_review_failed');
+      }
+      const publication = reconcileObserved(commitPaths);
       if (!publication.passed) return fail(publication.summary, 'apply_review_failed');
       return pass(`Reconciled published ${reviewStep} findings for #${issueNumber}`);
     }
@@ -146,7 +186,8 @@ function runApplyReviewUnlocked({
     const packet = { schemaVersion: 1, kind: 'apply_review_required', issue: issueNumber, step, artifactPath, handoffPath };
     return { status: 3, stdout: `NMG_SDLC_APPLY_REVIEW: ${JSON.stringify(packet)}\n`, stderr: '', handoff: null, handoffPath };
   }
-  if (paths.some((path) => !allowedPaths.includes(path))) return fail('Review fixes exceed approved task scope', 'apply_review_failed');
+  const denied = deniedPath(paths);
+  if (denied) return fail(`Review fixes include denied path ${denied}`, 'apply_review_failed');
   if (!paths.length) return pass(`No ${reviewStep} changes to commit for #${issueNumber}`);
   try {
     assertInitialStagePublication({ cwd, ownerId, issue: issueNumber, step, run });
@@ -182,7 +223,7 @@ function runApplyReviewUnlocked({
   if (!fs.existsSync(dirname(identityPath))) fs.mkdirSync(dirname(identityPath), { recursive: true });
   fs.writeFileSync(identityPath, `${JSON.stringify(publicationIdentity, null, 2)}\n`);
   const push = run('git', ['push'], { cwd });
-  const publication = reconcileStagePublication({ cwd, issue: issueNumber, step, ownerId, run, expectedSubject, allowedPaths });
+  const publication = reconcileObserved(paths);
   if (!publication.passed) return fail(`${publication.summary}${push?.status !== 0 ? '; initial push failed' : ''}`, 'apply_review_failed');
   return pass(`Applied and pushed ${reviewStep} findings for #${issueNumber}`);
 }

@@ -111,30 +111,47 @@ describe('runApplyReview', () => {
     expect(fs.existsSync(path.join(f.root, 'src/old name.mjs'))).toBe(false);
   });
 
-  test('does not publish unrelated dirty work', () => {
+  test('publishes an additional valid product path under outcome policy', () => {
     const f = fixture();
-    fs.writeFileSync(path.join(f.root, 'unrelated.txt'), 'retain this\n');
-    expect(f.apply({ applied: true })).toMatchObject({ status: 1, handoff: { reasonCode: 'apply_review_failed' } });
-    expect(mutations(f.calls)).toEqual([]);
-    expect(fs.readFileSync(path.join(f.root, 'unrelated.txt'), 'utf8')).toBe('retain this\n');
+    fs.writeFileSync(path.join(f.root, 'unrelated.txt'), 'required review fix\n');
+    expect(f.apply({ applied: true })).toMatchObject({
+      status: 0,
+      handoff: { status: 'passed', reasonCode: null },
+    });
+    expect(f.git('log', '-1', '--format=%s')).toBe('fix: apply review1 findings for #42');
+    expect(f.git('--git-dir', f.remote, 'show', 'refs/heads/42-feature:unrelated.txt')).toBe('required review fix');
   });
 
-  test('never admits a rejected path annotation through the consumed allowedPaths boundary', () => {
+  test('rejects a dirty Approved spec input before commit or push', () => {
     const f = fixture();
     fs.writeFileSync(
       path.join(f.root, 'specs/42-feature/tasks.md'),
       '**Issue**: #42\n**Status**: Approved\n\n### T001: Apply review fixes\n\n**File(s)**: `src/code.mjs` (Modify), `unrelated.txt` (Archive)\n',
     );
-    fs.writeFileSync(path.join(f.root, 'unrelated.txt'), 'must remain outside authority\n');
+    fs.writeFileSync(path.join(f.root, 'unrelated.txt'), 'must remain uncommitted\n');
     const outcome = f.apply({ applied: true });
     expect(outcome).toMatchObject({
       status: 1,
-      handoff: { reasonCode: 'publication_scope_unproven' },
+      handoff: {
+        reasonCode: 'apply_review_failed',
+        summary: 'Review fixes include denied path specs/42-feature/tasks.md',
+      },
     });
     expect(mutations(f.calls)).toEqual([]);
     expect(f.git('status', '--porcelain').split('\n').map((line) => line.trimStart()).sort()).toEqual([
       '?? unrelated.txt',
       'M specs/42-feature/tasks.md',
+    ]);
+  });
+
+  test('publishes product changes with the current verification report', () => {
+    const f = fixture();
+    fs.writeFileSync(path.join(f.root, 'src/code.mjs'), 'export const value = 2;\n');
+    fs.writeFileSync(path.join(f.root, 'specs/42-feature/verification-report.md'), '# Verified\n');
+    expect(f.apply({ applied: true })).toMatchObject({ status: 0, handoff: { status: 'passed' } });
+    expect(f.git('diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD').split('\n').sort()).toEqual([
+      'specs/42-feature/verification-report.md',
+      'src/code.mjs',
     ]);
   });
 

@@ -16,6 +16,7 @@ import {
   probePublicationScope,
   PUBLICATION_FILE_SYNTAX,
   publicationFileEntries,
+  publicationPathDenied,
   reconcileStagePublication,
   resolveRecoveryOwner,
 } from '../sdlc-safe-recoveries.mjs';
@@ -294,23 +295,29 @@ describe('approved publication scope', () => {
     f.put(`${spec}/feature.gherkin`, `${header}Feature: Scope\n  Scenario: Publish approved paths\n    Given approved tasks\n    When changes publish\n    Then only approved paths publish\n`);
     f.put('unrelated.txt', 'not authorized\n');
     const scope = inspectPublicationScope({ cwd: f.root, issue: 42, step: 'fix1', spec, run: f.run });
+    expect(scope.mutationPolicy).toBe('outcome');
     expect(scope.allowedPaths).toContain('src/code.mjs');
     expect(scope.allowedPaths).toContain('deleted.txt');
+    expect(scope.allowedPaths).toContain(REPORT);
     expect(scope.allowedPaths).not.toContain('unrelated.txt');
     expect(scope.allowedPaths).not.toContain('skill://skill-creator');
     expect(inspectPublicationScope({ cwd: f.root, issue: 42, step: 'verify', spec, run: f.run }).allowedPaths).toEqual([REPORT]);
-    expect(scope.allowedPaths).not.toContain(REPORT);
-    expect(scope.allowedPaths.some((file) => file === 'specs' || file.startsWith('specs/'))).toBe(false);
-    expect(scope.readOnlyPaths).toEqual(expect.arrayContaining([
-      REPORT,
+    expect(scope.readOnlyPaths).toEqual([
       `${spec}/design.md`,
-      'specs/other/input.md',
-    ]));
+      `${spec}/feature.gherkin`,
+      `${spec}/requirements.md`,
+      `${spec}/tasks.md`,
+    ]);
+    expect(publicationPathDenied('unrelated.txt', { spec, readOnlyPaths: scope.readOnlyPaths })).toBe(false);
+    expect(publicationPathDenied(REPORT, { spec, readOnlyPaths: scope.readOnlyPaths })).toBe(false);
+    expect(publicationPathDenied(`${spec}/design.md`, { spec, readOnlyPaths: scope.readOnlyPaths })).toBe(true);
+    expect(publicationPathDenied('specs/other/input.md', { spec, readOnlyPaths: scope.readOnlyPaths })).toBe(true);
+    expect(publicationPathDenied('.omp/x', { spec, readOnlyPaths: scope.readOnlyPaths })).toBe(true);
     f.put(`${spec}/design.md`, `${header.replace('Approved', 'Draft')}Unapproved changes.\n`);
     expect(() => inspectPublicationScope({ cwd: f.root, issue: 42, step: 'fix1', spec, run: f.run })).toThrow('spec_not_approved');
   });
 
-  test('keeps an exact delivery-owner verification report outside implementation scope', () => {
+  test('keeps a delivery-owner verification report out of hints but permits publication', () => {
     const f = fixture();
     const header = '**Issue**: #42\n**Status**: Approved\n\n';
     const spec = 'specs/42-feature';
@@ -324,31 +331,37 @@ describe('approved publication scope', () => {
     expect(scope.allowedPaths).toContain('src/code.mjs');
     expect(scope.allowedPaths).not.toContain(REPORT);
     expect(scope.readOnlyPaths).not.toContain(REPORT);
+    expect(publicationPathDenied(REPORT, { spec, readOnlyPaths: scope.readOnlyPaths })).toBe(false);
   });
 
   test.each([
     ['missing', '**Type**: Modify'],
     ['near-miss', '**Files**: `src/code.mjs`'],
     ['duplicate', '**File(s)**: `src/code.mjs`\n**File(s)**: `src/other.mjs`'],
-  ])('rejects an admitted level-two task with a %s declaration', (_name, declaration) => {
+  ])('treats a %s declaration as an unusable optional hint', (_name, declaration) => {
     const f = fixture();
     const header = '**Issue**: #42\n**Status**: Approved\n\n';
     const spec = 'specs/42-feature';
-    f.put(`${spec}/requirements.md`, `${header}### AC1: Apply approved changes\n\n| FR1 | Publish only approved paths | Must |\n`);
-    f.put(`${spec}/design.md`, `${header}Use approved paths only.\n`);
+    f.put(`${spec}/requirements.md`, `${header}### AC1: Apply approved changes\n\n| FR1 | Publish required paths | Must |\n`);
+    f.put(`${spec}/design.md`, `${header}Use outcome policy.\n`);
     f.put(`${spec}/tasks.md`, `${header}## T001: Apply changes\n\n${declaration}\n`);
-    f.put(`${spec}/feature.gherkin`, `${header}Feature: Scope\n  Scenario: Publish approved paths\n`);
+    f.put(`${spec}/feature.gherkin`, `${header}Feature: Scope\n  Scenario: Publish outcomes\n`);
 
-    expect(() => inspectPublicationScope({
+    const scope = inspectPublicationScope({
       cwd: f.root,
       issue: 42,
       step: 'implement',
       spec,
       run: f.run,
-    })).toThrow(expect.objectContaining({
-      reasonCode: 'publication_scope_unproven',
-      taskId: 'T001',
-    }));
+    });
+    expect(scope).toMatchObject({
+      mutationPolicy: 'outcome',
+      trackedWritablePaths: [],
+      untrackedEvidencePaths: [],
+      taskOperations: [],
+      allowedPaths: [],
+    });
+    expect(scope.readOnlyPaths).toHaveLength(4);
   });
 
   test('accepts one canonical declaration on an admitted level-two task', () => {
@@ -657,7 +670,7 @@ describe('approved publication scope', () => {
     expect(scope.allowedPaths).not.toContain('tests/unrelated.mjs');
   });
 
-  test('rejects a bounded declaration that expands to no files', () => {
+  test('treats an unmatched bounded declaration as an unusable optional hint', () => {
     const f = fixture();
     const header = '**Issue**: #42\n**Status**: Approved\n\n';
     const spec = 'specs/42-feature';
@@ -665,8 +678,9 @@ describe('approved publication scope', () => {
     f.put(`${spec}/design.md`, `${header}Generate bounded steps.\n`);
     f.put(`${spec}/tasks.md`, `${header}### T001: Generate steps\n\n**File(s)**: \`tests/generated/**/*.mjs\`\n`);
     f.put(`${spec}/feature.gherkin`, `${header}Feature: Steps\n  Scenario: Generate steps\n`);
-    expect(() => inspectPublicationScope({ cwd: f.root, issue: 42, step: 'implement', spec, run: f.run }))
-      .toThrow(expect.objectContaining({ reasonCode: 'publication_scope_unproven', entry: 'tests/generated/**/*.mjs' }));
+    expect(inspectPublicationScope({
+      cwd: f.root, issue: 42, step: 'implement', spec, run: f.run,
+    })).toMatchObject({ mutationPolicy: 'outcome', allowedPaths: [], taskOperations: [] });
   });
 
 
@@ -810,6 +824,7 @@ describe('read-only owner-bound publication probe', () => {
       { field: 'branch', run: 'main', actual: branch, owner: branch },
     ]);
     expect(Object.keys(result.scope)).toEqual([
+      'mutationPolicy',
       'trackedWritablePaths',
       'untrackedEvidencePaths',
       'taskOperations',
@@ -825,13 +840,12 @@ describe('read-only owner-bound publication probe', () => {
       }));
     expect(result.scope.allowedPaths).toEqual([...trackedPaths, ...evidencePaths].sort());
     expect(result.scope.taskOperations).toHaveLength(4);
-    expect(result.scope.readOnlyPaths).toEqual(expect.arrayContaining([
-      `${spec}/requirements.md`,
+    expect(result.scope.readOnlyPaths).toEqual([
       `${spec}/design.md`,
-      `${spec}/tasks.md`,
       `${spec}/feature.gherkin`,
-      'docs/release/miledar-ip-guardrails.schema.json',
-    ]));
+      `${spec}/requirements.md`,
+      `${spec}/tasks.md`,
+    ]);
     expect(result.scope.allowedPaths.some((file) => file.startsWith(`${spec}/`))).toBe(false);
     expect(snapshot()).toEqual(before);
     expect(calls.some((call) => ['add', 'commit', 'push'].includes(call[1]))).toBe(false);
@@ -1041,6 +1055,9 @@ describe('publication CLI lease ownership boundary', () => {
     f.put('.omp/sdlc/handoffs/42-implement.json', JSON.stringify({
       schemaVersion: 1, issue: 42, step: 'implement', status: 'failed', intervention: true,
     }));
+    f.git('add', '--', spec);
+    f.git('commit', '-m', 'docs: approve publication fixture #42');
+    f.git('push');
     const publication = (action, identity, subject) => spawnSync(process.execPath, [
       script, action, '--issue', '42', '--step', 'implement', '--spec', spec,
       '--controller-run-id', identity,
@@ -1086,6 +1103,9 @@ describe('publication CLI lease ownership boundary', () => {
 
 **File(s)**: outside.txt
 `);
+    f.git('add', '--', `${spec}/tasks.md`);
+    f.git('commit', '-m', 'docs: update publication hints #42');
+    f.git('push');
     for (const file of ['VERSION', 'notes.txt', 'prose.txt', 'unowned.txt', 'outside.txt']) f.put(file, 'not implementation authority\n');
     const result = f.bind();
     expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' });
@@ -1095,7 +1115,7 @@ describe('publication CLI lease ownership boundary', () => {
       'tests/features/add_nmg_smoke_brackets_flag.feature', 'tests/features/steps/test_brackets_steps.py',
     ].sort());
     expect(reconcileStagePublication({
-      cwd: f.root, issue: 42, step: 'implement', ownerId: runId,
+      cwd: f.root, issue: 42, step: 'implement', spec, ownerId: runId,
       expectedSubject: 'feat: add brackets #42', allowedPaths: publication.scope.allowedPaths, run: f.run,
     })).toMatchObject({ passed: false });
     expect(f.state().records).toEqual([]);
@@ -1103,9 +1123,6 @@ describe('publication CLI lease ownership boundary', () => {
 
   test('rejects a subjectless implement bind even when the worktree is clean', () => {
     const f = cliFixture();
-    f.git('add', '--', spec);
-    f.git('commit', '-m', 'docs: approve publication fixture #42');
-    f.git('push');
     expect(f.git('status', '--porcelain=v1')).toBe('');
 
     const rejected = f.bind(runId, null);
@@ -1117,6 +1134,7 @@ describe('publication CLI lease ownership boundary', () => {
 
   test('rejects dirty missing, wrong, and non-boundary issue identifiers before publication', () => {
     const f = cliFixture();
+    f.put('src/code.mjs', 'dirty implementation\n');
     expect(f.git('status', '--porcelain=v1')).not.toBe('');
     const head = f.git('rev-parse', 'HEAD');
     const upstream = f.git('rev-parse', '@{upstream}');
@@ -1167,9 +1185,6 @@ describe('publication CLI lease ownership boundary', () => {
 
   test('binds the planned implement subject to later reconciliation', () => {
     const f = cliFixture();
-    f.git('add', '--', spec);
-    f.git('commit', '-m', 'docs: approve publication fixture #42');
-    f.git('push');
     f.put('src/code.mjs', 'planned implementation\n');
     const planned = 'fix: publish the planned implementation for #42';
 
@@ -1197,17 +1212,22 @@ describe('publication CLI lease ownership boundary', () => {
     '`src/code.mjs',
     'src/code.mjs;; unrelated.txt',
     'src/code.mjs; .omp/sdlc/run.json',
-  ])('bind rejects ambiguous or unsafe declarations: %s', (files) => {
+  ])('does not make an invalid optional declaration an execute gate: %s', (files) => {
     const f = cliFixture();
     f.put(`${spec}/tasks.md`, `**Issue**: #42\n**Status**: Approved\n\n### T001: Changes\n\n**File(s)**: ${files}\n`);
+    f.git('add', '--', `${spec}/tasks.md`);
+    f.git('commit', '-m', 'docs: retain invalid optional hint #42');
+    f.git('push');
     const result = f.bind();
-    expect(result.status).toBe(1);
-    expect(result.stderr.split('\n')[0]).toBe('publication_scope_unproven');
-    expect(result.stderr).toContain(`spec: ${spec}/tasks.md`);
-    expect(result.stderr).toContain('taskId: T001');
-    expect(result.stderr).toContain(`entry: ${files}`);
-    expect(result.stderr).toContain(`syntax: ${PUBLICATION_FILE_SYNTAX}`);
-    expect(fs.existsSync(f.statePath)).toBe(false);
+    expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' });
+    const publication = JSON.parse(result.stdout.trim().replace(/^NMG_SDLC_PUBLICATION: /, ''));
+    expect(publication.scope).toMatchObject({
+      mutationPolicy: 'outcome',
+      trackedWritablePaths: [],
+      untrackedEvidencePaths: [],
+      taskOperations: [],
+      allowedPaths: [],
+    });
   });
 
   test.each(['fresh', 'joined'])('binds the original controller through a %s lease without granting recovery credit', (mode) => {
