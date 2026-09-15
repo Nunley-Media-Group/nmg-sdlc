@@ -578,9 +578,12 @@ function mergeabilityFixture({
   git('config', 'user.name', 'Delivery fixture');
   git('config', 'user.email', 'delivery@example.test');
   fs.writeFileSync(path.join(f.root, '.git/info/exclude'), '.omp/\n');
-  fs.mkdirSync(path.join(f.root, 'scripts'), { recursive: true });
+  fs.mkdirSync(path.dirname(path.join(f.root, sourceFile)), { recursive: true });
   const sourcePath = path.join(f.root, sourceFile);
-  const original = Array.from({ length: 20 }, (_, index) => `export const value${index} = ${index};`).join('\n') + '\n';
+  const fixtureLines = Array.from({ length: 20 }, (_, index) => `value${index} = ${index}`);
+  const original = sourceFile === 'specs/42-delivery/tasks.md'
+    ? `${fs.readFileSync(sourcePath, 'utf8')}\n${fixtureLines.map((line) => `<!-- ${line} -->`).join('\n')}\n`
+    : `${fixtureLines.map((line) => `export const ${line};`).join('\n')}\n`;
   fs.writeFileSync(sourcePath, original);
   fs.writeFileSync(path.join(f.root, 'CHANGELOG.md'), '# Changelog\n\n## [Unreleased]\n\n## [3.5.0] - 2026-08-25\n\n### Changed\n\n- Ship deterministic delivery (#42)\n');
   git('add', '.');
@@ -667,6 +670,7 @@ describe('sdlc delivery controller', () => {
     const result = runDeliver(options);
     expect(result).toMatchObject({ status: 1, handoff: { reasonCode: 'mergeability_defect', intervention: true } });
     expect(result.handoff.summary).toContain(sourceFile);
+    expect(result.handoff.summary).not.toContain('outside approved delivery paths');
     expect(f.git('rev-parse', 'HEAD')).toBe(f.issueHead);
     expect(f.git('ls-remote', 'origin', 'refs/heads/42-delivery').split(/\s+/)[0]).toBe(f.issueHead);
     expect(fs.readFileSync(f.sourcePath, 'utf8')).toBe(beforeSource);
@@ -679,11 +683,12 @@ describe('sdlc delivery controller', () => {
     expect(f.calls.slice(before).some((call) => call[0] === 'git' && ['merge-tree', 'merge', 'push'].includes(call[1]))).toBe(false);
   });
 
-  test('@SCN005 never admits a rejected annotation through delivery allowedPaths', () => {
+  test('@SCN005 rejects a conflict in the current Approved tasks input', () => {
+    const sourceFile = 'specs/42-delivery/tasks.md';
     const f = mergeabilityFixture({
       conflict: true,
       mergeStateStatus: 'CONFLICTING',
-      taskDeclaration: '`scripts/sdlc-deliver.mjs` (Archive)',
+      sourceFile,
     });
     const result = runDeliver({
       issue: 42,
@@ -695,9 +700,11 @@ describe('sdlc delivery controller', () => {
     });
     expect(result).toMatchObject({
       status: 1,
-      handoff: { reasonCode: 'publication_scope_unproven' },
+      handoff: { reasonCode: 'mergeability_defect' },
     });
-    expect(f.calls.some((call) => call[0] === 'git' && call[1] === 'merge-tree')).toBe(false);
+    expect(result.handoff.summary).toContain(sourceFile);
+    expect(result.handoff.summary).toContain('outside approved delivery paths');
+    expect(f.calls.some((call) => call[0] === 'git' && call[1] === 'merge-tree')).toBe(true);
     expect(f.calls.some((call) => call[0] === 'git' && call[1] === 'push')).toBe(false);
   });
 

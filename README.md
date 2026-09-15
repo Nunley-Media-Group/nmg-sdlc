@@ -152,9 +152,9 @@ Every file declares singular `**Issue**: #42` and `**Status**: Draft` or `**Stat
 
 `specs/` is the current working-tree BDD archive. Load the active package first and only relevant neighbors. Superseded contracts remain in Git history. Legacy `feature-*`, `bug-*`, `epic-*`, and `.codex/specs/` layouts are upgrade inputs, not new-write formats. There is no epic type, cumulative issue-ownership manifest, or synthetic issue number for unowned rewrite behavior.
 
-Each admitted delivery task must contain exactly one canonical `**File(s)**:` declaration. These values are publication authorization, not prose. Use repository-relative paths as backtick-quoted entries (for example, `` `src/auth.ts` ``), separate multiple entries with commas or semicolons, and use only bounded repository-relative directory or glob entries when generated files require them. A glob must start with a non-magic repository-relative prefix such as `` `tests/generated/**/*.mjs` ``; repository-wide patterns such as `` `*` ``, `` `**` ``, and `` `**/*` `` are invalid. An optional parenthetical note may follow an entry. Do not omit the declaration, substitute a near-miss label such as `**Files**:`, add a second declaration, or prefix entries with instructions such as `Create` or `Modify`; the live parser does not mine paths from prose.
+`**File(s)**:` is optional outcome-planning metadata. When present, use canonical repository-relative paths as backtick-quoted entries (for example, `` `src/auth.ts` ``), separate multiple entries with commas or semicolons, and use only bounded repository-relative directory or glob entries. A glob must start with a non-magic prefix such as `` `tests/generated/**/*.mjs` ``; repository-wide patterns such as `` `*` ``, `` `**` ``, and `` `**/*` `` are invalid. An optional parenthetical operation note may follow an entry. Canonical declarations remain useful to contribution evidence and `/sdlc-upgrade-project` hint normalization, but missing, incomplete, near-miss, duplicate, or malformed File(s) never blocks implement/fix executability.
 
-Spec publication validates this grammar and the exactly-one invariant before Git staging or PR work. Execute validates both again, including requiring declared directories and globs to match files, before creating an implementation worker pane. Missing, near-miss, duplicate, and malformed declarations fail with `publication_scope_unproven`, reporting the spec path, task ID, relevant line number, exact offending declaration when available, and accepted syntax.
+Execute implement, fix1, and fix2 use outcome mutation policy. Workers may publish any repository-relative path required by Acceptance unless `validPublicationPath` rejects it, it is one of the current spec's four Approved inputs, or it is under `specs/`. The sole `specs/` exception is the current issue's `verification-report.md`. `.omp/`, URL-like, absolute, backslash, parent-traversal, and other invalid publication paths remain denied. Verify stays closed to the current verification report; deliver keeps its explicit version and PR-evidence artifact lists. Review isolation continues assigning git-diff path slices.
 
 ### Read-only implementation scope probe
 
@@ -179,6 +179,7 @@ Successful output uses `NMG_SDLC_PUBLICATION` with this shape:
     "discrepancies": []
   },
   "scope": {
+    "mutationPolicy": "outcome",
     "trackedWritablePaths": ["src/auth.ts"],
     "untrackedEvidencePaths": ["artifacts/42/result.json"],
     "taskOperations": [],
@@ -193,7 +194,7 @@ Successful output uses `NMG_SDLC_PUBLICATION` with this shape:
 }
 ```
 
-`taskOperations` carries each task-relative operation and its `File(s)`, `Read-only`, or `Acquire` source line. `Create`, `Modify`, and `Delete` are tracked delivery authority; only explicit `Download untracked` and `Generate untracked` annotations create untracked evidence authority. Consumers must use only `scope.allowedPaths` for mutation. Approved spec documents and exclusively read-only inputs never enter writable authority. The later `bind` and `reconcile` publication actions remain state-changing and use the same structured scope.
+`taskOperations`, `trackedWritablePaths`, `untrackedEvidencePaths`, and `allowedPaths` describe optional canonical task hints when parsing succeeds; malformed or absent hints yield empty arrays without failing outcome scope. Consumers must not treat `scope.allowedPaths` as a mutation ceiling. `readOnlyPaths` always contains the current spec's `requirements.md`, `design.md`, `tasks.md`, and `feature.gherkin`. The probe's `mutationPolicy: "outcome"` plus the central denied-path classifier authorizes required product, test, and current verification-report paths. The later `bind` and `reconcile` actions remain state-changing and prove the actual observed publication path set.
 
 ## Execute the approved work
 

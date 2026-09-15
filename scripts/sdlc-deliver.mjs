@@ -25,7 +25,13 @@ import {
 } from './sdlc-controller-lease.mjs';
 import { readRunAt, writeRunAt } from './sdlc-execute.mjs';
 import {
-  assertInitialStagePublication, assertRecoveryOwner, consumeSafeRecovery, inspectPublicationScope, reconcileStagePublication, resolveRecoveryOwner,
+  assertInitialStagePublication,
+  assertRecoveryOwner,
+  consumeSafeRecovery,
+  inspectPublicationScope,
+  publicationPathDenied,
+  reconcileStagePublication,
+  resolveRecoveryOwner,
 } from './sdlc-safe-recoveries.mjs';
 
 const USAGE = 'Usage: node scripts/sdlc-deliver.mjs session-init --issue N | --issue N (--controller-run-id R | --session-token T) [--remediation-result human_review|automatic_review_unactionable]';
@@ -1375,15 +1381,18 @@ function mergeabilityReverification(context) {
     `Base reconciliation changed #${context.issue} to ${context.namespace.runState.delivery.expectedHead}; rerun review1, fix1, review2, fix2, and verify before delivery`);
 }
 
-function reconcileMergeability({ context, run, branch, observed, allowedPaths }) {
+function reconcileMergeability({ context, run, branch, observed, spec, publicationScope }) {
   const { cwd, namespace, issue } = context;
   const expected = namespace.runState.delivery;
   const dirty = parsePorcelain(command(run, cwd, 'git', ['status', '--porcelain=v1', '-z']).stdout)
     .filter((entry) => !entry.startsWith('.omp/'));
   if (dirty.length) return fail(context, 'dirty_tree', `Preserved local work: ${dirty.join(', ')}`);
   const recovery = consumeDeliveryRecovery(context, 'mergeability_defect', {
-    pullRequest: expected.pullRequest, headSha: expected.expectedHead,
-    mergeStateStatus: observed.pr.mergeStateStatus, allowedPaths,
+    pullRequest: expected.pullRequest,
+    headSha: expected.expectedHead,
+    mergeStateStatus: observed.pr.mergeStateStatus,
+    mutationPolicy: publicationScope.mutationPolicy,
+    allowedPaths: publicationScope.allowedPaths,
   });
   if (!recovery.consumed) return fail(context, 'mergeability_defect', 'The one base/head reconciliation is already consumed; no merge or push was repeated');
   let conflicts = [];
@@ -1414,7 +1423,10 @@ function reconcileMergeability({ context, run, branch, observed, allowedPaths })
       conflicts.push(field);
     }
     if (![0, 1].includes(trial.status) || !SHA.test(tree ?? '')) throw new Error('isolated merge-tree inspection failed');
-    const outside = conflicts.filter((file) => !allowedPaths.includes(file));
+    const outside = conflicts.filter((file) => publicationPathDenied(file, {
+      spec,
+      readOnlyPaths: publicationScope.readOnlyPaths,
+    }));
     if (outside.length) throw new Error(`conflicts outside approved delivery paths: ${outside.join(', ')}`);
     if (trial.status !== 0 || conflicts.length) throw new Error('isolated trial retains unresolved conflicts');
     const mergedPaths = command(run, cwd, 'git', ['diff', '--name-only', '-z', remoteHead, tree]).stdout.split('\0').filter(Boolean);
@@ -1851,10 +1863,17 @@ function runDeliverUnlocked({
         return fail(context, 'human_review', `PR #${pr.number} requires human review`);
       }
       if (classified.reasonCode === 'mergeability_defect') {
-        const allowedPaths = inspectPublicationScope({
+        const publicationScope = inspectPublicationScope({
           cwd, issue: issueNumber, step: 'implement', spec: spec.relative, run,
-        }).allowedPaths;
-        return reconcileMergeability({ context, run, branch, observed, allowedPaths });
+        });
+        return reconcileMergeability({
+          context,
+          run,
+          branch,
+          observed,
+          spec: spec.relative,
+          publicationScope,
+        });
       }
       const automaticReview = ['changes_requested', 'review_threads_unresolved', 'automatic_review_unactionable'].includes(classified.reasonCode);
       if (automaticReview) {

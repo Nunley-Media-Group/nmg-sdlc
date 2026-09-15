@@ -780,15 +780,24 @@ export function assertInitialStagePublication({ cwd = process.cwd(), ownerId, is
 }
 
 export function reconcileStagePublication({
-  cwd = process.cwd(), issue, step, expectedSubject, allowedPaths = [], ownerId, run = defaultRun,
+  cwd = process.cwd(), issue, step, spec, expectedSubject, allowedPaths = [], ownerId, run = defaultRun,
 } = {}) {
   const issueNumber = Number(issue);
+  const outcomePolicy = ['implement', 'fix1', 'fix2'].includes(step);
+  const readOnlyPaths = outcomePolicy && new RegExp(`^specs/${issueNumber}-[^/\\\\]+$`).test(spec ?? '')
+    ? SPEC_INPUT_FILES.map((file) => `${spec}/${file}`)
+    : [];
+  const observedAllowedPaths = Array.isArray(allowedPaths) ? [...new Set(allowedPaths)].sort() : [];
   if (!Number.isSafeInteger(issueNumber) || issueNumber <= 0
     || !['implement', 'fix1', 'fix2', 'verify', 'deliver'].includes(step)
     || typeof expectedSubject !== 'string' || !expectedSubject.trim()
     || typeof ownerId !== 'string' || !ownerId
     || !Array.isArray(allowedPaths) || allowedPaths.length === 0
-    || !allowedPaths.every(validPublicationPath)) throw safeError('invalid_reconcile_params');
+    || !allowedPaths.every(validPublicationPath)
+    || (outcomePolicy && (!readOnlyPaths.length
+      || allowedPaths.some((file) => publicationPathDenied(file, { spec, readOnlyPaths }))))) {
+    throw safeError('invalid_reconcile_params');
+  }
   const root = realpathSync(cwd);
   const reasonCode = step === 'verify' ? 'verification_publish_failed'
     : step === 'implement' ? 'implementation_failed'
@@ -833,12 +842,13 @@ export function reconcileStagePublication({
     const prior = state.records.find((record) => record.class === 'stage_publication'
       && record.runId === ownerId && record.issue === issueNumber && record.step === step);
     if (prior && (prior.evidence.commitSha !== head || prior.evidence.subject !== expectedSubject
-      || JSON.stringify(prior.evidence.allowedPaths) !== JSON.stringify([...allowedPaths].sort())
+      || JSON.stringify(prior.evidence.allowedPaths) !== JSON.stringify(observedAllowedPaths)
       || prior.evidence.upstream !== upstream)) {
       return fail('Consumed publication evidence no longer matches; allowance is not renewed');
     }
     const commits = counts[1] === 0 ? [head] : git(['rev-list', '@{u}..HEAD']).trim().split('\n');
     if (commits.length !== (counts[1] || 1) || !commits.includes(head)) return fail('Publication commits are unreadable');
+    const observedCommitPaths = new Set();
     for (const sha of commits) {
       if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(sha) || git(['log', '-1', '--format=%s', sha]).trim() !== expectedSubject) {
         return fail('Publication commit subject is not the expected stage subject');
@@ -852,13 +862,20 @@ export function reconcileStagePublication({
       const names = git(['diff-tree', '--no-commit-id', '--name-only', '--no-renames', '-r', '-z', sha]);
       if (!names.endsWith('\0')) return fail('Publication changed-path observation is incomplete');
       const paths = names.slice(0, -1).split('\0');
-      if (!paths.length || paths.some((file) => !allowedPaths.includes(file))) return fail('Publication commit exceeds approved scope');
+      if (!paths.length || paths.some((file) => !allowedPaths.includes(file)
+        || (outcomePolicy && publicationPathDenied(file, { spec, readOnlyPaths })))) {
+        return fail('Publication commit exceeds approved scope');
+      }
+      for (const file of paths) observedCommitPaths.add(file);
+    }
+    if (JSON.stringify([...observedCommitPaths].sort()) !== JSON.stringify(observedAllowedPaths)) {
+      return fail('Publication commit exceeds approved scope');
     }
     if (counts[1] === 0 && remoteHead === head) return { passed: true, ack: true };
     if (prior) return fail('stage_publication already consumed; no second push');
     const consumed = consumeSafeRecovery({
       cwd: root, ownerId, issue: issueNumber, step, class: 'stage_publication',
-      evidence: { commitSha: head, subject: expectedSubject, allowedPaths: [...allowedPaths].sort(), upstream },
+      evidence: { commitSha: head, subject: expectedSubject, allowedPaths: observedAllowedPaths, upstream },
     });
     if (!consumed.consumed) return fail('stage_publication already consumed; no second push');
     git(['push', remote, `HEAD:${mergeRef}`]);
@@ -883,6 +900,14 @@ function validPublicationPath(file) {
     && !file.split('/').some((part) => part === '..' || part === '.')
     && file !== '.omp' && !file.startsWith('.omp/')
     && (firstGlob < 0 || (firstGlob > 0 && /[A-Za-z0-9_-]/.test(file.slice(0, firstGlob))));
+}
+
+export function publicationPathDenied(file, { spec, readOnlyPaths = [] } = {}) {
+  const verificationReport = typeof spec === 'string' ? `${spec}/verification-report.md` : null;
+  return !Array.isArray(readOnlyPaths)
+    || !validPublicationPath(file)
+    || readOnlyPaths.includes(file)
+    || ((file === 'specs' || file.startsWith('specs/')) && file !== verificationReport);
 }
 
 export const PUBLICATION_FILE_SYNTAX = 'Each admitted task must contain exactly one canonical `**File(s)**:` declaration using repository-relative paths as `path`, comma/semicolon-separated lists, or bounded directory/glob entries; parenthetical notes must be an exact supported operation or documented non-operation note.';
@@ -1332,8 +1357,8 @@ function observePublicationPaths(run, cwd, pattern) {
   return paths;
 }
 
-// Only task identifiers admitted by the live-scope adapter contribute path
-// authority. Approved spec documents are inputs, never implementation writes.
+// Approved task operations are optional implementation hints. Approved spec
+// documents remain immutable inputs; outcome policy decides mutation authority.
 export function inspectPublicationScope({ cwd = process.cwd(), issue, spec, step, run = defaultRun } = {}) {
   const issueNumber = Number(issue);
   if (!Number.isSafeInteger(issueNumber) || issueNumber <= 0
@@ -1361,58 +1386,48 @@ export function inspectPublicationScope({ cwd = process.cwd(), issue, spec, step
       allowedPaths: [report],
     };
   }
-  const taskOperations = parseDeliveryTaskFileLines(documents['tasks.md'], {
-    spec: `${spec}/tasks.md`,
-    taskIds: issueScope.delivery.tasks,
-    structured: true,
-  });
-  const verificationReport = `${spec}/verification-report.md`;
+  let taskOperations = [];
   const tracked = new Set();
   const untracked = new Set();
-  const readOnly = new Set(specInputs);
-  for (const task of taskOperations) {
-    for (const operation of task.operations) {
-      if (READ_ONLY_OPERATIONS.has(operation.operation)) {
-        readOnly.add(operation.path);
-        continue;
-      }
-      if (operation.path === 'specs' || operation.path.startsWith('specs/')) {
-        readOnly.add(operation.path);
-        continue;
-      }
-      const target = UNTRACKED_OPERATIONS.has(operation.operation) ? untracked : tracked;
-      const expands = operation.path.endsWith('/') || /[*?\[]/.test(operation.path);
-      if (!expands) target.add(operation.path);
-      const matches = observePublicationPaths(run, cwd, operation.path);
-      if (expands && matches.size === 0) {
-        throw safeError('publication_scope_unproven', {
-          spec: `${spec}/tasks.md`,
-          taskId: task.taskId,
-          entry: operation.path,
-          syntax: PUBLICATION_FILE_SYNTAX,
-        });
-      }
-      for (const file of matches) {
-        if (file !== verificationReport) target.add(file);
+  try {
+    taskOperations = parseDeliveryTaskFileLines(documents['tasks.md'], {
+      spec: `${spec}/tasks.md`,
+      taskIds: issueScope.delivery.tasks,
+      structured: true,
+    });
+    const verificationReport = `${spec}/verification-report.md`;
+    for (const task of taskOperations) {
+      for (const operation of task.operations) {
+        if (READ_ONLY_OPERATIONS.has(operation.operation)) continue;
+        if ((operation.path === 'specs' || operation.path.startsWith('specs/'))
+          && operation.path !== verificationReport) continue;
+        const target = UNTRACKED_OPERATIONS.has(operation.operation) ? untracked : tracked;
+        const expands = operation.path.endsWith('/') || /[*?\[]/.test(operation.path);
+        if (!expands) target.add(operation.path);
+        const matches = observePublicationPaths(run, cwd, operation.path);
+        if (expands && matches.size === 0) throw safeError('publication_scope_unproven');
+        for (const file of matches) {
+          if (!publicationPathDenied(file, { spec, readOnlyPaths: specInputs })) target.add(file);
+        }
       }
     }
-  }
-  for (const path of tracked) {
-    if (untracked.has(path)) throw safeError('publication_scope_unproven', {
-      spec: `${spec}/tasks.md`,
-      entry: path,
-      syntax: PUBLICATION_FILE_SYNTAX,
-    });
+    for (const path of tracked) {
+      if (untracked.has(path)) throw safeError('publication_scope_unproven');
+    }
+  } catch (error) {
+    if (error.reasonCode !== 'publication_scope_unproven') throw error;
+    taskOperations = [];
+    tracked.clear();
+    untracked.clear();
   }
   const allowed = new Set(tracked);
   for (const path of untracked) allowed.add(path);
-  for (const path of allowed) readOnly.delete(path);
-  if (!allowed.size) throw safeError('publication_scope_unproven');
   return {
+    mutationPolicy: 'outcome',
     trackedWritablePaths: [...tracked].sort(),
     untrackedEvidencePaths: [...untracked].sort(),
     taskOperations,
-    readOnlyPaths: [...readOnly].sort(),
+    readOnlyPaths: specInputs.sort(),
     allowedPaths: [...allowed].sort(),
   };
 }
@@ -1539,9 +1554,14 @@ function runCli(argv = process.argv.slice(2)) {
     const branch = defaultRun('git', ['branch', '--show-current'], { cwd });
     if (!commandSucceeded(branch) || !String(branch.stdout ?? '').trim().startsWith(`${options.issue}-`)) throw safeError('publication_branch_mismatch');
     const scope = inspectPublicationScope({ ...options, cwd });
-    const allowedPaths = scope.allowedPaths;
     const status = defaultRun('git', ['status', '--porcelain=v1', '-z'], { cwd });
     if (!commandSucceeded(status)) throw safeError('publication_scope_unproven');
+    const observedPaths = porcelainPaths(status.stdout);
+    const deniedPath = observedPaths.find((file) => publicationPathDenied(file, {
+      spec: options.spec,
+      readOnlyPaths: scope.readOnlyPaths,
+    }));
+    if (deniedPath) throw safeError('publication_scope_unproven', { entry: deniedPath });
     if (options.step === 'implement' && action === 'bind'
       && ((!suppliedSubject && porcelainPaths(status.stdout).length)
         || (suppliedSubject && hasStagedNonRuntimeEntry(status.stdout)))) {
@@ -1554,12 +1574,29 @@ function runCli(argv = process.argv.slice(2)) {
       controllerRunId,
       bindSubject: options.step === 'implement' && action === 'bind' && suppliedSubject,
     });
-    if (porcelainPaths(status.stdout).length) assertInitialStagePublication({ ...options, cwd, ownerId });
+    if (observedPaths.length) assertInitialStagePublication({ ...options, cwd, ownerId });
     let outcome = { passed: true, ownerId, scope };
     if (action === 'reconcile') {
       const expectedSubject = options.step === 'implement' ? options.expectedSubject : getExpectedSubject(options.step, options.issue);
+      let allowedPaths = observedPaths;
+      if (!allowedPaths.length) {
+        const names = defaultRun('git', [
+          'diff-tree', '--no-commit-id', '--name-only', '--no-renames', '-r', '-z', 'HEAD',
+        ], { cwd });
+        if (!commandSucceeded(names) || !String(names.stdout ?? '').endsWith('\0')) {
+          throw safeError('publication_scope_unproven');
+        }
+        allowedPaths = String(names.stdout).slice(0, -1).split('\0');
+        const deniedHeadPath = allowedPaths.find((file) => publicationPathDenied(file, {
+          spec: options.spec,
+          readOnlyPaths: scope.readOnlyPaths,
+        }));
+        if (deniedHeadPath) throw safeError('publication_scope_unproven', { entry: deniedHeadPath });
+      }
       outcome = {
-        ...reconcileStagePublication({ ...options, cwd, ownerId, allowedPaths, expectedSubject }),
+        ...reconcileStagePublication({
+          ...options, cwd, ownerId, allowedPaths, expectedSubject,
+        }),
         ownerId,
         scope,
       };

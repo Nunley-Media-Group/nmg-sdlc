@@ -33,6 +33,8 @@ Reference the manifest-registered structure steering snippet to map task file pa
 
 Each task follows this structure:
 
+`**File(s)**` is an optional implementation hint, not an execute allowlist. When included, keep the canonical form shown below; Acceptance remains required.
+
 ```
 ### T[NNN]: [Task Title]
 
