@@ -1,0 +1,64 @@
+**Issue**: #396
+**Date**: 2026-09-14
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/372-restore-bounded-operator-authorized-recovery-of-stopped-delivery/
+
+Feature: Investigate closed exclusive implement failures without replay
+  A closed exclusive implement worker may leave valid committed work beyond the checkpoint.
+  Parameter-free execute resumes only the remaining approved work once.
+
+  @AC1 @regression
+  Scenario: Discover a safe exclusive implement resume without mutation
+    Given implement failed after an exclusive worker advanced the issue branch from checkpoint HEAD to a descendant HEAD
+    And workers are empty and the unique incomplete owner id equals the run id
+    When recovery discovery runs
+    Then it reports loop-recovery-available with class exclusive_implement_resume
+    And checkpoint handoff and safe-recovery bytes are unchanged
+
+  @AC2 @regression
+  Scenario: Consume and dispatch exclusive resume once
+    Given exclusive implement resume is discoverable
+    When parameter-free execute acquires the controller lease
+    Then it re-proves and archives the failed handoff
+    And it consumes one exclusive_implement_resume record
+    And it advances run HEAD to current HEAD and clears failed and remediation state
+    And exactly sN-implement starts with the exclusive resume prompt
+
+  @AC3 @regression
+  Scenario: Resume prompt investigates before editing
+    Given an exclusive implement resume worker is started
+    When it reads its prompt
+    Then it maps every tasks acceptance bullet to satisfied remaining-authorized or still-blocked before editing
+    And it does not re-implement satisfied work
+    And it does not reset rebase or discard current HEAD
+    And it does not repeat a prerequisite still forbidden by the current owner-bound probe
+
+  @AC4 @regression
+  Scenario: Repaired publication keeps ordinary implement behavior
+    Given checkpoint and checkout HEAD are exact and only tasks Files spelling was repaired
+    When recovery is discovered and consumed
+    Then the class remains repaired_publication_intervention
+    And ordinary implement starts without the exclusive resume header
+
+  @AC5 @regression
+  Scenario: Unsafe exclusive recovery remains blocked
+    Given the branch is wrong or a worker is live or current HEAD is not a checkpoint descendant or the owner is missing
+    When recovery is evaluated
+    Then no recovery is available
+    And no worker starts
+
+  @AC6 @regression
+  Scenario: Explicit verification report create is writable
+    Given implement tasks list the exact issue verification-report path with operation Create
+    When publication scope is inspected
+    Then the report path is tracked writable and allowed
+    And the report path is not read-only
+    And the four approved spec inputs remain read-only
+
+  @AC7 @regression
+  Scenario: Consumed failed resume cannot replay
+    Given exclusive implement resume was consumed and its worker wrote another failed implement handoff
+    When parameter-free execute runs again
+    Then recovery is consumed rather than available
+    And no second worker starts
