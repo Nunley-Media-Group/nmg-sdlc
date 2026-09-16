@@ -1,0 +1,45 @@
+**Issue**: #400
+**Date**: 2026-09-15
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/197-move-write-spec-publication-lifecycle-into-code-while-keeping-native-plan/
+
+# File: scripts/__tests__/write-spec-and-delivery-regression.feature
+#
+# Generated from: specs/400-restore-per-spec-plan-approval-and-ci-gated-merge-waiting/requirements.md
+Feature: Restore per-spec plan approval and CI-gated merge waiting
+  Write-spec previously reused the first approval for continuation issues,
+  and terminal delivery could leave CI observation before gates were terminal.
+
+  @SCN001 @regression
+  Scenario: Every published spec returns to native plan before continuation
+    Given an approved write-spec package has merged and post-merge remediation has completed
+    When the publication execution turn settles
+    Then the extension dispatches exactly one follow-up beginning with /plan
+    And Continue or Finished is presented only after that native-plan re-entry
+    And a publication result without merged true dispatches no follow-up
+
+  @SCN002 @regression
+  Scenario: A continuation issue has its own approval boundary
+    Given issue N is recorded in the write-spec session published list
+    When the operator selects eligible issue M and read-only discovery completes
+    Then local://spec-{M}-plan.md contains the complete four-file package for M
+    And xd://propose is called for M before any branch, file, commit, push, pull-request, label, or merge mutation for M
+    And leaving that proposal performs no mutation for M
+
+  @SCN003 @regression
+  Scenario: Incomplete CI remains observable without a deadline
+    Given terminal delivery is bound to pull request P at exact head H
+    And a required check is not registered, pending, or represented by a CI-attributable BLOCKED state
+    When delivery evaluates readiness
+    Then it observes again after 30 seconds without a workflow deadline
+    And it does not merge, remediate, consume merge recovery, or write a failed handoff for that non-terminal state
+
+  @SCN004 @regression
+  Scenario: Terminal evidence controls exact-head delivery
+    Given terminal delivery remains bound to pull request P at exact head H
+    When all required checks succeed and a fresh snapshot is CLEAN
+    Then it issues one squash merge with --match-head-commit H
+    And it reports success only after P is MERGED at H and the linked issue is CLOSED
+    But when a check fails or a proven non-CI blocker remains
+    Then it uses the existing remediation or failed-handoff route without classifying that state as pending
