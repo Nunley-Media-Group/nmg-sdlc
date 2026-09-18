@@ -3,6 +3,7 @@ import {
   mkdirSync,
   readFileSync,
   realpathSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
@@ -86,13 +87,19 @@ function validateFragmentShape(fragment) {
 
 function loadFileBody(source, packageRoot) {
   const workflowsRoot = resolve(packageRoot, "workflows");
+  const referencesRoot = resolve(packageRoot, "references");
   const sourcePath = resolve(packageRoot, source);
-  if (isAbsolute(source) || !isWithin(workflowsRoot, sourcePath)) fail("path_outside_root");
-  if (!existsSync(sourcePath)) fail("missing_source");
+  const sourceRoot = isWithin(workflowsRoot, sourcePath)
+    ? workflowsRoot
+    : isWithin(referencesRoot, sourcePath)
+      ? referencesRoot
+      : null;
+  if (isAbsolute(source) || sourceRoot === null) fail("path_outside_root");
+  if (!existsSync(sourcePath) || !statSync(sourcePath).isFile()) fail("missing_source");
 
-  const realWorkflowsRoot = realpathSync(workflowsRoot);
+  const realSourceRoot = realpathSync(sourceRoot);
   const realSourcePath = realpathSync(sourcePath);
-  if (!isWithin(realWorkflowsRoot, realSourcePath)) fail("path_outside_root");
+  if (!isWithin(realSourceRoot, realSourcePath)) fail("path_outside_root");
 
   if (basename(sourcePath) === "WORKFLOW.md") {
     const workflowName = relative(workflowsRoot, dirname(sourcePath));
@@ -204,6 +211,7 @@ const WORKER_HEADER = [
 const CATALOG = [
   ["plugin.workflow.draft-issue", "workflows/draft-issue/WORKFLOW.md", ["sdlc-draft-issue"], "body", 100],
   ["plugin.workflow.write-spec", "workflows/write-spec/WORKFLOW.md", ["sdlc-write-spec"], "body", 100],
+  ["plugin.reference.execute-implementable-requirements", "references/execute-implementable-requirements.md", ["sdlc-draft-issue", "sdlc-write-spec"], "extra", 150],
   ["plugin.workflow.onboard-project", "workflows/onboard-project/WORKFLOW.md", ["sdlc-onboard-project"], "body", 100],
   ["plugin.workflow.upgrade-project", "workflows/upgrade-project/WORKFLOW.md", ["sdlc-upgrade-project"], "body", 100],
   ["plugin.workflow.steering", "workflows/steering/WORKFLOW.md", ["sdlc-steering"], "body", 100],

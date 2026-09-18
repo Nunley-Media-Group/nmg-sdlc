@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 
 import {
   evaluateDraftIssueArtifact,
+  evaluateWriteSpecArtifact,
+  executeFeasibilityViolations,
   evaluateOpenPrArtifact,
   evaluateStatusArtifact,
   evaluateVerifyCodeArtifact,
@@ -21,6 +23,9 @@ const failArtifact = path.join(repoRoot, 'scripts', '__fixtures__', 'skill-exerc
 const statusArtifact = path.join(repoRoot, 'scripts', '__fixtures__', 'skill-exercise', 'status', 'artifacts', 'status-pass.json');
 const verifyCodeArtifact = path.join(repoRoot, 'scripts', '__fixtures__', 'skill-exercise', 'verify-code', 'artifacts', 'verify-code-pass.json');
 const openPrArtifact = path.join(repoRoot, 'scripts', '__fixtures__', 'skill-exercise', 'open-pr', 'artifacts', 'open-pr-pass.json');
+const forbiddenDraftArtifact = path.join(repoRoot, 'scripts', '__fixtures__', 'skill-exercise', 'draft-issue', 'artifacts', 'forbidden-obligations-fail.md');
+const writeSpecArtifact = path.join(repoRoot, 'scripts', '__fixtures__', 'skill-exercise', 'write-spec', 'artifacts', 'write-spec-pass.json');
+const forbiddenWriteSpecArtifact = path.join(repoRoot, 'scripts', '__fixtures__', 'skill-exercise', 'write-spec', 'artifacts', 'forbidden-obligations-fail.json');
 
 describe('skill exercise rubric evaluator', () => {
   test('passing draft-issue feature artifact passes all applicable criteria', () => {
@@ -198,6 +203,79 @@ Done.`);
   });
 
 
+
+  test('execute-feasibility checks retain concrete domain behavior without keyword blocking', () => {
+    const source = `## Acceptance Criteria
+
+### AC1: Enforce authorization
+
+**Given** stored ownerId does not match
+**When** export is requested
+**Then** return 403, emit an audit record, and keep p95 latency below 200 ms.
+`;
+    expect(executeFeasibilityViolations(source, { artifact: 'requirements' })).toEqual([]);
+  });
+
+  test('draft and write-spec evaluators name exact forbidden sections or clauses', () => {
+    const draftResults = evaluateDraftIssueArtifact(
+      fs.readFileSync(forbiddenDraftArtifact, 'utf8'),
+    );
+    expect(draftResults.find((item) => item.id === 'R7')).toMatchObject({
+      status: 'fail',
+      detail: expect.stringContaining('draft-issue:Require External Approval'),
+    });
+
+    const specResults = evaluateWriteSpecArtifact(
+      fs.readFileSync(forbiddenWriteSpecArtifact, 'utf8'),
+    );
+    expect(specResults.find((item) => item.id === 'W3')).toMatchObject({
+      status: 'fail',
+      detail: expect.stringContaining('design:Open Questions'),
+    });
+    expect(specResults.find((item) => item.id === 'W4')).toMatchObject({
+      status: 'fail',
+      detail: expect.stringContaining('tasks:T002: Obtain Approval'),
+    });
+  });
+
+  test('write-spec passing fixture satisfies all six rubric checks', () => {
+    const results = evaluateWriteSpecArtifact(fs.readFileSync(writeSpecArtifact, 'utf8'));
+    expect(results).toHaveLength(6);
+    expect(results.every((item) => item.status === 'pass')).toBe(true);
+  });
+
+  test.each([
+    ['draft-issue', passArtifact, 0, 'R7'],
+    ['write-spec', writeSpecArtifact, 0, 'W6'],
+    ['draft-issue', forbiddenDraftArtifact, 1, 'draft-issue:Require External Approval'],
+    ['write-spec', forbiddenWriteSpecArtifact, 1, 'design:Open Questions'],
+  ])('%s fixture at %s exits %i and reports %s', (skill, artifactPath, expectedStatus, expectedText) => {
+    const proc = spawnSync(process.execPath, [
+      runner,
+      '--skill', skill,
+      '--artifact', artifactPath,
+      '--base', 'HEAD',
+    ], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    expect(proc.status).toBe(expectedStatus);
+    expect(proc.stdout).toContain(expectedText);
+  });
+
+  test('write-spec malformed structure diagnostics remain distinct from feasibility failures', () => {
+    const results = evaluateWriteSpecArtifact(JSON.stringify({
+      requirements: 7,
+      design: '',
+      tasks: null,
+      feature: [],
+    }));
+    expect(results.find((item) => item.id === 'W1')).toMatchObject({
+      status: 'fail',
+      detail: expect.stringContaining('missing or non-string artifact values'),
+    });
+    expect(results.find((item) => item.id === 'W1').detail).not.toContain('counsel');
+  });
 
   test.each([
     ['preflight', 'draft', 'P2'],

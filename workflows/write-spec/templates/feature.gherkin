@@ -1,10 +1,8 @@
 # Gherkin Feature Template
 
-Use this template for executable feature or bug acceptance criteria.
+Generate exactly one observable scenario per requirements acceptance criterion. Give every scenario one distinct stable `@SCN...` tag. Generated file content consists only of required frontmatter, file/source comments, a Feature line, and AC-linked observable scenarios. Do not emit authoring instructions, section dividers, step-definition guidance, feasibility data, or external obligations inside the generated file.
 
-Reference `tech.md` for the project's BDD framework and feature-file location.
-
----
+## Feature Variant
 
 ```gherkin
 **Issue**: #[number]
@@ -14,150 +12,25 @@ Reference `tech.md` for the project's BDD framework and feature-file location.
 **Related Spec**: specs/{M}-{slug}/
 
 # File: {test-layer}/features/[feature-name].feature
-#
 # Generated from: specs/{N}-{slug}/requirements.md
 Feature: [Feature Name]
-  As a [user type from user story]
-  I want [action from user story]
-  So that [benefit from user story]
-
-  # --- Happy Path ---
 
   @SCN001
-  Scenario: [AC1 scenario name]
-    Given [AC1 precondition]
-    When [AC1 action]
-    Then [AC1 expected outcome]
-    And [AC1 additional outcome]
-
-  # --- Alternative Paths ---
+  Scenario: [AC1 observable scenario name]
+    Given [AC1 software precondition]
+    When [AC1 user or system action]
+    Then [AC1 observable outcome]
 
   @SCN002
-  Scenario: [AC2 scenario name]
-    Given [AC2 precondition]
+  Scenario: [AC2 observable scenario name]
+    Given [AC2 software precondition]
     When [AC2 action]
-    Then [AC2 expected outcome]
-
-  # --- Error Handling ---
-
-  @SCN003
-  Scenario: [AC3 scenario name - error case]
-    Given [AC3 error precondition]
-    When [AC3 action that triggers error]
-    Then [AC3 error handling behavior]
-
-  # --- Edge Cases ---
-
-  @SCN004
-  Scenario: [AC4 scenario name - edge case]
-    Given [AC4 edge case precondition]
-    When [AC4 action]
-    Then [AC4 expected behavior]
-
-  # --- Data-Driven (if applicable) ---
-
-  @SCN005
-  Scenario Outline: [Parameterized scenario name]
-    Given [precondition with <parameter>]
-    When [action with <parameter>]
-    Then [outcome with <expected>]
-
-    Examples:
-      | parameter | expected |
-      | value1    | result1  |
-      | value2    | result2  |
-      | value3    | result3  |
+    Then [AC2 observable outcome]
 ```
 
----
+## Defect Variant
 
-## Step Definition Patterns
-
-Reference `tech.md` for the project's BDD framework. Below are common patterns:
-
-### Pattern: Given/When/Then Functions
-
-```
-// Pseudocode — adapt to project's language and BDD framework
-
-given("precondition text", () => {
-  // Setup test state
-});
-
-when("action text", () => {
-  // Perform the action
-});
-
-then("expected outcome text", () => {
-  // Assert the result
-});
-```
-
-### Pattern: Parameterized Steps
-
-```
-// Pseudocode — adapt to project's BDD framework
-
-given("a user with role {string}", (role) => {
-  // Setup user with role
-});
-
-when("the user requests {string}", (endpoint) => {
-  // Make the request
-});
-
-then("the response status is {int}", (status) => {
-  // Assert status code
-});
-```
-
----
-
-## Guidelines
-
-1. **One scenario per acceptance criterion** — direct 1:1 mapping from requirements.md
-2. **Stable scenario ID** — tag every scenario with one unique sequential `@SCN...` identifier; preserve that tag when renaming the scenario
-3. **Concrete examples** — use realistic data, not "foo" and "bar"
-4. **Independent scenarios** — each scenario should be self-contained
-5. **Declarative style** — describe *what*, not *how* (avoid UI implementation details)
-6. **Background for shared setup** — use `Background:` for preconditions common to all scenarios
-
-```gherkin
-# Use Background for shared preconditions
-Background:
-  Given a registered user is logged in
-  And the user has a saved route
-
-@SCN001
-Scenario: First scenario
-  When ...
-  Then ...
-
-@SCN002
-Scenario: Second scenario
-  When ...
-  Then ...
-```
-
----
-
-## Validation Checklist
-
-- [ ] Every acceptance criterion has a corresponding scenario
-- [ ] Every scenario has exactly one unique stable `@SCN...` tag
-- [ ] Feature file is valid Gherkin syntax
-- [ ] Scenarios are independent (no shared mutable state)
-- [ ] Step definitions use project's BDD framework patterns
-- [ ] Error scenarios are included
-- [ ] Edge cases are covered
-
----
-
-# Defect Regression Scenarios
-
-**Use this variant when the GitHub issue has the `bug` label.** Defect Gherkin files focus on proving the bug is fixed and related behavior is unbroken, rather than describing new user-facing functionality.
-
----
+Use when the GitHub issue has the `bug` label. Keep the same one-scenario-per-AC rule; `@regression` may accompany, but never replace, the unique stable `@SCN...` tag.
 
 ```gherkin
 **Issue**: #[number]
@@ -167,44 +40,26 @@ Scenario: Second scenario
 **Related Spec**: specs/{M}-{slug}/
 
 # File: {test-layer}/features/[feature-name].feature
-#
 # Generated from: specs/{N}-{slug}/requirements.md
-Feature: [Bug summary — what was broken]
-  The [component/behavior] previously [description of the bug].
-  This was fixed by [brief description of the fix].
-
-  # --- Bug Is Fixed ---
+Feature: [Bug summary]
 
   @SCN001 @regression
-  Scenario: [AC1 — bug no longer reproduces]
-    Given [the precondition that previously triggered the bug]
-    When [the action that caused the incorrect behavior]
-    Then [the correct expected behavior]
-
-  # --- Related Behavior Still Works ---
+  Scenario: [AC1 bug no longer reproduces]
+    Given [the software condition that triggered the bug]
+    When [the action that caused incorrect behavior]
+    Then [the observable correct behavior]
 
   @SCN002 @regression
-  Scenario: [AC2 — related behavior is preserved]
-    Given [a related but working scenario]
-    When [a related action]
-    Then [existing correct behavior is unchanged]
-
-  # --- Edge Case (if applicable) ---
-
-  @SCN003 @regression
-  Scenario: [AC3 — boundary condition]
-    Given [edge case precondition]
-    When [action]
-    Then [expected behavior]
+  Scenario: [AC2 related behavior is preserved]
+    Given [a related working condition]
+    When [the related action occurs]
+    Then [the observable existing behavior remains]
 ```
 
----
+Authoring rules:
 
-## Defect Scenario Guidelines
-
-1. **Tag all scenarios `@regression`** — enables targeted regression suite runs
-2. **Give every scenario one unique stable `@SCN...` tag** — keep the tag when scenario prose changes
-3. **Feature description states what was broken**, not a user story — describe the bug and the fix
-4. **Fewer scenarios** — typically 2–3 (bug fixed + no regression), not 4+ like features
-5. **Focus on "it no longer breaks"** and "related things still work"
-6. **Use concrete data from the reproduction steps** in requirements.md
+- Preserve direct one-to-one AC/scenario mapping and unique stable tags.
+- Use concrete repository-domain examples and independent scenarios.
+- Add `Background:` only for shared software preconditions.
+- Describe observable behavior, not implementation procedure.
+- Omit legal or policy rationale, ownership proof, approval or attestation, live operations, delivery controls, and instructional prose from generated Gherkin.

@@ -68,6 +68,7 @@ const RUBRIC_CHECKS = [
   { id: 'R4', name: 'User Story present (feature classification)' },
   { id: 'R5', name: 'Root-Cause Analysis present (bug classification)' },
   { id: 'R6', name: 'Out of Scope section with ≥ 1 bullet' },
+  { id: 'R7', name: 'content is executable by /sdlc-execute' },
 ];
 const STATUS_RUBRIC_CHECKS = [
   { id: 'S1', name: 'schema-versioned status fields are stable' },
@@ -93,6 +94,14 @@ const OPEN_PR_RUBRIC_CHECKS = [
   { id: 'P5', name: 'report pushes trigger a complete H2 evidence recheck' },
   { id: 'P6', name: 'final marker validation precedes ready transition' },
   { id: 'P7', name: 'every failure preserves recoverable work and forbids unsafe actions' },
+];
+export const WRITE_SPEC_RUBRIC_CHECKS = [
+  { id: 'W1', name: 'four nonempty spec artifacts are present' },
+  { id: 'W2', name: 'requirements contain executable AC and FR behavior' },
+  { id: 'W3', name: 'design contains only behavior-implementing detail' },
+  { id: 'W4', name: 'tasks are issue-specific and executable' },
+  { id: 'W5', name: 'Gherkin scenarios are observable and stable' },
+  { id: 'W6', name: 'every AC has one feasible scenario' },
 ];
 
 function readFile(absPath) {
@@ -224,15 +233,16 @@ function deterministicChecks(skillName, baseRef) {
   const pointerLines = source.split('\n').filter((line) => /^Read `(?:\.\.\/\.\.\/)?references\//.test(line));
   results.push(pointerCheck);
 
-  // D4: per-skill references/ count ≤ 5
+  // D4: bounded per-skill references/ count
   let refFiles = [];
   if (fs.existsSync(refDir)) {
     refFiles = fs.readdirSync(refDir).filter((f) => f.endsWith('.md'));
   }
+  const referenceLimit = skillName === 'write-spec' ? 7 : MAX_FILES_PER_SKILL;
   results.push({
     id: 'D4',
-    name: `references/ file count ≤ ${MAX_FILES_PER_SKILL}`,
-    status: refFiles.length <= MAX_FILES_PER_SKILL ? 'pass' : 'fail',
+    name: `references/ file count ≤ ${referenceLimit}`,
+    status: refFiles.length <= referenceLimit ? 'pass' : 'fail',
     detail: `${refFiles.length} files`,
   });
 
@@ -424,6 +434,62 @@ function acBlocks(source) {
 function hasGwt(block, word) {
   return new RegExp(`^\\s*(?:\\*\\*)?${word}(?:\\*\\*)?\\b`, 'im').test(block);
 }
+const FORBIDDEN_GENERATED_SECTIONS = new Set([
+  'open questions',
+  'validation checklist',
+  'security considerations',
+  'performance considerations',
+  'testing strategy',
+  'risks & mitigations',
+  'regression risk',
+]);
+
+const EXTERNAL_BURDEN_PATTERNS = [
+  /\bcomply with\b.*\b(?:law|regulation|policy)\b/i,
+  /\b(?:declare|certify|guarantee)\b.*\b(?:legal|regulatory|compliance|compliant)\b/i,
+  /\b(?:prove|provide proof of|attest to|certify)\b.*\b(?:ownership|authority|licen[cs](?:e|ing)|provenance)\b/i,
+  /\b(?:obtain|require|secure|wait for|get)\b.*\b(?:counsel|legal|human|product[- ]owner|security)\b.*\b(?:approval|sign-?off|attestation|certification|review)\b/i,
+  /\b(?:obtain|acquire|procure)\b.*\b(?:credential|certificate|permission|rights?)\b/i,
+  /\b(?:perform|apply|run)\b.*\b(?:live|production)\b.*\b(?:deploy|deployment|migration|data operation|infrastructure)\b/i,
+  /\b(?:change|modify|update)\b.*\banother repository\b/i,
+  /\b(?:guarantee|observe|measure)\b.*\b(?:uptime|SLA|available)\b.*\b(?:days?|months?|years?)\b/i,
+  /\bclose\b.*\bexternal ticket\b/i,
+  /\b(?:publish|create)\b.*\b(?:GitHub Release|release tag|package|container)\b/i,
+  /\b(?:create|open)\b.*\bpull request\b/i,
+  /\b(?:merge|close issue|synchroni[sz]e version)\b/i,
+];
+
+export function executeFeasibilityViolations(source, { artifact = 'artifact' } = {}) {
+  if (typeof source !== 'string') {
+    return [`${artifact}: malformed artifact value; expected string`];
+  }
+
+  const violations = [];
+  let sectionName = 'document';
+  for (const rawLine of source.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    const heading = line.match(/^#{2,3}\s+(.+)$/);
+    if (heading) {
+      sectionName = heading[1].replace(/^AC\d+:\s*/i, '').trim();
+      const normalized = sectionName.toLowerCase();
+      if (FORBIDDEN_GENERATED_SECTIONS.has(normalized)) {
+        violations.push(`${artifact}:${sectionName}: forbidden generic section`);
+      }
+      continue;
+    }
+    if (!line || /^#(?!#)|^\*\*(?:Issue|Date|Status|Author|Related Spec)\*\*:/.test(line)) {
+      continue;
+    }
+    if (sectionName.toLowerCase() === 'change history') continue;
+    for (const pattern of EXTERNAL_BURDEN_PATTERNS) {
+      if (pattern.test(line)) {
+        violations.push(`${artifact}:${sectionName}: ${line}`);
+        break;
+      }
+    }
+  }
+  return violations;
+}
 
 function parseDraftIssueArtifact(artifact) {
   const titleMatch = artifact.match(/^#\s+(.+)$/m)
@@ -504,14 +570,11 @@ function evaluateDraftIssueArtifact(artifact) {
   if (parsed.classification === 'bug') {
     const hasParagraph = parsed.rootCause
       .split(/\r?\n/)
-      .some((line) => line.trim() && !/^\*\*User Confirmed\*\*/i.test(line.trim()));
-    const hasUserConfirmed = /\*\*User Confirmed\*\*/i.test(parsed.rootCause);
+      .some((line) => line.trim());
     results.push(result(
       'R5',
-      hasParagraph && hasUserConfirmed ? 'pass' : 'fail',
-      hasParagraph && hasUserConfirmed
-        ? 'root-cause paragraph and **User Confirmed** line present'
-        : `missing ${[!hasParagraph && 'root-cause paragraph', !hasUserConfirmed && '**User Confirmed**'].filter(Boolean).join(', ')}`
+      hasParagraph ? 'pass' : 'fail',
+      hasParagraph ? 'root-cause paragraph present' : 'missing root-cause paragraph'
     ));
   } else {
     results.push(result('R5', 'skipped', 'criterion not applicable for feature classification'));
@@ -521,6 +584,15 @@ function evaluateDraftIssueArtifact(artifact) {
     'R6',
     /^[-*]\s+\S/m.test(parsed.outOfScope) ? 'pass' : 'fail',
     parsed.outOfScope ? 'out-of-scope bullet present' : 'missing ## Out of Scope section with at least one bullet'
+  ));
+
+  const feasibilityViolations = executeFeasibilityViolations(artifact, { artifact: 'draft-issue' });
+  results.push(result(
+    'R7',
+    feasibilityViolations.length === 0 ? 'pass' : 'fail',
+    feasibilityViolations.length === 0
+      ? 'all requirement-bearing content is execute-feasible'
+      : feasibilityViolations.join('; ')
   ));
 
   return results;
@@ -745,7 +817,114 @@ const RUBRIC_EVALUATORS = {
   'open-pr': { checks: OPEN_PR_RUBRIC_CHECKS, evaluate: evaluateOpenPrArtifact },
   status: { checks: STATUS_RUBRIC_CHECKS, evaluate: evaluateStatusArtifact },
   'verify-code': { checks: VERIFY_CODE_RUBRIC_CHECKS, evaluate: evaluateVerifyCodeArtifact },
+  'write-spec': { checks: WRITE_SPEC_RUBRIC_CHECKS, evaluate: evaluateWriteSpecArtifact },
 };
+export function evaluateWriteSpecArtifact(artifact) {
+  return evaluateStructuredArtifact(artifact, WRITE_SPEC_RUBRIC_CHECKS, (id, value) => {
+    const keys = ['requirements', 'design', 'tasks', 'feature'];
+    const values = Object.fromEntries(keys.map((key) => [
+      key,
+      typeof value[key] === 'string' ? value[key] : '',
+    ]));
+    const missing = keys.filter((key) => !values[key].trim());
+    const requirementAcs = [...values.requirements.matchAll(/^###\s+(AC\d+)\b/gim)]
+      .map((match) => match[1].toUpperCase());
+    const frRows = [...values.requirements.matchAll(/^\|\s*(FR\d+)\s*\|/gim)]
+      .map((match) => match[1].toUpperCase());
+    const requirementViolations = executeFeasibilityViolations(
+      values.requirements,
+      { artifact: 'requirements' },
+    );
+    const designViolations = executeFeasibilityViolations(
+      values.design,
+      { artifact: 'design' },
+    );
+    const taskBlocks = [...values.tasks.matchAll(
+      /^###\s+(T\d{3}):[^\n]*\n([\s\S]*?)(?=^###\s+T\d{3}:|^##\s+|(?![\s\S]))/gim,
+    )];
+    const taskViolations = executeFeasibilityViolations(
+      values.tasks,
+      { artifact: 'tasks' },
+    );
+    const malformedTasks = taskBlocks
+      .filter((match) => !/^\*\*Acceptance\*\*:/m.test(match[2])
+        || /^\*\*Files\*\*:/m.test(match[2])
+        || (/^\*\*File\(s\)\*\*:/m.test(match[2])
+          && !/^\*\*File\(s\)\*\*:\s+`[^`\r\n]+`(?:\s*[,;]\s*`[^`\r\n]+`)*\s*$/m.test(match[2])))
+      .map((match) => match[1].toUpperCase());
+    const scenarioBlocks = [...values.feature.matchAll(
+      /^\s*(?:@[^\n]+\n)+\s*Scenario(?: Outline)?:[^\n]*\n([\s\S]*?)(?=^\s*(?:@[^\n]+\n)+\s*Scenario(?: Outline)?:|(?![\s\S]))/gim,
+    )];
+    const scenarioTags = [...values.feature.matchAll(/^\s*@(SCN[A-Za-z0-9_-]+)\b/gim)]
+      .map((match) => match[1].toUpperCase());
+    const uniqueTags = new Set(scenarioTags);
+    const malformedScenarios = scenarioBlocks
+      .map((match, index) => ({ block: match[0], index: index + 1 }))
+      .filter(({ block }) => !(hasGwt(block, 'Given')
+        && hasGwt(block, 'When')
+        && hasGwt(block, 'Then')))
+      .map(({ index }) => `scenario ${index}`);
+    const instructionalContent = /Step Definition Patterns|Validation Checklist|Authoring rules|Pseudocode/i
+      .test(values.feature);
+    const allViolations = keys.flatMap((key) => executeFeasibilityViolations(
+      values[key],
+      { artifact: key },
+    ));
+
+    const checks = {
+      W1: {
+        pass: missing.length === 0,
+        detail: missing.length === 0
+          ? 'requirements, design, tasks, and feature are nonempty'
+          : `missing or non-string artifact values: ${missing.join(', ')}`,
+      },
+      W2: {
+        pass: requirementAcs.length > 0 && frRows.length > 0
+          && requirementViolations.length === 0,
+        detail: requirementViolations.length
+          ? requirementViolations.join('; ')
+          : `${requirementAcs.length} AC(s), ${frRows.length} FR(s)`,
+      },
+      W3: {
+        pass: values.design.trim().length > 0 && designViolations.length === 0,
+        detail: designViolations.length
+          ? designViolations.join('; ')
+          : 'design contains no generic process sections or external burdens',
+      },
+      W4: {
+        pass: taskBlocks.length > 0 && malformedTasks.length === 0
+          && taskViolations.length === 0,
+        detail: taskViolations.length
+          ? taskViolations.join('; ')
+          : malformedTasks.length
+            ? `noncanonical or acceptance-free tasks: ${malformedTasks.join(', ')}`
+            : `${taskBlocks.length} canonical issue-specific task(s)`,
+      },
+      W5: {
+        pass: scenarioBlocks.length > 0
+          && scenarioTags.length === scenarioBlocks.length
+          && uniqueTags.size === scenarioTags.length
+          && malformedScenarios.length === 0
+          && !instructionalContent,
+        detail: malformedScenarios.length
+          ? `missing observable Given/When/Then in ${malformedScenarios.join(', ')}`
+          : instructionalContent
+            ? 'feature contains instructional content'
+            : `${scenarioBlocks.length} observable scenario(s) with unique stable tags`,
+      },
+      W6: {
+        pass: requirementAcs.length > 0
+          && scenarioBlocks.length === requirementAcs.length
+          && allViolations.length === 0,
+        detail: allViolations.length
+          ? allViolations.join('; ')
+          : `${scenarioBlocks.length} distinct scenario(s) for ${requirementAcs.length} AC(s)`,
+      },
+    };
+    return checks[id];
+  });
+}
+
 
 function rubricChecks(skillName, artifact, options = {}) {
   const evaluator = RUBRIC_EVALUATORS[skillName];

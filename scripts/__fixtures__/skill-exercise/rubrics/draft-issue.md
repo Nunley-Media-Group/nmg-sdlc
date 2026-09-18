@@ -30,19 +30,21 @@ Captured artifacts produce `pass` or `fail` for applicable criteria. A criterion
 | R2 | AC count | ≥ 3 acceptance criteria for feature classification; ≥ 2 for bug |
 | R3 | AC format | Every AC block contains `**Given**`, `**When**`, and `**Then**` lines (or the equivalent unbolded prefix) |
 | R4 | User Story present (feature) | Body contains `**As a**`, `**I want**`, `**So that**` lines under a `## User Story` heading |
-| R5 | Root-Cause Analysis present (bug) | Body contains a `## Root Cause Analysis` heading with a non-empty paragraph and a `**User Confirmed**` line |
-| R6 | Out of Scope section | Body contains a `## Out of Scope` heading with at least one bullet |
+| R5 | Root-Cause Analysis present (bug) | Body contains a `## Root Cause Analysis` heading with a non-empty repository-grounded paragraph |
+| R6 | Out of Scope section | Body contains a `## Out of Scope` heading with at least one adjacent-software bullet |
+| R7 | Execute feasibility | Requirement-bearing content contains only software behavior `/sdlc-execute` can implement and verify; diagnostics name the offending artifact section or clause |
 
 ## Deterministic Fixture Artifacts
 
 | Fixture | Purpose |
 |---------|---------|
-| `draft-issue/artifacts/feature-pass.md` | Passing feature artifact for default non-live evaluation |
-| `draft-issue/artifacts/malformed-fail.md` | Negative artifact used by Jest to prove malformed structures fail with actionable details |
+| `draft-issue/artifacts/feature-pass.md` | Passing functional CSV-export artifact with valid owner, authorization, audit-log, and latency domain behavior |
+| `draft-issue/artifacts/forbidden-obligations-fail.md` | Structurally valid artifact that must fail R7 with exact external-burden diagnostics |
+| `draft-issue/artifacts/malformed-fail.md` | Negative artifact used by Jest to prove malformed structures fail with distinct actionable details |
 
 ## Pre-Refactor Baseline
 
-The pre-refactor baseline for command-surface checks is derived from `git show main:workflows/draft-issue/WORKFLOW.md` at the merge-base of this branch, with legacy skill and monorepo paths supported for older baselines. Model-authored artifacts (R1–R6) are evaluated from deterministic fixture artifacts by default, or from captured live Codex output when `RUN_EXERCISE_TESTS=1` is explicitly enabled.
+The pre-refactor baseline for command-surface checks is derived from `git show main:workflows/draft-issue/WORKFLOW.md` at the merge-base of this branch, with legacy skill and monorepo paths supported for older baselines. Model-authored artifacts (R1–R7) are evaluated from deterministic fixture artifacts by default, or from captured live output when exercise mode is explicitly enabled.
 
 ## Invocation
 

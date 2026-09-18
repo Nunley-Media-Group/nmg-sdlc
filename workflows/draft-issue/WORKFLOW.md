@@ -11,108 +11,68 @@ Read `../../references/interactive-gates.md` when applying the native `/plan`, `
 
 ## Core Flow
 
-1. Gather need: if $ARGUMENTS present use as initialDescription. Else use one ask for the need (free-form via Other if needed, but prefer short).
+1. Gather need: if `$ARGUMENTS` is present, use it as `initialDescription`. Otherwise use one `ask` for the need (free-form through automatic Other when needed, but prefer short).
 
-2. If multi-issue signals (see references/multi-issue.md), run detection, then ONE ask to confirm split (options: approve split / adjust / single).
+2. Immediately apply the rendered `/sdlc-execute` eligibility algorithm before multi-issue detection:
+   - Extract only functional software behavior and implementation-relevant technical constraints that execute can realize through permitted repository mutation and prove through accepted evidence.
+   - Strip legal, policy, ownership-proof, attestation, sign-off, live-operation, and other externally owned motivation or obligations. Never let excluded material create a split issue.
+   - Ask only for missing observable software behavior that execute could implement. Never ask for legal interpretation, ownership proof, authority, sign-off, credentials, or live operations.
+   - If no eligible software behavior is supplied, print exactly `No software requirements executable by /sdlc-execute remain after excluding non-software obligations.` and stop before plan creation, proposal, or GitHub mutation.
 
-3. Classification ask (exactly these 2 options, recommended first based on text):
+3. If the eligible slice has multi-issue signals (see `references/multi-issue.md`), run detection, then use one `ask` to confirm split with approve split, adjust, or single options.
 
-   Use ask:
+4. Ask for classification with exactly these two options, recommended first from the eligible behavior:
+   - `Enhancement — New capability or improvement to existing behavior (recommended for most)`
+   - `Bug — Something is broken or behaving incorrectly`
 
-   question: "What type of issue is this?"
+   Map to `feature | bug`. Never epic. Never spike.
 
-   options:
+5. If root `VERSION` parses as semver `X.Y.Z`, read it, extract the major, and ask once for `v${major} (current)` or `v${major+1} (next)`, recommended first. Record the milestone or `null`. Approved plan execution ensures a selected milestone exists before issue creation.
 
-   - "Enhancement — New capability or improvement to existing behavior (recommended for most)"
+6. Investigate with `glob`, `grep`, and `read`; do not use subagents unless scoped:
+   - For enhancement/feature, read relevant steering and search bounded source/spec patterns to summarize Current State.
+   - For bug, search the error or symbol, read relevant files, and form a root-cause hypothesis.
+   - Record signals for interview depth.
+   - Reapply the execute eligibility gate to every discovered candidate. Steering may resolve paths, interfaces, validation identities, and project conventions, but its process, release, ownership, or verification-policy prose is not issue content.
 
-   - "Bug — Something is broken or behaving incorrectly"
+7. Interview until every material undiscoverable preference, observable acceptance criterion, and adjacent-software scope boundary is gathered:
+   - Use focused asks only for preferences and tradeoffs. Each call has 2–4 options, recommended first, and at most three questions.
+   - Each question includes a short paragraph stating the situation and facts needed to choose without relying on past chat.
+   - Cover persona/outcome, key ACs, adjacent software scope, and bug reproduction/expected behavior.
+   - Ask only about behavior execute can implement and verify. Do not ask for repository facts discoverable by tools or any excluded authority/evidence burden.
+   - Do not use `ask` for final approval. Synthesize only after the interview is complete, then propose.
+   - Reapply the eligibility gate after the interview. If no eligible behavior remains, emit the exact empty-result diagnostic from step 2 and stop.
 
-   Map to: feature | bug. Never epic. Never spike.
+8. Synthesize per classification:
+   - Read `references/feature-template.md` or `references/bug-template.md` as the execution payload.
+   - Fill it from retained or rewritten behavior plus investigation.
+   - Preserve bounded technical constraints that execute must implement to change observable behavior, but omit code-level design.
+   - For a multi-issue result, assign stable plan-local ids and explicit `blockedBy` references. Do not generate dependency lines in issue bodies.
 
-4. Milestone (if root VERSION parses as semver X.Y.Z):
+9. Build per-issue plan entries in topological order (single issue = one entry). Each contains:
+   - `planId`: stable kebab-case identifier unique within the plan
+   - `classification`: `feature | bug`
+   - `title`: concise and verb-first
+   - `milestone`: `vX | null`
+   - `labels`: `["enhancement"] | ["bug"]`
+   - `body`: complete markdown from the selected template without generated dependency fields
+   - `blockedBy`: `{ "planId": "..." }` or `{ "issue": 123 }` rows; existing issues only when the eligible need explicitly names or clearly sequences them
+   - `ghCreateArgs`: exact argv array, for example `["gh","issue","create","--title",t,"--body",b,"--label",l,...]`
+   - an `Execute Feasibility` table with exact columns `Item`, `Behavior or task`, `Owning stage`, `Mutation/artifact`, `Evidence kind and identity`, `External prerequisite`, and `Disposition`
 
-   Read VERSION.
+   Cover every proposed AC and FR in the table. Use only the dispositions and value grammar defined by the rendered execute contract. Omitted and control-plane rows remain solely in this plan audit and never enter `body` or `ghCreateArgs.body`.
 
-   Extract major.
+10. Before creating the plan file, audit every complete issue-body section and the exact `ghCreateArgs.body` against the rendered contract. Only `retain` or rewritten content may appear. Excluded material must not be relocated into Background, Current State, Root Cause, Environment, Technical Notes, Out of Scope, design suggestions, or other context. Out of Scope contains only adjacent software behavior. Reject any retained feasibility row with blank or unresolved ownership, mutation authority, proof, or prerequisite.
 
-   One ask:
+11. Derive `slug = "draft-" + kebab(need or first title)` and write the full structured entry list to `local://draft-<slug>-plan.md` only after the final audit passes. Then write this plain text to `xd://propose`:
 
-   options:
-
-   - `v${major} (current)`
-
-   - `v${major+1} (next)`
-
-   Recommended first. Record milestone or null.
-
-   (The plan execution will ensure the milestone exists via gh before create if chosen.)
-
-5. Investigate (use glob/grep/read, no subagents unless scoped):
-
-   - For enhancement/feature: read relevant steering, use glob for specs/ and source; summarize Current State.
-
-   - For bug: search error/func, read files, form root-cause hypothesis.
-
-   Record signals for depth.
-
-6. Interview until every material undiscoverable preference, acceptance criterion, and scope boundary is gathered:
-
-   Use focused asks only for preferences and tradeoffs. Each call has 2–4 options, recommended first, and at most three questions.
-
-   Each interview or preference question includes a short paragraph stating the situation and the facts needed to choose among the shown options. Do not paste the full need statement.
-
-   Core probes: persona/outcome, key ACs, scope in/out, for bug: repro/expected.
-
-   Continue with additional focused probes whenever a material decision remains unresolved after investigation. Do not ask for facts that glob, grep, or read can discover.
-
-   Do NOT use ask for final approval or review of draft. Synthesis happens only after the interview is complete, then propose.
-
-7. Synthesize per classification using the payload templates:
-
-   Read references/feature-template.md | bug-template.md as execution payload.
-
-   Fill from understanding + investigation.
-
-   For multi (from references/multi-issue.md): assign stable plan-local ids and derive explicit `blockedBy` references. Do not generate dependency lines in issue bodies.
-
-8. Build per-issue plan entries in topological order (single = 1).
-
-   Each:
-
-   - planId: stable kebab-case identifier unique within the plan
-
-   - classification: feature|bug
-
-   - title: verb-first concise
-
-   - milestone: "vX" | null
-
-   - labels: ["enhancement"] | ["bug"]
-
-   - body: full markdown from the selected template, without generated dependency fields
-
-   - blockedBy: array of `{ "planId": "..." }` or `{ "issue": 123 }`; existing issues are allowed only when the need explicitly names or clearly sequences them
-
-   - ghCreateArgs: exact argv array e.g. ["gh","issue","create","--title", t,"--body",b,"--label",l,(milestone?["--milestone",m]:[])]
-
-   Approved execution creates all issues, captures each returned issue number, resolves every plan-local reference, reads numeric REST database ids, preflights the complete official graph through `scripts/issue-dependencies.mjs`, and only then applies official blocked-by edges. The existing split and final plan approval authorize those exact writes; do not ask again.
-
-9. Write the plan file:
-
-   Derive slug = "draft-" + kebab(need or first title)  (lowercase, non alnum to -, collapse)
-
-   Write full structured content (JSON or markdown table of the list) to:
-
-   local://draft-<slug>-plan.md
-
-10. Finish:
-
-    Write plain text to xd://propose :
-    ```
+    ```text
     draft-<slug>
     <chosen primary title>
     ```
-    (The /plan system will present for approval; execution of the approved plan runs the `ghCreateArgs` in topological order, captures created issue numbers, resolves all `planId` references, reads numeric REST database IDs, preflights the combined official graph, publishes every approved blocked-by edge, and only then emits `/sdlc-write-spec #N` for each created issue.)
+
+Approved execution creates all issues, captures returned numbers, resolves plan-local references, reads numeric REST database ids, preflights the complete official graph through `scripts/issue-dependencies.mjs`, and only then applies approved blocked-by edges. The split and final plan approval authorize those exact writes; do not ask again. After execution, emit `/sdlc-write-spec #N` for each created issue.
+
 ## Multi-Issue Notes
 
 - One ask only for split confirm (see references/multi-issue.md for updated rules).
@@ -131,6 +91,6 @@ Read `../../references/interactive-gates.md` when applying the native `/plan`, `
 
 - ACs: Given/When/Then.
 
-- No implementation details in bodies.
+- No code-level design in issue bodies; retain bounded technical constraints that `/sdlc-execute` must implement to change observable behavior.
 
 - Scope explicit.

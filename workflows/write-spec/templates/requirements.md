@@ -1,8 +1,8 @@
 # Requirements Template
 
-Use this template for executable feature or bug specs. Never create an epic aggregate.
+Use this template for executable feature or bug specs. Generate only functional software context, observable criteria, retained Functional Requirements, adjacent-software Out of Scope, required frontmatter, and Change History. Never create an epic aggregate or copy the Execute Feasibility audit into the file.
 
----
+## Feature Variant
 
 ```markdown
 # Requirements: [Feature Name]
@@ -13,47 +13,33 @@ Use this template for executable feature or bug specs. Never create an epic aggr
 **Author**: [name]
 **Related Spec**: specs/{M}-{slug}/
 
----
-
 ## User Story
 
-**As a** [user type]
-**I want** [action]
-**So that** [benefit]
-
----
+**As a** [software user or actor]
+**I want** [observable action or capability]
+**So that** [software outcome]
 
 ## Background
 
-[Why this feature is needed.]
-
----
+[Concise functional context needed to understand retained behavior.]
 
 ## Acceptance Criteria
 
-Each criterion becomes a Gherkin scenario.
+### AC1: [Observable scenario]
 
-### AC1: [Scenario Name]
-
-**Given** [precondition]
+**Given** [software precondition]
 **When** [action]
-**Then** [outcome]
-
----
+**Then** [observable outcome]
 
 ## Functional Requirements
 
-| ID | Requirement | Priority | Notes |
-|----|-------------|----------|-------|
-| FR1 | [requirement] | Must | |
-
----
+| ID | Requirement | Priority |
+|----|-------------|----------|
+| FR1 | [executable software behavior] | Must |
 
 ## Out of Scope
 
-- [item]
-
----
+- [Adjacent software behavior not owned by this issue]
 
 ## Change History
 
@@ -62,9 +48,7 @@ Each criterion becomes a Gherkin scenario.
 | #[number] | [YYYY-MM-DD] | Initial feature spec |
 ```
 
----
-
-# Defect Requirements Variant
+## Defect Variant
 
 Use when the GitHub issue has the `bug` label.
 
@@ -77,18 +61,16 @@ Use when the GitHub issue has the `bug` label.
 **Author**: [name]
 **Related Spec**: specs/{M}-{slug}/
 
----
-
 ## Reproduction
 
-1. [step]
+1. [software setup or action]
 
 ## Expected vs Actual
 
 | | Description |
 |---|-------------|
-| **Expected** | [what should happen] |
-| **Actual** | [what happens] |
+| **Expected** | [observable correct behavior] |
+| **Actual** | [observable incorrect behavior] |
 
 ## Acceptance Criteria
 
@@ -96,17 +78,17 @@ Use when the GitHub issue has the `bug` label.
 
 **Given** [reproduction precondition]
 **When** [action]
-**Then** [correct behavior]
+**Then** [observable correct behavior]
 
 ## Functional Requirements
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR1 | [the fix] | Must |
+| FR1 | [executable corrective behavior] | Must |
 
 ## Out of Scope
 
-- [related improvement]
+- [Adjacent software improvement]
 
 ## Change History
 
@@ -114,3 +96,5 @@ Use when the GitHub issue has the `bug` label.
 |-------|------|---------|
 | #[number] | [YYYY-MM-DD] | Initial defect report |
 ```
+
+Omit legal or policy rationale, ownership or authority proof, external sign-off or attestation, live operations, delivery controls, feasibility-ledger rows, and unresolved questions from every section.
