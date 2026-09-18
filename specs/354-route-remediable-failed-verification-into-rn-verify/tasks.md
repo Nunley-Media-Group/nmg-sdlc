@@ -18,6 +18,7 @@
 | T004 | Prevent nested mutable-smoke recursion | [ ] |
 | T005 | Scope execute worker discovery to the active project | [ ] |
 | T006 | Preserve visibly active workers across stale idle state | [ ] |
+| T007 | Rewind mixed Incomplete local failures to implementation | [ ] |
 
 ---
 
@@ -98,6 +99,18 @@
 - [ ] The eventual original-step handoff is consumed normally.
 - [ ] A regression fixture requires more than one stale-idle observation before writing the handoff.
 - [ ] The focused execute suite exits 0.
+
+### T007: Rewind mixed Incomplete local failures to implementation
+
+**File(s)**: `scripts/verification-readiness.mjs`, `scripts/sdlc-finalize-verification.mjs`, `scripts/sdlc-execute.mjs`, `scripts/__tests__/verification-readiness.test.mjs`, `scripts/__tests__/sdlc-finalize-verification.test.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`, `workflows/verify-code/WORKFLOW.md`, `workflows/execute/WORKFLOW.md`, `commands/sdlc-verify-code.md`, `commands/sdlc-execute.md`
+**Type**: Modify
+**Depends**: T006
+**Acceptance**:
+- [ ] Exact-head canonical artifacts distinguish failed required `builtin.command`, external failed, incomplete, and passed results
+- [ ] Mixed Incomplete + local failure writes `intervention: false`, `next: implement`, report/artifact evidence, and named local/external ids
+- [ ] Incomplete-only, external-only, stale, malformed, unsafe, duplicate, incomplete-coverage, and ceiling-mismatched artifacts remain intervention
+- [ ] Discovery and run repeat artifact, head, branch, handoff, and ownership proofs before one durable `actionable_verification_resume`
+- [ ] Execute prioritizes the rewind over `rN-verify`, reruns standard implementation plus downstream review/fix/verify, and never replays consumed recovery
 
 ---
 

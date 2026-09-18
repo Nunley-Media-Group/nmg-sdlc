@@ -104,3 +104,15 @@ Feature: Recover bounded automatic delivery stops without loops
     And non-read tools, user shell, user python, URL and internal-URI reads, archive members, unsupported selectors, symlink escape, traversal, and absolute paths outside allowed snapshot files are blocked before execution
     And missing hook, setActiveTools, or receipt proof fails as review_scope_unproven
     And ordinary sessions without that env keep their existing active tools
+
+  @SCN012 @regression
+  Scenario: Closed remediable worker automatically resumes once without looping
+    Given an owned remediable worker pane is positively absent
+    And the current issue branch and checkpoint HEAD remain exact
+    And the terminal handoff is missing or invalid
+    When recovery discovery proves no live worker or prior same-stage recovery
+    Then it reports one closed_worker_resume automatic recovery
+    And bare execute consumes that recovery before redispatching the same standard stage worker
+    And a genuine failed handoff enters bounded remediation toward the approved spec
+    And a second loss, unchanged failure, changed head, live owner, or consumed recovery never redispatches automatically
+    And operator prompting occurs only after safe automatic continuation is unavailable or consumed

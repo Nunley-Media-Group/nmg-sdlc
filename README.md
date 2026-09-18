@@ -138,7 +138,7 @@ GitHub's **official blocked-by relation** is the sole sequencing authority. Body
 /sdlc-write-spec
 ```
 
-The numbered form selects that issue. The bare form offers open issues missing the exact `spec-created` label. The workflow creates or amends one issue-owned package, then publishes the approved spec through a spec-only PR, squash-merges it into the default branch, and applies `spec-created` without closing the implementation issue. Follow its continue/finish prompt for additional issues.
+The numbered form selects that issue. The bare form offers open issues missing the exact `spec-created` label. Every selected issue gets a distinct complete local plan and native-plan approval before any issue-specific mutation. Publication uses a spec-only PR, squash-merges it into the default branch, applies `spec-created` without closing the implementation issue, completes any post-merge remediation, then returns the same TUI session to native plan for Continue/Finished. A continuation issue repeats that approval boundary instead of inheriting the first issue's approval.
 
 ```text
 specs/42-add-user-auth/
@@ -246,9 +246,13 @@ The additional allowance belongs only to parameter-free execution. Neither an ex
 
 Safe automatic recovery has a separate durable allowance for each class, logical owner, issue, and stage. Known committed publication is reconciled before another push; proven review contamination permits one whole-step replacement while preserving original evidence. Safe base reconciliation reruns every review/fix/verification gate on the new head. Bot review remains distinct from human authority, and post-merge observation never replays merge or closes an unrelated issue. New commits, leases, sessions, or plugin versions do not replenish these allowances or the existing remediation budgets.
 
+When a remediable worker pane is positively absent and left no valid terminal handoff, execute first tries to continue automatically. Exact issue branch, checkpoint HEAD, clean state, absent ownership, and missing/invalid handoff proof permit one durable `closed_worker_resume` for that run, issue, and stage. Bare execute consumes it before redispatching the same standard worker. A genuine failure then enters ordinary bounded remediation, allowing fixes and reverification toward the approved spec. A second loss, unchanged failure, consumed recovery, changed head/branch, live ownership, or valid intervention cannot redispatch.
+
+Mixed verification does not collapse a local failure into an external `Incomplete` blocker. An exact-head, coverage-complete canonical verification artifact with a required failed built-in command receives one durable `actionable_verification_resume`: verify finalization names local failed and external incomplete validations, rewinds to standard implement authority, and reruns both review/fix rounds plus verification. Incomplete-only, external-provider-only, stale, malformed, unsafe, or consumed evidence remains intervention.
+
 Safe local verification-report format or scope-evidence errors remain unpassed, but can use the same bounded repair path. Regenerating that report does not waive its scope, gate, publication, or identity checks. Genuine `Incomplete` evidence and unsafe report paths still require intervention.
 
-Blocked/intervention handoffs stop immediately. Missing approval, unavailable credentials or required external evidence, unsafe ownership, and human-review authority are not permission to improvise success. An unchanged blocked/intervention or loop stop remains stopped on reinvocation. A later validated passed handoff can advance; an authorized non-intervention earlier-step repair reruns downstream gates. Do not edit a handoff to say passed without satisfying its contract.
+Blocked/intervention handoffs remain non-passing. Missing approval, unavailable credentials or required external evidence, unsafe ownership, and human-review authority are not permission to improvise success. Only after safe automatic continuation is unavailable or consumed does discovery return a checkpoint-bound intervention prompt. The prompt may run the owning standalone `verify` or `deliver` workflow exactly once when that public stage exists, or preserve/inspect the stop; it then runs discovery exactly once and resumes only from a validated passed handoff. It never edits handoffs, grants another allowance, asks twice, or replays unchanged execution.
 
 ### Resume, cancellation, and debugging
 
@@ -271,7 +275,7 @@ The supervisor ends with its invocation; it is not a persistent plugin service. 
 
 `--recover-stale` is for a **proven-dead** controller lease, not an active-controller bypass. Recovery checks process and pane ownership; a live, unreadable, or conflicting lease still blocks. Never manually remove an active lock, start a second controller, or stop Herdr as a recovery shortcut.
 
-Status and stop output distinguish `resumable`, `loop-recovery-available`, `recovery-consumed` and `blocked`, including primary and cleanup failure reasons. An unsuccessful consumed recovery requires inspecting and repairing the named blocker and producing genuine validated stage evidence; another unchanged bare invocation will not launch a worker. Reused panes, active owners, intervention and unreadable ownership evidence remain blockers. Only positively absent recorded panes are reconciled as absent, never reported as successfully closed.
+Status and stop output distinguish `resumable`, `loop-recovery-available`, `recovery-consumed` and `blocked`, including primary and cleanup failure reasons. `loop-recovery-available` runs once through bare execute and persists consumption before dispatch. A blocked response is reserved for unsafe, externally owned, ambiguous, or already-consumed progress and includes one structured intervention tied to the checkpoint issue and stage. Another unchanged invocation never replenishes either recovery or remediation budgets. Reused panes, active owners, intervention and unreadable ownership evidence remain blockers. Only positively absent recorded panes are reconciled as absent, never reported as successfully closed.
 
 ## Verification and terminal delivery
 
@@ -284,7 +288,7 @@ Normally execute runs these stages. Use standalone verification only on an alrea
 
 Verification records identity-bound deterministic results in `.omp/sdlc/verification/42.json` and a committed `verification-report.md` in the issue spec. Missing, duplicate, unknown, failed, incomplete, stale, or improperly skipped required results cannot pass. A project that deliberately declares zero validations has complete zero-result coverage, not an invented test pass. `PR Evidence Pending` is permitted only when local obligations pass and explicitly declared PR-only evidence remains.
 
-Delivery rechecks immutable evidence at the exact head. It uses non-force pushes and retains both required and unfiltered checks. Unexpected PR/head identity is a reconciliation failure, not permission to open another PR or merge a different commit. Human review remains human-owned; actionable configured automated-reviewer feedback is handled within approved scope.
+Delivery rechecks immutable evidence at the exact head. It uses non-force pushes and retains both required and unfiltered checks. Missing, registering, queued, or pending required/declared checks—including `BLOCKED` attributable to that incomplete CI evidence—remain in an unbounded 30-second observation loop. Explicit check failure and proven human-review, mergeability, or non-CI policy blockers take their existing remediation or failure routes. Merge occurs only after a fresh exact-head snapshot has terminal-successful checks and `CLEAN` merge readiness. Unexpected PR/head identity is a reconciliation failure, not permission to open another PR or merge a different commit.
 
 Execute-owned delivery uses the canonical run namespace. Standalone `/sdlc-open-pr` creates a token-specific handoff directory and recovery-owner pointer under `.omp/sdlc/sessions/<token>/`; tokens for the same incomplete project/issue/branch/stage share logical-owner delivery state. Another issue's canonical run is not overwritten, and standalone helpers do not create root execute `run.json`.
 

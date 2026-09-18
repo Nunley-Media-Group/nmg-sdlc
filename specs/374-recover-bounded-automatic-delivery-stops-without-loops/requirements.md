@@ -114,6 +114,18 @@
 **And** missing hook installation, `setActiveTools` proof, or receipts fail as `review_scope_unproven`
 **And** ordinary sessions without `NMG_SDLC_REVIEW_SLICE=1` keep their existing active tools unchanged
 
+### AC12: Closed workers automatically resume once before intervention
+
+**Given** an owned worker pane for a remediable stage is positively absent, the issue branch and checkpoint HEAD remain exact and clean, no live worker remains, and the terminal handoff is missing or invalid
+**When** execute discovers the incomplete checkpoint
+**Then** discovery reports one `closed_worker_resume` automatic recovery instead of blocking or prompting
+**And** bare execution durably consumes that run/issue/stage recovery before redispatching the same standard stage worker
+**And** a genuine failed handoff enters the existing bounded remediation path so implementation may change and verification may repeat toward the approved spec
+**And** a second loss or unchanged failure cannot mint another recovery through a new process, command, commit, summary, version, or prompt
+**And** changed HEAD or branch, live or ambiguous ownership, a valid intervention handoff, consumed recovery, exhausted remediation, or unsafe evidence remains fail-closed with one bounded operator intervention
+**And** one top-level invocation never recursively recovers, prompts twice, or replays unchanged execution
+
+
 ## Functional Requirements
 
 | ID | Requirement | Priority |
@@ -126,6 +138,7 @@
 | FR6 | Keep unproven, ownership, spec-authority, dependency-authority, credential, and exact-head gates fail-closed. | Must |
 | FR7 | Keep reusable recovery behavior steering-driven and language/framework/stack/OS agnostic. | Must |
 | FR8 | Enforce per-slice review isolation in `src/extension.ts` with OMP `getActiveTools`/`setActiveTools` and `tool_call`/`user_bash`/`user_python` hooks; never treat cwd or prose as compliance. | Must |
+| FR9 | Automatically consume one durable same-stage recovery for a proven absent remediable worker with missing/invalid terminal handoff, then fall back to a bounded operator prompt only when safe progress is unavailable or consumed. | Must |
 
 ## Out of Scope
 
@@ -143,3 +156,4 @@
 |-------|------|---------|
 | #374 | 2026-09-07 | Initial defect report |
 | #374 | 2026-09-07 | Spec revised before delivery |
+| #374 | 2026-09-16 | Regression amendment: proven absent remediable workers automatically redispatch once before bounded operator intervention; consumed or unsafe states cannot loop |

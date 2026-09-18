@@ -2530,6 +2530,343 @@ describe('runExecute controller', () => {
     })).toBe(true);
   });
 
+  it.each([
+    ['missing terminal handoff', null, 'missing_handoff'],
+    ['invalid terminal handoff', '{not-json}\n', 'invalid_handoff'],
+  ])('discovers one automatic same-stage recovery for a closed worker with %s', (
+    _description,
+    handoffBytes,
+    recoveryEvidenceReasonCode,
+  ) => {
+    const fixture = makeControllerFixture();
+    const worker = {
+      name: 's42-verify',
+      paneId: 'w1:p71',
+      projectRoot: fs.realpathSync(fixture.cwd),
+      runId: 'closed-verify-run',
+      issue: 42,
+      step: 'verify',
+      branch: '42-ship-it',
+      head: 'a'.repeat(40),
+    };
+    seedRun(fixture.cwd, {
+      runId: worker.runId,
+      branch: worker.branch,
+      currentStep: 'verify',
+      completed: { 42: ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2'] },
+      failed: {
+        issue: 42,
+        step: 'verify',
+        reasonCode: 'verification_not_ready',
+        intervention: true,
+      },
+      workers: {},
+      absentWorkers: [{ ...worker, confirmedAbsentAt: '2026-09-16T00:00:00.000Z' }],
+    });
+    if (handoffBytes !== null) {
+      const handoffPath = path.join(fixture.cwd, '.omp/sdlc/handoffs/42-verify.json');
+      fs.mkdirSync(path.dirname(handoffPath), { recursive: true });
+      fs.writeFileSync(handoffPath, handoffBytes);
+    }
+    const runPath = path.join(fixture.cwd, '.omp/sdlc/run.json');
+    const before = fs.readFileSync(runPath);
+
+    const first = discoverRecovery({
+      cwd: fixture.cwd,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    const second = discoverRecovery({
+      cwd: fixture.cwd,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(first).toMatchObject({
+      state: 'loop-recovery-available',
+      reasonCode: 'verification_not_ready',
+      issue: 42,
+      step: 'verify',
+      recoveryClass: 'closed_worker_resume',
+      recoveryEvidence: {
+        head: 'a'.repeat(40),
+        branch: '42-ship-it',
+        reasonCode: 'verification_not_ready',
+        handoffReasonCode: recoveryEvidenceReasonCode,
+      },
+      action: 'Run /sdlc-execute with no parameters to resume this exact queue.',
+    });
+    expect(first).not.toHaveProperty('intervention');
+    expect(second).toEqual(first);
+    expect(fs.readFileSync(runPath)).toEqual(before);
+    expect(fixture.starts).toEqual([]);
+    expect(fixture.splits).toEqual([]);
+  });
+  it('consumes closed-worker recovery before one verify redispatch and never replays it', () => {
+    const fixture = makeControllerFixture({ failedStep: 'deliver' });
+    const worker = {
+      name: 's42-verify',
+      paneId: 'w1:p71',
+      projectRoot: fs.realpathSync(fixture.cwd),
+      runId: 'closed-verify-run',
+      issue: 42,
+      step: 'verify',
+      branch: '42-ship-it',
+      head: 'a'.repeat(40),
+    };
+    seedRun(fixture.cwd, {
+      runId: worker.runId,
+      branch: worker.branch,
+      currentStep: 'verify',
+      completed: { 42: ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2'] },
+      failed: {
+        issue: 42,
+        step: 'verify',
+        reasonCode: 'verification_not_ready',
+        intervention: true,
+      },
+      workers: {},
+      absentWorkers: [{ ...worker, confirmedAbsentAt: '2026-09-16T00:00:00.000Z' }],
+    });
+
+    const first = runExecute({
+      args: '',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    const checkpoint = JSON.parse(
+      fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), 'utf8'),
+    );
+
+    expect(first.status).toBe(1);
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['s42-verify', 's42-deliver']);
+    expect(checkpoint.recoveries).toEqual([
+      expect.objectContaining({
+        runId: worker.runId,
+        issue: 42,
+        step: 'verify',
+        source: {
+          class: 'closed_worker_resume',
+          head: 'a'.repeat(40),
+          branch: '42-ship-it',
+          reasonCode: 'verification_not_ready',
+          handoffReasonCode: 'missing_handoff',
+        },
+        disposition: 'consumed',
+      }),
+    ]);
+    expect(checkpoint.completed['42']).toContain('verify');
+
+    const second = runExecute({
+      args: '',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+    expect(second.status).toBe(1);
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['s42-verify', 's42-deliver']);
+  });
+
+
+  it('consumes mixed verification recovery, rewinds to implement, and reruns every gate', () => {
+    let verifyCalls = 0;
+    const fixture = makeControllerFixture({
+      handoffContent: (handoff, { step }) => {
+        if (step !== 'verify' || ++verifyCalls > 1) return JSON.stringify(handoff);
+        return JSON.stringify({
+          ...handoff,
+          status: 'failed',
+          intervention: false,
+          summary: 'local failures: repository.api-tests; external incomplete: repository.robot-integration',
+          artifacts: [
+            'specs/42-ship-it/verification-report.md',
+            '.omp/sdlc/verification/42.json',
+          ],
+          next: 'implement',
+          reasonCode: 'verification_not_ready',
+        });
+      },
+    });
+    seedRun(fixture.cwd, {
+      runId: 'mixed-verify-run',
+      branch: '42-ship-it',
+      currentStep: 'verify',
+      completed: { 42: ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2'] },
+      failed: {
+        issue: 42,
+        step: 'verify',
+        reasonCode: 'verification_not_ready',
+        intervention: true,
+      },
+      workers: {},
+    });
+    const runtime = path.join(fixture.cwd, '.omp/sdlc');
+    fs.mkdirSync(path.join(runtime, 'handoffs'), { recursive: true });
+    fs.mkdirSync(path.join(runtime, 'verification'), { recursive: true });
+    fs.writeFileSync(path.join(runtime, 'handoffs/42-verify.json'), `${JSON.stringify({
+      schemaVersion: 1,
+      issue: 42,
+      step: 'verify',
+      status: 'failed',
+      intervention: true,
+      summary: 'mixed local and external verification blockers',
+      artifacts: [],
+      next: null,
+      reasonCode: 'verification_not_ready',
+    })}\n`);
+    fs.writeFileSync(path.join(runtime, 'verification/42.json'), `${JSON.stringify({
+      schemaVersion: 1,
+      issue: 42,
+      identity: { headSha: 'a'.repeat(40) },
+      ceiling: 'Incomplete',
+      coverage: { complete: true, missing: [], duplicate: [], unknown: [] },
+      results: [{
+        id: 'repository.api-tests',
+        provider: 'builtin.command',
+        required: true,
+        applicable: true,
+        effectiveStatus: 'failed',
+      }, {
+        id: 'repository.robot-integration',
+        provider: 'project.robot-integration',
+        required: true,
+        applicable: true,
+        effectiveStatus: 'incomplete',
+      }],
+    })}\n`);
+    let consumedRecovery;
+    const prompt = fixture.herdr.agentPrompt;
+    fixture.herdr.agentPrompt = (input) => {
+      if (!consumedRecovery && input.name === 's42-verify') {
+        consumedRecovery = JSON.parse(
+          fs.readFileSync(path.join(runtime, 'run.json'), 'utf8'),
+        ).recoveries?.find(({ source }) => source?.class === 'actionable_verification_resume');
+      }
+      return prompt(input);
+    };
+    const fixtureRun = fixture.run;
+    fixture.run = (command, args) => (
+      command === 'git' && args[0] === 'merge-base' && args[1] === '--is-ancestor'
+        && args[2] === 'a'.repeat(40) && args[3] === 'a'.repeat(40)
+        ? { status: 0, stdout: '', stderr: '' }
+        : fixtureRun(command, args)
+    );
+
+    expect(discoverRecovery({
+      cwd: fixture.cwd,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    })).toMatchObject({
+      state: 'loop-recovery-available',
+      reasonCode: 'verification_not_ready',
+      recoveryClass: 'actionable_verification_resume',
+      recoveryEvidence: {
+        failedLocal: ['repository.api-tests'],
+        incomplete: ['repository.robot-integration'],
+      },
+    });
+
+    const result = runExecute({
+      args: '',
+      cwd: fixture.cwd,
+      env,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(result.status).toBe(0);
+    expect(consumedRecovery).toMatchObject({
+      runId: 'mixed-verify-run',
+      issue: 42,
+      step: 'verify',
+      source: {
+        class: 'actionable_verification_resume',
+        failedLocal: ['repository.api-tests'],
+        incomplete: ['repository.robot-integration'],
+      },
+      disposition: 'consumed',
+    });
+    expect(fixture.starts.filter(({ name }) => name === 's42-verify')).toHaveLength(2);
+    expect(fixture.starts.filter(({ name }) => name === 's42-implement')).toHaveLength(1);
+    expect(fixture.starts.some(({ name }) => name === 'r42-verify')).toBe(false);
+    expect(fs.existsSync(path.join(runtime, 'run.json'))).toBe(false);
+  });
+
+  it('never offers a standalone stage while the recorded worker is still present', () => {
+    const fixture = makeControllerFixture();
+    const worker = {
+      name: 's42-verify',
+      paneId: 'w1:p71',
+      projectRoot: fs.realpathSync(fixture.cwd),
+      runId: 'live-verify-run',
+      issue: 42,
+      step: 'verify',
+      branch: '42-ship-it',
+      head: 'a'.repeat(40),
+    };
+    seedRun(fixture.cwd, {
+      runId: worker.runId,
+      branch: worker.branch,
+      currentStep: 'verify',
+      completed: { 42: ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2'] },
+      failed: {
+        issue: 42,
+        step: 'verify',
+        reasonCode: 'verification_not_ready',
+        intervention: true,
+      },
+      workers: { [worker.name]: worker },
+    });
+    fixture.starts.push({ name: worker.name, paneId: worker.paneId });
+
+    const discovery = discoverRecovery({
+      cwd: fixture.cwd,
+      run: fixture.run,
+      herdr: fixture.herdr,
+    });
+
+    expect(discovery).toMatchObject({
+      state: 'blocked',
+      reasonCode: 'verification_not_ready',
+      intervention: {
+        issue: 42,
+        step: 'verify',
+        options: [{
+          id: 'inspect-evidence-once',
+          command: '/sdlc-status --json',
+        }, {
+          id: 'keep-stopped',
+          command: null,
+        }],
+      },
+    });
+    expect(discovery.intervention.options).not.toContainEqual(
+      expect.objectContaining({ command: '/sdlc-verify-code #42' }),
+    );
+  });
+
+  it('tries one proven automatic recovery before bounding interactive fallback', () => {
+    const workflow = fs.readFileSync(
+      path.join(REPOSITORY_ROOT, 'workflows/execute/WORKFLOW.md'),
+      'utf8',
+    );
+    const selection = fs.readFileSync(
+      path.join(REPOSITORY_ROOT, 'workflows/execute/references/selection.md'),
+      'utf8',
+    );
+    expect(workflow).toContain('only after every proven automatic recovery is unavailable or consumed');
+    expect(workflow).toContain('execute it inline exactly once');
+    expect(workflow).toContain('run `discover-recovery` exactly once');
+    expect(workflow).toContain('Never ask a second intervention question');
+    expect(workflow).toContain('Invoke bare `run` exactly once only if rediscovery is `resumable`');
+    expect(workflow).toContain('A `loop-recovery-available` result immediately invokes one bare `run`');
+    expect(selection).toContain('execute the parent workflow\'s **Blocked recovery intervention** exactly once');
+    expect(selection).not.toContain('reports `blocked`, print its evidence and action, then stop');
+  });
+
 
   function groundConsumedDispatch(fixture, {
     invocationId = '571f27fa-bc11-4778-9034-b1b992e85638',

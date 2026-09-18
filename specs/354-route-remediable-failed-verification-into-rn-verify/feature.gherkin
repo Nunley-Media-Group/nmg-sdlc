@@ -70,3 +70,14 @@ Feature: Route remediable failed verification into rN-verify
     When Herdr temporarily reports the worker as idle or done before its handoff exists
     Then execute continues observing without resubmitting the prompt or closing the pane
     And it consumes the eventual original-step handoff
+
+  @SCN008 @regression
+  Scenario: Mixed Incomplete verification repairs local failures before external intervention
+    Given an exact-head verification artifact has a failed required builtin command and an incomplete required project provider
+    When execute resumes the intervention-bearing verify checkpoint
+    Then it consumes one actionable_verification_resume before redispatch
+    And finalization writes a failed non-intervention verify handoff with next implement
+    And execute rewinds to standard implement before starting rN-verify
+    And review1 fix1 review2 fix2 and verify rerun on the repaired head
+    And incomplete-only or external-only evidence remains intervention
+    And the consumed recovery cannot replay unchanged execution

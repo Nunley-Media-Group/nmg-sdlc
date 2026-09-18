@@ -4,7 +4,7 @@
 
 ## Helper contract
 
-All six subcommands print exactly one JSON object to stdout. Success exits 0 with `ok: true`. Failure exits non-zero with `ok: false`, a stable `reasonCode`, and optional `detail`, `stdout`, or `stderr`. A `merge` failure after the PR was successfully merged also returns `merged: true` and `pr`; callers must record that publication instead of retrying it.
+All six subcommands print exactly one JSON object to stdout. Success exits 0 with `ok: true`. Failure exits non-zero with `ok: false`, a stable `reasonCode`, and optional `detail`, `stdout`, or `stderr`. A `merge` failure after the PR was successfully merged also returns `merged: true` and `pr`; callers must record that publication instead of retrying it. The extension validates that exact materialized merge command and JSON result, then queues one native-plan follow-up for Continue/Finished.
 
 ```text
 node <plugin-root>/scripts/publish-approved-spec.mjs discover --issue N
@@ -79,16 +79,20 @@ If current differs from `{N}-{slug}`, `prepare` reads the default branch through
 
 `merge` requires the approved four-file package. It opens or resumes a docs-only PR titled `docs: approve spec for #N`, with a body that mentions `#N` without `Closes`, `Fixes`, `Resolves`, or another closing keyword. It squash-merges, checks out the repository default branch, fast-forwards it, and applies `spec-created` while leaving issue N open.
 
-Failures before merge include `spec_not_approved`, `pr_create_failed`, and `pr_merge_failed`. After a successful squash merge, `default_checkout_failed` and `spec_created_label_failed` return `merged: true` and the numeric `pr`; the caller records N in `published[]` immediately and must not republish or rewrite it. For `default_checkout_failed`, run `node <plugin-root>/scripts/publish-approved-spec.mjs default-branch`; for `spec_created_label_failed`, run `node <plugin-root>/scripts/spec-created-label.mjs apply --issue N`. Report remediation failure separately and continue the publication loop with N excluded through `--published N`. Never force-push or stage with `git add -A`.
+Failures before merge include `spec_not_approved`, `pr_create_failed`, and `pr_merge_failed`. They queue no continuation. After a successful squash merge, `default_checkout_failed` and `spec_created_label_failed` return `merged: true` and the numeric `pr`; the caller records N in `published[]` immediately and must not republish or rewrite it. For `default_checkout_failed`, run `node "<plugin-root>/scripts/publish-approved-spec.mjs" default-branch`; for `spec_created_label_failed`, run `node "<plugin-root>/scripts/spec-created-label.mjs" apply --issue N`. Report remediation failure separately. Finish remediation and settle the execution turn; the queued native-plan follow-up retains N in `published[]` and owns the next Continue/Finished decision. Never force-push or stage with `git add -A`.
 
 `default-branch` reads the GitHub default branch and checks it out. Failure returns `default_branch_unreadable` or `default_checkout_failed`; keep the current branch and do not guess `main`.
 
-## Continue ask
+## Native-plan continuation
 
-Pass every in-memory published number to `candidates`. Present one `ask`, 2–4 options, recommended first. This ask does not consume the per-issue interview budget.
+After each merged publication and its documented remediation, stop the execution turn without calling `candidates` or `ask`. The extension delivers one follow-up beginning with `/plan` in the same TUI session.
+
+That native-plan turn passes every in-memory published number to `candidates`. Present one `ask`, 2–4 options, recommended first. This ask does not consume the per-issue interview budget.
 
 - Rows returned: show at most the first three labels `#M — {title}`, then `Finished — stop writing specs`.
 - No rows: `Continue — enter another issue number`, then `Finished — stop writing specs`.
+
+Selecting M permits only read-only discovery and preference interview before writing M's distinct complete `local://spec-{M}-plan.md` with current `published[]` and calling `xd://propose`. Do not call `default-branch` or mutate a branch, file, commit, push, pull request, label, or merge for M before that proposal is approved.
 
 Finished prints:
 

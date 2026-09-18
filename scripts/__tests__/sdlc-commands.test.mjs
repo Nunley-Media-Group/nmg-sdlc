@@ -20,6 +20,7 @@ import {
   rewriteInteractiveInput,
   sessionModeFromEntries,
   withArguments,
+  writeSpecPlanReentry,
 } from '../../src/sdlc-commands.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -118,6 +119,52 @@ describe('interactive input rewrite', () => {
     expect(interactiveHeadlessMessage('sdlc-write-spec')).toBe(
       'Run /sdlc-write-spec in the TUI.\n',
     );
+  });
+});
+
+describe('write-spec plan re-entry', () => {
+  const helper = JSON.stringify(path.join(repoRoot, 'scripts', 'publish-approved-spec.mjs'));
+  const command = `node ${helper} merge --issue 400 --dir specs/400-restore-per-spec-plan-approval-and-ci-gated-merge-waiting`;
+
+  function event(overrides = {}) {
+    return {
+      type: 'tool_result',
+      toolName: 'bash',
+      toolCallId: 'call-400',
+      input: { command },
+      content: [{ type: 'text', text: '{"ok":true,"merged":true,"pr":401}\n\nWall time: 1 second' }],
+      isError: false,
+      ...overrides,
+    };
+  }
+
+  it.each([
+    ['successful publication', event()],
+    ['post-merge helper failure', event({
+      isError: true,
+      content: [{ type: 'text', text: '{"ok":false,"reasonCode":"default_checkout_failed","merged":true,"pr":401}\n\nCommand exited with code 1' }],
+    })],
+  ])('builds a static continuation prompt for %s', (_label, toolResult) => {
+    const result = writeSpecPlanReentry(toolResult, repoRoot);
+    expect(result).toMatchObject({ issue: 400, pr: 401 });
+    expect(result.prompt.startsWith('/plan\n\n')).toBe(true);
+    expect(result.prompt).toContain('Append 400 to published[] exactly once');
+    expect(result.prompt).toContain('distinct complete four-file local://spec-{N}-plan.md');
+    expect(result.prompt).toContain('before its distinct proposal is approved');
+    expect(result.prompt).not.toContain('default_checkout_failed');
+  });
+
+  it.each([
+    ['pre-merge failure', event({ content: [{ type: 'text', text: '{"ok":false,"reasonCode":"pr_merge_failed"}' }], isError: true })],
+    ['malformed output', event({ content: [{ type: 'text', text: '{"merged":true' }] })],
+    ['multiple JSON objects', event({ content: [{ type: 'text', text: '{"merged":true,"pr":401}\n{"merged":true,"pr":402}' }] })],
+    ['unrelated command', event({ input: { command: 'printf done' } })],
+    ['mismatched directory issue', event({ input: { command: `node ${helper} merge --issue 400 --dir specs/401-wrong` } })],
+    ['non-materialized helper path', event({ input: { command: 'node <plugin-root>/scripts/publish-approved-spec.mjs merge --issue 400 --dir specs/400-slug' } })],
+    ['non-positive PR', event({ content: [{ type: 'text', text: '{"merged":true,"pr":0}' }] })],
+    ['non-bash result', event({ toolName: 'read' })],
+  ])('rejects %s', (_label, toolResult) => {
+    expect(writeSpecPlanReentry(toolResult, repoRoot)).toBeNull();
   });
 });
 

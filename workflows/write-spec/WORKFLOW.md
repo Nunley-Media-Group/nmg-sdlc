@@ -1,6 +1,6 @@
 ---
 name: write-spec
-description: "Create BDD specifications for open GitHub issues. Use when /sdlc-write-spec [#N]: bare invocation presents issues missing spec-created, while an explicit number selects one directly. After approval, publishes specs/{N}-{slug}/ from the default branch, commits, pushes, squash-merges a docs-only spec PR, then asks to continue or finish."
+description: "Create BDD specifications for open GitHub issues. Use when /sdlc-write-spec [#N]: bare invocation presents issues missing spec-created, while an explicit number selects one directly. Every selected issue receives its own native-plan approval before publication; merged publication queues native-plan re-entry for Continue/Finished."
 ---
 
 # Write Spec
@@ -38,7 +38,7 @@ If the trimmed value is empty:
 
 After the initial selection, continue to Discovery with N.
 
-Keep an in-memory `published[]` list of issue numbers published in this session. Start empty.
+Keep an in-memory `published[]` list of issue numbers published in this session. Start empty on the initial invocation; on a queued post-publication native-plan turn, retain the list supplied by that follow-up and append the just-published N only if absent.
 
 ## Discovery
 
@@ -107,7 +107,7 @@ Read these packaged templates at runtime, then fill them from the issue body, st
 
 Slug: spec-{N}
 
-Write:
+For every selected issue, write:
 
 local://spec-{N}-plan.md
 
@@ -123,29 +123,26 @@ Content includes:
 
 - targetDir
 
+- the current complete `published[]` list
+
 - the full file contents to write on approval
 
 - frontmatter rules: singular **Issue**, Status Approved on approval
 
-- helper commands and continue-loop rules (prepare, write Approved package, commit-push, merge spec PR into the default branch, then ask Continue/Finished)
+- helper commands and publication rules (prepare, write Approved package, commit-push, merge spec PR into the default branch, record N, complete any documented remediation, then settle so the queued native-plan turn owns Continue/Finished)
 
-Only the first spec in a session uses `xd://propose`. Continuation never calls `xd://propose`.
+Every selected issue uses its own `xd://propose`. Discovery and Interview are read-only; do not run `default-branch`, `prepare`, write files, commit, push, create or merge a pull request, or apply labels for N before that issue's proposal is approved.
 
 ## Approval Behavior (in plan execution after xd propose)
 
-Exact order after first propose approval:
+Exact order after this issue's proposal approval:
 
-1. `node <plugin-root>/scripts/publish-approved-spec.mjs prepare --issue N --name {N}-{slug}` (`{N}-{slug}` = basename of `targetDir`). Failure → stop, do not write files.
-
+1. `node "<plugin-root>/scripts/publish-approved-spec.mjs" prepare --issue N --name {N}-{slug}` (`{N}-{slug}` = basename of `targetDir`). Failure → stop, do not write files.
 2. Write/overwrite the four spec files with `**Status**: Approved` (existing frontmatter and Change History rules). Fail closed if any written `**Issue**` ≠ `#N`. Never write into a directory whose leading number ≠ `N`.
-
-3. `node <plugin-root>/scripts/publish-approved-spec.mjs commit-push --issue N --dir specs/{N}-{slug}`. Failure → stop; leave branch and files. Commit subject is exactly `docs: approve spec for #N`.
-
-4. `node <plugin-root>/scripts/publish-approved-spec.mjs merge --issue N --dir specs/{N}-{slug}`. Require and parse the complete JSON response even on non-zero exit. If the response is malformed, or non-zero without `merged: true`, print its `reasonCode` and stop; leave the spec branch and files. A response with `merged: true` means publication succeeded even when checkout or labeling failed: append `N` to `published[]` exactly once, print the PR number and `reasonCode`, run the matching remediation from `references/publish.md`, report any remediation failure, and continue without rewriting the package. A successful response leaves the helper on the default branch.
-
+3. `node "<plugin-root>/scripts/publish-approved-spec.mjs" commit-push --issue N --dir specs/{N}-{slug}`. Failure → stop; leave branch and files. Commit subject is exactly `docs: approve spec for #N`.
+4. `node "<plugin-root>/scripts/publish-approved-spec.mjs" merge --issue N --dir specs/{N}-{slug}`. Require and parse the complete JSON response even on non-zero exit. If the response is malformed, or non-zero without `merged: true`, print its `reasonCode` and stop; leave the spec branch and files. A response with `merged: true` means publication succeeded even when checkout or labeling failed: append `N` to `published[]` exactly once, print the PR number and `reasonCode`, run the matching remediation from `references/publish.md`, and report any remediation failure without rewriting or republishing the package. A successful response leaves the helper on the default branch.
 5. If `N` was not already recorded from a post-merge failure, append it to in-memory `published[]`.
-
-6. Continue loop. Do not print execute yet.
+6. Stop after all documented post-merge remediation finishes. Do not call `candidates` or `ask` in this execution turn. The extension queues one follow-up `/plan` turn from the authoritative merged helper result; that turn retains `published[]` and owns Continue/Finished.
 
 If this was an existing undelivered package: append row to ## Change History : | #N | today | Spec revised before delivery |
 
@@ -179,14 +176,14 @@ Continue / candidate / Other `#M`:
 
 - Parse `^#?([1-9]\d*)$`. Invalid → re-ask continue.
 - Already in `published[]` → print `Spec already approved for #M.` and re-ask.
-- Otherwise run `node <plugin-root>/scripts/publish-approved-spec.mjs default-branch` (fail → stop; keep the current branch; do not guess `main`), set N = M, and rerun Discovery.
+- Otherwise set N = M and rerun read-only Discovery. Do not call `default-branch` before M's proposal.
 - If Discovery returns `spec.approved`:
   - Closed issue → print `Spec already approved for closed issue #M. Open a new issue for follow-up work.` and re-ask.
   - Any other issue state → print `Spec already approved for #M.` and re-ask.
   - Discovery must not stop the session or send an approved package to Interview.
-- Only when Discovery returns an unapproved package, run Interview (fresh 3-ask budget) → prepare → write Approved package → commit-push → merge → append `M` → loop. No second `xd://propose`.
+- Only when Discovery returns an unapproved package, run Interview (fresh 3-ask budget), write the complete distinct `local://spec-{M}-plan.md` with current `published[]`, and call `xd://propose`. Every mutation for M remains in Approval Behavior after that proposal is approved.
 
-## Finish (first spec only)
+## Proposal (every selected issue)
 
 Write plain:
 

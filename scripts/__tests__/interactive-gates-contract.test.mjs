@@ -32,6 +32,14 @@ describe('native /plan interactive contract', () => {
     expect(source).not.toContain('prompt-config.md');
   });
 
+  it('returns every merged write-spec publication to native plan', () => {
+    const source = read('references/interactive-gates.md');
+    expect(source).toContain('every merged publication queues exactly one `tool_result`-driven follow-up `/plan` turn');
+    expect(source).toContain('every selected continuation issue writes a distinct complete local plan');
+    expect(source).toContain('calls `xd://propose` before mutation');
+    expect(source).not.toContain('After write-spec approval, execution publishes then `ask` Continue/Finished');
+  });
+
   it('has no plugin bypass reference', () => {
     expect(fs.existsSync(path.join(REPO_ROOT, 'references', 'unattended-mode.md'))).toBe(false);
     expect(fs.existsSync(path.join(REPO_ROOT, 'references', 'prompt-config.md'))).toBe(false);

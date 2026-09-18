@@ -64,6 +64,64 @@ describe('exact-head PR delivery state', () => {
     expect(classifyPrDeliveryState(snapshot({ pullRequest: { mergeStateStatus: 'BEHIND' } }), { issueNumber: 177 }).reasonCode).toBe('mergeability_defect');
   });
 
+  test.each(['PENDING', 'QUEUED', 'IN_PROGRESS', 'WAITING', 'REQUESTED'])(
+    'keeps %s check evidence pending',
+    (state) => {
+      expect(classifyPrDeliveryState(snapshot({
+        pullRequest: { mergeStateStatus: 'BLOCKED' },
+        checks: [{ name: 'test', event: 'pull_request', state, required: true }],
+      }), { issueNumber: 177 })).toMatchObject({
+        status: 'pending',
+        reasonCode: 'checks_pending',
+      });
+    },
+  );
+
+  test('keeps registering required and declared checks pending', () => {
+    const required = classifyPrDeliveryState(snapshot({
+      checks: [],
+      requiredChecksConfigured: true,
+    }), { issueNumber: 177 });
+    expect(required).toMatchObject({ status: 'pending', reasonCode: 'checks_pending' });
+    expect(required.gaps).toContain('required checks have not registered');
+
+    const declared = classifyPrDeliveryState(snapshot({
+      checks: [],
+      declaredPrOnlyChecks: ['Python CI / verify'],
+    }), { issueNumber: 177 });
+    expect(declared).toMatchObject({ status: 'pending', reasonCode: 'checks_pending' });
+    expect(declared.evidence.pendingDeclaredPrOnlyChecks).toEqual(['Python CI / verify']);
+  });
+
+  test('attributes BLOCKED to CI only while check evidence is incomplete', () => {
+    const blockedPending = classifyPrDeliveryState(snapshot({
+      pullRequest: { mergeStateStatus: 'BLOCKED' },
+      checks: [],
+      declaredPrOnlyChecks: ['test'],
+    }), { issueNumber: 177 });
+    expect(blockedPending).toMatchObject({ status: 'pending', reasonCode: 'checks_pending' });
+
+    const blockedSuccessful = classifyPrDeliveryState(snapshot({
+      pullRequest: { mergeStateStatus: 'BLOCKED' },
+    }), { issueNumber: 177 });
+    expect(blockedSuccessful).toMatchObject({
+      status: 'external_blocker',
+      reasonCode: 'merge_blocked_by_external_policy',
+    });
+  });
+
+  test('lets explicit check failure override BLOCKED and incomplete declarations', () => {
+    const result = classifyPrDeliveryState(snapshot({
+      pullRequest: { mergeStateStatus: 'BLOCKED' },
+      checks: [
+        { name: 'test', event: 'pull_request', state: 'FAILURE', required: true },
+        { name: 'registering', event: 'pull_request', state: 'PENDING' },
+      ],
+      declaredPrOnlyChecks: ['not-yet-registered'],
+    }), { issueNumber: 177 });
+    expect(result).toMatchObject({ status: 'remediate', reasonCode: 'checks_failed' });
+  });
+
   test.each([
     ['provider bot', { login: 'provider-check', __typename: 'Bot' }, []],
     ['built-in bot', { login: 'CodeRabbitAI', __typename: 'User' }, []],

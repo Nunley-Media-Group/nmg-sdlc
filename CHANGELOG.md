@@ -10,6 +10,16 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.23.0] - 2026-09-17
+
+### Fixed
+
+- Resume the exact consumed repaired-publication invocation after bounded pane, process, or controller loss without minting another allowance; persist exact split ownership before fallible reproof, restore archive-bound handoff bytes safely, and clean only attempt-owned unused panes (#394).
+- Require a distinct native-plan proposal for every write-spec continuation issue, queueing one same-session follow-up only after authoritative merged publication and post-merge remediation (#400).
+- Keep missing, registering, pending, and CI-attributable `BLOCKED` check evidence in exact-head 30-second delivery observation until terminal success, while preserving explicit failure and non-CI blocker handling (#400).
+- Automatically resume a proven absent remediable worker once when its exact branch/HEAD checkpoint has no valid terminal handoff, consuming a durable run/issue/stage record before redispatch and falling back to one bounded intervention only after safe progress is unavailable or consumed (#374 regression).
+- Split mixed `Incomplete` verification by exact-head canonical results: required failed built-in commands consume one durable recovery and rewind through implement/reviews/verify, while incomplete-only, external-provider, stale, unsafe, or consumed evidence remains intervention (#354 regression).
+
 ## [3.22.1] - 2026-09-15
 
 ### Fixed
@@ -29,7 +39,6 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 - Support digest-bound single-package publication-only detection/apply with exactly one spec, legacy-first command resolution, descriptor-bound files and stable directory listings, descriptor-carried task planning, high-resolution identities, exact large issue digits, hidden-task visibility, byte-preserving rewrites, fsynced root staging, final authority/target/stage/lock ordering, cooperative exclusive locking, one atomic rename, and truthful applied cleanup failure—without unrelated upgrade phases, GitHub label backfill, native dependencies, or impossible identity-conditional pathname guarantees (#388).
 - Add a native read-only owner-bound implementation scope probe, separate spec/read-only inputs from tracked and explicitly untracked mutation authority, surface stale run/actual/owner branch disagreement, and migrate publication consumers to structured `scope.allowedPaths` without controller locks or recovery writes (#390).
 - Allow parameter-free execute to recover one pre-implementation intervention only after owner-bound scope, exact HEAD/branch/run/owner identity, unconditional lifecycle-derived bounded no-follow handoff validation, separator-preserving byte-exact `Files` to `File(s)` repair, complete ignored/untracked classification with `.DS_Store` restricted to exact scope-derived repository/workspace/platform roots, clean implementation paths, bounded terminal workflow evidence, and unused durable ownership are proven; repeat the classifier under the controller lease, archive the original handoff byte-identically, record its immutable path and digest, and consume once before dispatching only the standard `sN-implement` worker without remediation state (#392).
-- Resume an exact consumed repaired-publication dispatch after a pre-fix pane split, post-consumption agent-start/process loss, or controller-loss orphaned `started` state without minting another allowance: preflight the standard worker pane from actual controller geometry, persist invocation-bound dispositions by CAS, restore the live failed handoff idempotently from exact archive bytes, ignore that archive digest until a distinct worker handoff replaces it, clean unchanged restored bytes on start/prompt failure, require full owner/run/branch/task/worktree proof, and fail closed without overwriting mismatched live state or replaying safe consumption (#394).
 
 ## [3.21.3] - 2026-09-13
 
