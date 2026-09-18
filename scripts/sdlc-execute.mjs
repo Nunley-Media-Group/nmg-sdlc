@@ -4417,7 +4417,6 @@ export function runExecute({
         ? prepared.paneId
         : allocateStandardPane(step);
       if (!allocatedPaneId) throw new Error('pane_split_failed');
-      proof = proveRecovery();
       const archive = resumingConsumedDispatch
         ? proof.archive
         : {
@@ -4427,7 +4426,14 @@ export function runExecute({
       const invocationId = resumingConsumedDispatch
         ? proof.invocationId
         : runState.consumedDispatch?.invocationId ?? randomUUID();
-      restoredConsumedHandoff = restoreArchivedHandoff(cwd, proof);
+      const ownedDisposition = !resumingConsumedDispatch
+        ? 'prepared'
+        : proof.pending?.disposition
+          ?? (proof.recovery?.disposition === 'stopped' ? 'stopped'
+            : proof.recovery ? 'pending' : 'prepared');
+      const ownedReasonCode = ownedDisposition === 'stopped'
+        ? proof.pending?.reasonCode ?? proof.recovery?.reasonCode
+        : undefined;
       runState.consumedDispatch = {
         runId: runState.runId,
         invocationId,
@@ -4439,8 +4445,13 @@ export function runExecute({
         archive,
         paneId: allocatedPaneId,
         agentName,
-        disposition: resumingConsumedDispatch ? 'pending' : 'prepared',
+        disposition: ownedDisposition,
+        ...(ownedReasonCode ? { reasonCode: ownedReasonCode } : {}),
       };
+      persistRunStateWithHeadCas(runState, cwd, checkpointHead);
+      pauseAtTestCrashBoundary(env, cwd, 'prepared');
+      proof = proveRecovery();
+      restoredConsumedHandoff = restoreArchivedHandoff(cwd, proof);
 
       if (resumingConsumedDispatch) {
         runState.recoveries ||= [];
@@ -4474,9 +4485,9 @@ export function runExecute({
         recovery.disposition = 'consumed';
         delete recovery.reasonCode;
         delete recovery.stoppedAt;
+        runState.consumedDispatch.disposition = 'pending';
+        delete runState.consumedDispatch.reasonCode;
       } else {
-        persistRunState(runState, cwd);
-        pauseAtTestCrashBoundary(env, cwd, 'prepared');
         const archivedHandoff = archiveFailedHandoff(cwd, proof);
         if (archivedHandoff.path !== archive.path || archivedHandoff.digest !== archive.digest) {
           throw new Error('handoff_archive_failed');

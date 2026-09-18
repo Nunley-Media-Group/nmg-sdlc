@@ -102,7 +102,7 @@ function cleanupInterruptedConsumedDispatch({
   if (!['controller_cancelled', 'controller_process_lost'].includes(reasonCode)
     || !runState.consumedDispatch) return false;
   const dispatch = runState.consumedDispatch;
-  if (!['prepared', 'pending'].includes(dispatch.disposition)
+  if (!['prepared', 'pending', 'started', 'stopped'].includes(dispatch.disposition)
     || Object.keys(runState.workers || {}).length !== 0) {
     return false;
   }
@@ -119,7 +119,18 @@ function cleanupInterruptedConsumedDispatch({
     throw new Error('pane_close_failed');
   }
   if (classified.stage === 'consumed') {
-    if (dispatch.disposition !== 'pending') throw new Error('controller_cleanup_ownership_mismatch');
+    if (dispatch.disposition !== 'pending') {
+      dispatch.disposition = 'stopped';
+      const recovery = runState.recoveries?.find((entry) =>
+        entry.runId === runState.runId
+        && entry.issue === runState.currentIssue
+        && entry.step === 'implement'
+        && entry.invocationId === dispatch.invocationId);
+      if (!recovery) throw new Error('controller_cleanup_ownership_mismatch');
+      recovery.disposition = 'stopped';
+      recovery.reasonCode = 'process_lost';
+      recovery.stoppedAt = new Date().toISOString();
+    }
     dispatch.reasonCode = 'process_lost';
     runState.failed = {
       issue: runState.currentIssue,
