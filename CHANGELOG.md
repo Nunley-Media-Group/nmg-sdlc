@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.24.0] - 2026-09-18
+
+### Changed
+
+- Restrict drafted issues and specs to executable software requirements (#404)
+
 ## [3.23.0] - 2026-09-17
 
 ### Fixed
