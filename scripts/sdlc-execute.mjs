@@ -1390,6 +1390,10 @@ const RECOVERY_SOURCE_KEYS = new Set([
   'tasksPath',
   'publication',
   'handoffArchive',
+  'workflowEvidencePaths',
+  'checkpointHead',
+  'currentHead',
+  'branch',
 ]);
 
 function currentRecoveryTuples(checkpoint) {
@@ -1403,6 +1407,12 @@ function currentRecoveryTuples(checkpoint) {
 
 function exactRepairedPublicationRecoveryTuple(entry, checkpoint) {
   const source = entry?.source;
+  const legacySourceKeys = [
+    'workflowEvidencePaths',
+    'checkpointHead',
+    'currentHead',
+    'branch',
+  ].filter((key) => source && Object.hasOwn(source, key));
   const stopped = entry?.disposition === 'stopped';
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)
     || Object.keys(entry).some((key) => !RECOVERY_TUPLE_KEYS.has(key))
@@ -1421,6 +1431,13 @@ function exactRepairedPublicationRecoveryTuple(entry, checkpoint) {
     || Object.keys(source.handoffArchive).sort().join(',') !== 'digest,path'
     || typeof source.handoffArchive.path !== 'string' || !source.handoffArchive.path
     || !/^[0-9a-f]{64}$/.test(source.handoffArchive.digest)
+    || ![0, 4].includes(legacySourceKeys.length)
+    || (legacySourceKeys.length === 4 && (
+      !Array.isArray(source.workflowEvidencePaths)
+      || typeof source.checkpointHead !== 'string' || !source.checkpointHead
+      || typeof source.currentHead !== 'string' || !source.currentHead
+      || typeof source.branch !== 'string' || !source.branch
+    ))
     || !entry.failure || typeof entry.failure !== 'object' || Array.isArray(entry.failure)
     || !entry.handoff || typeof entry.handoff !== 'object' || Array.isArray(entry.handoff)
     || !['consumed', 'stopped'].includes(entry.disposition)
@@ -1675,6 +1692,11 @@ export function inspectConsumedRepairedPublicationDispatch({
     || !sameJson(record.evidence?.discrepancies, proof.discrepancies)
     || (recovery && (recovery.source?.tasksPath !== proof.tasksPath
       || !sameJson(recovery.source?.publication, proof.publication)
+      || (Object.hasOwn(recovery.source, 'workflowEvidencePaths')
+        && (!sameJson(recovery.source.workflowEvidencePaths, proof.workflowEvidencePaths)
+          || recovery.source.checkpointHead !== checkpoint.head
+          || recovery.source.currentHead !== proof.head
+          || recovery.source.branch !== proof.branch))
       || !sameJson(recovery.handoff, proof.handoff)))
     || (pending && (pending.head !== proof.head || pending.branch !== proof.branch))
     || (existsSync(join(root, proof.handoffPath)) && !liveHandoffMatchesArchive)) {

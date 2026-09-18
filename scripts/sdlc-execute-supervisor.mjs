@@ -99,7 +99,8 @@ function cleanupInterruptedConsumedDispatch({
   herdr,
   reasonCode,
 }) {
-  if (reasonCode !== 'controller_process_lost' || !runState.consumedDispatch) return false;
+  if (!['controller_cancelled', 'controller_process_lost'].includes(reasonCode)
+    || !runState.consumedDispatch) return false;
   const dispatch = runState.consumedDispatch;
   if (!['prepared', 'pending'].includes(dispatch.disposition)
     || Object.keys(runState.workers || {}).length !== 0) {
@@ -189,11 +190,15 @@ function cleanupCancelledRun(controllerPid, cwd, retainWorker, reasonCode) {
       closeFailed = true;
     }
   }
+  const persistedReasonCode = runState.consumedDispatch
+    && reasonCode === 'controller_process_lost'
+    ? 'process_lost'
+    : reasonCode;
   if (Number.isSafeInteger(runState.currentIssue) && VALID_STEPS.includes(runState.currentStep)) {
     runState.failed = {
       issue: runState.currentIssue,
       step: runState.currentStep,
-      reasonCode,
+      reasonCode: persistedReasonCode,
       ...(closeFailed ? { cleanupReasonCode: 'pane_close_failed' } : {}),
     };
   }

@@ -2536,6 +2536,7 @@ describe('runExecute controller', () => {
     pendingDisposition = null,
     includeRecovery = true,
     reasonCode = 'pane_split_failed',
+    legacySource = false,
   } = {}) {
     const effectiveRecoveryDisposition = pendingDisposition ? 'consumed' : 'stopped';
     const checkpoint = fixture.readJson('.omp/sdlc/run.json');
@@ -2584,6 +2585,12 @@ describe('runExecute controller', () => {
           tasksPath: proof.tasksPath,
           publication: proof.publication,
           handoffArchive: archive,
+          ...(legacySource ? {
+            workflowEvidencePaths: proof.workflowEvidencePaths,
+            checkpointHead: checkpoint.head,
+            currentHead: proof.head,
+            branch: proof.branch,
+          } : {}),
         },
         failure: structuredClone(checkpoint.failed),
         handoff: structuredClone(handoff),
@@ -3252,7 +3259,7 @@ describe('runExecute controller', () => {
 
   it('discovers the exact revision-14 consumed pane-split dispatch without mutation', () => {
     const fixture = makeRepairedPublicationFixture();
-    const grounded = groundConsumedDispatch(fixture);
+    const grounded = groundConsumedDispatch(fixture, { legacySource: true });
     fixture.openPanes.add(env.HERDR_PANE_ID);
     const before = fixture.snapshot();
 

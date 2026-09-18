@@ -697,10 +697,17 @@ posix('execute CLI cancellation during real blocking commands', () => {
 
 posix('consumed dispatch supervisor hard-loss boundaries', () => {
   it.each([
-    ['prepared', 'loop-recovery-available'],
-    ['consumed', 'consumed-dispatch-available'],
-    ['pending', 'consumed-dispatch-available'],
-  ])('preserves and resumes the same invocation after SIGKILL at %s', async (boundary, expectedState) => {
+    ['prepared', 'loop-recovery-available', 'SIGKILL', 1],
+    ['consumed', 'consumed-dispatch-available', 'SIGKILL', 1],
+    ['pending', 'consumed-dispatch-available', 'SIGKILL', 1],
+    ['prepared', 'loop-recovery-available', 'SIGTERM', 143],
+    ['pending', 'consumed-dispatch-available', 'SIGTERM', 143],
+  ])('preserves %s as %s after %s', async (
+    boundary,
+    expectedState,
+    signal,
+    expectedCode,
+  ) => {
     const value = await hardLossFixture(boundary);
     const before = value.readRun();
     const originalFailure = structuredClone(before.recoveries?.[0]?.failure ?? before.failed);
@@ -708,10 +715,10 @@ posix('consumed dispatch supervisor hard-loss boundaries', () => {
     const handoffPath = path.join(value.runtime, 'handoffs/42-implement.json');
     const handoffBytes = fs.readFileSync(handoffPath);
 
-    process.kill(value.controller.pid, 'SIGKILL');
+    process.kill(signal === 'SIGTERM' ? value.child.pid : value.controller.pid, signal);
     const result = await value.done;
 
-    expect(result.code).toBe(1);
+    expect(result.code).toBe(expectedCode);
     expect(result.stderr).toBe('');
     expect(fs.existsSync(value.leasePath)).toBe(false);
     expect(value.closed()).toEqual(['attempt-pane']);
