@@ -73,6 +73,27 @@ function fixture(implementationStatus = 'Pass', { createOwner = true } = {}) {
 }
 
 const mutations = (calls) => calls.filter((call) => ['add', 'commit', 'push'].includes(call[1]));
+
+function writeVerificationArtifact(f, results, overrides = {}) {
+  const required = results.filter((result) => result.required && result.applicable);
+  const ceiling = required.some(({ effectiveStatus }) => effectiveStatus === 'incomplete')
+    ? 'Incomplete'
+    : required.some(({ effectiveStatus }) => effectiveStatus !== 'passed')
+      ? 'Fail'
+      : null;
+  const target = path.join(f.root, '.omp/sdlc/verification/42.json');
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, `${JSON.stringify({
+    schemaVersion: 1,
+    issue: 42,
+    identity: { headSha: f.git('rev-parse', 'HEAD') },
+    ceiling,
+    coverage: { complete: true, missing: [], duplicate: [], unknown: [] },
+    results,
+    ...overrides,
+  })}\n`);
+  return target;
+}
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 
 describe('verification finalization controller', () => {
@@ -130,6 +151,68 @@ describe('verification finalization controller', () => {
     expect(fs.readFileSync(path.join(f.root, REPORT))).toEqual(before);
     expect(mutations(f.calls)).toEqual([]);
     expect(f.state().records).toEqual([]);
+  });
+
+  it('rewinds mixed Incomplete evidence to implementation for trusted local failures', () => {
+    const f = fixture('Incomplete');
+    writeVerificationArtifact(f, [
+      {
+        id: 'repository.api-tests', provider: 'builtin.command',
+        required: true, applicable: true, effectiveStatus: 'failed',
+      },
+      {
+        id: 'repository.robot-integration', provider: 'project.robot-integration',
+        required: true, applicable: true, effectiveStatus: 'incomplete',
+      },
+    ]);
+    const outcome = f.finalize();
+    expect(outcome).toMatchObject({
+      status: 1,
+      handoff: {
+        status: 'failed',
+        intervention: false,
+        reasonCode: 'verification_not_ready',
+        next: 'implement',
+        artifacts: [
+          REPORT,
+          '.omp/sdlc/verification/42.json',
+        ],
+        summary: expect.stringContaining('local failures: repository.api-tests'),
+      },
+    });
+    expect(outcome.handoff.summary).toContain('external incomplete: repository.robot-integration');
+    expect(isRemediableFailedHandoff({
+      step: 'verify',
+      state: 'idle',
+      handoff: outcome.handoff,
+    })).toBe(true);
+    expect(mutations(f.calls)).toEqual([]);
+  });
+
+  it.each([
+    ['incomplete-only', [{
+      id: 'repository.robot-integration', provider: 'project.robot-integration',
+      required: true, applicable: true, effectiveStatus: 'incomplete',
+    }], {}],
+    ['external failure', [{
+      id: 'repository.remote-policy', provider: 'project.remote-policy',
+      required: true, applicable: true, effectiveStatus: 'failed',
+    }], {}],
+    ['stale head', [{
+      id: 'repository.api-tests', provider: 'builtin.command',
+      required: true, applicable: true, effectiveStatus: 'failed',
+    }], { identity: { headSha: 'f'.repeat(40) } }],
+  ])('keeps %s Incomplete artifact evidence as intervention', (_label, results, overrides) => {
+    const f = fixture('Incomplete');
+    writeVerificationArtifact(f, results, overrides);
+    expect(f.finalize()).toMatchObject({
+      status: 1,
+      handoff: {
+        intervention: true,
+        reasonCode: 'verification_not_ready',
+        next: null,
+      },
+    });
   });
 
   it('permits regenerated complete evidence without publishing the incomplete report', () => {

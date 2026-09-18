@@ -10,6 +10,11 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Fixed
+
+- Automatically resume a proven absent remediable worker once when its exact branch/HEAD checkpoint has no valid terminal handoff, consuming a durable run/issue/stage record before redispatch and falling back to one bounded intervention only after safe progress is unavailable or consumed (#374 regression).
+- Split mixed `Incomplete` verification by exact-head canonical results: required failed built-in commands consume one durable recovery and rewind through implement/reviews/verify, while incomplete-only, external-provider, stale, unsafe, or consumed evidence remains intervention (#354 regression).
+
 ## [3.22.1] - 2026-09-15
 
 ### Fixed

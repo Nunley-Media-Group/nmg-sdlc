@@ -6,6 +6,7 @@ import {
   canonicalCheckName,
   inspectDeliveryValidation,
   inspectVerificationReadiness,
+  inspectVerificationArtifactRepair,
   resolveDeclaredCheck,
   runCli,
 } from '../verification-readiness.mjs';
@@ -78,6 +79,24 @@ function report(status, readiness) {
     readiness ? marker('nmg-sdlc-pr-readiness', readiness) : '',
     '',
   ].join('\n');
+}
+
+function verificationArtifact(results, overrides = {}) {
+  const required = results.filter((result) => result.required && result.applicable);
+  const ceiling = required.some(({ effectiveStatus }) => effectiveStatus === 'incomplete')
+    ? 'Incomplete'
+    : required.some(({ effectiveStatus }) => effectiveStatus !== 'passed')
+      ? 'Fail'
+      : null;
+  return {
+    schemaVersion: 1,
+    issue: 42,
+    identity: { headSha: HEAD_1 },
+    ceiling,
+    coverage: { complete: true, missing: [], duplicate: [], unknown: [] },
+    results,
+    ...overrides,
+  };
 }
 
 function pendingReadiness(overrides = {}) {
@@ -320,6 +339,72 @@ describe('verification readiness contract', () => {
       })).toMatchObject({ status: 'blocked', reasonCode: 'implementation_non_pass' });
     },
   );
+
+  it('separates exact-head local failures from external incomplete evidence', () => {
+    const result = inspectVerificationArtifactRepair(verificationArtifact([
+      {
+        id: 'repository.api-tests', provider: 'builtin.command',
+        required: true, applicable: true, effectiveStatus: 'failed',
+      },
+      {
+        id: 'repository.robot-integration', provider: 'project.robot-integration',
+        required: true, applicable: true, effectiveStatus: 'incomplete',
+      },
+      {
+        id: 'repository.flutter-tests', provider: 'builtin.command',
+        required: true, applicable: true, effectiveStatus: 'passed',
+      },
+    ]), { expectedIssueNumber: 42, expectedHeadSha: HEAD_1 });
+    expect(result).toEqual({
+      status: 'repairable',
+      reasonCode: 'required_local_validation_failed',
+      gaps: [],
+      failedLocal: ['repository.api-tests'],
+      failedExternal: [],
+      incomplete: ['repository.robot-integration'],
+    });
+  });
+
+  it('keeps incomplete-only and external failures as intervention', () => {
+    expect(inspectVerificationArtifactRepair(verificationArtifact([
+      {
+        id: 'repository.robot-integration', provider: 'project.robot-integration',
+        required: true, applicable: true, effectiveStatus: 'incomplete',
+      },
+    ]), { expectedIssueNumber: 42, expectedHeadSha: HEAD_1 })).toMatchObject({
+      status: 'intervention',
+      failedLocal: [],
+      incomplete: ['repository.robot-integration'],
+    });
+    expect(inspectVerificationArtifactRepair(verificationArtifact([
+      {
+        id: 'repository.remote-policy', provider: 'project.remote-policy',
+        required: true, applicable: true, effectiveStatus: 'failed',
+      },
+    ]), { expectedIssueNumber: 42, expectedHeadSha: HEAD_1 })).toMatchObject({
+      status: 'intervention',
+      failedLocal: [],
+      failedExternal: ['repository.remote-policy'],
+    });
+  });
+
+  it.each([
+    ['stale head', (artifact) => { artifact.identity.headSha = HEAD_2; }],
+    ['wrong issue', (artifact) => { artifact.issue = 7; }],
+    ['incomplete coverage', (artifact) => { artifact.coverage.complete = false; }],
+    ['duplicate result', (artifact) => { artifact.results.push({ ...artifact.results[0] }); }],
+    ['ceiling mismatch', (artifact) => { artifact.ceiling = 'Fail'; }],
+  ])('rejects %s verification artifact evidence', (_label, mutate) => {
+    const artifact = verificationArtifact([{
+      id: 'repository.api-tests', provider: 'builtin.command',
+      required: true, applicable: true, effectiveStatus: 'incomplete',
+    }]);
+    mutate(artifact);
+    expect(inspectVerificationArtifactRepair(artifact, {
+      expectedIssueNumber: 42,
+      expectedHeadSha: HEAD_1,
+    })).toMatchObject({ status: 'unverifiable', reasonCode: 'verification_artifact_invalid' });
+  });
 
   it('rejects unknown evidence kinds, fields, and local omissions', () => {
     const unknownKind = pendingReadiness({

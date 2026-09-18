@@ -67,13 +67,13 @@ ambiguous declarations and traversal, retaining the existing live-task ownership
 gate. Prove exact paths and denied boundaries through the real publication CLI
 in a disposable Git repository without editing the originating approved package.
 
-### T003: AC1–AC11 behavioral tests
+### T003: AC1–AC12 behavioral tests
 
 **File(s)**: `scripts/__tests__/sdlc-review-isolation.test.mjs` (create), `scripts/__tests__/extension-review-isolation.test.mjs` (create), `scripts/__tests__/sdlc-review-main.test.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`, `scripts/__tests__/sdlc-finalize-verification.test.mjs`, `scripts/__tests__/sdlc-apply-review.test.mjs`, `scripts/__tests__/sdlc-deliver.test.mjs`, `scripts/__tests__/pr-delivery-state.test.mjs`, `scripts/__tests__/sdlc-status.test.mjs`, `scripts/__tests__/interactive-plan-contract.test.mjs`, plus new `scripts/__tests__/sdlc-safe-recoveries.test.mjs`
 **Type**: Modify
 **Depends**: T001, T002
 **Acceptance**:
-- [ ] SCN001–SCN011 map to AC1–AC11
+- [ ] SCN001–SCN012 map to AC1–AC12
 - [ ] Empty-rewrite test is deleted, not re-pinned
 - [ ] Path allow denies absolute checkout paths, `../`, symlink escape, URLs, `skill://`/`artifact://`/`local://`/`ssh://`, archive members, and unknown selectors; allows exact snapshot `allowedPaths` and supported `file:50-100` / `:raw` tails on those files
 - [ ] Fake `ExtensionAPI`: review env registers deny-all before any async `setActiveTools`; blocks bash/eval/python/task/write/edit/grep/glob/user_bash/user_python and records append-only receipts; env unset leaves `setActiveTools` uncalled
@@ -144,6 +144,19 @@ and the same two expected skips (`NMG_SDLC_PLUGIN_ROOT` explicitly selected this
 checkout; timeout 0). Full output is retained at
 `.omp/sdlc/evidence/374-lease-repair-final-suite.log`. Both native-proof source
 module hashes remain unchanged; no RPC/isolation proof or smoke was rerun.
+
+### T005: Closed-worker autonomous recovery regression
+
+**File(s)**: `scripts/sdlc-execute.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`, `workflows/execute/WORKFLOW.md`, `workflows/execute/references/selection.md`, `commands/sdlc-execute.md`, `README.md`, `CHANGELOG.md`
+**Type**: Modify
+**Depends**: T003
+**Acceptance**:
+- [ ] Missing and invalid terminal handoffs after a positively absent remediable worker expose the exact evidence reason and one `closed_worker_resume`
+- [ ] Discovery remains byte-for-byte read-only and repeated discovery starts no pane or worker
+- [ ] Bare execute re-proves exact branch, HEAD, absence, and handoff state; consumes one run/issue/stage record before redispatch
+- [ ] The same standard stage worker runs once; genuine failure enters existing bounded remediation and genuine pass advances
+- [ ] Consumed recovery, second loss, unchanged failure, changed head/branch, live or ambiguous ownership, and valid intervention handoffs cannot replay
+- [ ] One top-level invocation automatically tries proven recovery before offering one bounded prompt; neither path recurses
 
 ---
 

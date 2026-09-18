@@ -143,6 +143,14 @@ Print the controller's `NMG_SDLC_HANDOFF:` line unchanged and stop. A passed han
 | `scripts/sdlc-execute.mjs` | Ignore stale idle/done observations while terminal detection still shows `Working` | Prevent closing a live worker whose internal advisory state temporarily masks primary activity |
 | `scripts/__tests__/sdlc-execute.test.mjs` | Delay a worker handoff beyond two stale-idle observations while visible work continues | Prove the controller neither resubmits nor prematurely closes the worker |
 
+### Mixed Incomplete verification amendment
+
+Overall `Incomplete` previously hid a simultaneous deterministic local command failure. Use the canonical `.omp/sdlc/verification/N.json` only after bounded regular-file, issue, exact-HEAD, complete-coverage, unique-result, and ceiling-consistency validation. Required applicable failed `builtin.command` results are locally actionable; project-provider failures without explicit repairability and every `incomplete` result remain external intervention evidence.
+
+When both exist, finalization preserves the non-pass report/artifact and emits failed `verify`, `intervention: false`, `next: implement`, naming local failed and external incomplete ids. Discovery exposes one durable `actionable_verification_resume`; bare run re-proves it under lease and consumes before standard verify redispatch. Publication-only verify writes the rewind handoff. Execute applies `remediationCompletedSteps` before generic same-step remediation, restoring implement authority and rerunning both review/fix rounds plus verify.
+
+The run/issue/verify recovery record is one-use. Exact-head mismatch, live ownership, malformed/unsafe artifact, incomplete-only evidence, external-only failure, or prior consumption remains intervention. Existing remediation-loop budgets still stop unchanged local repairs.
+
 ### Blast Radius
 
 - **Direct impact**: verify handoff JSON from `finalizeVerification` / `finalizeVerificationUnlocked`.

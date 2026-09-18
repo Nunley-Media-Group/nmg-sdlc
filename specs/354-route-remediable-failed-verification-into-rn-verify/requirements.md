@@ -78,6 +78,17 @@
 **Then** execute continues observing without resubmitting the prompt or closing the pane
 **And** it consumes the eventual original-step handoff
 
+### AC8: Mixed Incomplete verification rewinds actionable local failures
+
+**Given** an exact-head, coverage-complete canonical verification artifact whose overall report is Incomplete
+**And** at least one required applicable `builtin.command` result failed while another required provider result is incomplete
+**When** execute resumes verification
+**Then** it consumes one durable `actionable_verification_resume`, reruns publication-only finalization, and writes a failed non-intervention verify handoff with `next: implement`
+**And** execute rewinds before same-step remediation, runs standard implement authority, reruns both review/fix cycles and verification, and preserves every external incomplete result
+**And** incomplete-only, external-provider-only, malformed, stale, unsafe, duplicate, or identity-mismatched artifact evidence remains intervention
+**And** consumed recovery plus existing no-progress remediation bounds prevent another unchanged replay
+
+
 ## Functional Requirements
 
 | ID | Requirement | Priority |
@@ -89,15 +100,14 @@
 | FR5 | A smoke-owned controller forwards `NMG_SDLC_SMOKE_OWNED` only to verify and deliver workers; nested verification passes without recursion while the enclosing provider retains delivery-proof authority. | Must |
 | FR6 | Execute scopes live starter and remediation worker discovery to the active project cwd so same-number workers in another repository cannot produce `retained_worker_mismatch`. | Must |
 | FR7 | Handoff observation treats visible active work as authoritative over a transient idle/done agent state and continues until a handoff or confirmed terminal state exists. | Must |
+| FR8 | Exact-head mixed Incomplete evidence with a trusted local command failure consumes one verification recovery and rewinds to implement; external/incomplete-only evidence remains intervention. | Must |
 
 ## Out of Scope
 
 - Host-project test migration such as pennyscan `#132` T009
-- Auto-remediating Incomplete, publish, lease, or spec-not-approved outcomes
-- Rewinding completed steps to implement
+- Auto-remediating Incomplete outcomes that contain no exact-head trusted local command failure
 - Changing review, fix, start, or deliver intervention mapping
-- Adding an attempt cap to `#259` rem retries
-- Changing `inspectVerificationReadiness` so Fail/Partial/Incomplete stop sharing `blocked` / `implementation_non_pass`
+- Weakening canonical artifact, exact-head, ownership, publication, or remediation-loop proof
 
 ## Change History
 
@@ -105,3 +115,4 @@
 |-------|------|---------|
 | #354 | 2026-09-02 | Initial defect report |
 | #354 | 2026-09-03 | Verification remediation: prevent nested smoke recursion, cross-project worker collisions, and stale-idle closure of visibly active workers |
+| #354 | 2026-09-16 | Mixed Incomplete evidence now rewinds trusted local command failures to implementation while preserving external intervention and loop bounds |

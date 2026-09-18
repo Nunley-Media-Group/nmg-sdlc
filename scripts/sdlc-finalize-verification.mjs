@@ -3,7 +3,10 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { inspectVerificationReadiness } from './verification-readiness.mjs';
+import {
+  inspectVerificationArtifactRepair,
+  inspectVerificationReadiness,
+} from './verification-readiness.mjs';
 import { inspectIssueSpecScope } from './issue-spec-scope.mjs';
 import { isSpecApproved, resolveSpecDir } from './sdlc-execute.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
@@ -42,7 +45,7 @@ function handoff(issue, status, summary, reportPath, reasonCode = null, options 
     intervention: options.intervention ?? (status !== 'passed'),
     summary,
     artifacts: options.artifacts ?? (passed ? [reportPath] : []),
-    next: passed ? 'deliver' : null,
+    next: passed ? 'deliver' : options.next ?? null,
     reasonCode,
   };
 }
@@ -105,16 +108,54 @@ function finalizeVerificationUnlocked({
     content: fs.readFileSync(absoluteReport, 'utf8'),
     options: { expectedIssueNumber: issueNumber, expectedSpecPath: specPath, expectedScope: scope },
   });
+  const headResult = run('git', ['rev-parse', 'HEAD'], { cwd });
+  const headSha = commandSucceeded(headResult) ? String(headResult.stdout ?? '').trim() : '';
+  const artifactRelative = `.omp/sdlc/verification/${issueNumber}.json`;
+  const artifactPath = join(root, artifactRelative);
+  let artifactRepair = {
+    status: 'unverifiable',
+    reasonCode: 'verification_artifact_invalid',
+    failedLocal: [],
+    failedExternal: [],
+    incomplete: [],
+  };
+  if (fs.existsSync(artifactPath)) {
+    try {
+      const artifactStat = fs.lstatSync(artifactPath);
+      const bytes = fs.readFileSync(artifactPath);
+      if (artifactStat.isFile() && !artifactStat.isSymbolicLink() && bytes.length <= 512 * 1024) {
+        artifactRepair = inspectVerificationArtifactRepair(JSON.parse(bytes.toString('utf8')), {
+          expectedIssueNumber: issueNumber,
+          expectedHeadSha: headSha,
+        });
+      }
+    } catch {
+      // Invalid runtime evidence remains intervention-bearing below.
+    }
+  }
   if (!['pass', 'pr_evidence_pending', 'pr_evidence_satisfied'].includes(readiness.status)) {
+    const mixedLocalFailure = readiness.status === 'blocked'
+      && readiness.reasonCode === 'implementation_non_pass'
+      && readiness.implementationStatus === 'incomplete'
+      && artifactRepair.status === 'repairable';
     const remediableReport = readiness.status === 'unverifiable'
       || (readiness.status === 'blocked'
         && readiness.reasonCode === 'implementation_non_pass'
-        && ['fail', 'partial'].includes(readiness.implementationStatus));
+        && ['fail', 'partial'].includes(readiness.implementationStatus))
+      || mixedLocalFailure;
+    const detail = mixedLocalFailure
+      ? `; local failures: ${artifactRepair.failedLocal.join(', ')}`
+        + `${artifactRepair.incomplete.length ? `; external incomplete: ${artifactRepair.incomplete.join(', ')}` : ''}`
+      : '';
     return fail(
       'verification_not_ready',
-      `Verification is not ready for #${issueNumber}: ${readiness.reasonCode}`,
+      `Verification is not ready for #${issueNumber}: ${readiness.reasonCode}${detail}`,
       remediableReport
-        ? { intervention: false, artifacts: [reportPath] }
+        ? {
+          intervention: false,
+          artifacts: mixedLocalFailure ? [reportPath, artifactRelative] : [reportPath],
+          ...(mixedLocalFailure ? { next: 'implement' } : {}),
+        }
         : undefined,
     );
   }

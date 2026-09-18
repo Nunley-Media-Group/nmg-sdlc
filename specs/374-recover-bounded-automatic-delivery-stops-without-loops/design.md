@@ -339,6 +339,24 @@ After squash `--match-head-commit` or generic merge/close transport: consume `po
 
 Completed-delivery re-entry uses the same bounded read-only reconcile.
 
+### Closed-worker continuation and prompt fallback (AC12)
+
+`discoverRecovery` previously collapsed every unproven intervention into `state: blocked` plus `Resolve <reason> using the checkpoint and ownership evidence before execution.` A closed worker with no valid terminal handoff therefore had no transition that could produce new stage evidence, while unchanged reinvocation reproduced the same blocker.
+
+Add `closed_worker_resume` as a durable one-use recovery in execute `run.json`. Discovery offers it only when:
+
+- the current stage is one of the existing remediable stages;
+- the recorded worker is positively absent and no current stage worker remains;
+- the current issue branch and checkpoint HEAD are exact and clean;
+- the terminal handoff is missing or invalid; and
+- no recovery record already exists for the run/issue/stage.
+
+Bare execute repeats those proofs under the controller lease, writes the consumed recovery record before dispatch, clears only the failed/remediation routing fields, and starts the same standard `sN-step` worker. A genuine failed non-intervention handoff then enters the existing bounded remediation loop, allowing implementation changes and reverification toward the approved spec. A passed handoff advances normally.
+
+The recovery key excludes PID, pane, time, summary, version, and later command invocations. A second process loss or unchanged failure cannot redispatch. Head/branch drift, live or ambiguous ownership, a valid intervention handoff, consumed recovery, exhausted remediation, unsafe evidence, or external authority remains blocked.
+
+Only after no proven automatic transition remains does blocked discovery expose its immutable one-shot `intervention`: checkpoint issue/stage/reason, `maxAttempts: 1`, stage-owned standalone verify/deliver where safe, otherwise read-only status or preserve-stop. The interactive workflow asks once, runs at most one owning action and one rediscovery, and never converts a prompt choice into success.
+
 ### Changes
 
 | File | Change | Rationale |
@@ -346,7 +364,7 @@ Completed-delivery re-entry uses the same bounded read-only reconcile.
 | `src/sdlc-review-isolation.mjs` (new; no equivalent exists) | Canonical allow + JSONL receipts | Testable without OMP |
 | `src/extension.ts` | Deny-all hooks at factory load when `NMG_SDLC_REVIEW_SLICE=1`; then `setActiveTools` | AC11 |
 | `scripts/sdlc-safe-recoveries.mjs` (new; no equivalent exists) | CAS `owners[]` + records keyed by logical ownerId, not lease UUID | AC8; standalone without fabricating run.json |
-| `scripts/sdlc-execute.mjs` | Slice env/assignment; receipt-gated pass; invalidation without delete; gate invalidation after mergeability; do not touch `recoveries[]` | AC2, AC5, AC8, AC11, `#372` |
+| `scripts/sdlc-execute.mjs` | Slice env/assignment; receipt-gated pass; gate invalidation; one consumed `closed_worker_resume` redispatch before structured intervention; preserve existing recovery budgets | AC2, AC5, AC8, AC11, AC12, `#372` |
 | `scripts/sdlc-review-main.mjs` | `review_empty` / `review_artifact_missing` | AC3 |
 | `scripts/sdlc-finalize-verification.mjs` | Stage publication reconcile; `resolveRecoveryOwner` + safe-recoveries.json | AC4, AC8 |
 | `scripts/sdlc-apply-review.mjs` | Same publication reconcile | AC1/AC4 |
@@ -354,6 +372,7 @@ Completed-delivery re-entry uses the same bounded read-only reconcile.
 | `scripts/sdlc-deliver.mjs` | Inspect mergeability; bot vs human; post-merge observe; bind session namespace to prior owner | AC5–AC8 |
 | `scripts/pr-delivery-state.mjs` | Author typename/login on reviews | AC6 |
 | Tests + workflow exercises + fresh smoke | See tasks T003–T004 | AC10, AC11 |
+| `workflows/execute/` + generated `commands/sdlc-execute.md` | Automatically invoke one proven bare recovery; prompt only after automatic progress is unsafe or consumed | AC12 |
 
 ### Blast Radius
 
@@ -375,6 +394,9 @@ Direct: review launch, extension tool surface for review-slice sessions only, pu
 | Stale reviews kept after rebase | completed[] loses review/verify after new HEAD |
 | Standalone writes run.json | finalize/deliver without execute checkpoint leaves run.json absent |
 | Smoke `#96` replay | T004 uses fresh NMG_SDLC_SMOKE_ISSUES only |
+| Closed worker repeats an opaque blocker | Exact branch/head/absence plus missing/invalid handoff permits one consumed same-stage redispatch |
+| New process or summary refills closed-worker recovery | Durable run/issue/stage record is consumed before dispatch; second discovery is `recovery-consumed` or blocked |
+| Prompt or redispatch bypasses ownership/exact-head gates | Re-prove under lease; live/ambiguous ownership and changed head stay blocked; normal stage handoff gates still decide advancement |
 
 ---
 

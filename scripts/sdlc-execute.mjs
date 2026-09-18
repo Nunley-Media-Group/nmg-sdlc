@@ -61,6 +61,7 @@ import {
 import { packageRoot } from '../src/sdlc-workflows.mjs';
 import { issueHasSpecCreatedLabel, SPEC_CREATED_LABEL } from './spec-created-label.mjs';
 import { isCliEntry, materializeControllerPaths } from './plugin-controller-path.mjs';
+import { inspectVerificationArtifactRepair } from './verification-readiness.mjs';
 import {
   isAuthorizedOmpSdlcUntrackTransition,
   untrackOmpSdlcRuntime,
@@ -596,6 +597,8 @@ function inspectRecoveryWorkers(data, herdr) {
 
 const REPAIRED_PUBLICATION_RECOVERY = 'repaired_publication_intervention';
 const EXCLUSIVE_IMPLEMENT_RESUME = 'exclusive_implement_resume';
+const CLOSED_WORKER_RESUME = 'closed_worker_resume';
+const ACTIONABLE_VERIFICATION_RESUME = 'actionable_verification_resume';
 const TERMINAL_GOAL_EVIDENCE_PATHS = Object.freeze([
   '.pi-glla/active.jsonl',
   '.pi-glla/owner.json',
@@ -603,6 +606,7 @@ const TERMINAL_GOAL_EVIDENCE_PATHS = Object.freeze([
 ]);
 const MAX_GOAL_EVIDENCE_BYTES = 256 * 1024;
 const MAX_HANDOFF_BYTES = 256 * 1024;
+const MAX_VERIFICATION_ARTIFACT_BYTES = 512 * 1024;
 const SAFE_IGNORED_STATE_DIRECTORIES = new Set([
   '.cache',
   '.dart_tool',
@@ -678,6 +682,57 @@ function readBoundedNoFollowFile(root, relativePath, maxBytes, reasonCode) {
     if (descriptor !== undefined) closeSync(descriptor);
   }
 }
+function inspectActionableVerificationArtifact(root, issue, head) {
+  try {
+    const { bytes } = readBoundedNoFollowFile(
+      root,
+      `${RUN_DIR}/verification/${issue}.json`,
+      MAX_VERIFICATION_ARTIFACT_BYTES,
+      'verification_artifact_invalid',
+    );
+    return inspectVerificationArtifactRepair(JSON.parse(bytes.toString('utf8')), {
+      expectedIssueNumber: issue,
+      expectedHeadSha: head,
+    });
+  } catch {
+    return {
+      status: 'unverifiable',
+      reasonCode: 'verification_artifact_invalid',
+      failedLocal: [],
+      failedExternal: [],
+      incomplete: [],
+    };
+  }
+}
+function inspectActionableVerificationResume({ cwd, checkpoint, checkout, run }) {
+  if (!checkpoint || checkpoint.currentStep !== 'verify'
+    || !checkout || !checkout.branch.startsWith(`${checkpoint.currentIssue}-`)) return null;
+  const ancestor = run('git', [
+    'merge-base', '--is-ancestor', checkpoint.head, checkout.head,
+  ], { cwd });
+  if (!commandSucceeded(ancestor)) return null;
+  const specDir = resolveSpecDir(cwd, checkpoint.currentIssue);
+  if (!specDir) return null;
+  const reportPath = `${relative(cwd, specDir).split('\\').join('/')}/verification-report.md`;
+  const status = run('git', [
+    'status', '--porcelain=v1', '-z', '--untracked-files=all',
+  ], { cwd });
+  if (!commandSucceeded(status)) return null;
+  const dirty = porcelainStatusEntries(status)
+    .flatMap(({ paths }) => paths)
+    .filter((path) => path !== '.omp' && !path.startsWith('.omp/'));
+  if (dirty.some((path) => path !== reportPath)) return null;
+  const artifact = inspectActionableVerificationArtifact(
+    cwd,
+    checkpoint.currentIssue,
+    checkout.head,
+  );
+  return artifact.status === 'repairable'
+    ? { ...artifact, checkpointHead: checkpoint.head, currentHead: checkout.head, reportPath }
+    : null;
+}
+
+
 
 function readStrictHandoffSnapshot(root, handoffPath, issue, step) {
   const snapshot = readBoundedNoFollowFile(
@@ -1950,14 +2005,80 @@ export function inspectExclusiveImplementResume({
     discrepancies: probe.binding.discrepancies,
   };
 }
+const STANDALONE_INTERVENTION_COMMANDS = Object.freeze({
+  verify: (issue) => `/sdlc-verify-code #${issue}`,
+  deliver: (issue) => `/sdlc-open-pr #${issue}`,
+});
 
-export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr = defaultHerdr(run, cwd) } = {}) {
-  const blocked = (reasonCode, recoveryEvidenceReasonCode = null) => ({
-    state: 'blocked',
+function blockedRecoveryIntervention(
+  checkpoint,
+  reasonCode,
+  recoveryEvidenceReasonCode = null,
+  allowStandalone = false,
+) {
+  const issue = Number.isSafeInteger(checkpoint?.currentIssue) ? checkpoint.currentIssue : null;
+  const step = VALID_STEPS.includes(checkpoint?.currentStep) ? checkpoint.currentStep : null;
+  const command = allowStandalone && issue && step && STANDALONE_INTERVENTION_COMMANDS[step]
+    ? STANDALONE_INTERVENTION_COMMANDS[step](issue)
+    : null;
+  const evidence = recoveryEvidenceReasonCode
+    ? `${reasonCode} (${recoveryEvidenceReasonCode})`
+    : reasonCode;
+  const options = command
+    ? [{
+      id: 'run-owning-stage-once',
+      label: `Run ${step} once`,
+      description: `Run ${command} exactly once under its normal gates, then rediscover once. Resume only from a validated passed handoff.`,
+      command,
+    }, {
+      id: 'keep-stopped',
+      label: 'Keep stopped',
+      description: 'Preserve the checkpoint, handoff, ownership, and exact-head evidence without another worker dispatch.',
+      command: null,
+    }]
+    : [{
+      id: 'inspect-evidence-once',
+      label: 'Inspect evidence',
+      description: 'Run /sdlc-status --json once and report the checkpoint, ownership, and handoff evidence without mutation.',
+      command: '/sdlc-status --json',
+    }, {
+      id: 'keep-stopped',
+      label: 'Keep stopped',
+      description: 'Preserve the checkpoint and all recovery evidence without another execution attempt.',
+      command: null,
+    }];
+  return {
+    id: 'blocked-recovery',
+    issue,
+    step,
     reasonCode,
     ...(recoveryEvidenceReasonCode ? { recoveryEvidenceReasonCode } : {}),
-    action: `Resolve ${reasonCode} using the checkpoint and ownership evidence before execution.`,
-  });
+    maxAttempts: 1,
+    question: issue && step
+      ? `Issue #${issue} stopped at ${step} with ${evidence}. No safe automatic recovery is proven. Choose one bounded intervention.`
+      : `Recovery stopped with ${evidence}. No safe automatic recovery is proven. Choose one bounded intervention.`,
+    options,
+  };
+}
+
+
+export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr = defaultHerdr(run, cwd) } = {}) {
+  let checkpoint = null;
+  const blocked = (reasonCode, recoveryEvidenceReasonCode = null, allowStandalone = false) => {
+    const intervention = blockedRecoveryIntervention(
+      checkpoint,
+      reasonCode,
+      recoveryEvidenceReasonCode,
+      allowStandalone,
+    );
+    return {
+      state: 'blocked',
+      reasonCode,
+      ...(recoveryEvidenceReasonCode ? { recoveryEvidenceReasonCode } : {}),
+      intervention,
+      action: 'Use the bounded intervention prompt. Run at most the selected action once, rediscover once, and never replay unchanged execution.',
+    };
+  };
   try {
     const checkpointPath = join(cwd, RUN_FILE);
     if (!existsSync(checkpointPath)) return { state: 'absent' };
@@ -1978,6 +2099,7 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
     if (firstIncomplete && firstIncomplete !== data.currentIssue && data.currentStep === null && !data.failed) {
       data = { ...data, currentIssue: firstIncomplete, currentStep: nextStep(data.completed[String(firstIncomplete)] ?? []) };
     }
+    checkpoint = data;
     const checkout = currentCheckout(cwd, run);
     const workerBranches = [...new Set([
       ...Object.values(data.workers || {}), ...(data.absentWorkers || []),
@@ -2085,12 +2207,7 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
         }
       }
     }
-    if (!repairedPublication && !exclusiveResume && !consumedDispatch && (
-      (data.failed?.intervention && !validatedPassedWorkerHandoff(cwd, data.currentIssue, data.currentStep, run))
-      || handoff?.intervention || handoff?.status === 'blocked'
-    )) {
-      return blocked(handoff?.reasonCode || data.failed?.reasonCode || 'intervention_required');
-    }
+
     const lease = readControllerLease(cwd);
     if (lease && lease.pid !== process.pid) {
       try {
@@ -2114,13 +2231,53 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
       return blocked(['ownership_unreadable', 'retained_worker_mismatch'].includes(error.message)
         ? error.message : 'ownership_unreadable');
     }
+    const currentWorkerPresent = ownership.present.some((worker) =>
+      worker.issue === data.currentIssue && worker.step === data.currentStep);
+    const closedWorkerResume = !recovery
+      && REMEDIABLE_STEPS.includes(data.currentStep)
+      && data.failed?.issue === data.currentIssue
+      && data.failed.step === data.currentStep
+      && !handoff
+      && ['missing_handoff', 'invalid_handoff'].includes(handoffResult.reasonCode)
+      && !currentWorkerPresent
+      && checkout.branch === linked
+      && checkout.head === data.head
+      && !exhausted;
+    const actionableVerification = !recovery
+      && data.currentStep === 'verify'
+      && data.failed?.issue === data.currentIssue
+      && data.failed.step === 'verify'
+      && handoff?.status === 'failed'
+      && handoff.intervention === true
+      && handoff.reasonCode === 'verification_not_ready'
+      && !currentWorkerPresent
+      && checkout.branch === linked
+      && !exhausted
+      ? inspectActionableVerificationResume({
+        cwd, checkpoint: data, checkout, run,
+      })
+      : null;
+    const actionableVerificationResume = actionableVerification?.status === 'repairable';
+    if (!consumedDispatch && !closedWorkerResume && !actionableVerificationResume
+      && !repairedPublication && !exclusiveResume && (
+      (data.failed?.intervention && !validatedPassedWorkerHandoff(cwd, data.currentIssue, data.currentStep, run))
+      || handoff?.intervention || handoff?.status === 'blocked'
+    )) {
+      return blocked(
+        handoff?.reasonCode || data.failed?.reasonCode || 'intervention_required',
+        handoff ? null : handoffResult.reasonCode,
+        !currentWorkerPresent,
+      );
+    }
     if (exhausted && !recovery && !validatedPassedWorkerHandoff(cwd, data.currentIssue, data.currentStep, run)
-      && ownership.present.some((worker) => worker.issue === data.currentIssue && worker.step === data.currentStep)) {
+      && currentWorkerPresent) {
       return blocked('retained_worker_mismatch');
     }
     const state = consumedDispatch ? 'consumed-dispatch-available'
       : recovery ? 'recovery-consumed'
-        : exhausted || repairedPublication || exclusiveResume ? 'loop-recovery-available'
+        : exhausted || repairedPublication || exclusiveResume
+          || closedWorkerResume || actionableVerificationResume
+          ? 'loop-recovery-available'
           : 'resumable';
     return {
       state, issues: data.issues, runId: data.runId, branch: linked,
@@ -2146,6 +2303,24 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
           publicationPaths: exclusiveResume.publicationPaths,
           workflowEvidencePaths: exclusiveResume.workflowEvidencePaths,
           discrepancies: exclusiveResume.discrepancies,
+        },
+      } : closedWorkerResume ? {
+        recoveryClass: CLOSED_WORKER_RESUME,
+        recoveryEvidence: {
+          head: data.head,
+          branch: linked,
+          reasonCode: data.failed.reasonCode,
+          handoffReasonCode: handoffResult.reasonCode,
+        },
+      } : actionableVerificationResume ? {
+        recoveryClass: ACTIONABLE_VERIFICATION_RESUME,
+        recoveryEvidence: {
+          head: actionableVerification.currentHead,
+          checkpointHead: actionableVerification.checkpointHead,
+          branch: linked,
+          failedLocal: actionableVerification.failedLocal,
+          failedExternal: actionableVerification.failedExternal,
+          incomplete: actionableVerification.incomplete,
         },
       } : {}),
       ...(consumedDispatch ? {
@@ -2536,6 +2711,7 @@ export function cleanupCompletedRun(
       try {
         closeSync(lock);
       } catch {
+
         failed = true;
       }
       try {
@@ -2588,6 +2764,17 @@ export function remediationCompletedSteps({
   const targetIndex = VALID_STEPS.indexOf(handoff.next);
   if (targetIndex < 0 || targetIndex > stepIndex) return null;
   return VALID_STEPS.slice(0, targetIndex);
+}
+
+function isActionableVerificationRewind(issue, step, handoff) {
+  return step === 'verify'
+    && handoff?.issue === issue
+    && handoff.status === 'failed'
+    && handoff.intervention === false
+    && handoff.reasonCode === 'verification_not_ready'
+    && handoff.next === 'implement'
+    && Array.isArray(handoff.artifacts)
+    && handoff.artifacts.includes(`${RUN_DIR}/verification/${issue}.json`);
 }
 
 export function workerPrompt({ step, issue, skill, cwd, controllerRunId } = {}) {
@@ -4299,23 +4486,119 @@ export function runExecute({
     let allocatedPaneId = null;
     let consumed = false;
     try {
-      if (!bareRecovery || ![
-        REPAIRED_PUBLICATION_RECOVERY,
-        EXCLUSIVE_IMPLEMENT_RESUME,
-      ].includes(repairedRecoveryClass)) {
-        throw new Error('safe_recovery_unproven');
-      }
+      if (!bareRecovery) throw new Error('safe_recovery_unproven');
       runState = latestMatchingRunState(runState, cwd);
-      if (runState.currentIssue !== recoveryIssue || runState.currentStep !== recoveryStep
-        || recoveryStep !== 'implement') {
-        throw new Error('checkpoint_identity_mismatch');
-      }
       const issue = runState.currentIssue;
       const step = runState.currentStep;
       const agentName = `s${issue}-${step}`;
       const checkpointHead = runState.head;
-      if (repairedRecoveryClass === EXCLUSIVE_IMPLEMENT_RESUME) {
-        const proof = inspectExclusiveImplementResume({
+      if (issue !== recoveryIssue || step !== recoveryStep) {
+        throw new Error('checkpoint_identity_mismatch');
+      }
+      if (repairedRecoveryClass === CLOSED_WORKER_RESUME) {
+        if (!REMEDIABLE_STEPS.includes(step)
+          || runState.recoveries?.some((entry) =>
+            entry.runId === runState.runId && entry.issue === issue && entry.step === step)) {
+          throw new Error('recovery_consumed');
+        }
+        const checkout = currentCheckout(cwd, run);
+        if (!checkout || checkout.branch !== recoveryBranch || checkout.head !== checkpointHead) {
+          throw new Error('checkpoint_head_mismatch');
+        }
+        const handoffResult = readExpectedHandoff(
+          join(cwd, HANDOFF_DIR, `${issue}-${step}.json`),
+          issue,
+          step,
+        );
+        if (handoffResult.handoff
+          || !['missing_handoff', 'invalid_handoff'].includes(handoffResult.reasonCode)) {
+          throw new Error('safe_recovery_unproven');
+        }
+        const ownership = inspectRecoveryWorkers(runState, herdrApi);
+        if (ownership.present.some((worker) => worker.issue === issue && worker.step === step)) {
+          throw new Error('retained_worker_mismatch');
+        }
+        runState.recoveries ||= [];
+        runState.recoveries.push({
+          runId: runState.runId,
+          issue,
+          step,
+          invocationId: randomUUID(),
+          consumedAt: new Date().toISOString(),
+          source: {
+            class: CLOSED_WORKER_RESUME,
+            head: checkpointHead,
+            branch: checkout.branch,
+            reasonCode: runState.failed?.reasonCode ?? null,
+            handoffReasonCode: handoffResult.reasonCode,
+          },
+          failure: structuredClone(runState.failed),
+          disposition: 'consumed',
+        });
+        runState.failed = null;
+        delete runState.remediation;
+        persistRunStateWithHeadCas(runState, cwd, checkpointHead);
+        recoveryDispatch = `${issue}:${step}`;
+      } else if (repairedRecoveryClass === ACTIONABLE_VERIFICATION_RESUME) {
+        if (step !== 'verify'
+          || runState.recoveries?.some((entry) =>
+            entry.runId === runState.runId && entry.issue === issue && entry.step === step)) {
+          throw new Error('recovery_consumed');
+        }
+        const checkout = currentCheckout(cwd, run);
+        if (!checkout || checkout.branch !== recoveryBranch) {
+          throw new Error('checkpoint_head_mismatch');
+        }
+        const { handoff } = readExpectedHandoff(
+          join(cwd, HANDOFF_DIR, `${issue}-${step}.json`),
+          issue,
+          step,
+        );
+        if (handoff?.status !== 'failed' || handoff.intervention !== true
+          || handoff.reasonCode !== 'verification_not_ready') {
+          throw new Error('safe_recovery_unproven');
+        }
+        const artifact = inspectActionableVerificationResume({
+          cwd, checkpoint: runState, checkout, run,
+        });
+        if (artifact?.status !== 'repairable') throw new Error('safe_recovery_unproven');
+        const ownership = inspectRecoveryWorkers(runState, herdrApi);
+        if (ownership.present.some((worker) => worker.issue === issue && worker.step === step)) {
+          throw new Error('retained_worker_mismatch');
+        }
+        runState.recoveries ||= [];
+        runState.recoveries.push({
+          runId: runState.runId,
+          issue,
+          step,
+          invocationId: randomUUID(),
+          consumedAt: new Date().toISOString(),
+          source: {
+            class: ACTIONABLE_VERIFICATION_RESUME,
+            head: checkout.head,
+            checkpointHead,
+            branch: checkout.branch,
+            failedLocal: artifact.failedLocal,
+            failedExternal: artifact.failedExternal,
+            incomplete: artifact.incomplete,
+          },
+          failure: structuredClone(runState.failed),
+          handoff,
+          disposition: 'consumed',
+        });
+        runState.head = checkout.head;
+        runState.failed = null;
+        delete runState.remediation;
+        persistRunStateWithHeadCas(runState, cwd, checkpointHead);
+        recoveryDispatch = `${issue}:${step}`;
+      } else {
+        if (![REPAIRED_PUBLICATION_RECOVERY, EXCLUSIVE_IMPLEMENT_RESUME]
+          .includes(repairedRecoveryClass)
+          || step !== 'implement') {
+          throw new Error('safe_recovery_unproven');
+        }
+        if (repairedRecoveryClass === EXCLUSIVE_IMPLEMENT_RESUME) {
+          const proof = inspectExclusiveImplementResume({
           cwd,
           checkpoint: runState,
           run,
@@ -4544,6 +4827,7 @@ export function runExecute({
       preparedRecoveryPane = allocatedPaneId
         ? { issue, step, paneId: allocatedPaneId, agentName }
         : null;
+      }
     } catch (error) {
       let reasonCode = error?.reasonCode || error?.message || 'repaired_intervention_unproven';
       if (allocatedPaneId && !preparedRecoveryPane
@@ -5988,6 +6272,33 @@ export function runExecute({
         });
       }
       const { handoff } = handoffResult;
+      const rewind = isActionableVerificationRewind(issue, step, handoff)
+        ? remediationCompletedSteps({
+          issue,
+          step,
+          completed: runState.completed[String(issue)],
+          handoff,
+        })
+        : null;
+      if (rewind) {
+        if (createdPanes.has(paneId) && !closePane(herdrApi, paneId)) {
+          return stop({
+            issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
+            runState, cwd, herdr: herdrApi, output,
+          });
+        }
+        delete runState.workers[agentName];
+        runState.completed[String(issue)] = rewind;
+        step = nextStep(rewind);
+        runState.currentStep = step;
+        runState.failed = null;
+        runState.remediation = null;
+        runState.repairRewound ||= {};
+        runState.repairRewound[String(issue)] = ['review1', 'review2']
+          .filter((review) => !rewind.includes(review));
+        persistRunState(runState, cwd);
+        continue;
+      }
       if (isRemediableFailedHandoff({ step, state, handoff })
         && recoveryDispatch !== `${issue}:${step}`) {
         const remResult = beginRemediation({ issue, step, state, handoff, agentName, paneId });

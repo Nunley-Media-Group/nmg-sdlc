@@ -267,6 +267,86 @@ function readinessResult(status, reasonCode, implementation, scope, readiness, g
     gaps: [...new Set(gaps)],
   };
 }
+export function inspectVerificationArtifactRepair(artifact, {
+  expectedIssueNumber,
+  expectedHeadSha,
+} = {}) {
+  const gaps = [];
+  if (!artifact || typeof artifact !== 'object' || Array.isArray(artifact)) {
+    return { status: 'unverifiable', reasonCode: 'verification_artifact_invalid', gaps: ['verification artifact must be an object'] };
+  }
+  if (artifact.schemaVersion !== 1) gaps.push('verification artifact schemaVersion must be 1');
+  if (!Number.isSafeInteger(expectedIssueNumber) || expectedIssueNumber <= 0
+    || artifact.issue !== expectedIssueNumber) {
+    gaps.push('verification artifact issue does not match');
+  }
+  if (!SHA_PATTERN.test(expectedHeadSha ?? '')
+    || artifact.identity?.headSha !== expectedHeadSha) {
+    gaps.push('verification artifact head does not match');
+  }
+  if (artifact.coverage?.complete !== true
+    || !Array.isArray(artifact.coverage?.missing)
+    || !Array.isArray(artifact.coverage?.duplicate)
+    || !Array.isArray(artifact.coverage?.unknown)
+    || artifact.coverage.missing.length
+    || artifact.coverage.duplicate.length
+    || artifact.coverage.unknown.length) {
+    gaps.push('verification artifact coverage is incomplete');
+  }
+  if (!Array.isArray(artifact.results)) {
+    gaps.push('verification artifact results must be an array');
+  }
+  const ids = [];
+  const required = [];
+  for (const result of Array.isArray(artifact.results) ? artifact.results : []) {
+    if (!result || typeof result !== 'object' || Array.isArray(result)
+      || typeof result.id !== 'string' || !result.id
+      || typeof result.provider !== 'string' || !result.provider
+      || typeof result.required !== 'boolean'
+      || typeof result.applicable !== 'boolean'
+      || !['passed', 'failed', 'incomplete', 'skipped'].includes(result.effectiveStatus)) {
+      gaps.push('verification artifact contains an invalid result');
+      continue;
+    }
+    ids.push(result.id);
+    if (result.required && result.applicable) required.push(result);
+  }
+  if (new Set(ids).size !== ids.length) gaps.push('verification artifact result ids must be unique');
+  const expectedCeiling = required.some(({ effectiveStatus }) => effectiveStatus === 'incomplete')
+    ? 'Incomplete'
+    : required.some(({ effectiveStatus }) => effectiveStatus !== 'passed')
+      ? 'Fail'
+      : null;
+  if (artifact.ceiling !== expectedCeiling) gaps.push('verification artifact ceiling does not match required results');
+  if (gaps.length) {
+    return {
+      status: 'unverifiable',
+      reasonCode: 'verification_artifact_invalid',
+      gaps: [...new Set(gaps)],
+      failedLocal: [],
+      failedExternal: [],
+      incomplete: [],
+    };
+  }
+  const failedLocal = required
+    .filter(({ provider, effectiveStatus }) => provider === 'builtin.command' && effectiveStatus === 'failed')
+    .map(({ id }) => id);
+  const failedExternal = required
+    .filter(({ provider, effectiveStatus }) => provider !== 'builtin.command' && effectiveStatus === 'failed')
+    .map(({ id }) => id);
+  const incomplete = required
+    .filter(({ effectiveStatus }) => effectiveStatus === 'incomplete')
+    .map(({ id }) => id);
+  return {
+    status: failedLocal.length ? 'repairable' : 'intervention',
+    reasonCode: failedLocal.length ? 'required_local_validation_failed' : 'no_local_validation_failure',
+    gaps: [],
+    failedLocal,
+    failedExternal,
+    incomplete,
+  };
+}
+
 
 export function inspectVerificationReadiness(input) {
   const content = String(input?.content ?? '');
