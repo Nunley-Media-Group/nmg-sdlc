@@ -1,0 +1,51 @@
+# Issue: #404
+# Date: 2026-09-18
+# Status: Approved
+# Author: NMG
+
+Feature: Restrict drafted issues and specs to executable software requirements
+
+  @SCN404-AC1
+  Scenario: Classify content against actual execute authority
+    Given a candidate issue or spec statement
+    When draft-issue or write-spec evaluates whether to retain it
+    Then it retains the statement only when implement or fix can realize it through permitted repository changes
+    And verify can prove it through observable local, registered-provider, or qualified PR-only evidence
+    And lifecycle work remains control-plane metadata rather than a functional requirement
+
+  @SCN404-AC2
+  Scenario: Preserve only executable behavior from mixed input
+    Given source material combines executable software behavior with externally owned obligations
+    When draft-issue or write-spec synthesizes generated artifacts
+    Then it retains the software behavior and testable technical constraints
+    And it omits each external obligation, rationale, citation, proof, sign-off, operation, and attestation
+
+  @SCN404-AC3
+  Scenario: Do not relocate excluded content
+    Given source material contains an obligation that execute cannot implement and verify
+    When either workflow filters the source
+    Then the obligation is absent from contextual, boundary, design, task, and scenario sections
+    And Out of Scope contains only adjacent software behavior
+
+  @SCN404-AC4
+  Scenario: Stop when no executable requirement remains
+    Given filtering leaves no executable software behavior
+    When either workflow reaches synthesis
+    Then it emits its exact execute-named diagnostic
+    And it stops before plan creation, proposal, repository mutation, or GitHub mutation
+
+  @SCN404-AC5
+  Scenario: Render one shared capability contract for both commands
+    Given the extension renders an interactive command prompt
+    When the consumer is draft-issue or write-spec
+    Then the same plugin-owned execute capability contract follows the workflow body
+    And project steering follows without broadening publication authority
+
+  @SCN404-AC6
+  Scenario: Audit the complete generated payload
+    Given eligible source material remains
+    When synthesis is complete
+    Then draft-issue audits the complete issue body before proposal
+    And write-spec audits all four complete spec files before proposal
+    And the local plan records feasibility for every acceptance criterion, functional requirement, task, and scenario
+    And generated issue and spec content excludes the feasibility ledger and unresolved material choices
