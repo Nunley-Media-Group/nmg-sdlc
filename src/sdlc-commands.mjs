@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import {
   defaultPromptRegistry,
   renderPrompt,
@@ -34,6 +35,72 @@ const REPAIR_COMMANDS = new Set(["sdlc-onboard-project", "sdlc-upgrade-project",
 const INTERACTIVE_SLASH_RE = new RegExp(
   `^/(${INTERACTIVE_COMMANDS.map(([name]) => name).join("|")})(?:\\s+([\\s\\S]*))?$`,
 );
+
+function writeSpecMergeCommand(command, root) {
+  const helper = JSON.stringify(join(root, "scripts", "publish-approved-spec.mjs"));
+  const prefix = `node ${helper} merge --issue `;
+  if (typeof command !== "string" || !command.startsWith(prefix)) return null;
+  const match = /^([1-9]\d*) --dir specs\/([1-9]\d*)-([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(
+    command.slice(prefix.length),
+  );
+  if (!match) return null;
+  const issue = Number(match[1]);
+  if (!Number.isSafeInteger(issue) || issue !== Number(match[2])) return null;
+  return { issue };
+}
+
+function soleJsonObject(content) {
+  if (!Array.isArray(content)) return null;
+  const objects = [];
+  for (const part of content) {
+    if (!part || part.type !== "text" || typeof part.text !== "string") continue;
+    for (const line of part.text.split(/\r?\n/)) {
+      const candidate = line.trim();
+      if (!candidate.startsWith("{")) continue;
+      let value;
+      try {
+        value = JSON.parse(candidate);
+      } catch {
+        return null;
+      }
+      if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+      objects.push(value);
+    }
+  }
+  return objects.length === 1 ? objects[0] : null;
+}
+
+export function writeSpecPlanReentry(event, root = packageRoot) {
+  if (
+    !event
+    || event.type !== "tool_result"
+    || event.toolName !== "bash"
+    || typeof event.toolCallId !== "string"
+    || event.toolCallId.length === 0
+  ) {
+    return null;
+  }
+  const command = writeSpecMergeCommand(event.input?.command, root);
+  if (!command) return null;
+  const result = soleJsonObject(event.content);
+  if (
+    result?.merged !== true
+    || !Number.isSafeInteger(result.pr)
+    || result.pr <= 0
+  ) {
+    return null;
+  }
+  const { issue } = command;
+  const prompt = [
+    "/plan",
+    "",
+    `Continue the active /sdlc-write-spec session after publication of issue #${issue} in PR #${result.pr}.`,
+    `Append ${issue} to published[] exactly once, then run the documented Continue loop.`,
+    "If another issue is selected, perform only read-only discovery and preference interview before writing its distinct complete four-file local://spec-{N}-plan.md with the current published[] and publication rules, then call xd://propose.",
+    "Do not run default-branch or perform branch, file, commit, push, pull-request, label, or merge mutation for that issue before its distinct proposal is approved.",
+  ].join("\n");
+  return { issue, pr: result.pr, prompt };
+}
 
 
 export function withArguments(body, args) {

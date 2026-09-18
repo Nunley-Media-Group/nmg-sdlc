@@ -114,6 +114,7 @@ function normalizeSnapshot(snapshot, options, gaps) {
   const declaredPrOnlyChecks = Array.isArray(snapshot?.declaredPrOnlyChecks)
     ? [...new Set(snapshot.declaredPrOnlyChecks.map(text).filter(Boolean))].sort()
     : [];
+  const pendingDeclaredPrOnlyChecks = [];
   const normalized = {
     issueNumber,
     issue,
@@ -124,6 +125,7 @@ function normalizeSnapshot(snapshot, options, gaps) {
     pagination,
     requiredChecksConfigured: snapshot?.requiredChecksConfigured === true,
     declaredPrOnlyChecks,
+    pendingDeclaredPrOnlyChecks,
     verification,
     botLogins: [...new Set(['coderabbitai', ...(options.botLogins ?? snapshot?.botLogins ?? [])]
       .map((login) => String(login).toLowerCase()))].sort(),
@@ -160,7 +162,10 @@ function normalizeSnapshot(snapshot, options, gaps) {
   }
   const observedPrChecks = checks.filter((check) => check.event === 'pull_request');
   for (const declaredName of declaredPrOnlyChecks) {
-    if (resolveDeclaredCheck(declaredName, observedPrChecks).status !== 'matched') {
+    const resolution = resolveDeclaredCheck(declaredName, observedPrChecks);
+    if (resolution.status === 'pending') {
+      pendingDeclaredPrOnlyChecks.push(declaredName);
+    } else if (resolution.status === 'mismatch') {
       gaps.push(`declared PR-only check was not returned: ${declaredName}`);
     }
   }
@@ -229,12 +234,18 @@ export function classifyPrDeliveryState(snapshot, options = {}) {
     return result(normalized, 'remediate', 'checks_failed', failing.map((check) => `${check.name}: ${check.state}`));
   }
   const pending = normalized.checks.filter((check) => PENDING_CHECKS.has(check.state));
-  if (pending.length > 0) {
-    return result(normalized, 'pending', 'checks_pending', pending.map((check) => `${check.name}: ${check.state}`));
-  }
-  if (normalized.checks.length === 0
-    && (normalized.requiredChecksConfigured || normalized.declaredPrOnlyChecks.length > 0)) {
-    return result(normalized, 'unverifiable', 'required_checks_missing', ['required or declared PR-only checks were not returned']);
+  const configuredChecksRegistering = normalized.requiredChecksConfigured
+    && normalized.checks.length === 0;
+  if (
+    pending.length > 0
+    || normalized.pendingDeclaredPrOnlyChecks.length > 0
+    || configuredChecksRegistering
+  ) {
+    return result(normalized, 'pending', 'checks_pending', [
+      ...pending.map((check) => `${check.name}: ${check.state}`),
+      ...normalized.pendingDeclaredPrOnlyChecks.map((name) => `declared PR-only check pending: ${name}`),
+      ...(configuredChecksRegistering ? ['required checks have not registered'] : []),
+    ]);
   }
 
   if (pullRequest.isDraft) return result(normalized, 'pending', 'pull_request_still_draft');

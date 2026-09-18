@@ -10,6 +10,7 @@ import {
   packageRoot,
   rewriteInteractiveInput,
   sessionModeFromEntries,
+  writeSpecPlanReentry,
 } from "./sdlc-commands.mjs";
 import { installReviewIsolation } from "./sdlc-review-isolation.mjs";
 type ExtensionAPI = {
@@ -60,6 +61,16 @@ export default function nmgSdlc(pi: ExtensionAPI): void {
       sessionMode: sessionModeFromEntries(session.sessionManager?.getEntries?.()),
       headless: isInteractiveHeadless(session),
     });
+  });
+
+  const completedWriteSpecPublications = new Set<string>();
+  pi.on("tool_result", (event) => {
+    const toolResult = (event ?? {}) as { toolCallId?: string; [key: string]: unknown };
+    const result = writeSpecPlanReentry(toolResult, packageRoot);
+    if (!result || typeof toolResult.toolCallId !== "string") return;
+    if (completedWriteSpecPublications.has(toolResult.toolCallId)) return;
+    completedWriteSpecPublications.add(toolResult.toolCallId);
+    pi.sendUserMessage(result.prompt, { deliverAs: "followUp" });
   });
 
   pi.on("context", (event) => {

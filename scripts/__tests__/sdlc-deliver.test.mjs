@@ -1433,6 +1433,106 @@ describe('sdlc delivery controller', () => {
     )).toBe(true);
   });
 
+  test('waits through missing and BLOCKED declared CI before a fresh exact-head merge recheck', () => {
+    const declared = {
+      name: 'contract-tests',
+      state: 'SUCCESS',
+      link: 'https://github.test/checks/h2',
+      event: 'pull_request',
+    };
+    const options = {
+      existingPr: openPr({ isDraft: true, head: H1 }),
+      dirtyPaths: ['specs/42-delivery/verification-report.md'],
+      checks: [declared],
+      requiredChecks: [],
+      views: [
+        openPr({ isDraft: true, head: H1 }),
+        openPr({ isDraft: true, head: H1 }),
+        openPr({ isDraft: true, head: H2 }),
+        openPr({ isDraft: true, head: H2 }),
+        openPr({ head: H2, mergeStateStatus: 'BLOCKED' }),
+        openPr({ head: H2, mergeStateStatus: 'BLOCKED' }),
+        openPr({ head: H2 }),
+        openPr({ head: H2 }),
+      ],
+      terminalViews: [openPr({ head: H2, state: 'MERGED', issueState: 'CLOSED' })],
+    };
+    const f = fixture(options); roots.push(f.root);
+    fs.writeFileSync(
+      path.join(f.root, 'specs/42-delivery/verification-report.md'),
+      controlledVerification(f.root, 'pr_evidence_satisfied', H1, 'check_run'),
+    );
+    const recoveryCountsAtSleep = [];
+    const mergeSeenAtSleep = [];
+    const run = (command, args) => {
+      const result = f.run(command, args);
+      if (command === 'gh' && args[0] === 'pr' && args[1] === 'ready' && result.status === 0) {
+        options.checks = [];
+      }
+      return result;
+    };
+    const sleep = (milliseconds) => {
+      f.sleeps.push(milliseconds);
+      mergeSeenAtSleep.push(f.calls.some(
+        (call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'merge',
+      ));
+      recoveryCountsAtSleep.push(JSON.parse(
+        fs.readFileSync(path.join(f.root, '.omp/sdlc/safe-recoveries.json'), 'utf8'),
+      ).records.length);
+      options.checks = f.sleeps.length === 1
+        ? [{ ...declared, state: 'PENDING' }]
+        : [declared];
+    };
+
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run,
+      fs,
+      sleep,
+    });
+
+    expect(result).toMatchObject({ status: 0, handoff: { status: 'passed' } });
+    expect(f.sleeps).toEqual([30_000, 30_000]);
+    expect(mergeSeenAtSleep).toEqual([false, false]);
+    expect(recoveryCountsAtSleep).toEqual([0, 0]);
+    expect(result.stdout).not.toContain('NMG_SDLC_REMEDIATION');
+    expect(f.calls.filter(
+      (call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'merge',
+    )).toEqual([['gh', 'pr', 'merge', '77', '--squash', '--match-head-commit', H2]]);
+  });
+
+  test('fails a terminal-successful BLOCKED policy without CI-pending sleep', () => {
+    const successful = {
+      name: 'contract-tests',
+      state: 'SUCCESS',
+      link: 'https://github.test/checks/contract-tests',
+      event: 'pull_request',
+    };
+    const f = fixture({
+      requiredChecks: [successful],
+      checks: [successful],
+      views: [openPr({ mergeStateStatus: 'BLOCKED' })],
+    }); roots.push(f.root);
+
+    const result = runDeliver({
+      issue: 42,
+      controllerRunId: 'execute-run',
+      cwd: f.root,
+      run: f.run,
+      fs,
+      sleep: f.sleep,
+    });
+
+    expect(result).toMatchObject({ status: 1, handoff: { reasonCode: 'merge_failed' } });
+    expect(result.handoff.summary).toContain('merge_blocked_by_external_policy');
+    expect(f.sleeps).toEqual([]);
+    expect(f.calls.some(
+      (call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'merge',
+    )).toBe(false);
+  });
+
   test('keeps the originating inline location when a bot later replies pathlessly', () => {
     const thread = {
       id: 'T1',

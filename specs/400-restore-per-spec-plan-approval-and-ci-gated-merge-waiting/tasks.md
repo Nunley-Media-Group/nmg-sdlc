@@ -59,7 +59,7 @@
 
 ### T004: Prove polling, terminal failure, and exact-head merge
 
-**File(s)**: `scripts/__tests__/sdlc-deliver.test.mjs`
+**File(s)**: `scripts/__tests__/sdlc-deliver.test.mjs`, `.github/workflows/nmg-sdlc-verify.yml`
 **Type**: Modify
 **Depends**: T003
 **Acceptance**:
@@ -69,6 +69,7 @@
 - [ ] A fresh successful/CLEAN recheck issues exactly one `gh pr merge P --squash --match-head-commit H`
 - [ ] Explicit check failure and proven non-CI blockers use existing remediation/failure paths without sleeping as CI-pending
 - [ ] Existing merge transport ambiguity, up-to-three post-merge reads, exact linkage, one authorized issue close, and cleanup-after-MERGED+CLOSED tests remain authoritative
+- [ ] Contract CI uses the repository's Node 24 runtime so the extension behavior test imports `src/extension.ts` on the supported toolchain
 
 ---
 

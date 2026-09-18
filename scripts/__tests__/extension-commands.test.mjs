@@ -1,7 +1,8 @@
 import { describe, expect, it } from '@jest/globals';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -135,5 +136,59 @@ describe('extension sdlc- commands', () => {
       repoRoot,
       'workflows/start-issue/references/milestone-selection.md;skills/start-issue/references/stale-remote-branch.md;skills/start-issue/references/project-status.md',
     ))).toBe(false);
+  });
+
+  it('queues one follow-up plan turn per completed publication tool call', () => {
+    const extensionUrl = pathToFileURL(path.join(repoRoot, 'src', 'extension.ts')).href;
+    const helper = JSON.stringify(path.join(repoRoot, 'scripts', 'publish-approved-spec.mjs'));
+    const fixture = `
+      const { default: installExtension } = await import(${JSON.stringify(extensionUrl)});
+      const handlers = new Map();
+      const messages = [];
+      const pi = {
+        appendEntry() {},
+        getActiveTools() { return []; },
+        on(name, handler) {
+          const registered = handlers.get(name) ?? [];
+          registered.push(handler);
+          handlers.set(name, registered);
+        },
+        registerCommand() {},
+        sendUserMessage(content, options) { messages.push({ content, options }); },
+        setActiveTools: async () => {},
+        setLabel() {},
+      };
+      installExtension(pi);
+      const publish = {
+        type: 'tool_result',
+        toolName: 'bash',
+        toolCallId: 'publish-400',
+        input: {
+          command: ${JSON.stringify(`node ${helper} merge --issue 400 --dir specs/400-restore-per-spec-plan-approval-and-ci-gated-merge-waiting`)},
+        },
+        content: [{ type: 'text', text: '{"ok":true,"merged":true,"pr":401}' }],
+        isError: false,
+      };
+      const toolResult = handlers.get('tool_result')[0];
+      toolResult(publish);
+      toolResult(publish);
+      toolResult({
+        ...publish,
+        toolCallId: 'publish-400-failed',
+        content: [{ type: 'text', text: '{"ok":false,"reasonCode":"pr_merge_failed"}' }],
+        isError: true,
+      });
+      process.stdout.write(JSON.stringify(messages));
+    `;
+    const exercised = spawnSync(process.execPath, ['--input-type=module', '--eval', fixture], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env: { ...process.env, NMG_SDLC_REVIEW_SLICE: '' },
+    });
+    expect(exercised.status).toBe(0);
+    const messages = JSON.parse(exercised.stdout);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].content.startsWith('/plan\n\n')).toBe(true);
+    expect(messages[0].options).toEqual({ deliverAs: 'followUp' });
   });
 });

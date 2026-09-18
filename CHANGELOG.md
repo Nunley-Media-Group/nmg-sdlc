@@ -12,6 +12,8 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ### Fixed
 
+- Require a distinct native-plan proposal for every write-spec continuation issue, queueing one same-session follow-up only after authoritative merged publication and post-merge remediation (#400).
+- Keep missing, registering, pending, and CI-attributable `BLOCKED` check evidence in exact-head 30-second delivery observation until terminal success, while preserving explicit failure and non-CI blocker handling (#400).
 - Automatically resume a proven absent remediable worker once when its exact branch/HEAD checkpoint has no valid terminal handoff, consuming a durable run/issue/stage record before redispatch and falling back to one bounded intervention only after safe progress is unavailable or consumed (#374 regression).
 - Split mixed `Incomplete` verification by exact-head canonical results: required failed built-in commands consume one durable recovery and rewind through implement/reviews/verify, while incomplete-only, external-provider, stale, unsafe, or consumed evidence remains intervention (#354 regression).
 
