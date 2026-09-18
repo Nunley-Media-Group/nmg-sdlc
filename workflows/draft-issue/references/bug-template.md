@@ -1,77 +1,73 @@
 # Bug Report Issue Body Template
 
-**Consumed by**: `draft-issue` Step 6.
+**Consumed by**: `draft-issue` synthesis.
 **Triggering condition**: `classification === 'bug'`.
 
-Use this template as the body of the drafted GitHub issue when the current iteration classifies as a Bug. Fill each placeholder from the confirmed `understanding` block produced by Step 5c and the `investigation.summary` (root-cause hypothesis) from Step 4.
+Use this template as the drafted GitHub issue body. Fill it only with software behavior, reproduction evidence, repository-grounded diagnosis, and technical constraints retained by the rendered `/sdlc-execute` eligibility contract. Omit provenance attestations and externally owned obligations.
 
 ## Template
 
 ```markdown
 ## Bug Report
 
-[1-2 sentence summary of the bug]
+[Concise description of the incorrect observable software behavior.]
 
 ## Root Cause Analysis
 
-[Hypothesis from Step 4 investigation — affected code paths, the incorrect
-assumption or logic, and triggering conditions. If investigation was
-inconclusive, state what is known and what needs further investigation.]
-
-**User Confirmed**: Yes / Partially / Investigation inconclusive
+[Repository-grounded hypothesis: affected code paths, incorrect assumption or logic, and triggering conditions. If investigation is inconclusive, state only the known software evidence and the bounded implementation investigation required.]
 
 ## Reproduction Steps
 
-1. [First step]
-2. [Second step]
-3. [Step that triggers the bug]
+1. [Software setup or precondition]
+2. [Action]
+3. [Action that triggers the defect]
 
 ## Expected Behavior
 
-[What should happen]
+[Observable correct behavior.]
 
 ## Actual Behavior
 
-[What actually happens]
+[Observable incorrect behavior.]
 
 ## Environment
 
 | Factor | Value |
 |--------|-------|
-| **OS / Platform** | [e.g., macOS 15.2, Ubuntu 24.04] |
-| **Version / Commit** | [app version or commit SHA] |
-| **Browser / Runtime** | [if applicable] |
+| **OS / Platform** | [only when it affects reproduction] |
+| **Version / Commit** | [relevant software version or commit] |
+| **Browser / Runtime** | [only when it affects reproduction] |
 
 ## Acceptance Criteria
 
 ### AC1: Bug Is Fixed
 
-**Given** [the reproduction precondition]
-**When** [the action that previously triggered the bug]
-**Then** [the correct expected behavior]
+**Given** [reproduction precondition]
+**When** [action that previously triggered the bug]
+**Then** [observable correct behavior]
 
-### AC2: No Regression
+### AC2: Related Behavior Is Preserved
 
-**Given** [a related scenario that currently works]
-**When** [a related action]
-**Then** [existing behavior is preserved]
+**Given** [related software scenario]
+**When** [related action]
+**Then** [observable existing behavior]
 
 ## Functional Requirements
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR1 | [The fix] | Must |
+| FR1 | [executable corrective behavior] | Must |
 
 ## Out of Scope
 
-- [Related improvements not part of this fix]
+- [Adjacent software improvement intentionally excluded from this fix]
 ```
 
-## Authoring Guidance (v3)
+## Authoring Guidance
 
-- Title starts with verb for the fix.
-- Root cause from investigation.
-- ACs are the minimal fix + no regression.
-- Out of Scope lists tempting adjacent work for separate issues.
-
-For multi-issue plans, keep the body dependency-free. The caller records exact official blocked-by edges in each plan entry's `blockedBy` array.
+- Start the title with a verb describing the fix.
+- Include only root-cause and environment details relevant to implementation or reproducibility.
+- Keep acceptance criteria to observable fix and regression behavior.
+- Out of Scope may name only adjacent software behavior.
+- Do not include a user-confirmation attestation, arbitrary links, policy context, ownership proof, sign-off, live operations, or delivery/control-plane work.
+- For multi-issue plans, keep bodies dependency-free and record approved official blocked-by edges only in the plan entry's `blockedBy` array.

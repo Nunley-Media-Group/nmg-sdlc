@@ -64,6 +64,7 @@ describe('prompt snippet registry', () => {
     expect(fragments.map(({ id }) => id)).toEqual([
       'plugin.workflow.draft-issue',
       'plugin.workflow.write-spec',
+      'plugin.reference.execute-implementable-requirements',
       'plugin.workflow.onboard-project',
       'plugin.workflow.upgrade-project',
       'plugin.workflow.steering',
@@ -81,15 +82,52 @@ describe('prompt snippet registry', () => {
       'plugin.worker.header',
     ]);
     expect(fragments.filter(({ source }) => !source.startsWith('builtin:'))
-      .every(({ source }) => source.startsWith('workflows/'))).toBe(true);
-    expect(defaultPromptRegistry(repoRoot).byId.size).toBe(17);
+      .every(({ source }) => source.startsWith('workflows/')
+        || source === 'references/execute-implementable-requirements.md')).toBe(true);
+    expect(defaultPromptRegistry(repoRoot).byId.size).toBe(18);
     expect(fragments.every((fragment) => !Object.hasOwn(fragment, 'byteBound'))).toBe(true);
   });
 
-  it('renders existing workflow text and the exact worker header', () => {
+  it('renders the shared execute contract after both workflow bodies with provenance', () => {
     const registry = defaultPromptRegistry(repoRoot);
-    expect(renderPrompt(registry, { consumer: 'sdlc-write-spec' }).text)
-      .toBe(workflowBody('write-spec', repoRoot));
+    const executeContract = fs.readFileSync(
+      path.join(repoRoot, 'references/execute-implementable-requirements.md'),
+      'utf8',
+    );
+    for (const [consumer, workflow] of [
+      ['sdlc-draft-issue', 'draft-issue'],
+      ['sdlc-write-spec', 'write-spec'],
+    ]) {
+      const rendered = renderPrompt(registry, { consumer });
+      expect(rendered.text).toBe(`${workflowBody(workflow, repoRoot)}\n${executeContract}`);
+      expect(rendered.provenance.fragments.map(({ id, source, order }) => ({
+        id,
+        source,
+        order,
+      }))).toEqual([
+        {
+          id: `plugin.workflow.${workflow}`,
+          source: `workflows/${workflow}/WORKFLOW.md`,
+          order: 100,
+        },
+        {
+          id: 'plugin.reference.execute-implementable-requirements',
+          source: 'references/execute-implementable-requirements.md',
+          order: 150,
+        },
+      ]);
+      expect(rendered.provenance.fragments[1].byteCount)
+        .toBe(Buffer.byteLength(executeContract));
+    }
+
+    const consumers = pluginPromptFragments()
+      .find(({ id }) => id === 'plugin.reference.execute-implementable-requirements')
+      .consumers;
+    expect(consumers).toEqual(['sdlc-draft-issue', 'sdlc-write-spec']);
+  });
+
+  it('renders the exact worker header', () => {
+    const registry = defaultPromptRegistry(repoRoot);
     const rendered = renderPrompt(registry, {
       consumer: 'worker:start',
       vars: {
@@ -238,6 +276,45 @@ describe('prompt snippet registry', () => {
       expect(fragment.hash).toMatch(/^sha256:[a-f0-9]{64}$/);
       expect(fragment.byteCount).toBeGreaterThan(0);
     }
+  });
+
+  it('loads only regular files contained by workflows or the root references subtree', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-snippet-roots-'));
+    const workflows = path.join(tempRoot, 'workflows');
+    const references = path.join(tempRoot, 'references');
+    const outside = path.join(tempRoot, 'outside.md');
+    fs.mkdirSync(workflows);
+    fs.mkdirSync(references);
+    fs.writeFileSync(outside, 'outside');
+    fs.writeFileSync(path.join(references, 'allowed.md'), 'reference bytes');
+
+    const registry = createPromptSnippetRegistry();
+    registerPromptSnippet(
+      registry,
+      fileBacked({ id: 'allowed-reference', source: 'references/allowed.md' }),
+      tempRoot,
+    );
+    expect(renderPrompt(registry, { consumer: 'sdlc-write-spec' }).text)
+      .toBe('reference bytes');
+
+    expectReason('path_outside_root', () => registerPromptSnippet(
+      createPromptSnippetRegistry(),
+      fileBacked({ id: 'absolute', source: outside }),
+      tempRoot,
+    ));
+    expectReason('missing_source', () => registerPromptSnippet(
+      createPromptSnippetRegistry(),
+      fileBacked({ id: 'directory', source: 'references' }),
+      tempRoot,
+    ));
+
+    const escape = path.join(references, 'escape.md');
+    fs.symlinkSync(outside, escape);
+    expectReason('path_outside_root', () => registerPromptSnippet(
+      createPromptSnippetRegistry(),
+      fileBacked({ id: 'symlink-escape', source: 'references/escape.md' }),
+      tempRoot,
+    ));
   });
 
   it('fails closed with every named registration and render reason code', () => {

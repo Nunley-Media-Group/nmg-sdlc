@@ -5,7 +5,7 @@ description: "Create BDD specifications for open GitHub issues. Use when /sdlc-w
 
 # Write Spec
 
-Read `../../references/codex-tooling.md` for OMP tool mapping (read/grep/glob/ask/write to local/xd).
+Read `../../references/codex-tooling.md` when mapping the workflow's read, grep, glob, ask, write, local-file, and proposal operations to current OMP tools.
 
 Read `references/publish.md` when executing Approval Behavior or the continue loop.
 
@@ -58,80 +58,66 @@ Discovery only returns this result. It never stops or chooses whether to revise 
 
 For the initially selected issue, regardless of whether N came from `$ARGUMENTS`, a listed picker choice, or automatic Other:
 
-- If `spec.approved` and `issue.state` is closed: do not rewrite. Print: "Spec already approved for closed issue #N. Open a new issue for follow-up work." Stop.
-- Otherwise continue to Interview. When `spec.dir` identifies an open or undelivered existing package, revise `targetDir` in place and later append the revision to Change History. Never write into a directory whose leading number differs from N.
+- If `spec.approved` and `issue.state` is closed, do not rewrite. Print `Spec already approved for closed issue #N. Open a new issue for follow-up work.` and stop.
+- Otherwise extract the eligible slice from the issue body, repository evidence, and steering before Interview. Apply the rendered `/sdlc-execute` eligibility algorithm to every candidate statement. Strip legal, policy, ownership-proof, attestation, sign-off, live-operation, and other externally owned obligations rather than relocating them.
+- Steering may resolve actual paths, interfaces, validation identities, and project conventions. Never copy its process, release, ownership, or verification-policy prose into generated files, and never treat steering as authority to exceed execute boundaries.
+- If no eligible software behavior remains, print exactly `Issue #N has no software requirements executable by /sdlc-execute after excluding non-software obligations.` and stop before writing a plan, calling `xd://propose`, preparing a branch, writing files, committing, publishing, labeling, or merging.
+- When `spec.dir` identifies an open or undelivered existing package, revise `targetDir` in place and later append the revision to Change History. Never write into a directory whose leading number differs from N.
 
 ## Interview (max 3 asks per issue)
 
-Use ask (rec first) only for prefs if any (e.g. confirm slug on conflict, or scope notes). Typically 0 asks for simple #N; at most 3.
+Use `ask` with the recommended option first only to resolve material product behavior or required preferences, such as a slug collision or an observable scope choice. Typically use zero asks for a simple issue and never exceed three.
 
-Each interview or preference question includes a short paragraph stating the situation and the facts needed to choose among the shown options. The continue/finish ask stays canned and is not required to add a situation paragraph.
+Each question includes a short paragraph stating the situation and facts needed to choose among the options. Ask only about software behavior `/sdlc-execute` can implement and verify. Never ask for legal interpretation, proof of authority or ownership, external sign-off or attestation, credentials, live operations, or facts available from repository tools.
 
-The continue-loop ask does not consume this budget. Each later issue gets a fresh 3-ask interview budget.
+Use the budget to resolve every material product decision and acceptance oracle. If any remain afterward, print exactly `Issue #N has unresolved decisions required for /sdlc-execute: <comma-separated decisions>.` and stop before plan creation, proposal, or mutation. Never emit Open Questions into the package.
 
-No review gates (deleted 3 gates, epic role, umbrella).
+The continue/finish ask is canned, does not consume this budget, and each later issue receives a fresh three-ask budget. There are no review gates, epic roles, or umbrella packages.
 
 ## Feature / Bug package
 
-Plan Approach section includes the **full text** of:
-
-- requirements.md (use singular **Issue**: #N , Status: Draft, appropriate heading # Requirements: or # Defect Report: with **Related Spec** if bug)
-
-- design.md
-
-- tasks.md
-
-- feature.gherkin
-
-Every written file, including `feature.gherkin` and defect variants, must carry:
-
-```
-**Issue**: #N
-**Date**: YYYY-MM-DD
-**Status**: Draft
-**Author**: ...
-```
-
-Approval rewrites **Status** to Approved on all four files. Defect `tasks.md` and defect Gherkin use Draft | Approved only — never Planning / In Progress / Complete / In Review.
-
-`**File(s)**:` is optional planning metadata. When present, it must use the shared canonical grammar: repository-relative paths enclosed in backticks, with multiple entries separated by commas or semicolons. Bounded directory and glob entries are allowed. Optional parenthetical notes may follow an entry; use `(delivery-owner only)` only when that entry belongs exclusively to delivery. Never substitute a near-miss label such as `**Files**:`, add a second declaration, prefix entries with prose such as `Create`, join alternatives with `or`, or use placeholders such as `[varies]`. `parseDeliveryTaskFileLines` from `scripts/sdlc-safe-recoveries.mjs` may validate and canonicalize declarations that are present, but task executability and implement/fix mutation authority never require File(s). Acceptance criteria define the required outcome.
-
-Read these packaged templates at runtime, then fill them from the issue body, steering, and investigation (read `steering/*`; glob source for patterns):
+Read these packaged templates at runtime, then fill them only from the retained or rewritten eligible slice, repository evidence, and implementation-relevant steering:
 
 - `workflows/write-spec/templates/requirements.md`
 - `workflows/write-spec/templates/design.md`
 - `workflows/write-spec/templates/tasks.md`
 - `workflows/write-spec/templates/feature.gherkin`
 
+The plan Approach includes the complete planned contents of `requirements.md`, `design.md`, `tasks.md`, and `feature.gherkin`. Requirements use singular `**Issue**: #N`, `**Status**: Draft`, and the appropriate `# Requirements:` or `# Defect Report:` heading with `**Related Spec**` when applicable.
+
+Every file, including `feature.gherkin` and defect variants, carries:
+
+```text
+**Issue**: #N
+**Date**: YYYY-MM-DD
+**Status**: Draft
+**Author**: ...
+```
+
+Approval rewrites `**Status**` to `Approved` on all four files. Defect `tasks.md` and defect Gherkin use only `Draft | Approved`, never Planning, In Progress, Complete, or In Review.
+
+`**File(s)**:` is optional planning metadata. When present, use the shared canonical grammar: repository-relative paths enclosed in backticks, with multiple entries separated by commas or semicolons. Bounded directory and glob entries are allowed. Optional parenthetical notes may follow an entry; use `(delivery-owner only)` only for an exclusively delivery-owned entry. Never use `**Files**:`, duplicate the declaration, prefix entries with operation prose, join alternatives with `or`, or use placeholders. `parseDeliveryTaskFileLines` may validate declarations, but Acceptance—not `File(s)`—defines task executability and implement/fix mutation authority.
+
+Requirements contain functional context, observable GWT criteria, Functional Requirements, and adjacent-software Out of Scope only. Design contains only details needed to implement retained behavior. Tasks contain only current-issue repository implementation and AC-linked test work. Gherkin contains only AC-linked observable scenarios. Excluded burdens are absent from every file and are never moved into context, design, tasks, comments, Gherkin, Out of Scope, or Open Questions.
+
 ## Plan File
 
-Slug: spec-{N}
+Use slug `spec-{N}` and write `local://spec-{N}-plan.md` only after synthesis and the complete feasibility audit pass.
 
-For every selected issue, write:
+The plan contains:
 
-local://spec-{N}-plan.md
+- issue N, slug, title, `classification: feature|bug`, and `targetDir`;
+- the current complete `published[]` list;
+- the full planned contents of all four files;
+- singular Issue and Approved-on-approval frontmatter rules;
+- helper commands and existing publication rules; and
+- an `Execute Feasibility` table with exact columns `Item`, `Behavior or task`, `Owning stage`, `Mutation/artifact`, `Evidence kind and identity`, `External prerequisite`, and `Disposition`.
 
-Content includes:
+Cover every proposed AC, FR, task, and scenario in that table. Use only `retain`, `rewrite`, `omit`, or `control-plane`. Every retained row names an execute-owned realization and proof stage, permitted repository mutation or narrow artifact, accepted evidence identity, and a resolved prerequisite. Use exact paths when known; otherwise the only permitted write-spec placeholder is `outcome-authorized repository mutation; concrete path derived from Acceptance`, and only when no denied or read-only path is required. Evidence must name an AC-linked local test task/command, exact manifest validation/provider id, exact allowlisted PR-check identity, or terminal control proof. `External prerequisite` is exactly `none`, `available:<identity>`, or `unresolved:<description>`; retained rows permit only `none` or repository-proven `available:` values.
 
-- issue: N
+Before writing the plan or calling `xd://propose`, audit the complete planned contents of `requirements.md`, `design.md`, `tasks.md`, and `feature.gherkin`. Reject retained rows with blank or unresolved ownership, mutation authority, proof, or prerequisite. Only retained or rewritten content enters the files. The feasibility table, omitted rows, and control-plane rows remain plan-only. No material product choice is deferred to execute.
 
-- slug
-
-- title
-
-- classification: feature|bug
-
-- targetDir
-
-- the current complete `published[]` list
-
-- the full file contents to write on approval
-
-- frontmatter rules: singular **Issue**, Status Approved on approval
-
-- helper commands and publication rules (prepare, write Approved package, commit-push, merge spec PR into the default branch, record N, complete any documented remediation, then settle so the queued native-plan turn owns Continue/Finished)
-
-Every selected issue uses its own `xd://propose`. Discovery and Interview are read-only; do not run `default-branch`, `prepare`, write files, commit, push, create or merge a pull request, or apply labels for N before that issue's proposal is approved.
+Every selected issue uses its own `xd://propose`. Discovery and Interview are read-only. Do not run `default-branch` or `prepare`; write files; commit; push; create or merge a pull request; or apply labels for N before that issue's proposal is approved.
 
 ## Approval Behavior (in plan execution after xd propose)
 

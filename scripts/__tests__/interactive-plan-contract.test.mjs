@@ -55,20 +55,20 @@ describe('interactive plan contract (SCN003, SCN008, SCN012)', () => {
     expect(draftIssueContract).not.toMatch(
       /3 total across whole run|total asks?\s*<=?\s*3|max total questions budget across skill|remaining ask slots?|remaining slots|if slots allow|saves budget|synthesize directly from/i,
     );
-    expect(interviewDepth).toContain('Never skip a necessary probe');
-    expect(workflow).toContain('ONE ask to confirm split');
-    expect(workflow).toContain('Classification ask (exactly these 2 options');
+    expect(interviewDepth).toContain('Never skip a necessary eligible probe');
+    expect(workflow).toContain('one `ask` to confirm split');
+    expect(workflow).toContain('classification with exactly these two options');
     expect(workflow).toContain('Enhancement — New capability or improvement');
     expect(workflow).toContain('Bug — Something is broken');
-    expect(workflow).toContain('if root VERSION parses as semver X.Y.Z');
-    expect(workflow).toContain('Investigate (use glob/grep/read');
-    expect(workflow).toContain('Do NOT use ask for final approval or review of draft');
+    expect(workflow).toContain('If root `VERSION` parses as semver `X.Y.Z`');
+    expect(workflow).toContain('Investigate with `glob`, `grep`, and `read`');
+    expect(workflow).toContain('Do not use `ask` for final approval');
     expect(interviewDepth).toContain('Use `ask()` only for preferences and tradeoffs');
     expect(interviewDepth).toContain('Provide 2–4 options');
     expect(interviewDepth).toContain('Put the recommended option first');
     expect(interviewDepth).toContain('Include at most three questions');
     expect(interviewDepth).toContain(
-      'Continue with focused probes until every material undiscoverable preference, acceptance criterion, and scope boundary is gathered',
+      'Continue with focused probes until every material undiscoverable preference, observable acceptance criterion, and adjacent-software scope boundary is gathered',
     );
     expect(multiIssue).toContain('Only this one ask for the split decision');
   });
@@ -101,7 +101,7 @@ describe('interactive plan contract (SCN003, SCN008, SCN012)', () => {
     }
 
     expect(read('workflows/draft-issue/WORKFLOW.md')).toContain(
-      'question: "What type of issue is this?"',
+      'classification with exactly these two options',
     );
     expect(read('workflows/draft-issue/references/multi-issue.md')).toContain(
       'question: "Create separate issues for this split?"',
@@ -114,13 +114,13 @@ describe('interactive plan contract (SCN003, SCN008, SCN012)', () => {
     );
 
     expect(read('workflows/draft-issue/WORKFLOW.md')).toContain(
-      'Else use one ask for the need (free-form via Other if needed, but prefer short).',
+      'Otherwise use one `ask` for the need',
     );
     expect(read('workflows/draft-issue/WORKFLOW.md')).toContain(
-      '- `v${major} (current)`',
+      '`v${major} (current)`',
     );
     expect(read('workflows/draft-issue/WORKFLOW.md')).toContain(
-      '- `v${major+1} (next)`',
+      '`v${major+1} (next)`',
     );
     expect(read('references/interactive-gates.md')).toContain(
       'Required canned gates keep their existing question and option labels and are not required to add a situation paragraph: draft-issue classification, draft-issue milestone, draft-issue split confirmation, draft-issue need-gather when `$ARGUMENTS` is absent, and write-spec continue/finish.',
@@ -136,7 +136,7 @@ describe('interactive plan contract (SCN003, SCN008, SCN012)', () => {
     expect(source).toContain('/sdlc-write-spec');
     expect(source).toContain('Every selected issue uses its own `xd://propose`');
     expect(source).toContain('the current complete `published[]` list');
-    expect(source).toContain('the full file contents to write on approval');
+    expect(source).toContain('the full planned contents of all four files');
     expect(source).toContain('Do not call `candidates` or `ask` in this execution turn');
     expect(source).toContain('Do not call `default-branch` before M\'s proposal');
     expect(source).toContain('distinct `local://spec-{M}-plan.md`');
@@ -177,6 +177,81 @@ describe('interactive plan contract (SCN003, SCN008, SCN012)', () => {
     expect(source).not.toContain('gh issue list --state open');
     expect(source).not.toContain('refs/remotes/origin');
     expect(source).not.toContain('/skill:');
+  });
+
+  it('restricts both generated artifacts to execute-implementable software requirements', () => {
+    const draft = read('workflows/draft-issue/WORKFLOW.md');
+    const writeSpec = read('workflows/write-spec/WORKFLOW.md');
+    const execute = read('references/execute-implementable-requirements.md');
+    const issueTemplates = [
+      read('workflows/draft-issue/references/feature-template.md'),
+      read('workflows/draft-issue/references/bug-template.md'),
+    ].join('\n');
+    const requirements = read('workflows/write-spec/templates/requirements.md');
+    const design = read('workflows/write-spec/templates/design.md');
+    const tasks = read('workflows/write-spec/templates/tasks.md');
+    const feature = read('workflows/write-spec/templates/feature.gherkin');
+    const specTemplates = [requirements, design, tasks, feature].join('\n');
+    const consumers = `${draft}\n${writeSpec}`;
+
+    expect(execute).toContain(
+      'start → implement → review1 → fix1 → review2 → fix2 → verify → deliver',
+    );
+    expect(execute).toContain('`**File(s)**` is an optional hint');
+    expect(execute).toContain('Outcome mutation may touch any needed valid repository-relative');
+    expect(execute).toContain('four immutable current Approved spec inputs');
+    expect(execute).toContain('`.omp` run state, handoffs, locks, receipts, and recovery records are controller-owned evidence');
+    expect(execute).toContain('observable local, registered-provider, or allowlisted PR-only success oracle');
+    expect(execute).toContain('human approval');
+    expect(execute).toContain('credentials acquisition');
+    expect(execute).toContain('live production/cloud/vendor operations');
+    expect(execute).toContain('another repository');
+    expect(execute).toContain('GitHub Release or tag creation');
+    expect(execute).toContain('package/container publication');
+    expect(execute).toContain('Project-board In Progress is best effort and never acceptance evidence');
+    expect(execute).toContain('control-plane metadata, not Functional Requirements');
+    expect(execute).toMatch(/1\. Normalize[\s\S]*2\. Identify[\s\S]*3\. Require every mutation[\s\S]*4\. Require an observable[\s\S]*5\. Reject it[\s\S]*6\. Strip excluded/);
+
+    const columns = '`Item`, `Behavior or task`, `Owning stage`, `Mutation/artifact`, `Evidence kind and identity`, `External prerequisite`, and `Disposition`';
+    for (const source of [draft, writeSpec]) {
+      expect(source).toContain('Execute Feasibility');
+      expect(source).toContain(columns);
+    }
+    expect(execute).toContain('| Item | Behavior or task | Owning stage | Mutation/artifact | Evidence kind and identity | External prerequisite | Disposition |');
+    expect(draft).toContain('Cover every proposed AC and FR');
+    expect(writeSpec).toContain('Cover every proposed AC, FR, task, and scenario');
+    expect(execute).toContain('Reject a retained row with blank or unresolved ownership');
+    expect(consumers).toContain('never enter `body` or `ghCreateArgs.body`');
+    expect(consumers).toContain('The feasibility table, omitted rows, and control-plane rows remain plan-only');
+
+    expect(draft).toContain('Immediately apply the rendered `/sdlc-execute` eligibility algorithm before multi-issue detection');
+    expect(writeSpec).toContain('extract the eligible slice from the issue body, repository evidence, and steering before Interview');
+    expect(consumers).toContain('retained or rewritten');
+    expect(consumers).toContain('Excluded material must not be relocated');
+    expect(consumers).toContain('Excluded burdens are absent from every file');
+    expect(draft).toContain('audit every complete issue-body section and the exact `ghCreateArgs.body`');
+    expect(writeSpec).toContain('audit the complete planned contents of `requirements.md`, `design.md`, `tasks.md`, and `feature.gherkin`');
+
+    expect(draft).toContain(
+      'No software requirements executable by /sdlc-execute remain after excluding non-software obligations.',
+    );
+    expect(writeSpec).toContain(
+      'Issue #N has no software requirements executable by /sdlc-execute after excluding non-software obligations.',
+    );
+    expect(writeSpec).toContain(
+      'Issue #N has unresolved decisions required for /sdlc-execute: <comma-separated decisions>.',
+    );
+    expect(consumers).toMatch(/stop before (?:plan creation|writing a plan)/);
+
+    expect(issueTemplates).toContain('## Technical Notes');
+    expect(issueTemplates).not.toContain('**User Confirmed**');
+    expect(issueTemplates).toContain('Out of Scope may name only adjacent software behavior');
+    expect(design).not.toMatch(/^## (Security Considerations|Performance Considerations|Testing Strategy|Risks & Mitigations|Open Questions|Validation Checklist|Regression Risk)$/m);
+    expect(tasks).not.toMatch(/^## Phase \d|^## Validation Checklist|^## Dependency Graph/m);
+    expect(tasks).toContain('`**File(s)**:` is optional implementation guidance');
+    expect(specTemplates).not.toContain('## Open Questions');
+    expect(feature).toContain('one observable scenario per requirements acceptance criterion');
+    expect(requirements).toContain('functional software context');
   });
 
   it('automated skills do not invoke user-input tools', () => {

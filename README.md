@@ -129,6 +129,10 @@ The steering command stages and validates the candidate runtime before applying 
 
 The workflow investigates relevant code, gathers material preferences, and creates a bug or enhancement issue with Given/When/Then acceptance criteria and functional requirements after approval. Large requests can become several ordinary issues.
 
+Both draft and spec generation apply the same `/sdlc-execute` feasibility boundary. They retain only functional software behavior and implementation-relevant technical detail that execute can realize through permitted repository artifacts and prove with local evidence, an available manifest-registered provider, or an allowlisted exact-head PR check. Mixed requests keep the executable behavior and omit legal, policy, ownership-proof, attestation, sign-off, and live-operation burdens rather than moving them into Notes, Out of Scope, design, tasks, or Gherkin. If no executable behavior remains, generation stops before proposal or mutation.
+
+Within that boundary, execute can publish outcome-authorized source, tests, documentation, configuration, migrations, and testable infrastructure-as-code; consume registered or allowlisted evidence; synchronize declared version metadata; and complete exact-head PR merge plus issue closure. It cannot acquire authority, permissions, or credentials; satisfy human or legal approval; perform live deployment, production, cloud, vendor, or manual data operations; publish packages, releases, or tags; change another repository; or mutate the four Approved spec inputs. Lifecycle actions remain control-plane evidence, not generated Functional Requirements or implementation tasks.
+
 GitHub's **official blocked-by relation** is the sole sequencing authority. Body text such as `Depends on:`, labels, milestones, epics, and sub-issues are not substitutes. Execute does not guess through unreadable dependencies or open blockers.
 
 ### Write and publish its specification

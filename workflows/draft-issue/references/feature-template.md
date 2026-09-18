@@ -1,84 +1,67 @@
 # Feature / Enhancement Issue Body Template
 
-**Consumed by**: `draft-issue` Step 6.
+**Consumed by**: `draft-issue` synthesis.
 **Triggering condition**: `classification === 'feature'`.
 
-Use this template as the body of the drafted GitHub issue when the current iteration classifies as a Feature or Enhancement. Fill each placeholder from the confirmed `understanding` block produced by Step 5c and the `investigation.summary` from Step 4.
-
-## Template Structure vs. Bug Template
-
-| Section | Feature Template | (Bug Report Template) |
-|---------|------------------|----------------------|
-| Opening | User Story (As a / I want / So that) | Bug Report (1–2 sentence summary) |
-| Context | Background + Current State | Root Cause Analysis + User Confirmed flag |
-| Reproduction | N/A | Reproduction Steps + Environment table |
-| Expected vs Actual | N/A | Expected Behavior / Actual Behavior |
-| AC count guidance | 3+ (happy path, alternative, error) | 2 (Bug Is Fixed + No Regression) |
-| FR priority | MoSCoW (Must/Should/Could) | Typically Must only |
-| Out of Scope | Scope boundaries for the feature | Related improvements not part of this fix |
+Use this template as the drafted GitHub issue body. Fill it only with functional software behavior and implementation-relevant technical constraints retained by the rendered `/sdlc-execute` eligibility contract. Omit excluded motivation, proof, sign-off, operations, and policy context from every section.
 
 ## Template
 
 ```markdown
 ## User Story
 
-**As a** [specific user type/persona]
-**I want** [action or capability]
-**So that** [benefit or value]
+**As a** [specific software user or actor]
+**I want** [observable action or capability]
+**So that** [software outcome]
 
 ## Background
 
-[1-2 paragraphs: why this is needed, what problem it solves, any relevant context]
+[Concise functional problem and user-visible context required to understand the behavior.]
 
 ## Current State
 
-[Summary from Step 4 investigation — what exists today, relevant code patterns,
-existing specs, and how the current implementation works. If no relevant code
-was found, state that this is a greenfield addition.]
+[Repository-grounded description of existing behavior, relevant code patterns, and the observable gap. If no relevant implementation exists, state that this is a greenfield software addition.]
 
 ## Acceptance Criteria
 
-Each criterion uses Given/When/Then format. These become Gherkin BDD test scenarios.
+### AC1: [Observable happy path]
 
-### AC1: [Scenario Name — Happy Path]
+**Given** [software precondition]
+**When** [user or system action]
+**Then** [observable outcome]
 
-**Given** [precondition]
+### AC2: [Observable boundary or alternative]
+
+**Given** [software precondition]
 **When** [action]
-**Then** [expected outcome]
+**Then** [observable outcome]
 
-### AC2: [Scenario Name — Alternative Path]
-
-**Given** [precondition]
-**When** [action]
-**Then** [expected outcome]
-
-### AC3: [Scenario Name — Error Handling]
+### AC3: [Observable error behavior]
 
 **Given** [error precondition]
-**When** [action that fails]
-**Then** [error handling behavior]
+**When** [failing action]
+**Then** [observable error handling]
 
 ## Functional Requirements
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR1 | [requirement] | Must |
-| FR2 | [requirement] | Should |
-| FR3 | [requirement] | Could |
+| FR1 | [executable software behavior] | Must |
 
 ## Out of Scope
 
-- [What this does NOT include]
-- [Boundaries to prevent scope creep]
+- [Adjacent software behavior intentionally excluded from this issue]
 
-## Notes
+## Technical Notes
 
-[Any additional context, links, references, or technical considerations]
+[Repository-specific interface, compatibility, data, performance, security, configuration, migration, or infrastructure-as-code constraints that affect retained software behavior and can be implemented and tested.]
 ```
 
-## Authoring Guidance (v3)
+## Authoring Guidance
 
-- Title: concise verb-first.
-- ACs in G/W/T become Gherkin.
-- Scope explicit to prevent creep.
-- For multi-issue plans, keep the body dependency-free and record exact official blocked-by edges in the plan entry's `blockedBy` array.
+- Keep the title concise and verb-first.
+- Map every AC to observable Given/When/Then behavior.
+- Keep Background, Current State, and Technical Notes implementation-relevant.
+- Out of Scope may name only adjacent software behavior.
+- Do not include arbitrary links, legal or policy rationale, ownership or authority proof, external approval or attestation, live operations, or delivery/control-plane work.
+- For multi-issue plans, keep bodies dependency-free and record approved official blocked-by edges only in the plan entry's `blockedBy` array.

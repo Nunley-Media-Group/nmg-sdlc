@@ -1,31 +1,38 @@
-# Add audit-ready deployment summaries
+# Add account CSV export
 
 ## User Story
 
-**As a** release maintainer
-**I want** deployment summaries to include issue, spec, and verification evidence
-**So that** reviewers can confirm release readiness without searching across tools.
+**As a** workspace owner
+**I want** to export authorized account records as CSV
+**So that** I can analyze stored account data with standard tools.
 
 ## Acceptance Criteria
 
-### AC1: Summary Links Issue Evidence
+### AC1: Export Authorized Records
 
-**Given** a deployment summary is generated
-**When** the related issue exists
-**Then** the summary includes the issue number, title, and URL.
+**Given** stored authorization data permits the workspace owner to export account records
+**When** the owner requests a CSV export
+**Then** the response contains one escaped CSV row per authorized account and emits an audit-log record.
 
-### AC2: Summary Links Spec Evidence
+### AC2: Deny Unauthorized Export
 
-**Given** a deployment summary is generated
-**When** a spec package exists for the issue
-**Then** the summary links requirements, design, tasks, and Gherkin files.
+**Given** the stored ownerId does not match the requesting account
+**When** the requester asks for a CSV export
+**Then** the service returns 403 without exposing account rows.
 
-### AC3: Summary Links Verification Evidence
+### AC3: Bound Export Latency
 
-**Given** a deployment summary is generated
-**When** verification has completed
-**Then** the summary includes the verification report path and pass/fail status.
+**Given** the repository benchmark contains 10,000 account records
+**When** the CSV export benchmark runs
+**Then** p95 generation latency remains below 200 ms.
+
+## Functional Requirements
+
+| ID | Requirement | Priority |
+|----|-------------|----------|
+| FR1 | Generate standards-compliant CSV for authorized stored account records. | Must |
+| FR2 | Emit an audit-log record for each completed export. | Must |
 
 ## Out of Scope
 
-- Creating or mutating deployment infrastructure.
+- Adding PDF export behavior.
