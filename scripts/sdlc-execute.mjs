@@ -38,6 +38,7 @@ import {
   consumeSafeRecovery,
   inspectPublicationScope,
   getSafeRecoveryRecord,
+  hasSafeRecoveryRecord,
   probePublicationScope,
   publicationPathDenied,
   resolveRecoveryOwner,
@@ -4289,6 +4290,7 @@ export function runExecute({
       }
       const issue = runState.currentIssue;
       const step = runState.currentStep;
+      const agentName = `s${issue}-${step}`;
       const checkpointHead = runState.head;
       if (repairedRecoveryClass === EXCLUSIVE_IMPLEMENT_RESUME) {
         const proof = inspectExclusiveImplementResume({
@@ -4394,7 +4396,6 @@ export function runExecute({
         : allocateStandardPane(step);
       if (!allocatedPaneId) throw new Error('pane_split_failed');
       proof = proveRecovery();
-      const agentName = `s${issue}-${step}`;
       const archive = resumingConsumedDispatch
         ? proof.archive
         : {
@@ -4507,7 +4508,9 @@ export function runExecute({
       persistRunStateWithHeadCas(runState, cwd, checkpointHead);
       pauseAtTestCrashBoundary(env, cwd, 'pending');
       recoveryDispatch = `${issue}:${step}`;
-      preparedRecoveryPane = { issue, step, paneId: allocatedPaneId, agentName };
+      preparedRecoveryPane = allocatedPaneId
+        ? { issue, step, paneId: allocatedPaneId, agentName }
+        : null;
     } catch (error) {
       let reasonCode = error?.reasonCode || error?.message || 'repaired_intervention_unproven';
       if (allocatedPaneId && !preparedRecoveryPane
@@ -5899,7 +5902,7 @@ export function runExecute({
           issue,
           step,
           ignoredHandoffBytes,
-          start: consumedRecoveryWorker
+          start: recoveryDispatch === `${issue}:${step}`
             ? null
             : () => herdrApi.agentStart({ name: agentName, paneId, kind: 'omp' }),
         });

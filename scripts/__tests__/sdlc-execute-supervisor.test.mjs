@@ -308,12 +308,6 @@ if(a[0]==='pane'&&a[1]==='close'){fs.appendFileSync(${JSON.stringify(closedPath)
 if(a[0]==='agent'&&a[1]==='start'){fs.appendFileSync(${JSON.stringify(startsPath)},JSON.stringify(a.slice(2))+'\\n');out('')}
 if(a[0]==='notification')out('');
 throw Error('unexpected herdr '+a.slice(0,2).join(' '));`);
-  const approvedImplementation = fs.readFileSync(implementationPath, 'utf8');
-  fs.writeFileSync(
-    path.join(spec, 'tasks.md'),
-    '**Issue**: #42\n**Status**: Approved\n\n### T001: Repair implementation\n\n**File(s)**: `src/code.mjs` (Modify)\n',
-  );
-  fs.appendFileSync(implementationPath, 'implementation change\n');
   const bind = spawnSync(process.execPath, [
     SAFE_RECOVERIES,
     'bind',
@@ -329,6 +323,12 @@ throw Error('unexpected herdr '+a.slice(0,2).join(' '));`);
     'hard-loss-fixture',
   ], { cwd: root, encoding: 'utf8' });
   if (bind.status !== 0) throw new Error(`safe recovery bind failed: ${bind.stderr}`);
+  const approvedImplementation = fs.readFileSync(implementationPath, 'utf8');
+  fs.writeFileSync(
+    path.join(spec, 'tasks.md'),
+    '**Issue**: #42\n**Status**: Approved\n\n### T001: Repair implementation\n\n**File(s)**: `src/code.mjs` (Modify)\n',
+  );
+  fs.appendFileSync(implementationPath, 'implementation change\n');
   fs.writeFileSync(implementationPath, approvedImplementation);
   fs.writeFileSync(
     path.join(spec, 'tasks.md'),
