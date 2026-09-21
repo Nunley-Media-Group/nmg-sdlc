@@ -3740,6 +3740,11 @@ describe('runExecute controller', () => {
     expect(workflow).toContain('A `loop-recovery-available` result immediately invokes one bare `run`');
     expect(selection).toContain('execute the parent workflow\'s **Blocked recovery intervention** exactly once');
     expect(selection).not.toContain('reports `blocked`, print its evidence and action, then stop');
+    expect(workflow).toContain('When `$ARGUMENTS` explicitly includes `--recover-stale`');
+    expect(workflow).toContain('without a second `ask`');
+    expect(selection).toContain('When `$ARGUMENTS` includes `--recover-stale`');
+    expect(selection).toContain('rediscover exactly once');
+
   });
 
 

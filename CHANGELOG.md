@@ -10,6 +10,11 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Fixed
+
+- Let explicit `--recover-stale` authorize one bounded owning-stage intervention in a fresh Herdr session without weakening blocked-recovery evidence or granting another automatic recovery allowance.
+
+
 ## [3.24.9] - 2026-09-24
 
 ### Fixed
