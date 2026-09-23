@@ -1,0 +1,35 @@
+**Issue**: #413
+**Date**: 2026-09-23
+**Status**: Approved
+**Author**: NMG
+
+Feature: Recover external-only incomplete verification after prerequisite returns
+
+  @AC1 @AC2
+  Scenario: A single exact owner can recheck external evidence
+    Given an approved singular issue spec and unchanged registered verification identity
+    And a valid Incomplete report and complete exact-head artifact with only external required incomplete results
+    When the same verify owner begins recovery
+    Then one durable attempt is consumed before the registered gate runs
+    And a second invocation for that owner cannot rerun the gate
+
+  @AC1 @AC4
+  Scenario: Unsafe or changed evidence never receives a recovery attempt
+    Given an Incomplete report with stale head, changed spec or config, malformed coverage, unsafe artifact, or required failed result
+    When verification is reinvoked
+    Then no external recovery attempt is consumed
+    And normal publication-only finalization remains intervention-bearing
+
+  @AC3
+  Scenario: An available prerequisite produces fresh passing evidence
+    Given the exact candidate and an external prerequisite now available
+    When the registered gate reruns and all required applicable validations pass
+    Then verification regenerates and publishes an accurate report through normal finalization
+    And execute advances only after its passed handoff
+
+  @AC3 @AC4
+  Scenario: An unavailable prerequisite does not become a pass
+    Given the exact candidate and an external prerequisite still unavailable
+    When the one-use registered gate reruns and remains Incomplete
+    Then the historical report is preserved without forged publication or handoff
+    And execute remains blocked without an automatic retry

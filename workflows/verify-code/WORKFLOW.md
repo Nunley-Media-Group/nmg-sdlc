@@ -1,6 +1,6 @@
 ---
 name: verify-code
-description: "Verify approved specs inline, publish verification-report.md, and produce a controller-owned handoff. Pass or PR Evidence Pending advances to deliver. Fail, Partial, and safe locally unverifiable report evidence permit bounded rN-verify repair. Incomplete, missing approval, unsafe/missing reports, publication, and lease failures remain intervention. Use from automated /sdlc-execute."
+description: "Verify approved specs inline, publish verification-report.md, and produce a controller-owned handoff. Pass or PR Evidence Pending advances to deliver. Fail, Partial, and safe locally unverifiable report evidence permit bounded rN-verify repair. Incomplete-only (except eligible one-use external-only recheck), missing approval, unsafe/missing reports, publication, and lease failures remain intervention. Use from automated /sdlc-execute."
 ---
 
 # Verify Code
@@ -31,20 +31,29 @@ node "<plugin-root>/scripts/sdlc-safe-recoveries.mjs" bind --issue N --step veri
 
 Use the exact worker-header controller run id; omit it only for standalone work. Require `NMG_SDLC_PUBLICATION` with `passed:true`. Owner or scope failure is intervention and stops before work. The lease is only a mutex: fresh leases and sessions reuse the existing incomplete project/issue/branch/verify owner, and standalone verification never creates execute `run.json`.
 
-On a publication-only reinvoke with an existing report, run Finalize Verification first without rewriting report bytes, reposting its issue comment, or rerunning publication commands manually. The finalizer rechecks live scope, report readiness, current HEAD, and the bounded canonical `.omp/sdlc/verification/N.json`. An `Incomplete` report with an exact-head required `builtin.command` failure is mixed actionable evidence: the finalizer names local failed and external incomplete validation ids, writes a non-intervention failed handoff with `next: implement`, and preserves the report and artifact. Incomplete-only, external-provider failure, stale/malformed/unsafe artifact, or mismatched identity remains intervention. Do not alter non-pass evidence merely to change classification.
+When a report already exists, after binding the verify owner and before publication-only finalization, invoke the bounded recovery classifier once:
+
+```bash
+node "<plugin-root>/scripts/sdlc-recover-verification.mjs" --issue N --spec specs/N-SLUG [--controller-run-id R]
+```
+
+Use the exact worker-header controller run id, or omit it for standalone verification. Parse its JSON even on nonzero exit. Only `{recover:true}` authorizes this invocation to proceed to the deterministic steering gate below. The classifier consumes one `external_verification_recheck` under the existing incomplete verify owner before returning: the previous report must be valid Incomplete, the bounded canonical artifact must match issue, Approved singular spec, registered identity and HEAD with complete coverage, and all applicable required validations must be passed except at least one incomplete external provider. A failed result, local incomplete, stale identity, unsafe path, foreign owner, dirty non-report scope, or consumed attempt is never authorization.
+
+If the classifier does not authorize a recheck, run Finalize Verification once without changing report bytes or reposting its issue comment, then stop. `not_applicable` keeps ordinary publication-only recovery; invalid or stale evidence remains intervention under the finalizer. An Incomplete report with an exact-head required `builtin.command` failure remains mixed actionable evidence: the finalizer preserves the report and artifact, and writes the existing non-intervention `next: implement` handoff. Never alter evidence to change its classification.
+
+After `{recover:true}`, run the registered steering gate once for that exact issue/spec/HEAD and owner. Read its freshly written canonical artifact. If coverage is not complete or any applicable required validation is not passed, preserve the historical report and issue comment, run Finalize Verification once to record an intervention-bearing non-pass handoff, and stop. Do not rerun the gate or regenerate a report. Only complete, all-required-pass fresh evidence permits the normal reviews, accurate replacement report, issue comment, and controller finalization below; finalizer publication and execute advancement retain all existing gates.
 
 ## Deterministic Steering Gate
 
 Before prose review, run:
 
 ```bash
-node <plugin-root>/scripts/sdlc-verify-steering.mjs --project . --issue N --spec specs/N-SLUG --base main [--controller-run-id R]
+node "<plugin-root>/scripts/sdlc-verify-steering.mjs" --project . --issue N --spec specs/N-SLUG --base main [--controller-run-id R]
 ```
 
 When the worker header provides a non-empty controller run id, replace the bracketed option with `--controller-run-id R` using that exact value. Omit the option only for standalone verification.
 
 Read `.omp/sdlc/verification/N.json`. The same runner is mandatory for interactive and execute verification. Use its `coverage` summary to distinguish zero declarations from missing evidence: `declared: 0`, `recorded: 0`, and `complete: true` is a complete gate with no project-specific validations, while `complete: false` means declared results are missing, duplicated, or unknown and caps overall status at `Incomplete`. A required `failed` result caps status at `Fail`; required `incomplete`, runtime/provider/config errors, crashes, explicit cancellation, confirmed process loss, malformed output, stale identities, or applicable provider self-skips cap it at `Incomplete`. `Pass` and `PR Evidence Pending` are forbidden unless coverage is complete and every applicable required result passed. Never infer success from elapsed time.
-
 
 ## Run Reviews Inline
 
@@ -62,7 +71,7 @@ Read `.omp/sdlc/verification/N.json`. The same runner is mandatory for interacti
   Score 1-5, note findings. Average reported.
 
 - Test / BDD: run the test command from tech.md (or relevant subset). For plugin changes (detect via git diff on workflows/ and agents/):
-  Use updated exercise instructions (see exercise-testing.md): from disposable project run `node <plugin-root>/scripts/exercise-omp.mjs --cwd <project> -- /sdlc-NAME [args]` with this extension loaded by the harness. Do not use `omp --print --load`. Preserve the prior dry-run contract and use state-based termination without a wall-clock deadline. Record output vs ACs.
+  Use updated exercise instructions (see exercise-testing.md): from a disposable project run `node "<plugin-root>/scripts/exercise-omp.mjs" --cwd <project> -- /sdlc-NAME [args]` with this extension loaded by the harness. Do not use `omp --print --load`. Preserve the prior dry-run contract and use state-based termination without a wall-clock deadline. Record output vs ACs.
 
 - PR-only obligations: if present use the readiness rules from references (PR Evidence Pending allowed only when all local pass).
 
@@ -90,7 +99,7 @@ The controller owns report publication and the verify handoff. Never write hando
 Run:
 
 ```bash
-node <plugin-root>/scripts/sdlc-finalize-verification.mjs --issue N --spec specs/N-SLUG [--controller-run-id R]
+node "<plugin-root>/scripts/sdlc-finalize-verification.mjs" --issue N --spec specs/N-SLUG [--controller-run-id R]
 ```
 
 When the worker header provides a non-empty controller run id, replace the bracketed option with `--controller-run-id R` using that exact value. Omit the option only for standalone verification.
@@ -101,4 +110,4 @@ Print the controller's `NMG_SDLC_HANDOFF:` line unchanged and stop. A passed han
 
 For mixed `Incomplete` evidence, the finalizer trusts only exact-head canonical artifact results. At least one required applicable failed `builtin.command` result writes `status: failed`, `intervention: false`, `next: implement`, and includes the report plus artifact paths. Execute consumes one durable `actionable_verification_resume`, reruns this publication-only finalization, rewinds to standard implement authority, then reruns both reviews/fixes and verification. Required project-provider failures without explicit repairability and every `incomplete` result remain external evidence; once local failures are fixed, they stop for intervention rather than looping.
 
-`spec_not_approved`, `verification_publish_failed`, lease failure, missing/unsafe report or artifact, incomplete-only evidence, and external-only failure remain intervention. Never rewrite a controller handoff to change classification or bypass live scope, evidence, ownership, publication, or remediation bounds.
+`spec_not_approved`, `verification_publish_failed`, lease failure, missing/unsafe report or artifact, incomplete-only evidence, and non-recoverable external-only failure remain intervention. Never rewrite a controller handoff to change classification or bypass live scope, evidence, ownership, publication, or remediation bounds.

@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.24.4] - 2026-09-23
+
+### Fixed
+
+- Allow one owner-bound rerun of registered verification when exact-head required external evidence alone remains Incomplete after its prerequisite returns; preserve the report and intervention if fresh evidence still does not pass (#413).
+
 ## [3.24.3] - 2026-09-22
 
 ### Fixed
