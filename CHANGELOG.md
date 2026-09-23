@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.24.5] - 2026-09-23
+
+### Fixed
+
+- Reconcile exact-head spec PRs merged remotely even when GitHub CLI fails its local checkout; preserve worktrees and resume labeling without duplicate publication (#415).
+
 ## [3.24.4] - 2026-09-23
 
 ### Fixed

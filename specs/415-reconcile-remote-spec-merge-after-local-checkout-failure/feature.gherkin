@@ -1,0 +1,37 @@
+**Issue**: #415
+**Date**: 2026-09-23
+**Status**: Approved
+**Author**: NMG
+
+Feature: Reconcile an independently merged spec PR despite local CLI failure
+  Publication is determined by the exact remote PR, not GitHub CLI's local checkout result.
+
+  @SCN001 @regression
+  Scenario: Merge succeeds remotely but local CLI exits unsuccessfully
+    Given an approved spec-only PR passed exact-head readiness at head H on branch B targeting base D
+    And the merge CLI remotely merges that PR but exits nonzero during local checkout
+    When publication inspects the same PR and proves MERGED at H from B to D
+    Then the result includes merged true and that PR number
+    And no second merge is attempted
+
+  @SCN002 @regression
+  Scenario: A CLI failure without exact remote proof remains pre-merge
+    Given a merge CLI failure for an approved spec PR
+    But that PR is open, unreadable, or reports a different head or branch identity
+    When publication classifies the failure
+    Then the result does not claim merged true
+    And no spec-created label is applied
+
+  @SCN003 @regression
+  Scenario: Other worktree owns the default branch
+    Given the exact PR merged remotely while another worktree owns the default branch
+    When local checkout fails and publication reconciles
+    Then it reports default_checkout_failed with merged true and the PR number
+    And safe independent labeling completes without altering either worktree
+
+  @SCN004 @regression
+  Scenario: Repeated publication after a proven merge
+    Given the exact spec PR is already merged remotely
+    When publication is invoked again from the spec branch
+    Then it reports the same merged PR and resumes only incomplete bookkeeping
+    And no duplicate PR is created and no merge is reissued

@@ -26,7 +26,7 @@ If the trimmed value is empty:
 1. Before any usage gate or `ask`, run:
 
    ```text
-   node <plugin-root>/scripts/publish-approved-spec.mjs missing-spec-created
+   node "<plugin-root>/scripts/publish-approved-spec.mjs" missing-spec-created
    ```
 
 2. Require exit 0 and parse the complete JSON object. On non-zero or malformed output, print its `reasonCode` or helper failure output and stop without asking or inventing choices.
@@ -45,7 +45,7 @@ Keep an in-memory `published[]` list of issue numbers published in this session.
 Run:
 
 ```text
-node <plugin-root>/scripts/publish-approved-spec.mjs discover --issue N
+node "<plugin-root>/scripts/publish-approved-spec.mjs" discover --issue N
 ```
 
 Require exit 0 and parse the complete JSON object. Use `issue.number`, `title`, `body`, `labels`, and `state`; `classification`; `slug`; `targetDir`; and `spec.dir`, `approved`, and `source` directly. On non-zero or malformed output, print its `reasonCode` and stop. Do not reproduce slug, directory, branch, or approval resolution.
@@ -139,7 +139,7 @@ Initial write uses "Initial feature spec" or "Initial defect report"
 Does not consume interview budget. Invoke:
 
 ```text
-node <plugin-root>/scripts/publish-approved-spec.mjs candidates [--published N ...]
+node "<plugin-root>/scripts/publish-approved-spec.mjs" candidates [--published N ...]
 ```
 
 Include one `--published N` pair for every number in the in-memory `published[]` list. Require exit 0 and consume the complete `candidates` array. The helper owns GitHub listing, deduplication, numeric sorting, and shared approval filtering; do not repeat those rules.

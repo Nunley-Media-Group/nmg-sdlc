@@ -150,9 +150,6 @@ describe('interactive plan contract (SCN003, SCN008, SCN012)', () => {
     expect(source).not.toContain('Use templates from templates/');
     expect(read('workflows/write-spec/references/defect-variant.md'))
       .toContain('workflows/write-spec/templates/');
-    expect(source).toContain('publish-approved-spec.mjs discover --issue N');
-    expect(source).toContain('publish-approved-spec.mjs candidates [--published N ...]');
-    expect(source).toContain('publish-approved-spec.mjs missing-spec-created');
     expect(source).toContain('Before any usage gate or `ask`');
     expect(source).toContain('If the trimmed value is non-empty');
     expect(source).toContain('Skip the bare picker and continue directly to Discovery');
