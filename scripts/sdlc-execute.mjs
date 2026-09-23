@@ -2724,6 +2724,148 @@ export function cleanupCompletedRun(
   if (failed) throw new Error('completed_cleanup_failed');
 }
 
+// A failed delivery can be released only after independently proven terminal delivery.
+// Unlike completed cleanup, its failed handoff is forensic evidence.
+function reconcileDeliveredFailure(runData, checkpointBytes, root, run, herdr) {
+  const issue = runData?.issue;
+  const delivery = runData?.delivery;
+  if (!Buffer.isBuffer(checkpointBytes)
+    || !validRunIdentity(runData)
+    || runData.projectRoot !== realpathSync(root)
+    || !/^[a-z0-9-]{1,100}$/i.test(runData.runId)
+    || (runData.recoveryOwnerId != null && runData.recoveryOwnerId !== runData.runId)
+    || !/^[0-9a-f]{40}$/.test(runData.head)
+    || runData.currentIssue !== issue || runData.currentStep !== 'deliver'
+    || runData.failed?.issue !== issue || runData.failed?.step !== 'deliver'
+    || runData.failed?.reasonCode !== 'merge_failed'
+    || runData.remediation != null || runData.consumedDispatch != null
+    || Object.keys(runData.workers || {}).length !== 0
+    || !Array.isArray(runData.completed?.[String(issue)])
+    || !VALID_STEPS.slice(0, -1).every((step) => runData.completed[String(issue)].includes(step))
+    || runData.completed[String(issue)].includes('deliver')
+    || delivery?.issue !== issue || !Number.isSafeInteger(delivery.pullRequest)
+    || delivery.pullRequest <= 0 || !/^[0-9a-f]{40}$/.test(delivery.expectedHead)
+    || typeof delivery.branch !== 'string' || !delivery.branch.startsWith(`${issue}-`)
+    || !['expected', 'complete'].includes(delivery.status)
+    || !validPromptDeliveryStates(runData) || !validConsumedDispatchState(runData)) return false;
+
+  const rootPath = realpathSync(root);
+  const runtime = join(rootPath, RUN_DIR);
+  const handoffs = join(rootPath, HANDOFF_DIR);
+  const reviewsPath = join(runtime, 'reviews');
+  const verificationDir = join(runtime, 'verification');
+  const verificationPath = join(verificationDir, `${issue}.json`);
+  const handoffPath = join(handoffs, `${issue}-deliver.json`);
+  try {
+    assertSafeRuntimeDirectory(join(rootPath, '.omp'));
+    assertSafeRuntimeDirectory(runtime);
+    assertSafeRuntimeDirectory(handoffs);
+    assertSafeRuntimeDirectory(verificationDir);
+    const verificationStat = lstatSync(verificationPath);
+    if (!verificationStat.isFile() || verificationStat.isSymbolicLink()) return false;
+    const handoffStat = lstatSync(handoffPath);
+    if (!handoffStat.isFile() || handoffStat.isSymbolicLink()) return false;
+    const handoff = validateHandoff(handoffPath);
+    if (handoff.issue !== issue || handoff.step !== 'deliver'
+      || handoff.status !== 'failed' || handoff.reasonCode !== 'merge_failed') return false;
+
+    const workers = inspectRecoveryWorkers(runData, herdr);
+    if (workers.present.length || workers.absent.length) return false;
+    const defaultBranch = repositoryDefaultBranch(rootPath, run);
+    const branch = run('git', ['branch', '--show-current'], { cwd: rootPath });
+    const dirty = run('git', ['status', '--porcelain', '-z'], { cwd: rootPath });
+    if (!defaultBranch || !commandSucceeded(branch) || !commandSucceeded(dirty)
+      || String(branch.stdout || '').trim() !== defaultBranch || String(dirty.stdout || '') !== ''
+      || ![defaultBranch, delivery.branch].includes(runData.branch)
+      || !commandSucceeded(run('git', ['merge-base', '--is-ancestor', runData.head, 'HEAD'], { cwd: rootPath }))) return false;
+    const prResult = run('gh', ['pr', 'view', String(delivery.pullRequest), '--json',
+      'number,state,headRefOid,mergeCommit,baseRefName,headRefName,closingIssuesReferences'], { cwd: rootPath });
+    const issueResult = run('gh', ['issue', 'view', String(issue), '--json', 'number,state'], { cwd: rootPath });
+    if (!commandSucceeded(prResult) || !commandSucceeded(issueResult)) return false;
+    const pr = parseCommandOutput(prResult);
+    const remoteIssue = parseCommandOutput(issueResult);
+    const merge = pr?.mergeCommit?.oid;
+    if (pr?.number !== delivery.pullRequest || pr?.state !== 'MERGED'
+      || pr?.headRefOid !== delivery.expectedHead || pr?.headRefName !== delivery.branch
+      || pr?.baseRefName !== defaultBranch || remoteIssue?.number !== issue
+      || remoteIssue?.state !== 'CLOSED' || !/^[0-9a-f]{40}$/.test(merge)
+      || !Array.isArray(pr.closingIssuesReferences)
+      || !pr.closingIssuesReferences.some((entry) => entry?.number === issue)
+      || !commandSucceeded(run('git', ['merge-base', '--is-ancestor', merge, 'HEAD'], { cwd: rootPath }))) return false;
+
+    const runPath = join(runtime, 'run.json');
+    const archiveParent = join(runtime, 'archive');
+    const archiveRoot = join(archiveParent, 'delivered-failures');
+    for (const dir of [archiveParent, archiveRoot]) assertSafeRuntimeDirectory(dir);
+    const archive = join(archiveRoot, runData.runId);
+    const lockPath = `${runPath}.lock`;
+    let lock;
+    try {
+      lock = openSync(lockPath, 'wx');
+      const runStat = lstatSync(runPath);
+      if (!runStat.isFile() || runStat.isSymbolicLink()) return false;
+      if (!readFileSync(runPath).equals(checkpointBytes)) return false;
+      if (readControllerLease(rootPath)?.runId !== runData.runId) return false;
+      const currentBranch = run('git', ['branch', '--show-current'], { cwd: rootPath });
+      const currentDirty = run('git', ['status', '--porcelain', '-z'], { cwd: rootPath });
+      const checkout = run('git', ['rev-parse', 'HEAD'], { cwd: rootPath });
+      const checkoutHead = String(checkout.stdout || '').trim();
+      if (!commandSucceeded(currentBranch) || String(currentBranch.stdout || '').trim() !== defaultBranch
+        || !commandSucceeded(currentDirty) || String(currentDirty.stdout || '') !== ''
+        || !commandSucceeded(checkout) || !/^[0-9a-f]{40}$/.test(checkoutHead)
+        || !commandSucceeded(run('git', ['merge-base', '--is-ancestor', merge, checkoutHead], { cwd: rootPath }))
+        || !commandSucceeded(run('git', ['merge-base', '--is-ancestor', runData.head, checkoutHead], { cwd: rootPath }))) return false;
+      if (existsSync(archive)) return false;
+      mkdirSync(archiveRoot, { recursive: true });
+      mkdirSync(archive);
+      writeFileSync(join(archive, 'run.json'), checkpointBytes, { flag: 'wx' });
+      const savedHandoffs = join(archive, 'handoffs');
+      mkdirSync(savedHandoffs);
+      for (const name of readdirSync(handoffs)) {
+        if (!new RegExp(`^${issue}-(?:${VALID_STEPS.join('|')})\\.json$`).test(name)) continue;
+        const source = join(handoffs, name);
+        const stat = lstatSync(source);
+        if (!stat.isFile() || stat.isSymbolicLink()) return false;
+        copyFileSync(source, join(savedHandoffs, name), FS_CONSTANTS.COPYFILE_EXCL);
+      }
+      for (const [sourceDir, names, subdir] of [
+        [verificationDir, [`${issue}.json`], 'verification'],
+        [reviewsPath, existsSync(reviewsPath)
+          ? readdirSync(reviewsPath).filter((name) => name.startsWith(`${issue}-`)) : [], 'reviews'],
+      ]) {
+        if (!existsSync(sourceDir)) continue;
+        assertSafeRuntimeDirectory(sourceDir);
+        if (!names.length) continue;
+        const destination = join(archive, subdir);
+        mkdirSync(destination);
+        for (const name of names) {
+          const source = join(sourceDir, name);
+          if (!existsSync(source)) continue;
+          const stat = lstatSync(source);
+          if (!stat.isFile() || stat.isSymbolicLink()) return false;
+          copyFileSync(source, join(destination, name), FS_CONSTANTS.COPYFILE_EXCL);
+        }
+      }
+      if (!readFileSync(join(savedHandoffs, `${issue}-deliver.json`)).equals(readFileSync(handoffPath))) return false;
+      if (!readFileSync(join(archive, 'verification', `${issue}.json`)).equals(readFileSync(verificationPath))) return false;
+      writeFileSync(join(archive, 'reconciliation.json'), `${JSON.stringify({
+        issue, pullRequest: delivery.pullRequest, expectedHead: delivery.expectedHead,
+        mergeCommit: merge, defaultBranch, checkoutHead,
+      }, null, 2)}\n`, { flag: 'wx' });
+      if (!readFileSync(runPath).equals(checkpointBytes)) return false;
+      unlinkSync(runPath);
+      return true;
+    } finally {
+      if (lock !== undefined) {
+        closeSync(lock);
+        unlinkSync(lockPath);
+      }
+    }
+  } catch {
+    return false;
+  }
+}
+
 
 export function resolveSpecDirForIssue(root, issueN) {
   return resolveSpecDir(root, issueN);
@@ -4120,7 +4262,7 @@ export function runExecute({
     }
   }
   if (issues.length === 0) return { status: 0, stdout: '', stderr: '' };
-  const controllerRunId = validRunIdentity(existingRun) ? existingRun.runId : randomUUID();
+  let controllerRunId = validRunIdentity(existingRun) ? existingRun.runId : randomUUID();
   let runState = existingRun;
   let controllerLease;
   let releaseLeaseInFinally = true;
@@ -4214,21 +4356,40 @@ export function runExecute({
     );
     const legacyTerminal = legacyCompletedRunState(existingRun);
     if (!boundTerminal && !legacyTerminal) {
-      return { status: 1, stdout: '', stderr: 'Run checkpoint identity mismatch\n' };
-    }
-    try {
-      cleanupCompletedRun(
-        existingRun,
-        cwd,
-        legacyTerminal ? { legacyCheckpointBytes: existingCheckpoint.bytes } : undefined,
-      );
+      if (parsedArgs.defaultBacklog || issues.includes(existingRun?.issue)
+        || !reconcileDeliveredFailure(existingRun, existingCheckpoint.bytes, cwd, run, herdrApi)) {
+        return { status: 1, stdout: '', stderr: 'Run checkpoint identity mismatch\n' };
+      }
       existingRun = null;
-    } catch {
-      return {
-        status: 1,
-        stdout: '',
-        stderr: 'completed_cleanup_failed\n',
-      };
+      runState = null;
+      if (!releaseControllerLease(controllerLease)) {
+        controllerLease = null;
+        return { status: 1, stdout: '', stderr: 'controller_lease_held\n' };
+      }
+      controllerLease = null;
+      controllerRunId = randomUUID();
+      try {
+        controllerLease = acquireControllerLease({
+          projectRoot: cwd, runId: controllerRunId, controllerPaneId: env.HERDR_PANE_ID,
+        });
+      } catch {
+        return { status: 1, stdout: '', stderr: 'controller_lease_held\n' };
+      }
+    } else {
+      try {
+        cleanupCompletedRun(
+          existingRun,
+          cwd,
+          legacyTerminal ? { legacyCheckpointBytes: existingCheckpoint.bytes } : undefined,
+        );
+        existingRun = null;
+      } catch {
+        return {
+          status: 1,
+          stdout: '',
+          stderr: 'completed_cleanup_failed\n',
+        };
+      }
     }
   }
   const dirtyIssue = matchingRun

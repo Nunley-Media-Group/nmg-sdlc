@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.24.2] - 2026-09-22
+
+### Fixed
+
+- Admit a distinct explicit issue after independently proving the prior failed-deliver run's exact recorded PR/head merged, its linked issue closed, and its merge commit reached the clean default checkout; archive the original failed checkpoint and evidence instead of forging success (#409).
+
 ## [3.24.1] - 2026-09-22
 
 ### Fixed
