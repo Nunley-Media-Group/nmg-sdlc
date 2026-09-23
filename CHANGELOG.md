@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.24.3] - 2026-09-22
+
+### Fixed
+
+- Recover an exact failed `issue_unreadable` START once after a fresh issue read succeeds, preserving the original handoff in an immutable archive and blocking changed or repeated evidence (#411).
+
 ## [3.24.2] - 2026-09-22
 
 ### Fixed

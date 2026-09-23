@@ -2530,6 +2530,189 @@ describe('runExecute controller', () => {
     })).toBe(true);
   });
 
+  function unreadableStartFixture(options = {}) {
+    const fixture = makeControllerFixture({ branch: 'main', ...options });
+    seedRun(fixture.cwd, {
+      runId: 'miledar-start-run',
+      issue: 42,
+      branch: 'main',
+      currentIssue: 42,
+      currentStep: 'start',
+      completed: { 42: [] },
+      failed: { issue: 42, step: 'start', reasonCode: 'issue_unreadable', intervention: true },
+      workers: {},
+    });
+    const handoffPath = path.join(fixture.cwd, '.omp/sdlc/handoffs/42-start.json');
+    const failure = `${JSON.stringify({
+      schemaVersion: 1, issue: 42, step: 'start', status: 'failed',
+      intervention: true, summary: 'GitHub issue #42 is unreadable',
+      artifacts: [], next: null, reasonCode: 'issue_unreadable',
+    })}\n`;
+    fs.writeFileSync(handoffPath, failure);
+    let issueResponse = { status: 1, stdout: '', stderr: 'authentication required' };
+    let afterFreshRead = null;
+    let commandOverride = null;
+    const run = (command, args, settings) => {
+      if (command === 'gh' && args[0] === 'issue' && args[1] === 'view'
+        && args.includes('number,state')) {
+        const result = issueResponse;
+        afterFreshRead?.();
+        return result;
+      }
+      const override = commandOverride?.(command, args);
+      if (override) return override;
+      return fixture.run(command, args, settings);
+    };
+    return {
+      ...fixture, run, handoffPath, failure,
+      checkpointPath: path.join(fixture.cwd, '.omp/sdlc/run.json'),
+      restoreIssue: (response = { status: 0, stdout: '{"number":42,"state":"OPEN"}' }) => {
+        issueResponse = response;
+      },
+      onCommand: (callback) => { commandOverride = callback; },
+      onFreshRead: (callback) => { afterFreshRead = callback; },
+      inspect: () => discoverRecovery({ cwd: fixture.cwd, run, herdr: fixture.herdr }),
+      resume: () => runExecute({ args: '', cwd: fixture.cwd, env, run, herdr: fixture.herdr }),
+    };
+  }
+
+  it('recovers the original unreadable START only after the exact issue becomes readable', () => {
+    const fixture = unreadableStartFixture({ writeHandoffs: false });
+    const before = fs.readFileSync(fixture.checkpointPath);
+    expect(fixture.inspect()).toMatchObject({ state: 'blocked', reasonCode: 'issue_unreadable' });
+    fixture.restoreIssue();
+    expect(fixture.inspect()).toMatchObject({
+      state: 'loop-recovery-available', recoveryClass: 'issue_unreadable_start_resume',
+      issue: 42, step: 'start', runId: 'miledar-start-run',
+    });
+    expect(fs.readFileSync(fixture.checkpointPath)).toEqual(before);
+    expect(fs.readFileSync(fixture.handoffPath, 'utf8')).toBe(fixture.failure);
+    expect(fixture.starts).toEqual([]);
+  });
+  it('archives the failed START, consumes once, and blocks a second failed START', () => {
+    const fixture = unreadableStartFixture({
+      failedStep: 'start',
+      handoffContent: (handoff, { step }) => JSON.stringify(step === 'start'
+        ? { ...handoff, reasonCode: 'issue_unreadable', next: null }
+        : handoff),
+    });
+    fixture.restoreIssue();
+    const result = fixture.resume();
+    const checkpoint = JSON.parse(fs.readFileSync(fixture.checkpointPath, 'utf8'));
+    expect(result.status).toBe(1);
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['s42-start']);
+    expect(checkpoint.recoveries).toHaveLength(1);
+    expect(checkpoint.recoveries[0]).toMatchObject({
+      runId: 'miledar-start-run', issue: 42, step: 'start',
+      source: { class: 'issue_unreadable_start_resume', branch: 'main', head: 'a'.repeat(40) },
+      failure: { reasonCode: 'issue_unreadable' },
+      handoff: { status: 'failed', reasonCode: 'issue_unreadable' },
+      disposition: 'stopped',
+    });
+    const archivePath = path.join(fixture.cwd, checkpoint.recoveries[0].source.handoffArchive.path);
+    expect(fs.readFileSync(archivePath, 'utf8')).toBe(fixture.failure);
+    expect(fs.readFileSync(fixture.handoffPath, 'utf8')).not.toBe(fixture.failure);
+    expect(fixture.inspect()).toMatchObject({ state: 'blocked' });
+    expect(fixture.resume().status).toBe(1);
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['s42-start']);
+    expect(fs.readFileSync(archivePath, 'utf8')).toBe(fixture.failure);
+  });
+
+  it('accepts a genuine resumed START pass and advances without faking it', () => {
+    const fixture = unreadableStartFixture({ blockedStep: 'implement' });
+    fixture.restoreIssue();
+    const result = fixture.resume();
+    const checkpoint = JSON.parse(fs.readFileSync(fixture.checkpointPath, 'utf8'));
+    expect(result.status).toBe(1);
+    expect(fixture.starts.map(({ name }) => name)).toEqual(['s42-start', 's42-implement']);
+    expect(checkpoint.completed['42']).toContain('start');
+    expect(checkpoint.recoveries).toHaveLength(1);
+    expect(checkpoint.recoveries[0].handoff).toMatchObject({
+      status: 'failed', reasonCode: 'issue_unreadable',
+    });
+    expect(JSON.parse(fs.readFileSync(fixture.handoffPath, 'utf8'))).toMatchObject({
+      status: 'passed', reasonCode: null,
+    });
+  });
+
+  it('does not turn an explicit issue selector into another START retry', () => {
+    const fixture = unreadableStartFixture();
+    fixture.restoreIssue();
+    const before = fs.readFileSync(fixture.checkpointPath);
+    expect(runExecute({
+      args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr,
+    })).toMatchObject({
+      status: 1, stderr: 'issue_unreadable_start_requires_parameter_free\n',
+    });
+    expect(fixture.starts).toEqual([]);
+    expect(fs.readFileSync(fixture.checkpointPath)).toEqual(before);
+  });
+
+  it.each([
+    ['malformed handoff', (f) => fs.writeFileSync(f.handoffPath, '{')],
+    ['changed failure reason', (f) => fs.writeFileSync(f.handoffPath,
+      f.failure.replace('"issue_unreadable"', '"dependency_unreadable"'))],
+    ['changed branch', (f) => f.onCommand((command, args) => command === 'git'
+      && args[0] === 'branch' && args[1] === '--show-current'
+      ? { status: 0, stdout: '42-ship-it\n' } : null)],
+    ['changed HEAD', (f) => f.onCommand((command, args) => command === 'git'
+      && args[0] === 'rev-parse' && args[1] === 'HEAD'
+      ? { status: 0, stdout: `${'b'.repeat(40)}\n` } : null)],
+    ['dirty checkout', (f) => f.onCommand((command, args) => command === 'git'
+      && args[0] === 'status' ? { status: 0, stdout: '?? product.txt\0' } : null)],
+    ['prior START checkout mutation', (f) => {
+      const checkpoint = JSON.parse(fs.readFileSync(f.checkpointPath, 'utf8'));
+      checkpoint.branch = '42-ship-it';
+      fs.writeFileSync(f.checkpointPath, `${JSON.stringify(checkpoint)}\n`);
+      f.onCommand((command, args) => command === 'git'
+        && args[0] === 'branch' && args[1] === '--show-current'
+        ? { status: 0, stdout: '42-ship-it\n' } : null);
+    }],
+    ['live worker', (f) => {
+      f.herdr.listAgents = () => [{ name: 's42-start', pane_id: 'foreign-pane', state: 'working' }];
+    }],
+    ['wrong issue identity', (f) => f.restoreIssue({ status: 0, stdout: '{"number":43,"state":"OPEN"}' })],
+    ['closed issue', (f) => f.restoreIssue({ status: 0, stdout: '{"number":42,"state":"CLOSED"}' })],
+  ])('blocks unreadable START recovery for %s', (_name, mutate) => {
+    const fixture = unreadableStartFixture();
+    fixture.restoreIssue();
+    mutate(fixture);
+    const before = fs.readFileSync(fixture.checkpointPath);
+    expect(fixture.inspect().state).toBe('blocked');
+    expect(fixture.resume().status).not.toBe(0);
+    expect(fixture.starts).toEqual([]);
+    expect(fs.readFileSync(fixture.checkpointPath)).toEqual(before);
+  });
+
+  it('refuses a foreign controller lock and a handoff changed after discovery', () => {
+    const foreign = unreadableStartFixture();
+    foreign.restoreIssue();
+    const lease = acquireControllerLease({
+      projectRoot: foreign.cwd, runId: 'foreign-run', controllerPaneId: 'foreign-pane',
+    });
+    try {
+      expect(foreign.inspect().state).toBe('blocked');
+      expect(foreign.resume().status).not.toBe(0);
+      expect(foreign.starts).toEqual([]);
+    } finally {
+      releaseControllerLease(lease);
+    }
+
+    const changed = unreadableStartFixture();
+    changed.restoreIssue();
+    let reads = 0;
+    changed.onFreshRead(() => {
+      if (++reads === 1) fs.writeFileSync(changed.handoffPath, changed.failure.replace(
+        'GitHub issue #42 is unreadable', 'Changed after discovery',
+      ));
+    });
+    expect(changed.resume().status).not.toBe(0);
+    expect(changed.starts).toEqual([]);
+    const checkpoint = JSON.parse(fs.readFileSync(changed.checkpointPath, 'utf8'));
+    expect(checkpoint.recoveries ?? []).toEqual([]);
+  });
+
+
   it.each([
     ['missing terminal handoff', null, 'missing_handoff'],
     ['invalid terminal handoff', '{not-json}\n', 'invalid_handoff'],

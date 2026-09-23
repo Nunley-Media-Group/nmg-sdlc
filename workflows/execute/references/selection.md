@@ -2,7 +2,7 @@
 
 Read only when `/sdlc-execute` receives no issue tokens after removing optional `--retain-worker` and `--recover-stale` flags.
 
-Before selection, run `node "<plugin-root>/scripts/sdlc-execute.mjs" discover-recovery` in the current project. All controller operands in this section are materialized from the active plugin installation; never substitute another recovery installation or the consumer checkout.
+Before selection, run `node "<plugin-root>/scripts/sdlc-execute.mjs" discover-recovery` in the current project. Resolve `<plugin-root>` from the active installed extension; never substitute another recovery installation or the consumer checkout.
 
 - Parse the helper's JSON even when it exits `1`, because `blocked` is a deliberate nonzero classification. If the output is unreadable, has another nonzero result, or is not a supported state, print its evidence and stop. Do not open a picker or select another issue.
 - If parsed output reports `blocked` with a valid `intervention`, execute the parent workflow's **Blocked recovery intervention** exactly once. Do not return the same opaque blocker, open the issue picker, or recursively prompt.
