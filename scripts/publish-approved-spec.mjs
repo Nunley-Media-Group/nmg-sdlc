@@ -398,10 +398,10 @@ function publicationSnapshot(pr, branch, base, head) {
   const checks = [...requiredChecks, ...reportedChecks(pr, head, false)];
   const failed = checks.find((check) => check.bucket === 'fail'
     || ['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED'].includes(check.state));
-  if (failed) fail('required_check_failed', { pr, head, check: failed });
+  if (failed) fail('pr_check_failed', { pr, head, check: failed });
   const unknown = checks.find((check) => !PASSING_CHECK_STATES.has(check.state)
     && !PENDING_CHECK_STATES.has(check.state));
-  if (unknown) fail('pr_readiness_failed', { pr, head, detail: 'unknown required check state', check: unknown });
+  if (unknown) fail('pr_readiness_failed', { pr, head, detail: 'unknown PR check state', check: unknown });
   const pending = checks.length === 0 || checks.some((check) => PENDING_CHECK_STATES.has(check.state));
   if (!['CLEAN', 'UNKNOWN', 'BLOCKED', 'UNSTABLE'].includes(details.mergeStateStatus)
     || (!pending && ['BLOCKED', 'UNSTABLE'].includes(details.mergeStateStatus))) {

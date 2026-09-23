@@ -882,7 +882,7 @@ describe('publish-approved-spec', () => {
   });
 
   it.each([
-    ['required_check_failed', { GH_FAILED_CI: '1' }, { check: { name: 'contribution', state: 'FAILURE' } }],
+    ['pr_check_failed', { GH_FAILED_CI: '1' }, { check: { name: 'contribution', state: 'FAILURE' } }],
     ['pr_merge_blocked', { GH_POLICY_BLOCK: '1' }, { mergeStateStatus: 'BLOCKED' }],
     ['pr_merge_blocked', { GH_POLICY_UNSTABLE: '1' }, { mergeStateStatus: 'UNSTABLE' }],
     ['pr_head_changed', { GH_DRIFT_HEAD: '1' }, { head: expect.stringMatching(/^[0-9a-f]{40}$/) }],
