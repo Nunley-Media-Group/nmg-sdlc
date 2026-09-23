@@ -5599,6 +5599,236 @@ describe('runExecute controller', () => {
     expect(nextRun.issue).toBe(43);
     expect(nextRun.issues).toEqual([43]);
   });
+  it('reconciles an independently merged failed-deliver checkpoint before a different explicit issue', () => {
+    const fixture = makeControllerFixture({ labelIssues: [42, 43], branch: 'main', defaultBranch: 'main' });
+    const otherSpec = path.join(fixture.cwd, 'specs', '43-other');
+    fs.mkdirSync(otherSpec, { recursive: true });
+    writeApproved(otherSpec, 43);
+    const checkpoint = seedRun(fixture.cwd, {
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'deliver',
+      branch: 'main',
+      head: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      completed: { 42: VALID_STEPS.slice(0, -1) },
+      failed: { issue: 42, step: 'deliver', reasonCode: 'merge_failed' },
+      workers: {},
+      delivery: {
+        issue: 42,
+        pullRequest: 77,
+        branch: '42-ship-it',
+        expectedHead: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        status: 'expected',
+      },
+      startedAt: '2026-08-24T00:00:00.000Z',
+    });
+    const runId = checkpoint.runId;
+    const handoffDir = path.join(fixture.cwd, '.omp/sdlc/handoffs');
+    fs.mkdirSync(handoffDir, { recursive: true });
+    const failedHandoff = {
+      schemaVersion: 1,
+      issue: 42,
+      step: 'deliver',
+      status: 'failed',
+      intervention: true,
+      summary: 'merge failed',
+      artifacts: [],
+      next: null,
+      reasonCode: 'merge_failed',
+    };
+    fs.writeFileSync(path.join(handoffDir, '42-deliver.json'), `${JSON.stringify(failedHandoff)}\n`);
+    const verificationDir = path.join(fixture.cwd, '.omp/sdlc/verification');
+    fs.mkdirSync(verificationDir, { recursive: true });
+    fs.writeFileSync(path.join(verificationDir, '42.json'), '{\"recorded\":\"original verification\"}\n');
+    const runPath = path.join(fixture.cwd, '.omp/sdlc/run.json');
+    const handoffPath = path.join(handoffDir, '42-deliver.json');
+    const preRunBytes = fs.readFileSync(runPath);
+    const preHandoffBytes = fs.readFileSync(handoffPath);
+    const mergeSha = 'cccccccccccccccccccccccccccccccccccccccc';
+    const baseRun = fixture.run;
+    fixture.run = (command, args) => {
+      if (command === 'gh' && args[0] === 'pr' && args[1] === 'view' && args.includes('77')) {
+        fixture.calls.push([command, ...args]);
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            state: 'MERGED',
+            headRefOid: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+            mergeCommit: { oid: mergeSha },
+            baseRefName: 'main',
+            headRefName: '42-ship-it',
+            number: 77,
+            closingIssuesReferences: [{ number: 42 }],
+          }),
+          stderr: '',
+        };
+      }
+      if (command === 'gh' && args[0] === 'issue' && args[1] === 'view' && args.some((arg) => arg.includes('state'))) {
+        fixture.calls.push([command, ...args]);
+        return { status: 0, stdout: JSON.stringify({ number: 42, state: 'CLOSED' }), stderr: '' };
+      }
+      if (command === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        fixture.calls.push([command, ...args]);
+        return { status: 0, stdout: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\n', stderr: '' };
+      }
+      if (command === 'git' && args[0] === 'merge-base' && args[1] === '--is-ancestor') {
+        fixture.calls.push([command, ...args]);
+        const target = args[2];
+        if (target === 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' || target === mergeSha) {
+          return { status: 0, stdout: '', stderr: '' };
+        }
+        return { status: 1, stdout: '', stderr: '' };
+      }
+      if (command === 'git' && args[0] === 'status') {
+        fixture.calls.push([command, ...args]);
+        return { status: 0, stdout: '', stderr: '' };
+      }
+      if (command === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
+        fixture.calls.push([command, ...args]);
+        return fixture.starts.some(({ name }) => name === 's43-start')
+          ? baseRun(command, args)
+          : { status: 0, stdout: 'main\n', stderr: '' };
+      }
+      return baseRun(command, args);
+    };
+    const result = runExecute({ args: '#43', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const nextRun = JSON.parse(fs.readFileSync(runPath, 'utf8'));
+    const archiveDir = path.join(fixture.cwd, '.omp/sdlc/archive/delivered-failures', runId);
+    expect(result.stderr).not.toBe('Run checkpoint identity mismatch\n');
+    expect(nextRun.issue).toBe(43);
+    expect(nextRun.issues).toEqual([43]);
+    const archivedRunBytes = fs.readFileSync(path.join(archiveDir, 'run.json'));
+    const archivedHandoffBytes = fs.readFileSync(path.join(archiveDir, 'handoffs/42-deliver.json'));
+    expect(archivedRunBytes.equals(preRunBytes)).toBe(true);
+    expect(archivedHandoffBytes.equals(preHandoffBytes)).toBe(true);
+    expect(fs.readFileSync(path.join(archiveDir, 'verification/42.json')).equals(
+      fs.readFileSync(path.join(verificationDir, '42.json')))).toBe(true);
+    expect(fs.existsSync(path.join(archiveDir, 'reconciliation.json'))).toBe(true);
+    const archived = JSON.parse(archivedRunBytes);
+    expect(archived.failed).toEqual({ issue: 42, step: 'deliver', reasonCode: 'merge_failed' });
+    const archivedH = JSON.parse(archivedHandoffBytes);
+    expect(archivedH).toMatchObject({ schemaVersion: 1, status: 'failed', issue: 42, step: 'deliver' });
+    expect(fixture.starts.some(({ name }) => name.startsWith('s43-'))).toBe(true);
+  });
+
+  it.each([
+    'changed head', 'changed PR', 'PR', 'unlinked issue', 'open issue',
+    'missing ancestry', 'dirty checkout', 'non-default checkout', 'existing lock',
+    'live owner', 'partial identity', 'archive collision', 'missing verification',
+    'missing failed handoff', 'old issue retained in queue'
+  ])('rejects failed-deliver reconcile for %s on #43 admission and retains old checkpoint/evidence with no workers', (label) => {
+    const fixture = makeControllerFixture({ labelIssues: [42, 43], branch: 'main', defaultBranch: 'main' });
+    const otherSpec = path.join(fixture.cwd, 'specs', '43-other');
+    fs.mkdirSync(otherSpec, { recursive: true });
+    writeApproved(otherSpec, 43);
+    const seed = {
+      schemaVersion: 1,
+      issues: [42],
+      currentIssue: 42,
+      currentStep: 'deliver',
+      branch: 'main',
+      head: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      completed: { 42: VALID_STEPS.slice(0, -1) },
+      failed: { issue: 42, step: 'deliver', reasonCode: 'merge_failed' },
+      workers: {},
+      delivery: {
+        issue: 42,
+        pullRequest: 77,
+        branch: '42-ship-it',
+        expectedHead: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        status: 'expected',
+      },
+      startedAt: '2026-08-24T00:00:00.000Z',
+    };
+    if (label === 'partial identity') {
+      seed.delivery = { issue: 42, pullRequest: 77 };
+    }
+    seedRun(fixture.cwd, seed);
+    const handoffDir = path.join(fixture.cwd, '.omp/sdlc/handoffs');
+    fs.mkdirSync(handoffDir, { recursive: true });
+    fs.writeFileSync(path.join(handoffDir, '42-deliver.json'), `${JSON.stringify({
+      schemaVersion: 1, issue: 42, step: 'deliver', status: 'failed', intervention: true, summary: '', artifacts: [], next: null, reasonCode: 'merge_failed'
+    })}\n`);
+    const verificationDir = path.join(fixture.cwd, '.omp/sdlc/verification');
+    fs.mkdirSync(verificationDir, { recursive: true });
+    if (label === 'missing failed handoff') fs.unlinkSync(path.join(handoffDir, '42-deliver.json'));
+    fs.writeFileSync(path.join(verificationDir, '42.json'), '{\"recorded\":\"original verification\"}\n');
+    if (label === 'missing verification') fs.unlinkSync(path.join(verificationDir, '42.json'));
+    const runPath = path.join(fixture.cwd, '.omp/sdlc/run.json');
+    const preBytes = fs.readFileSync(runPath);
+    const mergeSha = 'cccccccccccccccccccccccccccccccccccccccc';
+    const baseRun = fixture.run;
+    let ancestorFail = false;
+    let dirtyO = '';
+    fixture.run = (command, args) => {
+      if (command === 'gh' && args[0] === 'pr' && args[1] === 'view' && args.includes('77')) {
+        fixture.calls.push([command, ...args]);
+        let pr = {
+          state: 'MERGED', headRefOid: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          mergeCommit: { oid: mergeSha }, baseRefName: 'main', headRefName: '42-ship-it',
+          number: 77, closingIssuesReferences: [{ number: 42 }],
+        };
+        if (label === 'changed head') pr.headRefOid = 'dddddddddddddddddddddddddddddddddddddddd';
+        if (label === 'changed PR') pr.number = 78;
+        if (label === 'unlinked issue') pr.closingIssuesReferences = [{ number: 99 }];
+        if (label === 'PR') { pr.state = 'OPEN'; pr.mergeCommit = null; }
+        return { status: 0, stdout: JSON.stringify(pr), stderr: '' };
+      }
+      if (command === 'gh' && args[0] === 'issue' && args[1] === 'view' && args.some((arg) => arg.includes('state'))) {
+        fixture.calls.push([command, ...args]);
+        let iss = { number: 42, state: 'CLOSED' };
+        if (label === 'open issue') iss.state = 'OPEN';
+        return { status: 0, stdout: JSON.stringify(iss), stderr: '' };
+      }
+      if (command === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { status: 0, stdout: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\n', stderr: '' };
+      }
+      if (command === 'git' && args[0] === 'merge-base' && args[1] === '--is-ancestor') {
+        fixture.calls.push([command, ...args]);
+        if (ancestorFail) return { status: 1, stdout: '', stderr: '' };
+        const t = args[2];
+        if (t === 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' || t === mergeSha) return { status: 0, stdout: '', stderr: '' };
+        return { status: 1, stdout: '', stderr: '' };
+      }
+      if (command === 'git' && args[0] === 'status') {
+        fixture.calls.push([command, ...args]);
+        return { status: 0, stdout: dirtyO, stderr: '' };
+      }
+      if (command === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
+        return { status: 0, stdout: `${label === 'non-default checkout' ? '42-ship-it' : 'main'}\n`, stderr: '' };
+      }
+      return baseRun(command, args);
+    };
+    if (label === 'missing ancestry') ancestorFail = true;
+    if (label === 'dirty checkout') dirtyO = ' M src/x\n';
+    if (label === 'existing lock') {
+      fs.mkdirSync(path.join(fixture.cwd, '.omp/sdlc'), { recursive: true });
+      fs.writeFileSync(path.join(fixture.cwd, '.omp/sdlc/controller.lock'), '{}');
+    }
+    if (label === 'archive collision') {
+      const archive = path.join(fixture.cwd, '.omp/sdlc/archive/delivered-failures/test-run-id');
+      fs.mkdirSync(archive, { recursive: true });
+      fs.writeFileSync(path.join(archive, 'prior-evidence'), 'untouched');
+    }
+    if (label === 'live owner') {
+      fixture.herdr.listAgents = () => [{ name: 's42-deliver', pane_id: 'p', state: 'working' }];
+    }
+    const result = runExecute({
+      args: label === 'old issue retained in queue' ? '#42 #43' : '#43',
+      cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr,
+    });
+    const persisted = JSON.parse(fs.readFileSync(runPath, 'utf8'));
+    expect(result.status).not.toBe(0);
+    expect(fs.readFileSync(runPath).equals(preBytes)).toBe(true);
+    expect(persisted.failed).toMatchObject({ issue: 42, step: 'deliver', reasonCode: 'merge_failed' });
+    if (label === 'archive collision') {
+      expect(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/archive/delivered-failures/test-run-id/prior-evidence'), 'utf8')).toBe('untouched');
+    } else {
+      expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/archive/delivered-failures'))).toBe(false);
+    }
+    expect(fixture.starts).toEqual([]);
+  });
 
   it('fails closed when terminal cleanup cannot remove an owned artifact', () => {
     const fixture = makeControllerFixture();

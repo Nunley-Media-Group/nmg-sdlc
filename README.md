@@ -213,6 +213,7 @@ Successful output uses `NMG_SDLC_PUBLICATION` with this shape:
 Explicit lists are deduplicated in the supplied order. Every selected issue must have an approved spec, the `spec-created` label, and eligible official dependencies. The bare command first discovers the exact current branch's incomplete checkpoint and resumes its persisted queue without a picker or extra flags. Conflicting or unreadable evidence blocks selection. Only clean absence or completed delivery opens the existing multi-select picker: selected chips come first in displayed order, then valid Other tokens. Empty Continue reopens the picker; it does not run an empty queue.
 
 Start from a clean tree. Resume may preserve partial work already on the target issue branch; the controller never stashes, discards, resets, or force-pushes your changes. Use one execute controller per canonical project root and do not run unrelated branch-changing work concurrently.
+An explicit different issue can proceed past one retained `merge_failed` deliver checkpoint only when the plugin reads its exact recorded PR/head as merged, its linked issue as closed, and the merge commit as an ancestor of the clean default checkout, with no live worker or competing controller. The original failed checkpoint, handoffs, verification and review evidence are copied under `.omp/sdlc/archive/delivered-failures/<runId>/` before the old checkpoint is released. Bare recovery and unproven or dirty cases remain blocked; never edit a failed handoff into a pass or delete `run.json` manually.
 
 One narrow intervention state is recoverable after an operator repairs publication authority. For an `implementation_failed` implement handoff, bare `/sdlc-execute` requires the failed run, strict handoff, exact current HEAD, actual branch, run-bound unique incomplete owner, and current read-only owner-bound probe to agree. The handoff and each parent are no-follow validated as bounded regular files with stable pre/open/post identity. The only tracked difference from run HEAD must be one unstaged singular Approved `tasks.md`. One separator-preserving detector/projection must prove that every changed byte is a selected `**Files**:` to `**File(s)**:` label replacement, preserve every other byte across CR, LF and CRLF input, and report zero remaining selected rewrites or findings.
 
@@ -331,6 +332,7 @@ Status is read-only: current branch/spec, verification, GitHub issue/PR state, a
 | `.omp/sdlc/safe-recoveries.json` | Stable logical owners and one-use recovery records, separate from execute remediation budgets |
 | `.omp/sdlc/verification/<N>.json` | Deterministic gate results, coverage, and identity |
 | `.omp/sdlc/prompt-provenance/` | Recorded prompt composition |
+| `.omp/sdlc/archive/delivered-failures/<runId>/` | Immutable original failed-deliver checkpoint and issue evidence with independently observed merge proof |
 | `specs/<N>-<slug>/verification-report.md` | Durable acceptance and verification report |
 | `.omp/sdlc/sessions/<token>/` | Standalone handoffs and pointer to shared logical-owner delivery state |
 

@@ -1,0 +1,32 @@
+**Issue**: #409
+**Date**: 2026-09-22
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/374-recover-bounded-automatic-delivery-stops-without-loops/
+
+Feature: Admit a new issue after independently completed prior delivery
+  A stale failed-deliver checkpoint must not block unrelated approved work once exact external delivery is proven.
+
+  @SCN001 @regression
+  Scenario: Reconcile exact delivery and retain the original failure
+    Given a bound failed-deliver checkpoint for issue N with recorded pull request P and head H
+    And P is merged at H with merge commit M and issue N is closed
+    And M is an ancestor of the clean default checkout without an active controller or worker
+    When an approved distinct issue Q is explicitly selected
+    Then the original checkpoint and failed handoff remain in a durable run-identified archive
+    And the normal fresh issue Q admission starts without a forged passed handoff
+
+  @SCN002 @regression
+  Scenario: Missing or contradictory external proof blocks
+    Given the same failed-deliver checkpoint
+    But P is open, changed head, absent, or merged at a head other than H
+    Or N is open or M is not an ancestor of the current default checkout
+    When issue Q is explicitly selected
+    Then the old checkpoint and evidence remain unchanged and no worker starts
+
+  @SCN003 @regression
+  Scenario: Ownership and filesystem ambiguity block
+    Given a missing checkpoint identity, dirty or non-default checkout, live owner, existing lock, or archive collision
+    When issue Q is explicitly selected
+    Then the old checkpoint and supporting evidence remain unchanged
+    And no remote write or new-issue worker occurs
