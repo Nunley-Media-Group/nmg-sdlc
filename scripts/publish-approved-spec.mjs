@@ -357,7 +357,70 @@ function defaultBranch() {
   ok({ branch: name });
 }
 
-function mergeSpec(argv) {
+const PASSING_CHECK_STATES = new Set(['SUCCESS', 'NEUTRAL', 'SKIPPED']);
+const PENDING_CHECK_STATES = new Set(['PENDING', 'QUEUED', 'IN_PROGRESS', 'WAITING', 'REQUESTED', 'EXPECTED']);
+
+function reportedChecks(pr, head, required) {
+  const args = ['pr', 'checks', String(pr)];
+  if (required) args.push('--required');
+  const result = run('gh', [...args, '--json', 'name,state,bucket']);
+  const noChecksReported = result.status === 1 && !String(result.stdout || '').trim()
+    && /^no (?:required )?checks reported on the .+ branch$/i.test(String(result.stderr || '').trim());
+  let checks;
+  try {
+    checks = noChecksReported ? [] : JSON.parse(result.stdout);
+  } catch {
+    fail('pr_readiness_failed', { pr, head, detail: 'checks returned invalid JSON', stderr: result.stderr || '' });
+  }
+  if (![0, 1, 8].includes(result.status) || !Array.isArray(checks)
+    || (result.status === 1 && checks.length === 0 && !noChecksReported
+      && String(result.stderr || '').trim())) {
+    fail('pr_readiness_failed', { pr, head, detail: 'checks unavailable', stderr: result.stderr || '' });
+  }
+  return checks;
+}
+
+function publicationSnapshot(pr, branch, base, head) {
+  const details = readJson(run('gh', [
+    'pr', 'view', String(pr), '--json',
+    'number,state,headRefName,headRefOid,baseRefName,mergeStateStatus',
+  ]), 'pr_readiness_failed');
+  if (details.number !== pr || details.state !== 'OPEN'
+    || details.headRefName !== branch || details.baseRefName !== base
+    || !/^[0-9a-f]{40}$/i.test(String(details.headRefOid ?? ''))
+    || details.headRefOid !== head) {
+    fail('pr_head_changed', { pr, head, observed: details });
+  }
+
+  // An empty required-check result is not proof that CI is complete. Observe
+  // every reported check until GitHub has both successful CI and CLEAN readiness.
+  const requiredChecks = reportedChecks(pr, head, true);
+  const checks = requiredChecks.length ? requiredChecks : reportedChecks(pr, head, false);
+  const failed = checks.find((check) => check.bucket === 'fail'
+    || ['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED'].includes(check.state));
+  if (failed) fail('required_check_failed', { pr, head, check: failed });
+  const unknown = checks.find((check) => !PASSING_CHECK_STATES.has(check.state)
+    && !PENDING_CHECK_STATES.has(check.state));
+  if (unknown) fail('pr_readiness_failed', { pr, head, detail: 'unknown required check state', check: unknown });
+  const pending = checks.length === 0 || checks.some((check) => PENDING_CHECK_STATES.has(check.state));
+  if (!['CLEAN', 'UNKNOWN', 'BLOCKED', 'UNSTABLE'].includes(details.mergeStateStatus)
+    || (!pending && ['BLOCKED', 'UNSTABLE'].includes(details.mergeStateStatus))) {
+    fail('pr_merge_blocked', { pr, head, mergeStateStatus: details.mergeStateStatus });
+  }
+  return !pending && details.mergeStateStatus === 'CLEAN';
+}
+
+async function awaitPublicationReady(pr, branch, base) {
+  const head = git(['rev-parse', 'HEAD']).stdout.trim();
+  if (!/^[0-9a-f]{40}$/i.test(head)) fail('pr_readiness_failed', { pr, detail: 'local head unavailable' });
+  for (;;) {
+    if (publicationSnapshot(pr, branch, base, head)
+      && publicationSnapshot(pr, branch, base, head)) return head;
+    await new Promise((resolve) => setTimeout(resolve, 5_000));
+  }
+}
+
+async function mergeSpec(argv) {
   const issueN = parseIssue(flag(argv, '--issue'));
   const { dir, branch } = parseSpecDir(issueN, flag(argv, '--dir'));
   ensureOnBranch(issueN, branch);
@@ -408,7 +471,10 @@ function mergeSpec(argv) {
     }
   }
 
-  const merged = run('gh', ['pr', 'merge', String(pr), '--squash', '--delete-branch']);
+  const head = await awaitPublicationReady(pr, branch, base);
+  const merged = run('gh', [
+    'pr', 'merge', String(pr), '--squash', '--match-head-commit', head, '--delete-branch',
+  ]);
   if (merged.status !== 0) {
     fail('pr_merge_failed', { stderr: merged.stderr || '', stdout: merged.stdout || '' });
   }
@@ -450,7 +516,7 @@ function mergeSpec(argv) {
   });
 }
 
-function main(argv = process.argv.slice(2)) {
+async function main(argv = process.argv.slice(2)) {
   const [command, ...rest] = argv;
   if (command === 'discover') {
     discover(rest);
@@ -473,7 +539,7 @@ function main(argv = process.argv.slice(2)) {
     return;
   }
   if (command === 'merge') {
-    mergeSpec(rest);
+    await mergeSpec(rest);
     return;
   }
   if (command === 'default-branch') {
@@ -486,5 +552,5 @@ function main(argv = process.argv.slice(2)) {
 }
 
 if (isCliEntry(import.meta.url)) {
-  main();
+  main().catch((error) => fail('publication_failed', { detail: error.message }));
 }

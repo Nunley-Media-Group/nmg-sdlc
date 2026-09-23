@@ -143,6 +143,7 @@ GitHub's **official blocked-by relation** is the sole sequencing authority. Body
 ```
 
 The numbered form selects that issue. The bare form offers open issues missing the exact `spec-created` label. Every selected issue gets a distinct complete local plan and native-plan approval before any issue-specific mutation. Publication uses a spec-only PR, squash-merges it into the default branch, applies `spec-created` without closing the implementation issue, completes any post-merge remediation, then returns the same TUI session to native plan for Continue/Finished. A continuation issue repeats that approval boundary instead of inheriting the first issue's approval.
+The spec-only publication helper waits for required CI on the exact PR head. When GitHub reports no required checks, it waits for reported PR checks instead of treating an empty response as success. It requires a fresh successful `CLEAN` observation before squash-merging that head; terminal failed checks or proven non-CI blockers stop publication with an actionable reason.
 
 ```text
 specs/42-add-user-auth/

@@ -10,6 +10,10 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Fixed
+
+- Wait for exact-head spec-only PR checks to reach terminal success and fresh clean merge readiness before squash merge; retain unreported/pending CI observation and fail on terminal checks or policy blocks (#407).
+
 ## [3.24.0] - 2026-09-18
 
 ### Changed
