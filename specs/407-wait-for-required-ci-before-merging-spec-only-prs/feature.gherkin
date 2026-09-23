@@ -1,0 +1,33 @@
+**Issue**: #407
+**Date**: 2026-09-22
+**Status**: Approved
+**Author**: NMG
+
+Feature: Exact-head CI-gated spec-only publication
+  @SCN001 @regression
+  Scenario: New required checks register after the spec PR opens
+    Given an approved spec-only PR at head H has no reported required check
+    When its required check registers pending and later succeeds
+    Then publication does not merge before a fresh successful CLEAN observation
+    And it merges exactly H with --match-head-commit
+
+  @SCN002 @regression
+  Scenario: Terminal required check failure
+    Given a required check on the pinned PR head fails
+    When publication observes terminal CI
+    Then it returns actionable check failure evidence
+    And it does not issue a merge
+
+  @SCN003 @regression
+  Scenario: Proven policy block and changing head
+    Given successful required checks but the PR is blocked by non-CI policy
+    When publication evaluates merge readiness
+    Then it reports the policy blocker without merging
+    But if the PR head differs from the pinned head it reports head drift instead
+
+  @SCN004 @regression
+  Scenario: Existing PR and post-merge outcome
+    Given publication finds an existing PR on the issue branch
+    When required CI succeeds and CLEAN is freshly reconfirmed
+    Then it merges once without creating a second PR
+    And the default-branch synchronization and spec-created label retain their behavior
