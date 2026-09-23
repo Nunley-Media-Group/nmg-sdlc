@@ -105,6 +105,11 @@ if [ "$1" = "issue" ] && [ "$2" = "edit" ] && [ "$4" = "--add-label" ] && [ "$5"
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+  if [ -f .remote-merged ] && echo "$*" | grep -q -- '--state all'; then
+    sha=$(git rev-parse HEAD)
+    printf '[{"number":99,"state":"MERGED","headRefOid":"%s"}]\\n' "$sha"
+    exit 0
+  fi
   if [ "$GH_EXISTING_PR" = "1" ]; then printf '%s\\n' '[{"number":99}]'; exit 0; fi
   printf '%s\\n' '[]'
   exit 0
@@ -135,6 +140,7 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   count=0
   if [ -f .pr-view-count ]; then count=$(cat .pr-view-count); fi
   count=$((count + 1))
+  if [ "$GH_RECONCILE_UNREADABLE" = "1" ] && [ "$count" -ge 3 ]; then exit 1; fi
   printf '%s\\n' "$count" > .pr-view-count
   state=CLEAN
   if [ "$GH_POLICY_BLOCK" = "1" ]; then state=BLOCKED; fi
@@ -144,7 +150,13 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   if [ "$GH_EXPECTED_MISSING" = "1" ] && [ "$count" -eq 2 ]; then state=UNSTABLE; fi
   sha=$(git rev-parse HEAD)
   if [ "$GH_DRIFT_HEAD" = "1" ] && [ "$count" -ge 2 ]; then sha=0000000000000000000000000000000000000000; fi
-  printf '{"number":99,"state":"OPEN","headRefName":"42-add-x","headRefOid":"%s","baseRefName":"main","mergeStateStatus":"%s","url":"https://github.com/example/repo/pull/99"}\\n' "$sha" "$state"
+  prstate=OPEN
+  if [ -f .remote-merged ]; then prstate=MERGED; fi
+  if [ "$GH_RECONCILE_OPEN" = "1" ] && [ "$count" -ge 3 ]; then prstate=OPEN; fi
+  if [ "$GH_RECONCILE_HEAD_DRIFT" = "1" ] && [ "$count" -ge 3 ]; then sha=0000000000000000000000000000000000000000; fi
+  prbase=main
+  if [ "$GH_RECONCILE_BASE_DRIFT" = "1" ] && [ "$count" -ge 3 ]; then prbase=other; fi
+  printf '{"number":99,"state":"%s","headRefName":"42-add-x","headRefOid":"%s","baseRefName":"%s","mergeStateStatus":"%s","url":"https://github.com/example/repo/pull/99"}\\n' "$prstate" "$sha" "$prbase" "$state"
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
@@ -185,6 +197,18 @@ if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
     count=0
     if [ -f .pr-view-count ]; then count=$(cat .pr-view-count); fi
     if [ "$count" -lt 4 ]; then printf '%s\\n' 'required status check expected' >&2; exit 1; fi
+  fi
+  if [ "$GH_MERGE_REJECT" = "1" ]; then
+    printf '%s\\n' 'remote rejected merge' >&2
+    exit 1
+  fi
+  if [ "$GH_REMOTE_MERGE_FAIL" = "1" ]; then
+    git -C "$GH_MAIN_WORKTREE" merge --squash "$(git rev-parse HEAD)" || exit 1
+    git -C "$GH_MAIN_WORKTREE" commit -m "docs: approve spec squash" || exit 1
+    git -C "$GH_MAIN_WORKTREE" push origin main || exit 1
+    touch .remote-merged
+    printf '%s\\n' "fatal: 'main' is already used by worktree" >&2
+    exit 1
   fi
   branch=$(git branch --show-current)
   git checkout main
@@ -1003,6 +1027,54 @@ describe('publish-approved-spec', () => {
   });
 
 
+  it.each([
+    ['merged remotely', {}, true],
+    ['unreadable', { GH_RECONCILE_UNREADABLE: '1' }, false],
+    ['still open', { GH_RECONCILE_OPEN: '1' }, false],
+    ['changed head', { GH_RECONCILE_HEAD_DRIFT: '1' }, false],
+    ['changed base', { GH_RECONCILE_BASE_DRIFT: '1' }, false],
+  ])('classifies CLI checkout failure when PR is %s', (_case, flags, proven) => {
+    const { root, env } = makeRepo();
+    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
+    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+    expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
+    const worktree = path.join(makeRoot(), 'main');
+    git(root, ['worktree', 'add', worktree, 'main']);
+    const args = ['merge', '--issue', '42', '--dir', 'specs/42-add-x'];
+    const result = run(root, args, {
+      ...env, GH_REMOTE_MERGE_FAIL: '1', GH_MAIN_WORKTREE: worktree, ...flags,
+    });
+    expect(result.status).not.toBe(0);
+    if (proven) {
+      expect(parse(result)).toMatchObject({
+        reasonCode: 'default_checkout_failed', merged: true, pr: 99,
+      });
+      expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).toContain('issue edit 42 --add-label spec-created');
+      expect(git(root, ['branch', '--show-current']).trim()).toBe('42-add-x');
+      expect(git(worktree, ['branch', '--show-current']).trim()).toBe('main');
+      const second = run(root, args, { ...env, GH_MAIN_WORKTREE: worktree });
+      expect(parse(second)).toMatchObject({ reasonCode: 'default_checkout_failed', merged: true, pr: 99 });
+      const log = fs.readFileSync(path.join(root, '.gh-log'), 'utf8');
+      expect(log.match(/pr create /g)).toHaveLength(1);
+      expect(log.match(/pr merge 99 /g)).toHaveLength(1);
+    } else {
+      expect(parse(result)).toMatchObject({ reasonCode: 'pr_merge_failed' });
+      expect(parse(result).merged).not.toBe(true);
+      expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).not.toContain('issue edit 42 --add-label spec-created');
+    }
+  });
+  it('does not label when the remote rejects the merge', () => {
+    const { root, env } = makeRepo();
+    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
+    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+    expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
+    const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], {
+      ...env, GH_MERGE_REJECT: '1',
+    });
+    expect(parse(result)).toMatchObject({ reasonCode: 'pr_merge_failed', pr: 99 });
+    expect(parse(result).merged).not.toBe(true);
+    expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).not.toContain('issue edit 42 --add-label spec-created');
+  });
   it('merge rejects an unapproved package', () => {
     const { root, env } = makeRepo();
     expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);

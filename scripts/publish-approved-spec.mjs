@@ -460,6 +460,42 @@ async function awaitPublicationReady(pr, branch, base) {
   }
 }
 
+function mergedPrAtHead(pr, branch, base, head) {
+  const viewed = run('gh', [
+    'pr', 'view', String(pr), '--json', 'number,state,headRefName,headRefOid,baseRefName',
+  ]);
+  if (viewed.status !== 0) return false;
+  let details;
+  try { details = JSON.parse(viewed.stdout); } catch { return false; }
+  return details.number === pr && details.state === 'MERGED'
+    && details.headRefName === branch && details.baseRefName === base
+    && details.headRefOid === head;
+}
+
+function priorMergedPr(branch, base, head) {
+  const listed = run('gh', [
+    'pr', 'list', '--head', branch, '--base', base, '--state', 'all',
+    '--json', 'number,headRefOid,state', '--limit', '100',
+  ]);
+  if (listed.status !== 0) fail('pr_readiness_failed', { stderr: listed.stderr || '' });
+  let rows;
+  try { rows = JSON.parse(listed.stdout); } catch {
+    fail('pr_readiness_failed', { detail: 'PR history returned invalid JSON' });
+  }
+  if (!Array.isArray(rows) || rows.some((row) => !Number.isSafeInteger(row.number)
+    || row.number <= 0 || !['OPEN', 'MERGED', 'CLOSED'].includes(row.state)
+    || (row.state === 'MERGED' && !/^[0-9a-f]{40}$/i.test(String(row.headRefOid ?? ''))))) {
+    fail('pr_readiness_failed', { detail: 'PR history malformed' });
+  }
+  const merged = rows.filter((row) => row.state === 'MERGED' && row.headRefOid === head);
+  if (rows.length === 100 || merged.length > 1 || (merged.length === 1
+    && !mergedPrAtHead(merged[0].number, branch, base, head))
+    || (merged.length === 0 && rows.some((row) => row.state === 'MERGED'))) {
+    fail('pr_head_changed', { head, detail: 'merged PR history ambiguous or unproven' });
+  }
+  return merged[0]?.number ?? null;
+}
+
 async function mergeSpec(argv) {
   const issueN = parseIssue(flag(argv, '--issue'));
   const { dir, branch } = parseSpecDir(issueN, flag(argv, '--dir'));
@@ -474,86 +510,68 @@ async function mergeSpec(argv) {
     fail('invalid_arguments', { detail: 'spec branch must not equal the default branch' });
   }
 
+  const head = git(['rev-parse', 'HEAD']).stdout.trim();
+  if (!/^[0-9a-f]{40}$/i.test(head)) fail('pr_readiness_failed', { detail: 'local head unavailable' });
   const listed = run('gh', [
-    'pr',
-    'list',
-    '--head',
-    branch,
-    '--base',
-    base,
-    '--json',
-    'number',
-    '--limit',
-    '1',
+    'pr', 'list', '--head', branch, '--base', base, '--json', 'number', '--limit', '1',
   ]);
-  let pr = listed.status === 0 ? firstPrNumber(listed.stdout) : null;
+  if (listed.status !== 0) fail('pr_readiness_failed', { stderr: listed.stderr || '' });
+  let pr = firstPrNumber(listed.stdout);
+  let alreadyMerged = false;
+  if (pr == null) {
+    pr = priorMergedPr(branch, base, head);
+    alreadyMerged = pr != null;
+  }
   if (pr == null) {
     const title = `docs: approve spec for #${issueN}`;
     const body = `Approved specification package for #${issueN}.\n\nThis pull request publishes the spec only.`;
     const created = run('gh', [
-      'pr',
-      'create',
-      '--base',
-      base,
-      '--head',
-      branch,
-      '--title',
-      title,
-      '--body',
-      body,
+      'pr', 'create', '--base', base, '--head', branch, '--title', title, '--body', body,
     ]);
     pr = created.status === 0 ? parseCreatedPr(created.stdout) : null;
     if (created.status !== 0 || pr == null) {
-      fail('pr_create_failed', {
-        stderr: created.stderr || '',
-        stdout: created.stdout || '',
-      });
+      fail('pr_create_failed', { stderr: created.stderr || '', stdout: created.stdout || '' });
     }
   }
 
-  const head = await awaitPublicationReady(pr, branch, base);
-  const merged = run('gh', [
-    'pr', 'merge', String(pr), '--squash', '--match-head-commit', head, '--delete-branch',
-  ]);
-  if (merged.status !== 0) {
-    fail('pr_merge_failed', { stderr: merged.stderr || '', stdout: merged.stdout || '' });
+  let mergeDiagnostic = null;
+  if (!alreadyMerged) {
+    const readyHead = await awaitPublicationReady(pr, branch, base);
+    const merged = run('gh', [
+      'pr', 'merge', String(pr), '--squash', '--match-head-commit', readyHead, '--delete-branch',
+    ]);
+    if (merged.status !== 0) {
+      mergeDiagnostic = { stderr: merged.stderr || '', stdout: merged.stdout || '' };
+      if (!mergedPrAtHead(pr, branch, base, readyHead)) {
+        fail('pr_merge_failed', { pr, ...mergeDiagnostic });
+      }
+    }
   }
 
+  let checkoutError = null;
   const checkedOut = git(['checkout', base]);
   if (checkedOut.status !== 0 || currentBranch() !== base) {
-    fail('default_checkout_failed', {
-      stderr: checkedOut.stderr || '',
-      merged: true,
-      pr,
-    });
+    checkoutError = { stderr: checkedOut.stderr || '' };
+  } else {
+    const pulled = git(['pull', '--ff-only', 'origin', base]);
+    if (pulled.status !== 0) {
+      checkoutError = { stderr: pulled.stderr || '', stdout: pulled.stdout || '' };
+    }
   }
-  const pulled = git(['pull', '--ff-only', 'origin', base]);
-  if (pulled.status !== 0) {
-    fail('default_checkout_failed', {
-      stderr: pulled.stderr || '',
-      stdout: pulled.stdout || '',
-      merged: true,
-      pr,
-    });
-  }
+  let labelError = null;
   try {
     applySpecCreatedLabel(issueN);
   } catch (error) {
-    fail('spec_created_label_failed', {
-      stderr: error?.stderr || error?.message || '',
-      stdout: error?.stdout || '',
-      merged: true,
-      pr,
+    labelError = { stderr: error?.stderr || error?.message || '', stdout: error?.stdout || '' };
+  }
+  if (checkoutError) {
+    fail('default_checkout_failed', {
+      ...checkoutError, mergeDiagnostic, labelError, merged: true, pr,
     });
   }
+  if (labelError) fail('spec_created_label_failed', { ...labelError, merged: true, pr });
+  ok({ branch: base, pr, merged: true, squash: true, labeled: true });
 
-  ok({
-    branch: base,
-    pr,
-    merged: true,
-    squash: true,
-    labeled: true,
-  });
 }
 
 async function main(argv = process.argv.slice(2)) {

@@ -7,12 +7,12 @@
 All six subcommands print exactly one JSON object to stdout. Success exits 0 with `ok: true`. Failure exits non-zero with `ok: false`, a stable `reasonCode`, and optional `detail`, `stdout`, or `stderr`. A `merge` failure after the PR was successfully merged also returns `merged: true` and `pr`; callers must record that publication instead of retrying it. The extension validates that exact materialized merge command and JSON result, then queues one native-plan follow-up for Continue/Finished.
 
 ```text
-node <plugin-root>/scripts/publish-approved-spec.mjs discover --issue N
-node <plugin-root>/scripts/publish-approved-spec.mjs candidates [--published N ...]
-node <plugin-root>/scripts/publish-approved-spec.mjs prepare --issue N --name {N}-{slug}
-node <plugin-root>/scripts/publish-approved-spec.mjs commit-push --issue N --dir specs/{N}-{slug}
-node <plugin-root>/scripts/publish-approved-spec.mjs merge --issue N --dir specs/{N}-{slug}
-node <plugin-root>/scripts/publish-approved-spec.mjs default-branch
+node "<plugin-root>/scripts/publish-approved-spec.mjs" discover --issue N
+node "<plugin-root>/scripts/publish-approved-spec.mjs" candidates [--published N ...]
+node "<plugin-root>/scripts/publish-approved-spec.mjs" prepare --issue N --name {N}-{slug}
+node "<plugin-root>/scripts/publish-approved-spec.mjs" commit-push --issue N --dir specs/{N}-{slug}
+node "<plugin-root>/scripts/publish-approved-spec.mjs" merge --issue N --dir specs/{N}-{slug}
+node "<plugin-root>/scripts/publish-approved-spec.mjs" default-branch
 ```
 
 `{N}-{slug}` is the basename of `targetDir`. `--dir` is exactly `specs/{N}-{slug}` (POSIX, no `..`). Issue arguments are positive integers. Invalid or unknown arguments fail `invalid_arguments`.
@@ -77,9 +77,11 @@ If current differs from `{N}-{slug}`, `prepare` reads the default branch through
 
 ## Merge
 
-`merge` requires the approved four-file package. It opens or resumes a docs-only PR titled `docs: approve spec for #N`, with a body that mentions `#N` without `Closes`, `Fixes`, `Resolves`, or another closing keyword. It squash-merges, checks out the repository default branch, fast-forwards it, and applies `spec-created` while leaving issue N open.
+`merge` requires the approved four-file package. It opens or resumes a docs-only PR titled `docs: approve spec for #N`, with a body that mentions `#N` without `Closes`, `Fixes`, `Resolves`, or another closing keyword. Before creating a PR it checks merged PR history for the same branch, base, and exact local head. An independently proven merged PR skips creation, readiness polling, and merge; an open PR still passes the full readiness and exact-head checks before squash merge. It then attempts checkout and fast-forward of the default branch and applies `spec-created` while leaving issue N open.
 
-Failures before merge include `spec_not_approved`, `pr_create_failed`, and `pr_merge_failed`. They queue no continuation. After a successful squash merge, `default_checkout_failed` and `spec_created_label_failed` return `merged: true` and the numeric `pr`; the caller records N in `published[]` immediately and must not republish or rewrite it. For `default_checkout_failed`, run `node "<plugin-root>/scripts/publish-approved-spec.mjs" default-branch`; for `spec_created_label_failed`, run `node "<plugin-root>/scripts/spec-created-label.mjs" apply --issue N`. Report remediation failure separately. Finish remediation and settle the execution turn; the queued native-plan follow-up retains N in `published[]` and owns the next Continue/Finished decision. Never force-push or stage with `git add -A`.
+If `gh pr merge` exits nonzero, inspect that exact PR independently. Only `MERGED` with the expected PR number, head SHA, head branch, and base counts as publication; otherwise `pr_merge_failed` returns without `merged: true` and without labeling. Preserve the CLI failure diagnostic. Never retry a possibly completed merge. A repeated invocation recognizes the same merged PR and performs only safe outstanding bookkeeping, not another PR creation or merge.
+
+Failures before proven merge include `spec_not_approved`, `pr_create_failed`, and `pr_merge_failed`; they queue no continuation. After proven merge, `default_checkout_failed` and `spec_created_label_failed` return `merged: true` and the numeric `pr`. Checkout failure (including a default branch owned by another worktree) does not prevent independent label application; report both checkout and label diagnostics if both fail. Preserve both worktrees; never force checkout. The caller records N in `published[]` immediately and must not republish or rewrite it. For `default_checkout_failed`, run `node "<plugin-root>/scripts/publish-approved-spec.mjs" default-branch` only if checkout is safe; a worktree ownership conflict requires reporting the limitation instead of repeating the impossible checkout. For `spec_created_label_failed`, run `node "<plugin-root>/scripts/spec-created-label.mjs" apply --issue N`. Report remediation failure separately. Finish remediation and settle the execution turn; the queued native-plan follow-up retains N in `published[]` and owns the next Continue/Finished decision. Never force-merge or bypass protection.
 
 `default-branch` reads the GitHub default branch and checks it out. Failure returns `default_branch_unreadable` or `default_checkout_failed`; keep the current branch and do not guess `main`.
 
