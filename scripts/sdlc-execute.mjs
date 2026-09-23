@@ -599,6 +599,7 @@ const REPAIRED_PUBLICATION_RECOVERY = 'repaired_publication_intervention';
 const EXCLUSIVE_IMPLEMENT_RESUME = 'exclusive_implement_resume';
 const CLOSED_WORKER_RESUME = 'closed_worker_resume';
 const ACTIONABLE_VERIFICATION_RESUME = 'actionable_verification_resume';
+const ISSUE_UNREADABLE_START_RESUME = 'issue_unreadable_start_resume';
 const TERMINAL_GOAL_EVIDENCE_PATHS = Object.freeze([
   '.pi-glla/active.jsonl',
   '.pi-glla/owner.json',
@@ -787,11 +788,13 @@ function archiveFailedHandoff(root, proof) {
     ? 'repaired-publication'
     : proof.class === EXCLUSIVE_IMPLEMENT_RESUME
       ? 'exclusive-implement-resume'
-      : null;
+      : proof.class === ISSUE_UNREADABLE_START_RESUME
+        ? 'issue-unreadable-start'
+        : null;
   if (!historyName) throw new Error('handoff_archive_failed');
   const historyDirectory = `${RUN_DIR}/history/${historyName}`;
   ensureControllerHistoryDirectory(root, historyDirectory);
-  const archivePath = `${historyDirectory}/${proof.issue}-implement-${proof.handoffDigest}.json`;
+  const archivePath = `${historyDirectory}/${proof.issue}-${proof.step}-${proof.handoffDigest}.json`;
   const target = join(root, archivePath);
   try {
     writeFileSync(target, current.bytes, { flag: 'wx', mode: 0o444 });
@@ -2062,6 +2065,53 @@ function blockedRecoveryIntervention(
 }
 
 
+function inspectUnreadableStartResume({ cwd, checkpoint, run, herdr, allowOwnedLease = false }) {
+  const issue = checkpoint.currentIssue;
+  if (checkpoint.currentStep !== 'start' || checkpoint.issue !== issue
+    || checkpoint.failed?.issue !== issue || checkpoint.failed.step !== 'start'
+    || checkpoint.failed.reasonCode !== 'issue_unreadable'
+    || checkpoint.failed.cleanupReasonCode
+    || (checkpoint.completed?.[String(issue)] ?? []).length !== 0
+    || checkpoint.branch.startsWith(`${issue}-`)
+    || checkpoint.recoveries?.some((entry) =>
+      entry.runId === checkpoint.runId && entry.issue === issue && entry.step === 'start')
+    || checkpoint.consumedDispatch || checkpoint.remediation) {
+    throw new Error('safe_recovery_unproven');
+  }
+  const checkout = currentCheckout(cwd, run);
+  if (!checkout || checkout.branch !== checkpoint.branch || checkout.head !== checkpoint.head) {
+    throw new Error('checkpoint_head_mismatch');
+  }
+  const lease = readControllerLease(cwd);
+  if (lease && !(allowOwnedLease && lease.runId === checkpoint.runId && lease.pid === process.pid)) {
+    throw new Error('controller_lease_held');
+  }
+  const ownership = inspectRecoveryWorkers(checkpoint, herdr);
+  if (ownership.present.length) throw new Error('retained_worker_mismatch');
+  const status = run('git', ['status', '--porcelain', '-z'], { cwd });
+  if (status?.status !== 0 || String(status.stdout ?? '').length) throw new Error('dirty_tree');
+  const handoffPath = `${HANDOFF_DIR}/${issue}-start.json`;
+  const snapshot = readStrictHandoffSnapshot(cwd, handoffPath, issue, 'start');
+  if (snapshot.handoff.status !== 'failed' || snapshot.handoff.intervention !== true
+    || snapshot.handoff.reasonCode !== 'issue_unreadable'
+    || snapshot.handoff.next !== null || snapshot.handoff.artifacts.length !== 0) {
+    throw new Error('invalid_handoff');
+  }
+  const fresh = run('gh', ['issue', 'view', String(issue), '--json', 'number,state'], { cwd });
+  if (fresh?.status !== 0) throw new Error('issue_unreadable');
+  const issueData = parseCommandOutput(fresh);
+  if (issueData?.number !== issue || String(issueData.state).toUpperCase() !== 'OPEN') {
+    throw new Error('issue_unreadable');
+  }
+  return {
+    class: ISSUE_UNREADABLE_START_RESUME,
+    issue, step: 'start', runId: checkpoint.runId,
+    branch: checkout.branch, head: checkout.head,
+    handoffPath, handoffDigest: snapshot.digest, handoffIdentity: snapshot.identity,
+    handoff: snapshot.handoff,
+  };
+}
+
 export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr = defaultHerdr(run, cwd) } = {}) {
   let checkpoint = null;
   const blocked = (reasonCode, recoveryEvidenceReasonCode = null, allowStandalone = false) => {
@@ -2233,6 +2283,15 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
     }
     const currentWorkerPresent = ownership.present.some((worker) =>
       worker.issue === data.currentIssue && worker.step === data.currentStep);
+    let unreadableStart = null;
+    if (!recovery && data.currentStep === 'start'
+      && data.failed?.reasonCode === 'issue_unreadable') {
+      try {
+        unreadableStart = inspectUnreadableStartResume({ cwd, checkpoint: data, run, herdr });
+      } catch (error) {
+        return blocked('issue_unreadable', error.message);
+      }
+    }
     const closedWorkerResume = !recovery
       && REMEDIABLE_STEPS.includes(data.currentStep)
       && data.failed?.issue === data.currentIssue
@@ -2258,7 +2317,7 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
       })
       : null;
     const actionableVerificationResume = actionableVerification?.status === 'repairable';
-    if (!consumedDispatch && !closedWorkerResume && !actionableVerificationResume
+    if (!consumedDispatch && !unreadableStart && !closedWorkerResume && !actionableVerificationResume
       && !repairedPublication && !exclusiveResume && (
       (data.failed?.intervention && !validatedPassedWorkerHandoff(cwd, data.currentIssue, data.currentStep, run))
       || handoff?.intervention || handoff?.status === 'blocked'
@@ -2276,15 +2335,25 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
     const state = consumedDispatch ? 'consumed-dispatch-available'
       : recovery ? 'recovery-consumed'
         : exhausted || repairedPublication || exclusiveResume
-          || closedWorkerResume || actionableVerificationResume
+          || unreadableStart || closedWorkerResume || actionableVerificationResume
           ? 'loop-recovery-available'
           : 'resumable';
     return {
-      state, issues: data.issues, runId: data.runId, branch: linked,
+      state, issues: data.issues, runId: data.runId, branch: unreadableStart?.branch ?? linked,
       issue: data.currentIssue, step: data.currentStep,
       reasonCode: data.failed?.reasonCode ?? null,
       cleanupReasonCode: data.failed?.cleanupReasonCode ?? null,
-      ...(repairedPublication ? {
+      ...(unreadableStart ? {
+        recoveryClass: unreadableStart.class,
+        recoveryEvidence: {
+          revision: data.revision,
+          failure: data.failed,
+          head: unreadableStart.head,
+          branch: unreadableStart.branch,
+          handoffDigest: unreadableStart.handoffDigest,
+          handoffIdentity: unreadableStart.handoffIdentity,
+        },
+      } : repairedPublication ? {
         recoveryClass: repairedPublication.class,
         recoveryEvidence: {
           ownerId: repairedPublication.ownerId,
@@ -4187,6 +4256,7 @@ export function runExecute({
   let recoveryStep = null;
   let recoveryBranch = null;
   let repairedRecoveryClass = null;
+  let recoveryEvidence = null;
   let consumedDispatchInvocationId = null;
   const bareRecovery = parsedArgs.defaultBacklog && !parsedArgs.recoverStale && !parsedArgs.retainWorker;
   const explicitConsumedDispatch = !parsedArgs.defaultBacklog && (
@@ -4204,6 +4274,13 @@ export function runExecute({
       stderr: 'consumed_dispatch_requires_parameter_free\n',
     };
   }
+  if (!parsedArgs.defaultBacklog && existingRun?.currentStep === 'start'
+    && (existingRun.failed?.reasonCode === 'issue_unreadable'
+      || existingRun.recoveries?.some((entry) =>
+        entry.runId === existingRun.runId && entry.issue === existingRun.currentIssue
+        && entry.step === 'start' && entry.source?.class === ISSUE_UNREADABLE_START_RESUME))) {
+    return { status: 1, stdout: '', stderr: 'issue_unreadable_start_requires_parameter_free\n' };
+  }
   if (parsedArgs.defaultBacklog) {
     const discovery = discoverRecovery({ cwd, run, herdr: herdrApi });
     if (discovery.state === 'blocked') {
@@ -4218,6 +4295,7 @@ export function runExecute({
       recoveryStep = discovery.step;
       recoveryBranch = discovery.branch;
       repairedRecoveryClass = discovery.recoveryClass ?? null;
+      recoveryEvidence = discovery.recoveryEvidence ?? null;
       consumedDispatchInvocationId = discovery.consumedDispatchInvocationId ?? null;
     } else {
       let specified;
@@ -4656,7 +4734,40 @@ export function runExecute({
       if (issue !== recoveryIssue || step !== recoveryStep) {
         throw new Error('checkpoint_identity_mismatch');
       }
-      if (repairedRecoveryClass === CLOSED_WORKER_RESUME) {
+      if (repairedRecoveryClass === ISSUE_UNREADABLE_START_RESUME) {
+        const proof = inspectUnreadableStartResume({
+          cwd, checkpoint: runState, run, herdr: herdrApi, allowOwnedLease: true,
+        });
+        if (step !== 'start' || proof.branch !== recoveryBranch
+          || proof.head !== checkpointHead
+          || runState.revision !== recoveryEvidence?.revision
+          || JSON.stringify(runState.failed) !== JSON.stringify(recoveryEvidence?.failure)
+          || proof.handoffDigest !== recoveryEvidence?.handoffDigest
+          || JSON.stringify(proof.handoffIdentity) !== JSON.stringify(recoveryEvidence?.handoffIdentity)) {
+          throw new Error('invalid_handoff');
+        }
+        const archive = archiveFailedHandoff(cwd, proof);
+        runState.recoveries ||= [];
+        runState.recoveries.push({
+          runId: runState.runId,
+          issue,
+          step,
+          invocationId: randomUUID(),
+          consumedAt: new Date().toISOString(),
+          source: {
+            class: proof.class,
+            head: proof.head,
+            branch: proof.branch,
+            handoffArchive: archive,
+          },
+          failure: structuredClone(runState.failed),
+          handoff: proof.handoff,
+          disposition: 'consumed',
+        });
+        runState.failed = null;
+        persistRunStateWithHeadCas(runState, cwd, checkpointHead);
+        recoveryDispatch = `${issue}:${step}`;
+      } else if (repairedRecoveryClass === CLOSED_WORKER_RESUME) {
         if (!REMEDIABLE_STEPS.includes(step)
           || runState.recoveries?.some((entry) =>
             entry.runId === runState.runId && entry.issue === issue && entry.step === step)) {

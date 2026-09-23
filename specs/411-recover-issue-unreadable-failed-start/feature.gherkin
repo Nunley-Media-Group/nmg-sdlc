@@ -1,0 +1,40 @@
+**Issue**: #411
+**Date**: 2026-09-22
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/374-recover-bounded-automatic-delivery-stops-without-loops/
+
+Feature: Recover issue-unreadable failed START after credentials return
+  An original START failure may be retried once only when its evidence and restored issue access are proven.
+
+  @SCN001 @regression
+  Scenario: Credentials restored without mutation
+    Given an exact clean original branch and HEAD with no START branch mutation or live worker
+    And the current run has a valid failed intervention START handoff with reason issue_unreadable
+    When a fresh read of that issue succeeds after prior credential failure
+    Then discovery reports a bounded issue_unreadable_start_resume without changing evidence
+
+  @SCN002 @regression
+  Scenario: Consume exactly one ordinary START redispatch
+    Given the original START failure remains exact under the controller lease
+    When parameter-free execute resumes
+    Then the failed handoff is archived byte-for-byte and a run-bound invocation is durably consumed
+    And the normal START worker is dispatched once without any fabricated passed handoff
+
+  @SCN003 @regression
+  Scenario: Unsafe or stale proof cannot dispatch
+    Given the handoff is malformed or changed, the issue read fails, branch or HEAD moves, the tree is dirty, a START branch exists, another worker or foreign lock is present, or the run identity differs
+    When discovery or execute evaluates the retry
+    Then it remains blocked without another worker or substituted success evidence
+
+  @SCN004 @regression
+  Scenario: Failed redispatch stays consumed
+    Given a consumed START retry writes another failed handoff
+    When recovery discovery runs again
+    Then it remains blocked and preserves the original archive and invocation identity
+
+  @SCN005 @regression
+  Scenario: Unrelated recovery remains unchanged
+    Given a different failed step or a passed START handoff
+    When recovery is considered
+    Then existing recovery and settlement behavior remains unchanged
