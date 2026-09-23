@@ -380,10 +380,49 @@ function reportedChecks(pr, head, required) {
   return checks;
 }
 
+function expectedCheckNames(pr, head, url, base) {
+  const match = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/\d+\/?$/.exec(url ?? '');
+  if (!match) fail('pr_readiness_failed', { pr, head, detail: 'PR repository identity unavailable' });
+  const path = `repos/${match[1]}/${match[2]}`;
+  const rules = readJson(run('gh', ['api', `${path}/rules/branches/${encodeURIComponent(base)}`]), 'pr_readiness_failed');
+  if (!Array.isArray(rules)) fail('pr_readiness_failed', { pr, head, detail: 'branch rules unavailable' });
+  const expected = new Set();
+  for (const rule of rules) {
+    if (rule.type !== 'required_status_checks') continue;
+    if (!Array.isArray(rule.parameters?.required_status_checks)) {
+      fail('pr_readiness_failed', { pr, head, detail: 'required branch rules malformed' });
+    }
+    for (const check of rule.parameters.required_status_checks) {
+      if (typeof check.context !== 'string' || !check.context) {
+        fail('pr_readiness_failed', { pr, head, detail: 'required check context malformed' });
+      }
+      expected.add(check.context);
+    }
+  }
+  const protection = run('gh', [
+    'api', `${path}/branches/${encodeURIComponent(base)}/protection/required_status_checks`,
+  ]);
+  if (protection.status === 0) {
+    let policy;
+    try { policy = JSON.parse(protection.stdout); } catch {
+      fail('pr_readiness_failed', { pr, head, detail: 'branch protection malformed' });
+    }
+    if (!Array.isArray(policy.contexts) || !Array.isArray(policy.checks)) {
+      fail('pr_readiness_failed', { pr, head, detail: 'branch protection checks malformed' });
+    }
+    for (const name of policy.contexts) expected.add(name);
+    for (const check of policy.checks) expected.add(check.context);
+  } else if (protection.status !== 1
+    || !/Branch not protected/.test(`${protection.stdout || ''} ${protection.stderr || ''}`)) {
+    fail('pr_readiness_failed', { pr, head, detail: 'branch protection unavailable', stderr: protection.stderr || '' });
+  }
+  return expected;
+}
+
 function publicationSnapshot(pr, branch, base, head) {
   const details = readJson(run('gh', [
     'pr', 'view', String(pr), '--json',
-    'number,state,headRefName,headRefOid,baseRefName,mergeStateStatus',
+    'number,state,headRefName,headRefOid,baseRefName,mergeStateStatus,url',
   ]), 'pr_readiness_failed');
   if (details.number !== pr || details.state !== 'OPEN'
     || details.headRefName !== branch || details.baseRefName !== base
@@ -392,8 +431,8 @@ function publicationSnapshot(pr, branch, base, head) {
     fail('pr_head_changed', { pr, head, observed: details });
   }
 
-  // Empty required-check output alone is not completion; unfiltered checks also
-  // identify CI still running when the required subset has already succeeded.
+  // The ruleset may require a check before it has reported to this PR.
+  const expected = expectedCheckNames(pr, head, details.url, base);
   const requiredChecks = reportedChecks(pr, head, true);
   const checks = [...requiredChecks, ...reportedChecks(pr, head, false)];
   const failed = checks.find((check) => check.bucket === 'fail'
@@ -402,7 +441,8 @@ function publicationSnapshot(pr, branch, base, head) {
   const unknown = checks.find((check) => !PASSING_CHECK_STATES.has(check.state)
     && !PENDING_CHECK_STATES.has(check.state));
   if (unknown) fail('pr_readiness_failed', { pr, head, detail: 'unknown PR check state', check: unknown });
-  const pending = checks.length === 0 || checks.some((check) => PENDING_CHECK_STATES.has(check.state));
+  const pending = checks.length === 0 || checks.some((check) => PENDING_CHECK_STATES.has(check.state))
+    || [...expected].some((name) => !checks.some((check) => check.name === name));
   if (!['CLEAN', 'UNKNOWN', 'BLOCKED', 'UNSTABLE'].includes(details.mergeStateStatus)
     || (!pending && ['BLOCKED', 'UNSTABLE'].includes(details.mergeStateStatus))) {
     fail('pr_merge_blocked', { pr, head, mergeStateStatus: details.mergeStateStatus });

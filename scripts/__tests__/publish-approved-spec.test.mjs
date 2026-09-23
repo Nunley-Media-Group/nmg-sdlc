@@ -113,6 +113,24 @@ if [ "$1" = "pr" ] && [ "$2" = "create" ]; then
   printf '%s\\n' 'https://github.com/example/repo/pull/99'
   exit 0
 fi
+if [ "$1" = "api" ]; then
+  case "$2" in
+    */rules/branches/main)
+      if [ "$GH_EXPECTED_MISSING" = "1" ] && [ "$GH_PROTECTED" != "1" ]; then
+        printf '%s\\n' '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"guardrails"}]}}]'
+      else
+        printf '%s\\n' '[]'
+      fi
+      exit 0 ;;
+    */protection/required_status_checks)
+      if [ "$GH_PROTECTED" = "1" ]; then
+        printf '%s\\n' '{"contexts":["guardrails"],"checks":[{"context":"guardrails"}]}'
+        exit 0
+      fi
+      printf '%s\\n' '{"message":"Branch not protected"}'
+      exit 1 ;;
+  esac
+fi
 if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   count=0
   if [ -f .pr-view-count ]; then count=$(cat .pr-view-count); fi
@@ -123,9 +141,10 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   if [ "$GH_POLICY_UNSTABLE" = "1" ]; then state=UNSTABLE; fi
   if [ "$GH_PENDING_CI" = "1" ] && [ "$count" -lt 3 ]; then state=UNSTABLE; fi
   if [ "$GH_OPTIONAL_PENDING" = "1" ] && [ "$count" -lt 3 ]; then state=UNSTABLE; fi
+  if [ "$GH_EXPECTED_MISSING" = "1" ] && [ "$count" -eq 2 ]; then state=UNSTABLE; fi
   sha=$(git rev-parse HEAD)
   if [ "$GH_DRIFT_HEAD" = "1" ] && [ "$count" -ge 2 ]; then sha=0000000000000000000000000000000000000000; fi
-  printf '{"number":99,"state":"OPEN","headRefName":"42-add-x","headRefOid":"%s","baseRefName":"main","mergeStateStatus":"%s"}\\n' "$sha" "$state"
+  printf '{"number":99,"state":"OPEN","headRefName":"42-add-x","headRefOid":"%s","baseRefName":"main","mergeStateStatus":"%s","url":"https://github.com/example/repo/pull/99"}\\n' "$sha" "$state"
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
@@ -138,11 +157,23 @@ if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
     printf '%s\\n' '[]'
     exit 1
   fi
+  if [ "$GH_EXPECTED_MISSING" = "1" ] && [ "$count" -eq 1 ] && [ "$4" = "--required" ]; then
+    printf '%s\\n' '[]'
+    exit 1
+  fi
   state=SUCCESS
   bucket=pass
   if [ "$GH_PENDING_CI" = "1" ] && [ "$count" -eq 2 ]; then state=PENDING; bucket=pending; fi
   if [ "$GH_OPTIONAL_PENDING" = "1" ] && [ "$4" != "--required" ] && [ "$count" -lt 3 ]; then state=PENDING; bucket=pending; fi
   if [ "$GH_FAILED_CI" = "1" ]; then state=FAILURE; bucket=fail; fi
+  if [ "$GH_EXPECTED_MISSING" = "1" ] && [ "$count" -ge 2 ]; then
+    state=SUCCESS
+    bucket=pass
+    if [ "$count" -eq 2 ]; then state=PENDING; bucket=pending; fi
+    printf '[{"name":"guardrails","state":"%s","bucket":"%s"}]\\n' "$state" "$bucket"
+    if [ "$bucket" = "pending" ]; then exit 8; fi
+    exit 0
+  fi
   printf '[{"name":"contribution","state":"%s","bucket":"%s"}]\\n' "$state" "$bucket"
   if [ "$bucket" = "pending" ]; then exit 8; fi
   if [ "$bucket" = "fail" ]; then exit 1; fi
@@ -878,6 +909,23 @@ describe('publish-approved-spec', () => {
     expect(result.status).toBe(0);
     const log = fs.readFileSync(path.join(root, '.gh-log'), 'utf8');
     expect(log.match(/pr checks 99 --json/g)).toHaveLength(4);
+    expect(log.match(/pr merge 99/g)).toHaveLength(1);
+  });
+
+  it.each([
+    ['ruleset', {}],
+    ['branch protection', { GH_PROTECTED: '1' }],
+  ])('does not merge a CLEAN PR while a %s check is not reported', (_policy, flags) => {
+    const { root, env } = makeRepo();
+    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
+    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+    expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
+    const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], {
+      ...env, GH_EXPECTED_MISSING: '1', ...flags,
+    });
+    expect(result.status).toBe(0);
+    const log = fs.readFileSync(path.join(root, '.gh-log'), 'utf8');
+    expect(log.match(/pr checks 99 --required/g)).toHaveLength(4);
     expect(log.match(/pr merge 99/g)).toHaveLength(1);
   });
 
