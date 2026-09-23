@@ -122,6 +122,7 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   if [ "$GH_POLICY_BLOCK" = "1" ]; then state=BLOCKED; fi
   if [ "$GH_POLICY_UNSTABLE" = "1" ]; then state=UNSTABLE; fi
   if [ "$GH_PENDING_CI" = "1" ] && [ "$count" -lt 3 ]; then state=UNSTABLE; fi
+  if [ "$GH_OPTIONAL_PENDING" = "1" ] && [ "$count" -lt 3 ]; then state=UNSTABLE; fi
   sha=$(git rev-parse HEAD)
   if [ "$GH_DRIFT_HEAD" = "1" ] && [ "$count" -ge 2 ]; then sha=0000000000000000000000000000000000000000; fi
   printf '{"number":99,"state":"OPEN","headRefName":"42-add-x","headRefOid":"%s","baseRefName":"main","mergeStateStatus":"%s"}\\n' "$sha" "$state"
@@ -140,6 +141,7 @@ if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
   state=SUCCESS
   bucket=pass
   if [ "$GH_PENDING_CI" = "1" ] && [ "$count" -eq 2 ]; then state=PENDING; bucket=pending; fi
+  if [ "$GH_OPTIONAL_PENDING" = "1" ] && [ "$4" != "--required" ] && [ "$count" -lt 3 ]; then state=PENDING; bucket=pending; fi
   if [ "$GH_FAILED_CI" = "1" ]; then state=FAILURE; bucket=fail; fi
   printf '[{"name":"contribution","state":"%s","bucket":"%s"}]\\n' "$state" "$bucket"
   if [ "$bucket" = "pending" ]; then exit 8; fi
@@ -861,6 +863,20 @@ describe('publish-approved-spec', () => {
     expect(result.status).toBe(0);
     const log = fs.readFileSync(path.join(root, '.gh-log'), 'utf8');
     expect(log.match(/pr checks 99 --required/g)).toHaveLength(4);
+    expect(log.match(/pr checks 99 --json/g)).toHaveLength(4);
+    expect(log.match(/pr merge 99/g)).toHaveLength(1);
+  });
+
+  it('keeps observing unfiltered pending CI after required checks pass', () => {
+    const { root, env } = makeRepo();
+    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
+    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+    expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
+    const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], {
+      ...env, GH_OPTIONAL_PENDING: '1',
+    });
+    expect(result.status).toBe(0);
+    const log = fs.readFileSync(path.join(root, '.gh-log'), 'utf8');
     expect(log.match(/pr checks 99 --json/g)).toHaveLength(4);
     expect(log.match(/pr merge 99/g)).toHaveLength(1);
   });

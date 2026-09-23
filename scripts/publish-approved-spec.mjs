@@ -392,10 +392,10 @@ function publicationSnapshot(pr, branch, base, head) {
     fail('pr_head_changed', { pr, head, observed: details });
   }
 
-  // An empty required-check result is not proof that CI is complete. Observe
-  // every reported check until GitHub has both successful CI and CLEAN readiness.
+  // Empty required-check output alone is not completion; unfiltered checks also
+  // identify CI still running when the required subset has already succeeded.
   const requiredChecks = reportedChecks(pr, head, true);
-  const checks = requiredChecks.length ? requiredChecks : reportedChecks(pr, head, false);
+  const checks = [...requiredChecks, ...reportedChecks(pr, head, false)];
   const failed = checks.find((check) => check.bucket === 'fail'
     || ['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED'].includes(check.state));
   if (failed) fail('required_check_failed', { pr, head, check: failed });
