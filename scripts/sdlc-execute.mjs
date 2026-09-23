@@ -2802,6 +2802,8 @@ function reconcileDeliveredFailure(runData, checkpointBytes, root, run, herdr) {
     let lock;
     try {
       lock = openSync(lockPath, 'wx');
+      const runStat = lstatSync(runPath);
+      if (!runStat.isFile() || runStat.isSymbolicLink()) return false;
       if (!readFileSync(runPath).equals(checkpointBytes)) return false;
       if (readControllerLease(rootPath)?.runId !== runData.runId) return false;
       const currentBranch = run('git', ['branch', '--show-current'], { cwd: rootPath });
