@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.24.9] - 2026-09-24
+
+### Fixed
+
+- Observe every review sibling through idle/done before exact host-receipt reads; allow 30 one-second receipt rechecks, retain unproven evidence without replay, and preserve one owner-bound whole-stage replacement for proven prohibited access (#420).
+
 ## [3.24.8] - 2026-09-24
 
 ### Fixed
@@ -17,7 +23,6 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 - Wait through stale `UNSTABLE` mergeability on an exact-head spec PR after passing CI, requiring two fresh passing `CLEAN` observations before the guarded squash merge; preserve explicit policy-block and draft rejection (#429).
 - Recover one owner-bound approved-spec start after another worktree releases its branch, reconcile squash-merged default history without force, and bind its synchronized head before implementation; resume exact pre-publication dirty work and report failed START/IMPLEMENT proofs with one owner-safe re-probe instead of generic blockers, without weakening publication or exact-head gates (#418).
 - Treat coherently different prior smoke verification identities or queues as retained historical evidence instead of blocking a fresh registered attempt; keep same-attempt malformed recovery fail-closed (#423).
-- Observe every review sibling through idle/done before exact host-receipt reads; allow 30 one-second receipt rechecks, retain unproven evidence without replay, and preserve one owner-bound whole-stage replacement for proven prohibited access (#420).
 
 ## [3.24.5] - 2026-09-23
 
