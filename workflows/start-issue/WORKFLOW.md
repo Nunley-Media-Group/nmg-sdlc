@@ -6,6 +6,7 @@ description: "Select an executable GitHub issue, create a linked feature branch,
 # Start Issue
 
 Automated start for issue #N. No user questions, no pickers, no gates. Missing preconditions produce failed handoff with intervention.
+When reusing an old issue branch after a squash-merged approved spec, require the managed script to prove default/spec provenance, reconcile only the authorized history without force, synchronize the exact branch head upstream, and include the actual branch and full head in a passed handoff. A branch checked out in another worktree or an unproven merge remains a failed handoff; never detach, reset, force-checkout, or remove that worktree.
 
 ## Arguments
 

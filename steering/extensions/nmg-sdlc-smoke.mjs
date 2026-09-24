@@ -738,6 +738,16 @@ export function inspectLegacySmokeFailure(readFile, { request, scope, issues, pl
     ? executeCommands[0].summary.match(/^sdlc-execute run ((?:#[1-9]\d*)(?: #[1-9]\d*)*)$/)?.[1]
       .split(" ").map((token) => Number(token.slice(1)))
     : null;
+  const priorVerification = failedRequest?.verification;
+  const coherentVerification = priorVerification === undefined || (
+    typeof priorVerification?.runId === "string" && priorVerification.runId.length > 0
+    && priorVerification.issue === scope.issue
+    && priorVerification.specPath === scope.specPath
+  );
+  // This exact provider stop returns before cloning or writing a recovery owner.
+  // Other modern failures need their retained owner; do not infer no dispatch from a changed head.
+  const provenPrelaunch = failedResult?.summary === "nmg-sdlc-smoke legacy recovery evidence invalid"
+    && Array.isArray(failedResult.evidence) && failedResult.evidence.length === 0;
   const attributable = artifact?.schemaVersion === 1
     && artifact.ceiling === "Fail"
     && artifact.coverage?.complete === true
@@ -748,7 +758,7 @@ export function inspectLegacySmokeFailure(readFile, { request, scope, issues, pl
     && candidate.effectiveStatus === "failed"
     && failedRequest?.schemaVersion === 1
     && failedRequest.validationId === request.validationId
-    && failedRequest.verification === undefined
+    && coherentVerification
     && exactRealPath(failedRequest.projectRoot, scope.projectRoot)
     && failedResult?.schemaVersion === 1
     && failedResult.status === "failed"
@@ -759,7 +769,7 @@ export function inspectLegacySmokeFailure(readFile, { request, scope, issues, pl
       failedRequest.identity?.validationConfigHash].every((value) => (
       typeof value === "string" && /^sha256:[0-9a-f]{64}$/.test(value)
     ));
-  if (attributable && (
+  if (attributable && (priorVerification === undefined || provenPrelaunch) && (
     !equal(verificationIdentity(failedRequest.identity), verificationIdentity(request.identity))
     || (oldQueue?.length > 0 && new Set(oldQueue).size === oldQueue.length && !equal(oldQueue, issues))
   )) return { presence: "absent" };

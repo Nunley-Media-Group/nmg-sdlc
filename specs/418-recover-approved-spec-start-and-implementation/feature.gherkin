@@ -1,0 +1,68 @@
+**Issue**: #418
+**Date**: 2026-09-23
+**Status**: Approved
+**Author**: NMG
+
+Feature: Recover an approved-spec start and pre-publication implementation
+  Only exact owner-bound evidence permits a single normal worker recovery.
+
+  @SCN001 @regression
+  Scenario: Worktree releases old issue branch after failed checkout
+    Given start failed with branch_checkout_failed at a clean exact default checkpoint and another worktree owns the issue branch
+    When that worktree releases the branch and discovery proves the unique run owner, strict handoff and absent worker
+    Then one start recovery archives the failed handoff and dispatches the normal worker
+    And unchanged ownership or consumed recovery remains blocked
+
+  @SCN002 @regression
+  Scenario: Squash-merged approved spec has divergent old branch
+    Given approved spec-only PR history is on default but the old issue branch is not its ancestor
+    When start proves source and merges approved default without rewriting the old branch
+    Then exact merge history and in-scope tree are proven and the branch is synchronized upstream without force
+    And its passed handoff records the actual branch and head
+
+  @SCN003 @regression
+  Scenario: Start advances the controller before implementation
+    Given start passed on an exact synchronized issue head different from its default checkpoint
+    When execute accepts that handoff
+    Then it atomically records the issue branch head before implement dispatch
+    And a stale, unpushed or mismatched head blocks dispatch
+
+  @SCN004 @regression
+  Scenario: Preserved dirty implementation after pre-publication rejection
+    Given two exact pre-existing reconciliation commits are now synchronized and no implementation commit exists
+    And the unique owner preserved nonempty authorized dirty implementation and a failed handoff
+    When discovery reproves the scope and consumes one recovery
+    Then the normal implement worker binds, commits, pushes and hands off the preserved work
+    And a second consumption cannot replay the dispatch
+
+  @SCN005 @safety
+  Scenario: Ambiguous source or ownership preserves evidence
+    Given a changed head, conflicting worktree, different PR, ambiguous owner, non-exact history or denied dirty path
+    When recovery is inspected
+    Then checkpoint, handoff and evidence remain unchanged
+    And no force push, branch takeover or worker dispatch occurs
+
+  @SCN006 @regression
+  Scenario: A changeable start or implement blocker reports its proof and one action
+    Given START is blocked by an identified other worktree or IMPLEMENT by an exact unsynchronized reconciliation head
+    When the controller stops
+    Then its output names the observed branch/head or owner and the failed proof
+    And it offers only a bounded owner-safe release or non-force synchronization action
+    When that external fact changes and discovery re-probes once
+    Then the same issue resumes automatically through the normal worker if exact authority is proven
+
+  @SCN007 @safety
+  Scenario: Ambiguous or consumed recovery reports the missing proof without replay
+    Given the branch owner, source PR, head, dirty scope or prior dispatch is ambiguous or consumed
+    When recovery is classified or the controller stops
+    Then the output identifies the missing proof and preserves checkpoint and handoff
+    And it does not prompt for an unsafe replay, force push, worktree takeover or provider bypass
+
+  @SCN008 @acceptance
+  Scenario: Same retained PennyScan issue proves merged recovery end to end
+    Given PennyScan issue 217 retains its failed implement checkpoint and preserved dirty work
+    When candidate discovery runs read-only from the exact PennyScan root
+    Then the classifier reports an exact recovery or named missing proof without mutating evidence
+    When the #418 PR and a separate registered smoke pass and the clean merged plugin is pinned
+    Then the existing Herdr OMP controller resumes issue 217 through a new exact-head merged implementation PR and closed issue
+    And issue 218 is not attempted first
