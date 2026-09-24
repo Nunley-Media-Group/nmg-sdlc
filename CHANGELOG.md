@@ -10,6 +10,10 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Fixed
+
+- Recover one owner-bound approved-spec start after another worktree releases its branch, reconcile squash-merged default history without force, and bind its synchronized head before implementation; permit one exact pre-publication dirty implementation recovery without weakening publication or exact-head gates (#418).
+
 ## [3.24.5] - 2026-09-23
 
 ### Fixed

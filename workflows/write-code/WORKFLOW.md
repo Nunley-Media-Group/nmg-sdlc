@@ -74,6 +74,8 @@ If a File(s) hint is incomplete or absent, continue from Acceptance and reposito
 5. Escalate with `intervention:true` only when available tools and authorized repairs cannot resolve a genuine prerequisite: missing approved scope, required credentials or external evidence, conflicting safety authority, or publication failure. Name the exact missing prerequisite and attempted resolutions, not merely “missing policy” or “missing code”. Do not publish partial work as success.
 
 Repair does not waive task completion, simplification, verification, or the commit/push/clean-tree/upstream-equality gates below. A failed handoff never advances to review1.
+On an owner-bound pre-publication recovery, the synchronized reconciliation commits are already upstream and are not an implementation publication. Preserve authorized dirty work; investigate completed acceptance bullets before editing, then use the same scope probe, subject bind, exact observed-path staging, single commit, ordinary push, reconciliation and handoff gates below. Never recommit the reconciliation merge, force-push it, reset dirty work, or treat a recovery dispatch as permission to skip publication proof.
+
 
 
 ## Pre-Publication Simplification

@@ -46,6 +46,7 @@ import {
 } from './sdlc-safe-recoveries.mjs';
 import { provePublicationLabelRepair } from './sdlc-upgrade.mjs';
 import { runReviewMain } from './sdlc-review-main.mjs';
+import { slugFromTitle } from './start-issue.mjs';
 
 import {
   createIssueDependencyClient,
@@ -600,6 +601,8 @@ const EXCLUSIVE_IMPLEMENT_RESUME = 'exclusive_implement_resume';
 const CLOSED_WORKER_RESUME = 'closed_worker_resume';
 const ACTIONABLE_VERIFICATION_RESUME = 'actionable_verification_resume';
 const ISSUE_UNREADABLE_START_RESUME = 'issue_unreadable_start_resume';
+const BRANCH_CHECKOUT_FAILED_START_RESUME = 'branch_checkout_failed_start_resume';
+const PREPUBLICATION_IMPLEMENT_RESUME = 'prepublication_implement_resume';
 const TERMINAL_GOAL_EVIDENCE_PATHS = Object.freeze([
   '.pi-glla/active.jsonl',
   '.pi-glla/owner.json',
@@ -790,7 +793,11 @@ function archiveFailedHandoff(root, proof) {
       ? 'exclusive-implement-resume'
       : proof.class === ISSUE_UNREADABLE_START_RESUME
         ? 'issue-unreadable-start'
-        : null;
+        : proof.class === BRANCH_CHECKOUT_FAILED_START_RESUME
+          ? 'branch-checkout-failed-start'
+          : proof.class === PREPUBLICATION_IMPLEMENT_RESUME
+            ? 'prepublication-implement-resume'
+            : null;
   if (!historyName) throw new Error('handoff_archive_failed');
   const historyDirectory = `${RUN_DIR}/history/${historyName}`;
   ensureControllerHistoryDirectory(root, historyDirectory);
@@ -2008,6 +2015,146 @@ export function inspectExclusiveImplementResume({
     discrepancies: probe.binding.discrepancies,
   };
 }
+
+export function inspectPrepublicationImplementResume({
+  cwd = process.cwd(), checkpoint, run = defaultRun, allowOwnedLease = false,
+} = {}) {
+  const root = realpathSync(cwd);
+  const issue = checkpoint?.currentIssue;
+  if (!validRunIdentity(checkpoint) || checkpoint.projectRoot !== root
+    || checkpoint.currentStep !== 'implement'
+    || checkpoint.failed?.issue !== issue || checkpoint.failed.step !== 'implement'
+    || checkpoint.failed.reasonCode !== 'implementation_failed'
+    || checkpoint.failed.cleanupReasonCode || checkpoint.consumedDispatch
+    || Object.keys(checkpoint.workers || {}).length
+    || (checkpoint.absentWorkers || []).length
+    || checkpoint.recoveries?.some((entry) =>
+      entry.runId === checkpoint.runId && entry.issue === issue && entry.step === 'implement')) {
+    throw new Error('prepublication_implement_unproven');
+  }
+  const checkout = currentCheckout(root, run);
+  if (!checkout?.branch.startsWith(`${issue}-`) || checkout.head === checkpoint.head) {
+    throw new Error('checkpoint_head_mismatch');
+  }
+  const spec = specStatus(issue, root);
+  if (!spec.approved || !spec.dir) throw new Error(spec.reasonCode || 'spec_not_approved');
+  const specRelative = isAbsolute(spec.dir)
+    ? relative(root, spec.dir).split('\\').join('/') : spec.dir.split('\\').join('/');
+  const probe = probePublicationScope({
+    cwd: root, issue, step: 'implement', spec: specRelative,
+    controllerRunId: checkpoint.runId, run,
+  });
+  const required = REQUIRED_SPEC_FILES.map((file) => `${specRelative}/${file}`);
+  if (!probe.passed || probe.ownerId !== checkpoint.runId
+    || probe.scope?.mutationPolicy !== 'outcome'
+    || required.some((path) => !probe.scope.readOnlyPaths?.includes(path))
+    || probe.binding.actualBranch !== checkout.branch
+    || probe.binding.recoveryOwner?.branch !== checkout.branch
+    || probe.binding.discrepancies.some(({ field }) => field !== 'branch')) {
+    throw new Error('publication_scope_unproven');
+  }
+  const handoffPath = `${HANDOFF_DIR}/${issue}-implement.json`;
+  const snapshot = readStrictHandoffSnapshot(root, handoffPath, issue, 'implement');
+  if (snapshot.handoff.status !== 'failed' || snapshot.handoff.intervention !== true
+    || snapshot.handoff.reasonCode !== 'implementation_failed'
+    || snapshot.handoff.next !== null) throw new Error('invalid_handoff');
+  const parentsResult = run('git', ['rev-list', '--parents', '-n', '1', checkout.head], { cwd: root });
+  const parents = String(parentsResult?.stdout || '').trim().split(/\s+/);
+  if (!commandSucceeded(parentsResult) || parents.length !== 3
+    || parents[0] !== checkout.head || parents[2] !== checkpoint.head
+    || run('git', ['diff', '--quiet', checkpoint.head, checkout.head], { cwd: root })?.status !== 0) {
+    throw new Error('prepublication_history_unproven');
+  }
+  const defaultResult = run('gh', [
+    'repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name',
+  ], { cwd: root });
+  const defaultBranch = commandSucceeded(defaultResult) ? String(defaultResult.stdout || '').trim() : '';
+  const listed = run('gh', [
+    'pr', 'list', '--head', checkout.branch, '--base', defaultBranch, '--state', 'all',
+    '--json', 'number,state,headRefOid', '--limit', '100',
+  ], { cwd: root });
+  const matches = parseCommandOutput(listed);
+  const eligible = Array.isArray(matches) ? matches.filter((row) =>
+    row?.state === 'MERGED' && row.headRefOid === parents[1]
+    && Number.isSafeInteger(row.number) && row.number > 0) : [];
+  if (!defaultBranch || eligible.length !== 1) throw new Error('prepublication_source_unproven');
+  const pr = parseCommandOutput(run('gh', [
+    'pr', 'view', String(eligible[0].number),
+    '--json', 'number,title,state,headRefName,headRefOid,baseRefName,headRepository,headRepositoryOwner,mergeCommit,files',
+  ], { cwd: root }));
+  const repository = parseCommandOutput(run('gh', [
+    'repo', 'view', '--json', 'owner,name',
+  ], { cwd: root }));
+  const paths = pr?.files?.map((file) => file?.path);
+  if (pr?.number !== eligible[0].number || pr.state !== 'MERGED'
+    || pr.title !== `docs: approve spec for #${issue}`
+    || pr.headRefName !== checkout.branch || pr.headRefOid !== parents[1]
+    || pr.baseRefName !== defaultBranch
+    || typeof repository?.owner?.login !== 'string'
+    || pr.headRepositoryOwner?.login !== repository.owner.login
+    || pr.headRepository?.name !== repository.name
+    || !/^[0-9a-f]{40}$/i.test(pr.mergeCommit?.oid || '')
+    || run('git', ['merge-base', '--is-ancestor', pr.mergeCommit.oid, checkpoint.head], { cwd: root })?.status !== 0
+    || !Array.isArray(paths) || paths.length !== required.length
+    || new Set(paths).size !== required.length
+    || required.some((path) => !paths.includes(path))) {
+    throw new Error('prepublication_source_unproven');
+  }
+  const remote = run('git', ['ls-remote', '--heads', 'origin', checkout.branch], { cwd: root });
+  if (!commandSucceeded(remote)
+    || String(remote.stdout || '').trim() !== `${checkout.head}\trefs/heads/${checkout.branch}`) {
+    throw new Error('upstream_not_synchronized');
+  }
+  const lease = readControllerLease(root);
+  if (lease && !(allowOwnedLease && lease.runId === checkpoint.runId && lease.pid === process.pid)) {
+    throw new Error('controller_lease_held');
+  }
+  if ([PREPUBLICATION_IMPLEMENT_RESUME, EXCLUSIVE_IMPLEMENT_RESUME, REPAIRED_PUBLICATION_RECOVERY]
+    .some((className) => hasSafeRecoveryRecord({
+      cwd: root, ownerId: probe.ownerId, issue, step: 'implement', class: className,
+    }))) throw new Error('recovery_consumed');
+  assertKnownControllerState(root, allowOwnedLease, checkpoint, true);
+  const status = porcelainStatusEntries(run('git', [
+    'status', '--porcelain=v1', '-z', '--ignored=matching', '--untracked-files=all',
+  ], { cwd: root }));
+  if (status.some(({ status: code }) => code !== '??' && code !== '!!' && code[0] !== ' ')) {
+    throw new Error('staged_changes_unproven');
+  }
+  const dirtyPaths = status.filter(({ status: code }) => code !== '!!')
+    .flatMap(({ paths: entries }) => entries);
+  if (!dirtyPaths.length || dirtyPaths.some((path) =>
+    publicationPathDenied(path, { spec: specRelative, readOnlyPaths: probe.scope.readOnlyPaths }))) {
+    throw new Error('publication_dirty_partial');
+  }
+  const dirtyFiles = dirtyPaths.map((path) => ({
+    path,
+    digest: createHash('sha256')
+      .update(readBoundedNoFollowFile(root, path, 4 * 1024 * 1024, 'publication_dirty_partial').bytes)
+      .digest('hex'),
+  }));
+  const { protectedPaths, workspaceAuthorityPaths } = recoveryWorkspaceAuthority({
+    root, run, probe, spec: specRelative,
+    observedTrackedPaths: dirtyPaths,
+    protectedRoots: [specRelative, RUN_DIR, '.pi-glla'],
+  });
+  for (const { status: code, paths: entries } of status) {
+    if (code !== '!!') continue;
+    for (const path of entries) {
+      if (pathWithin(path, RUN_DIR) || pathWithin(RUN_DIR, path)) continue;
+      if (!isIrrelevantIgnoredState(root, path, protectedPaths, workspaceAuthorityPaths)) {
+        throw new Error('workflow_evidence_unproven');
+      }
+    }
+  }
+  return {
+    class: PREPUBLICATION_IMPLEMENT_RESUME, issue, step: 'implement',
+    runId: checkpoint.runId, ownerId: probe.ownerId,
+    branch: checkout.branch, head: checkout.head, dirtyPaths, dirtyFiles,
+    sourcePr: eligible[0].number, sourceHead: parents[1],
+    handoff: structuredClone(snapshot.handoff), handoffPath,
+    handoffDigest: snapshot.digest, handoffIdentity: snapshot.identity,
+  };
+}
 const STANDALONE_INTERVENTION_COMMANDS = Object.freeze({
   verify: (issue) => `/sdlc-verify-code #${issue}`,
   deliver: (issue) => `/sdlc-open-pr #${issue}`,
@@ -2111,6 +2258,74 @@ function inspectUnreadableStartResume({ cwd, checkpoint, run, herdr, allowOwnedL
     handoff: snapshot.handoff,
   };
 }
+function inspectBranchCheckoutFailedStartResume({ cwd, checkpoint, run, herdr, allowOwnedLease = false }) {
+  const issue = checkpoint.currentIssue;
+  if (checkpoint.currentStep !== 'start' || checkpoint.issue !== issue
+    || checkpoint.failed?.issue !== issue || checkpoint.failed.step !== 'start'
+    || checkpoint.failed.reasonCode !== 'branch_checkout_failed'
+    || checkpoint.failed.cleanupReasonCode
+    || checkpoint.branch.startsWith(`${issue}-`)
+    || Object.keys(checkpoint.workers || {}).length !== 0
+    || (checkpoint.absentWorkers || []).length !== 0
+    || (checkpoint.completed?.[String(issue)] ?? []).length !== 0
+    || checkpoint.recoveries?.some((entry) =>
+      entry.runId === checkpoint.runId && entry.issue === issue && entry.step === 'start')
+    || checkpoint.consumedDispatch || checkpoint.remediation) {
+    throw new Error('safe_recovery_unproven');
+  }
+  const checkout = currentCheckout(cwd, run);
+  if (!checkout || checkout.branch !== checkpoint.branch || checkout.head !== checkpoint.head) {
+    throw new Error('checkpoint_head_mismatch');
+  }
+  const lease = readControllerLease(cwd);
+  if (lease && !(allowOwnedLease && lease.runId === checkpoint.runId && lease.pid === process.pid)) {
+    throw new Error('controller_lease_held');
+  }
+  const ownership = inspectRecoveryWorkers(checkpoint, herdr);
+  if (ownership.present.length) throw new Error('retained_worker_mismatch');
+  const status = run('git', ['status', '--porcelain', '-z'], { cwd });
+  if (status?.status !== 0 || String(status.stdout ?? '').length) throw new Error('dirty_tree');
+  const ignored = porcelainStatusEntries(run('git', [
+    'status', '--porcelain=v1', '-z', '--ignored=matching', '--untracked-files=all',
+  ], { cwd }));
+  if (ignored.some(({ status: code, paths }) =>
+    code === '!!'
+      ? paths.some((path) => !pathWithin(path, RUN_DIR)
+        && !pathWithin(RUN_DIR, path)
+        && !isIrrelevantIgnoredState(cwd, path, [RUN_DIR, '.pi-glla', 'specs'], []))
+      : paths.some((path) => !pathWithin(path, RUN_DIR)))) {
+    throw new Error('dirty_tree');
+  }
+  const fresh = parseCommandOutput(run('gh', [
+    'issue', 'view', String(issue), '--json', 'number,title,state',
+  ], { cwd }));
+  if (fresh?.number !== issue || String(fresh.state).toUpperCase() !== 'OPEN'
+    || typeof fresh.title !== 'string') throw new Error('issue_unreadable');
+  const expectedBranch = `${issue}-${slugFromTitle(fresh.title)}`;
+  if (run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${expectedBranch}`], { cwd })?.status !== 0) {
+    throw new Error('checkpoint_branch_mismatch');
+  }
+  const worktrees = run('git', ['worktree', 'list', '--porcelain'], { cwd });
+  if (worktrees?.status !== 0 || String(worktrees.stdout || '').split(/\r?\n/)
+    .some((line) => line === `branch refs/heads/${expectedBranch}`)) {
+    throw new Error('branch_checkout_failed');
+  }
+  const handoffPath = `${HANDOFF_DIR}/${issue}-start.json`;
+  const snapshot = readStrictHandoffSnapshot(cwd, handoffPath, issue, 'start');
+  if (snapshot.handoff.status !== 'failed' || snapshot.handoff.intervention !== true
+    || snapshot.handoff.reasonCode !== 'branch_checkout_failed'
+    || snapshot.handoff.next !== null || snapshot.handoff.artifacts.length !== 0) {
+    throw new Error('invalid_handoff');
+  }
+  return {
+    class: BRANCH_CHECKOUT_FAILED_START_RESUME,
+    issue, step: 'start', runId: checkpoint.runId,
+    branch: checkpoint.branch, head: checkpoint.head,
+    handoffPath, handoffDigest: snapshot.digest, handoffIdentity: snapshot.identity,
+    handoff: snapshot.handoff,
+  };
+}
+
 
 export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr = defaultHerdr(run, cwd) } = {}) {
   let checkpoint = null;
@@ -2192,6 +2407,7 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
     }
     let repairedPublication = null;
     let exclusiveResume = null;
+    let prepublicationResume = null;
     let repairedPublicationError = null;
     let consumedDispatch = null;
     if (data.currentStep === 'implement'
@@ -2241,15 +2457,20 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
           repairedPublicationError = error;
         }
       }
-      if (!repairedPublication && handoff.status === 'failed') {
+      if (!repairedPublication && checkout.head !== data.head && handoff.status === 'failed') {
+        try {
+          prepublicationResume = inspectPrepublicationImplementResume({ cwd, checkpoint: data, run });
+        } catch (error) {
+          repairedPublicationError = error;
+        }
+      }
+      if (!repairedPublication && !prepublicationResume && handoff.status === 'failed') {
         try {
           exclusiveResume = inspectExclusiveImplementResume({
             cwd, checkpoint: data, handoff, run,
           });
         } catch (error) {
-          const evidenceError = checkout.head === data.head && repairedPublicationError
-            ? repairedPublicationError
-            : error;
+          const evidenceError = repairedPublicationError || error;
           return blocked(
             'implementation_failed',
             evidenceError?.message || 'exclusive_implement_resume_unproven',
@@ -2292,6 +2513,15 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
         return blocked('issue_unreadable', error.message);
       }
     }
+    let branchCheckoutStart = null;
+    if (!recovery && data.currentStep === 'start'
+      && data.failed?.reasonCode === 'branch_checkout_failed') {
+      try {
+        branchCheckoutStart = inspectBranchCheckoutFailedStartResume({ cwd, checkpoint: data, run, herdr });
+      } catch (error) {
+        return blocked('branch_checkout_failed', error.message);
+      }
+    }
     const closedWorkerResume = !recovery
       && REMEDIABLE_STEPS.includes(data.currentStep)
       && data.failed?.issue === data.currentIssue
@@ -2317,8 +2547,8 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
       })
       : null;
     const actionableVerificationResume = actionableVerification?.status === 'repairable';
-    if (!consumedDispatch && !unreadableStart && !closedWorkerResume && !actionableVerificationResume
-      && !repairedPublication && !exclusiveResume && (
+    if (!consumedDispatch && !unreadableStart && !branchCheckoutStart && !closedWorkerResume
+      && !actionableVerificationResume && !prepublicationResume && !repairedPublication && !exclusiveResume && (
       (data.failed?.intervention && !validatedPassedWorkerHandoff(cwd, data.currentIssue, data.currentStep, run))
       || handoff?.intervention || handoff?.status === 'blocked'
     )) {
@@ -2334,12 +2564,13 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
     }
     const state = consumedDispatch ? 'consumed-dispatch-available'
       : recovery ? 'recovery-consumed'
-        : exhausted || repairedPublication || exclusiveResume
-          || unreadableStart || closedWorkerResume || actionableVerificationResume
+        : exhausted || repairedPublication || exclusiveResume || prepublicationResume
+          || unreadableStart || branchCheckoutStart || closedWorkerResume || actionableVerificationResume
           ? 'loop-recovery-available'
           : 'resumable';
     return {
-      state, issues: data.issues, runId: data.runId, branch: unreadableStart?.branch ?? linked,
+      state, issues: data.issues, runId: data.runId,
+      branch: unreadableStart?.branch ?? branchCheckoutStart?.branch ?? linked,
       issue: data.currentIssue, step: data.currentStep,
       reasonCode: data.failed?.reasonCode ?? null,
       cleanupReasonCode: data.failed?.cleanupReasonCode ?? null,
@@ -2353,6 +2584,16 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
           handoffDigest: unreadableStart.handoffDigest,
           handoffIdentity: unreadableStart.handoffIdentity,
         },
+      } : branchCheckoutStart ? {
+        recoveryClass: branchCheckoutStart.class,
+        recoveryEvidence: {
+          revision: data.revision,
+          failure: data.failed,
+          head: branchCheckoutStart.head,
+          branch: branchCheckoutStart.branch,
+          handoffDigest: branchCheckoutStart.handoffDigest,
+          handoffIdentity: branchCheckoutStart.handoffIdentity,
+        },
       } : repairedPublication ? {
         recoveryClass: repairedPublication.class,
         recoveryEvidence: {
@@ -2362,6 +2603,19 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
           publication: repairedPublication.publication,
           workflowEvidencePaths: repairedPublication.workflowEvidencePaths,
           discrepancies: repairedPublication.discrepancies,
+        },
+      } : prepublicationResume ? {
+        recoveryClass: prepublicationResume.class,
+        recoveryEvidence: {
+          ownerId: prepublicationResume.ownerId,
+          head: prepublicationResume.head,
+          checkpointHead: data.head,
+          sourcePr: prepublicationResume.sourcePr,
+          sourceHead: prepublicationResume.sourceHead,
+          dirtyPaths: prepublicationResume.dirtyPaths,
+          dirtyFiles: prepublicationResume.dirtyFiles,
+          handoffDigest: prepublicationResume.handoffDigest,
+          handoffIdentity: prepublicationResume.handoffIdentity,
         },
       } : exclusiveResume ? {
         recoveryClass: exclusiveResume.class,
@@ -2514,7 +2768,7 @@ export function writeRunAt(
   runFile = RUN_FILE,
   handoffDirectory = HANDOFF_DIR,
   expectedRevision = 0,
-  { expectedHead = null } = {},
+  { expectedHead = null, expectedBranch = null } = {},
 ) {
   if (
     !runData
@@ -2526,6 +2780,7 @@ export function writeRunAt(
     || !validConsumedDispatchState(runData)
     || runData.revision !== expectedRevision + 1
     || (expectedHead !== null && !/^[0-9a-f]{40}$/.test(expectedHead))
+    || (expectedBranch !== null && (typeof expectedBranch !== 'string' || !expectedBranch))
   ) {
     throw new Error('invalid run schema');
   }
@@ -2574,7 +2829,11 @@ export function writeRunAt(
         if (!bindable) throw new Error('identity_mismatch');
       } else {
         if (existing.revision !== expectedRevision) throw new Error('stale_revision');
-        const identity = expectedHead === null ? runData : { ...runData, head: expectedHead };
+        const identity = {
+          ...runData,
+          ...(expectedHead !== null ? { head: expectedHead } : {}),
+          ...(expectedBranch !== null ? { branch: expectedBranch } : {}),
+        };
         if (!sameRunIdentity(existing, identity)) throw new Error('identity_mismatch');
       }
     } else if (expectedRevision !== 0) {
@@ -2610,12 +2869,14 @@ function persistRunState(runState, root) {
   }
 }
 
-function persistRunStateWithHeadCas(runState, root, expectedHead) {
+function persistRunStateWithHeadCas(runState, root, expectedHead, expectedBranch = null) {
   const expectedRevision = Number.isSafeInteger(runState.revision) ? runState.revision : 0;
   const previous = runState.revision;
   runState.revision = expectedRevision + 1;
   try {
-    writeRunAt(runState, root, RUN_FILE, HANDOFF_DIR, expectedRevision, { expectedHead });
+    writeRunAt(runState, root, RUN_FILE, HANDOFF_DIR, expectedRevision, {
+      expectedHead, expectedBranch,
+    });
   } catch (error) {
     runState.revision = previous;
     throw error;
@@ -3849,6 +4110,18 @@ function currentCheckout(cwd, run) {
   return branch && head ? { branch, head } : null;
 }
 
+function passedStartHead(cwd, issue, handoff, run) {
+  if (handoff?.status !== 'passed' || handoff.intervention
+    || typeof handoff.branch !== 'string' || handoff.branch !== issueBranchName(issue, cwd, run)
+    || typeof handoff.head !== 'string' || !/^[0-9a-f]{40}$/.test(handoff.head)) return null;
+  const checkout = currentCheckout(cwd, run);
+  if (!checkout || checkout.branch !== handoff.branch || checkout.head !== handoff.head) return null;
+  const upstream = run('git', ['ls-remote', '--heads', 'origin', checkout.branch], { cwd });
+  return commandSucceeded(upstream)
+    && String(upstream.stdout || '').trim() === `${checkout.head}\trefs/heads/${checkout.branch}`
+    ? checkout : null;
+}
+
 const WORKER_IDENTITY_FIELDS = [
   'name',
   'paneId',
@@ -3988,6 +4261,18 @@ function matchingWorkerOwnership({
   const expected = workerOwnership({ runState, issue, step, agentName, paneId, cwd, run });
   const recorded = runState.workers?.[agentName];
   if (!expected || !recorded) return null;
+  if (step === 'start' && allowCompletedHeadAdvance
+    && WORKER_IDENTITY_FIELDS.every((key) => recorded[key] === expected[key])
+    && recorded.branch === runState.branch && recorded.head === runState.head
+    && passedStartHead(
+      cwd, issue,
+      readExpectedHandoff(join(cwd, HANDOFF_DIR, `${issue}-start.json`), issue, 'start').handoff,
+      run,
+    ) && commandSucceeded(run('git', [
+      'merge-base', '--is-ancestor', recorded.head, expected.head,
+    ], { cwd }))) {
+    return expected;
+  }
   if (!Object.keys(expected).every((key) => (
     key === 'head' || recorded[key] === expected[key]
   ))) {
@@ -4276,10 +4561,13 @@ export function runExecute({
   }
   if (!parsedArgs.defaultBacklog && existingRun?.currentStep === 'start'
     && (existingRun.failed?.reasonCode === 'issue_unreadable'
+      || existingRun.failed?.reasonCode === 'branch_checkout_failed'
       || existingRun.recoveries?.some((entry) =>
         entry.runId === existingRun.runId && entry.issue === existingRun.currentIssue
-        && entry.step === 'start' && entry.source?.class === ISSUE_UNREADABLE_START_RESUME))) {
-    return { status: 1, stdout: '', stderr: 'issue_unreadable_start_requires_parameter_free\n' };
+        && entry.step === 'start' && (entry.source?.class === ISSUE_UNREADABLE_START_RESUME
+          || entry.source?.class === BRANCH_CHECKOUT_FAILED_START_RESUME)))) {
+    const msg = existingRun.failed?.reasonCode === 'branch_checkout_failed' ? 'branch_checkout_failed_start_requires_parameter_free\n' : 'issue_unreadable_start_requires_parameter_free\n';
+    return { status: 1, stdout: '', stderr: msg };
   }
   if (parsedArgs.defaultBacklog) {
     const discovery = discoverRecovery({ cwd, run, herdr: herdrApi });
@@ -4647,6 +4935,24 @@ export function runExecute({
           handoff: recovery.handoff,
         });
       }
+      const prepublication = recoveryDispatch === `${worker.issue}:${worker.step}`
+        ? runState.recoveries?.findLast((entry) => entry.runId === runState.runId
+          && entry.issue === worker.issue && entry.step === worker.step
+          && entry.source?.class === PREPUBLICATION_IMPLEMENT_RESUME)
+        : null;
+      if (prepublication) {
+        return [
+          `Resume issue #${worker.issue} at the exact synchronized reconciliation head ${prepublication.source.currentHead}.`,
+          'This is not a fresh implementation. Preserve the existing authorized dirty work.',
+          'Before editing, map every Approved acceptance bullet to already satisfied or remaining work.',
+          'Do not reset, rebase, recommit the reconciliation merge, or repeat already completed tasks.',
+          'Finish through the ordinary bind, observed-path commit, non-force push, reconciliation, and implement handoff gates.',
+          '---',
+          workerPrompt({
+            step: worker.step, issue: worker.issue, cwd, controllerRunId: runState.runId,
+          }),
+        ].join('\n');
+      }
       return workerPrompt({
         step: worker.step,
         issue: worker.issue,
@@ -4730,12 +5036,46 @@ export function runExecute({
       const issue = runState.currentIssue;
       const step = runState.currentStep;
       const agentName = `s${issue}-${step}`;
+      const checkpointBranch = runState.branch;
       const checkpointHead = runState.head;
       if (issue !== recoveryIssue || step !== recoveryStep) {
         throw new Error('checkpoint_identity_mismatch');
       }
       if (repairedRecoveryClass === ISSUE_UNREADABLE_START_RESUME) {
         const proof = inspectUnreadableStartResume({
+          cwd, checkpoint: runState, run, herdr: herdrApi, allowOwnedLease: true,
+        });
+        if (step !== 'start' || proof.branch !== recoveryBranch
+          || proof.head !== checkpointHead
+          || runState.revision !== recoveryEvidence?.revision
+          || JSON.stringify(runState.failed) !== JSON.stringify(recoveryEvidence?.failure)
+          || proof.handoffDigest !== recoveryEvidence?.handoffDigest
+          || JSON.stringify(proof.handoffIdentity) !== JSON.stringify(recoveryEvidence?.handoffIdentity)) {
+          throw new Error('invalid_handoff');
+        }
+        const archive = archiveFailedHandoff(cwd, proof);
+        runState.recoveries ||= [];
+        runState.recoveries.push({
+          runId: runState.runId,
+          issue,
+          step,
+          invocationId: randomUUID(),
+          consumedAt: new Date().toISOString(),
+          source: {
+            class: proof.class,
+            head: proof.head,
+            branch: proof.branch,
+            handoffArchive: archive,
+          },
+          failure: structuredClone(runState.failed),
+          handoff: proof.handoff,
+          disposition: 'consumed',
+        });
+        runState.failed = null;
+        persistRunStateWithHeadCas(runState, cwd, checkpointHead);
+        recoveryDispatch = `${issue}:${step}`;
+      } else if (repairedRecoveryClass === BRANCH_CHECKOUT_FAILED_START_RESUME) {
+        const proof = inspectBranchCheckoutFailedStartResume({
           cwd, checkpoint: runState, run, herdr: herdrApi, allowOwnedLease: true,
         });
         if (step !== 'start' || proof.branch !== recoveryBranch
@@ -4864,12 +5204,52 @@ export function runExecute({
         persistRunStateWithHeadCas(runState, cwd, checkpointHead);
         recoveryDispatch = `${issue}:${step}`;
       } else {
-        if (![REPAIRED_PUBLICATION_RECOVERY, EXCLUSIVE_IMPLEMENT_RESUME]
+        if (![REPAIRED_PUBLICATION_RECOVERY, EXCLUSIVE_IMPLEMENT_RESUME, PREPUBLICATION_IMPLEMENT_RESUME]
           .includes(repairedRecoveryClass)
           || step !== 'implement') {
           throw new Error('safe_recovery_unproven');
         }
-        if (repairedRecoveryClass === EXCLUSIVE_IMPLEMENT_RESUME) {
+        if (repairedRecoveryClass === PREPUBLICATION_IMPLEMENT_RESUME) {
+          const proof = inspectPrepublicationImplementResume({
+            cwd, checkpoint: runState, run, allowOwnedLease: true,
+          });
+          if (proof.head !== recoveryEvidence?.head
+            || proof.ownerId !== recoveryEvidence?.ownerId
+            || proof.sourcePr !== recoveryEvidence?.sourcePr
+            || proof.sourceHead !== recoveryEvidence?.sourceHead
+            || JSON.stringify(proof.dirtyPaths) !== JSON.stringify(recoveryEvidence?.dirtyPaths)
+            || JSON.stringify(proof.dirtyFiles) !== JSON.stringify(recoveryEvidence?.dirtyFiles)
+            || proof.handoffDigest !== recoveryEvidence?.handoffDigest
+            || JSON.stringify(proof.handoffIdentity) !== JSON.stringify(recoveryEvidence?.handoffIdentity)) {
+            throw new Error('prepublication_implement_unproven');
+          }
+          const archive = archiveFailedHandoff(cwd, proof);
+          const consumedResult = consumeSafeRecovery({
+            cwd, ownerId: proof.ownerId, issue, step, class: proof.class,
+            evidence: {
+              checkpointHead, head: proof.head, branch: proof.branch,
+              sourcePr: proof.sourcePr, sourceHead: proof.sourceHead,
+              dirtyPaths: proof.dirtyPaths, dirtyFiles: proof.dirtyFiles, handoffArchive: archive,
+            },
+          });
+          if (!consumedResult.consumed) throw new Error('recovery_consumed');
+          runState.recoveries ||= [];
+          runState.recoveries.push({
+            runId: runState.runId, issue, step,
+            invocationId: consumedResult.record.invocationId,
+            consumedAt: consumedResult.record.consumedAt,
+            source: {
+              class: proof.class, checkpointHead, currentHead: proof.head,
+              branch: proof.branch, sourcePr: proof.sourcePr,
+              sourceHead: proof.sourceHead, dirtyPaths: proof.dirtyPaths, dirtyFiles: proof.dirtyFiles,
+              handoffArchive: archive,
+            },
+            failure: structuredClone(runState.failed),
+            handoff: proof.handoff, disposition: 'consumed',
+          });
+          runState.branch = proof.branch;
+          runState.head = proof.head;
+        } else if (repairedRecoveryClass === EXCLUSIVE_IMPLEMENT_RESUME) {
           const proof = inspectExclusiveImplementResume({
           cwd,
           checkpoint: runState,
@@ -5093,7 +5473,10 @@ export function runExecute({
       }
       runState.failed = null;
       delete runState.remediation;
-      persistRunStateWithHeadCas(runState, cwd, checkpointHead);
+      persistRunStateWithHeadCas(
+        runState, cwd, checkpointHead,
+        repairedRecoveryClass === PREPUBLICATION_IMPLEMENT_RESUME ? checkpointBranch : null,
+      );
       pauseAtTestCrashBoundary(env, cwd, 'pending');
       recoveryDispatch = `${issue}:${step}`;
       preparedRecoveryPane = allocatedPaneId
@@ -5147,6 +5530,12 @@ export function runExecute({
       });
       if (!checkout) continue;
       if (passedHandoff) {
+        const startCheckout = worker.step === 'start'
+          ? passedStartHead(cwd, worker.issue, readExpectedHandoff(handoffPath, worker.issue, 'start').handoff, run)
+          : null;
+        if (worker.step === 'start' && !startCheckout) continue;
+        const priorHead = runState.head;
+        const priorBranch = runState.branch;
         Object.assign(worker, checkout, {
           promptDelivery: 'delivered',
           promptDeliveryVersion: PROMPT_DELIVERY_VERSION,
@@ -5156,8 +5545,13 @@ export function runExecute({
           runState.completed[String(worker.issue)].push(worker.step);
           runState.currentStep = nextStep(runState.completed[String(worker.issue)]);
         }
+        if (startCheckout) {
+          runState.branch = startCheckout.branch;
+          runState.head = startCheckout.head;
+        }
         runState.failed = null;
-        persistRunState(runState, cwd);
+        if (startCheckout) persistRunStateWithHeadCas(runState, cwd, priorHead, priorBranch);
+        else persistRunState(runState, cwd);
         continue;
       }
       if (worker.promptDelivery === 'activating') {
@@ -5863,6 +6257,18 @@ export function runExecute({
         recoveryDispatch = `${issue}:${step}`;
       }
       if (!resumeAgent && passedHandoff && step !== 'deliver') {
+        const startCheckout = step === 'start' ? passedStartHead(cwd, issue, handoff, run) : null;
+        if (step === 'start' && (!startCheckout
+          || !commandSucceeded(run('git', [
+            'merge-base', '--is-ancestor', runState.head, startCheckout.head,
+          ], { cwd })))) {
+          return stop({
+            issue, step, paneId: 'none', agentName: `s${issue}-start`,
+            reasonCode: 'start_handoff_head_unproven', runState, cwd, herdr: herdrApi, output,
+          });
+        }
+        const priorHead = runState.head;
+        const priorBranch = runState.branch;
         for (const [name, worker] of Object.entries(runState.workers)) {
           if (
             worker.issue !== issue || worker.step !== step
@@ -5877,13 +6283,18 @@ export function runExecute({
           }
           delete runState.workers[name];
         }
+        if (startCheckout) {
+          runState.branch = startCheckout.branch;
+          runState.head = startCheckout.head;
+        }
         clearConsumedDispatchAfterPassedStep(issue, step);
         runState.completed[String(issue)].push(step);
         step = nextStep(runState.completed[String(issue)]);
         runState.currentStep = step;
         runState.failed = null;
         runState.remediation = null;
-        persistRunState(runState, cwd);
+        if (startCheckout) persistRunStateWithHeadCas(runState, cwd, priorHead, priorBranch);
+        else persistRunState(runState, cwd);
       } else if (!resumeAgent && !passedHandoff && checkpointRemediation?.status !== 'active') {
         const completed = remediationCompletedSteps({
           issue, step, completed: runState.completed[String(issue)], handoff,
@@ -6586,22 +6997,40 @@ export function runExecute({
         });
       }
 
+      const casPriorHead = runState.head;
+      const casPriorBranch = runState.branch;
+      const wasStartAdvance = step === 'start';
+      const startCheckout = step === 'start' ? passedStartHead(cwd, issue, handoff, run) : null;
+      if (step === 'start' && !startCheckout) {
+        return stop({
+          issue, step, paneId, agentName, reasonCode: 'start_handoff_head_unproven',
+          runState, cwd, herdr: herdrApi, output,
+        });
+      }
+
       if (createdPanes.has(paneId) && !closePane(herdrApi, paneId)) {
         return stop({
           issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
           runState, cwd, herdr: herdrApi, output,
         });
       }
+      if (startCheckout) {
+        runState.branch = startCheckout.branch;
+        runState.head = startCheckout.head;
+      }
       delete runState.workers[agentName];
       clearConsumedDispatchAfterPassedStep(issue, step);
       runState.completed[String(issue)].push(step);
       step = nextStep(runState.completed[String(issue)]);
       runState.currentStep = step;
-      persistRunState(runState, cwd);
+      if (wasStartAdvance) {
+        persistRunStateWithHeadCas(runState, cwd, casPriorHead, casPriorBranch);
+      } else {
+        persistRunState(runState, cwd);
+      }
     }
 
     if (!syncAndDeleteIssueBranch(issue, cwd, run, waitForDeliveryRetry, runState.delivery)) {
-      runState.failed = { issue, step: 'deliver', reasonCode: 'delivery_not_complete' };
       persistRunState(runState, cwd);
       return { status: 1, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: 'Delivery is not MERGED and CLOSED\n' };
     }

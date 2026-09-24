@@ -1,0 +1,43 @@
+**Issue**: #418
+**Date**: 2026-09-23
+**Status**: Approved
+**Author**: NMG
+
+Feature: Recover an approved-spec start and pre-publication implementation
+  Only exact owner-bound evidence permits a single normal worker recovery.
+
+  @SCN001 @regression
+  Scenario: Worktree releases old issue branch after failed checkout
+    Given start failed with branch_checkout_failed at a clean exact default checkpoint and another worktree owns the issue branch
+    When that worktree releases the branch and discovery proves the unique run owner, strict handoff and absent worker
+    Then one start recovery archives the failed handoff and dispatches the normal worker
+    And unchanged ownership or consumed recovery remains blocked
+
+  @SCN002 @regression
+  Scenario: Squash-merged approved spec has divergent old branch
+    Given approved spec-only PR history is on default but the old issue branch is not its ancestor
+    When start proves source and merges approved default without rewriting the old branch
+    Then exact merge history and in-scope tree are proven and the branch is synchronized upstream without force
+    And its passed handoff records the actual branch and head
+
+  @SCN003 @regression
+  Scenario: Start advances the controller before implementation
+    Given start passed on an exact synchronized issue head different from its default checkpoint
+    When execute accepts that handoff
+    Then it atomically records the issue branch head before implement dispatch
+    And a stale, unpushed or mismatched head blocks dispatch
+
+  @SCN004 @regression
+  Scenario: Preserved dirty implementation after pre-publication rejection
+    Given two exact pre-existing reconciliation commits are now synchronized and no implementation commit exists
+    And the unique owner preserved nonempty authorized dirty implementation and a failed handoff
+    When discovery reproves the scope and consumes one recovery
+    Then the normal implement worker binds, commits, pushes and hands off the preserved work
+    And a second consumption cannot replay the dispatch
+
+  @SCN005 @safety
+  Scenario: Ambiguous source or ownership preserves evidence
+    Given a changed head, conflicting worktree, different PR, ambiguous owner, non-exact history or denied dirty path
+    When recovery is inspected
+    Then checkpoint, handoff and evidence remain unchanged
+    And no force push, branch takeover or worker dispatch occurs
