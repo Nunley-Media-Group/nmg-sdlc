@@ -1452,6 +1452,85 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect(fs.existsSync(fixture.cloneRoot)).toBe(true);
   });
 
+  it('keeps repeated prelaunch failures historical only after a new exact head', async () => {
+    const fixture = legacyBootstrapFixture((artifact) => {
+      artifact.results[0].request.verification = {
+        runId: 'verification-old-head',
+        issue: 379,
+        specPath: 'specs/379-fix',
+      };
+      artifact.results[0].result.summary = 'nmg-sdlc-smoke legacy recovery evidence invalid';
+      artifact.results[0].result.evidence = [];
+    }, '138', true);
+    const artifactPath = path.join(fixture.scope.projectRoot, '.omp/sdlc/verification/379.json');
+    const inspect = () => inspectLegacySmokeFailure(fs.readFileSync, {
+      request: fixture.request,
+      scope: fixture.scope,
+      issues: [138],
+      pluginRoot: SOURCE_ROOT,
+    }).presence;
+    expect(inspect()).toBe('invalid');
+    fixture.request.identity.headSha = 'c'.repeat(40);
+    expect(inspect()).toBe('absent');
+
+    const second = JSON.parse(fs.readFileSync(artifactPath, 'utf8'));
+    second.identity.headSha = fixture.request.identity.headSha;
+    second.results[0].request.identity.headSha = fixture.request.identity.headSha;
+    second.results[0].request.verification.runId = 'verification-second-head';
+    second.results[0].result.identity.headSha = fixture.request.identity.headSha;
+    fs.writeFileSync(artifactPath, JSON.stringify(second));
+    const before = fs.readFileSync(artifactPath);
+    expect(inspect()).toBe('invalid');
+
+    fixture.request.identity.headSha = 'd'.repeat(40);
+    expect(inspect()).toBe('absent');
+    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
+      status: 'incomplete',
+      summary: 'nmg-sdlc-smoke execute launch_failed',
+    });
+    expect(fixture.calls.filter((call) => call.program === 'git' && call.args[0] === 'clone')).toHaveLength(1);
+    expect(fixture.calls.filter((call) => call.program === process.execPath)
+      .map((call) => call.args.at(-1))).toEqual(['#138']);
+    expect(fs.readFileSync(artifactPath)).toEqual(before);
+  });
+
+  it.each([
+    ['current head', false, 379, 'specs/379-fix'],
+    ['foreign issue', true, 380, 'specs/379-fix'],
+    ['foreign spec', true, 379, 'specs/380-fix'],
+    ['ambiguous clone evidence', true, 379, 'specs/379-fix'],
+    ['ambiguous worker evidence', true, 379, 'specs/379-fix'],
+  ])('rejects %s pre-dispatch verification without replacement', async (label, changedHead, issue, specPath) => {
+    const fixture = legacyBootstrapFixture((artifact) => {
+      artifact.results[0].request.verification = {
+        runId: 'verification-old-head',
+        issue,
+        specPath,
+      };
+      artifact.results[0].result.summary = 'nmg-sdlc-smoke legacy recovery evidence invalid';
+      artifact.results[0].result.evidence = [];
+      if (label === 'ambiguous clone evidence') artifact.results[0].result.evidence.push({
+        kind: 'command', summary: 'git clone --single-branch https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git',
+        artifact: '/tmp/unproven-clone',
+      });
+      if (label === 'ambiguous worker evidence') artifact.results[0].result.evidence.push({
+        kind: 'command', summary: 'sdlc-execute run #138', artifact: '/tmp/unproven-clone',
+      });
+    }, '135', true);
+    if (changedHead) fixture.request.identity.headSha = 'c'.repeat(40);
+    expect(inspectLegacySmokeFailure(fs.readFileSync, {
+      request: fixture.request,
+      scope: fixture.scope,
+      issues: [135],
+      pluginRoot: SOURCE_ROOT,
+    }).presence).toBe('invalid');
+    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
+      status: 'failed',
+      summary: 'nmg-sdlc-smoke legacy recovery evidence invalid',
+    });
+    expect(fixture.calls.some((call) => call.program === 'git' && call.args[0] === 'clone')).toBe(false);
+  });
+
   it('keeps ambiguous old provider results fail-closed even across a changed identity', async () => {
     const fixture = legacyBootstrapFixture((artifact) => {
       artifact.results.push(structuredClone(artifact.results[0]));
