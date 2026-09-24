@@ -722,6 +722,47 @@ export function inspectLegacySmokeFailure(readFile, { request, scope, issues, pl
   const failedRequest = candidate.request;
   const failedResult = candidate.result;
   const resultIdentity = failedResult?.identity;
+  // Only a coherent, uniquely attributable old attempt can be non-authoritative.
+  // An ambiguous artifact or a broken current attempt must still fail closed.
+  const recordedIdentity = {
+    headSha: failedRequest?.identity?.headSha,
+    steeringHash: failedRequest?.identity?.steeringHash,
+    specHash: failedRequest?.identity?.specHash,
+  };
+  const executeCommands = Array.isArray(failedResult?.evidence)
+    ? failedResult.evidence.filter((item) => (
+      item?.kind === "command" && /^sdlc-execute run /.test(item.summary ?? "")
+    ))
+    : [];
+  const oldQueue = executeCommands.length === 1
+    ? executeCommands[0].summary.match(/^sdlc-execute run ((?:#[1-9]\d*)(?: #[1-9]\d*)*)$/)?.[1]
+      .split(" ").map((token) => Number(token.slice(1)))
+    : null;
+  const attributable = artifact?.schemaVersion === 1
+    && artifact.ceiling === "Fail"
+    && artifact.coverage?.complete === true
+    && artifact.issue === scope.issue
+    && candidate.provider === "project.nmg-sdlc-smoke"
+    && candidate.required === true
+    && candidate.applicable === true
+    && candidate.effectiveStatus === "failed"
+    && failedRequest?.schemaVersion === 1
+    && failedRequest.validationId === request.validationId
+    && failedRequest.verification === undefined
+    && exactRealPath(failedRequest.projectRoot, scope.projectRoot)
+    && failedResult?.schemaVersion === 1
+    && failedResult.status === "failed"
+    && equal(resultIdentity, failedRequest.identity)
+    && equal(artifact.identity, recordedIdentity)
+    && SHA.test(recordedIdentity.headSha ?? "")
+    && [recordedIdentity.specHash, recordedIdentity.steeringHash,
+      failedRequest.identity?.validationConfigHash].every((value) => (
+      typeof value === "string" && /^sha256:[0-9a-f]{64}$/.test(value)
+    ));
+  if (attributable && (
+    !equal(verificationIdentity(failedRequest.identity), verificationIdentity(request.identity))
+    || (oldQueue?.length > 0 && new Set(oldQueue).size === oldQueue.length && !equal(oldQueue, issues))
+  )) return { presence: "absent" };
   if (
     artifact?.schemaVersion !== 1
     || artifact.issue !== scope.issue
