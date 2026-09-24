@@ -41,11 +41,19 @@ Feature: Reverify a repaired implementation without replaying failed evidence
       | the recheck is already consumed   |
 
   @regression
-  Scenario: New non-passing evidence is not promoted
-    Given a valid changed-head recheck consumes its one-use authority
-    When the registered gate at B fails or remains incomplete
-    Then historical A evidence remains archived and B failure stays explicit
-    And no passed handoff or delivery dispatch is created
+  Scenario: A new failed gate guides a distinct next repair without granting delivery
+    Given a valid changed-head recheck consumes its A-to-B authority
+    When the registered gate at B fails and acceptance review records the changed head and remaining failure
+    Then historical A evidence stays archived and a truthful B Fail report is published
+    And the controller checkpoints that failure and proposes a different repair based on prior attempts
+    But no passed handoff or delivery dispatch is created
+
+  @regression
+  Scenario: Progressful verify repairs are not stopped after two attempts
+    Given two completed verify remediations produced distinct published source changes and new failure evidence
+    When a third materially different repair is needed for the same Approved spec
+    Then the controller retains all attempt evidence and may continue without a fixed total-attempt limit
+    And repeated unchanged evidence or an already consumed A-to-B pair still stops
 
   @regression
   Scenario: Prior same-head external-only incomplete recovery remains independent

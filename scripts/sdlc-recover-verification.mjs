@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// Classify one exact external-only Incomplete verification recheck before the gate runs.
+// Classify one exact verification recheck after an external prerequisite or published repair.
 
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -9,6 +9,8 @@ import { isAbsolute, join, resolve } from 'node:path';
 
 import {
   consumeSafeRecovery,
+  getSafeRecoveryRecord,
+  listChangedHeadVerificationRecords,
   resolveRecoveryOwner,
 } from './sdlc-safe-recoveries.mjs';
 import {
@@ -18,6 +20,7 @@ import {
 import { inspectIssueSpecScope } from './issue-spec-scope.mjs';
 import { isSpecApproved, resolveSpecDir } from './sdlc-execute.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
+import { enterControllerLease, releaseControllerLease } from './sdlc-controller-lease.mjs';
 import { loadSteeringRuntime } from '../src/sdlc-steering-runtime.mjs';
 
 const USAGE = 'Usage: node scripts/sdlc-recover-verification.mjs --issue N --spec specs/N-SLUG [--controller-run-id R]';
@@ -83,6 +86,37 @@ function computeSpecHash(specDir) {
     .join('\0');
   return hashValue(joined);
 }
+function archiveFailedVerification(root, archive, reportBytes, artifactBytes, receiptBytes) {
+  const history = join(root, '.omp/sdlc/history');
+  const parent = join(history, 'verification-rechecks');
+  for (const directory of [history, parent]) {
+    if (!fs.existsSync(directory)) fs.mkdirSync(directory);
+    const stat = fs.lstatSync(directory);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('unsafe_archive');
+  }
+  const expectedParent = join(fs.realpathSync(root), '.omp/sdlc/history/verification-rechecks');
+  if (fs.realpathSync(parent) !== expectedParent) throw new Error('unsafe_archive');
+  const parentStat = fs.lstatSync(parent);
+  const target = join(root, archive);
+  if (!fs.existsSync(target)) {
+    const staging = fs.mkdtempSync(join(parent, '.pending-'));
+    fs.writeFileSync(join(staging, 'report.md'), reportBytes, { flag: 'wx', mode: 0o600 });
+    fs.writeFileSync(join(staging, 'artifact.json'), artifactBytes, { flag: 'wx', mode: 0o600 });
+    fs.writeFileSync(join(staging, 'receipt.json'), receiptBytes, { flag: 'wx', mode: 0o600 });
+    const after = fs.lstatSync(parent);
+    if (after.dev !== parentStat.dev || after.ino !== parentStat.ino
+      || after.isSymbolicLink() || fs.realpathSync(parent) !== expectedParent) throw new Error('unsafe_archive');
+    fs.renameSync(staging, target);
+  }
+  for (const [name, bytes, maximum] of [
+    ['report.md', reportBytes, MAX_REPORT_BYTES],
+    ['artifact.json', artifactBytes, MAX_ARTIFACT_BYTES],
+    ['receipt.json', receiptBytes, MAX_REPORT_BYTES],
+  ]) {
+    if (!readBoundedFile(root, `${archive}/${name}`, maximum).equals(bytes)) throw new Error('archive_mismatch');
+  }
+}
+
 
 export async function recoverVerification({
   issue,
@@ -166,16 +200,14 @@ export async function recoverVerification({
     return { recover: false, reasonCode: 'spec_not_approved' };
   }
 
-  // report readiness must be lowercase 'incomplete' external-only case
+  // Same-head external-only Incomplete and changed-head Fail/Partial are distinct authorities.
   const readiness = inspectVerificationReadiness({
     content: reportContent,
     options: { expectedIssueNumber: issueNumber, expectedSpecPath: specPath, expectedScope: scope },
   });
-  if (
-    readiness.status !== 'blocked' ||
-    readiness.reasonCode !== 'implementation_non_pass' ||
-    readiness.implementationStatus !== 'incomplete'
-  ) {
+  const nonPass = readiness.status === 'blocked' && readiness.reasonCode === 'implementation_non_pass';
+  const changedHeadFailure = nonPass && ['fail', 'partial'].includes(readiness.implementationStatus);
+  if (!nonPass || (!changedHeadFailure && readiness.implementationStatus !== 'incomplete')) {
     return { recover: false, reasonCode: 'not_applicable' };
   }
 
@@ -218,27 +250,51 @@ export async function recoverVerification({
     return { recover: false, reasonCode: 'verification_artifact_invalid' };
   }
 
+  const oldHead = artifact?.identity?.headSha;
+  if (!/^[0-9a-f]{40}$/i.test(oldHead ?? '')) {
+    return { recover: false, reasonCode: 'verification_artifact_invalid' };
+  }
+  if (changedHeadFailure && oldHead === headSha) {
+    return { recover: false, reasonCode: 'not_applicable' };
+  }
+  if (changedHeadFailure) {
+    let previous;
+    try {
+      previous = listChangedHeadVerificationRecords({ cwd, ownerId, issue: issueNumber });
+      if (previous.some((entry) => entry.class ===
+        `changed_head_verification_recheck:${oldHead}:${headSha}`)) {
+        return { recover: false, reasonCode: 'changed_head_recheck_already_consumed' };
+      }
+    } catch (error) {
+      return { recover: false, reasonCode: error?.reasonCode ?? 'recovery_owner_unreadable' };
+    }
+    const reportHead = reportContent.match(/^\*\*Verification head\*\*:\s*([0-9a-f]{40})\s*$/m)?.[1];
+    if ((reportHead && reportHead !== oldHead)
+      || (!reportHead && !reportContent.includes(oldHead))
+      || (previous.length && (previous.at(-1).evidence?.newHead !== oldHead || reportHead !== oldHead))) {
+      return { recover: false, reasonCode: 'failed_report_head_unproven' };
+    }
+  }
   const artifactRepair = inspectVerificationArtifactRepair(artifact, {
     expectedIssueNumber: issueNumber,
-    expectedHeadSha: headSha,
+    expectedHeadSha: changedHeadFailure ? oldHead : headSha,
   });
   if (artifactRepair.status === 'unverifiable' || artifactRepair.reasonCode === 'verification_artifact_invalid') {
     return { recover: false, reasonCode: 'verification_artifact_invalid' };
   }
 
-  // scope ONLY external-only incomplete: required statuses must be passed or (external incomplete); at least one ext inc
   const results = Array.isArray(artifact.results) ? artifact.results : [];
   const requiredResults = results.filter((r) => r && r.required === true && r.applicable === true);
   const externalIncomplete = requiredResults.filter((r) => r.effectiveStatus === 'incomplete' && r.provider && r.provider !== 'builtin.command');
-  let hasOnlyRecoverable = true;
-  for (const r of requiredResults) {
-    if (r.effectiveStatus === 'passed') continue;
-    if (r.effectiveStatus === 'incomplete' && r.provider && r.provider !== 'builtin.command') continue;
-    hasOnlyRecoverable = false;
-    break;
-  }
-  if (!hasOnlyRecoverable || externalIncomplete.length === 0) {
-    return { recover: false, reasonCode: hasOnlyRecoverable ? 'not_applicable' : 'has_non_recoverable_required_status' };
+  if (!changedHeadFailure) {
+    const hasOnlyRecoverable = requiredResults.every((result) =>
+      result.effectiveStatus === 'passed'
+      || (result.effectiveStatus === 'incomplete' && result.provider && result.provider !== 'builtin.command'));
+    if (!hasOnlyRecoverable || externalIncomplete.length === 0) {
+      return { recover: false, reasonCode: hasOnlyRecoverable ? 'not_applicable' : 'has_non_recoverable_required_status' };
+    }
+  } else if (artifact.ceiling !== 'Fail' && readiness.implementationStatus !== 'partial') {
+    return { recover: false, reasonCode: 'verification_artifact_invalid' };
   }
 
   // exact artifact identity: nonempty specHash + match; steeringHash match from registered runtime
@@ -287,6 +343,63 @@ export async function recoverVerification({
       (Array.isArray(cov.duplicate) && cov.duplicate.length) ||
       (Array.isArray(cov.unknown) && cov.unknown.length)) {
     return { recover: false, reasonCode: 'verification_artifact_invalid' };
+  }
+
+  if (changedHeadFailure) {
+    const ancestry = run('git', ['merge-base', '--is-ancestor', oldHead, headSha], { cwd });
+    const subjects = run('git', ['log', '--format=%s', `${oldHead}..${headSha}`], { cwd });
+    const upstream = run('git', ['rev-list', '--left-right', '--count', '@{u}...HEAD'], { cwd });
+    const changedPaths = run('git', ['diff', '--name-only', '-z', `${oldHead}..${headSha}`], { cwd });
+    const substantive = commandSucceeded(changedPaths)
+      && String(changedPaths.stdout).split('\0').some((path) => path
+        && !path.startsWith('specs/') && !path.startsWith('docs/')
+        && !['README.md', 'CHANGELOG.md', 'VERSION'].includes(path));
+    const repairs = String(subjects.stdout ?? '').trim().split('\n');
+    if (!commandSucceeded(ancestry) || !commandSucceeded(subjects)
+      || repairs.length === 0 || repairs.length > 20
+      || repairs.some((subject) => !/^fix:/.test(subject) || !subject.includes(`#${issueNumber}`))
+      || !substantive || !commandSucceeded(upstream) || !/^0\s+0$/.test(String(upstream.stdout).trim())) {
+      return { recover: false, reasonCode: 'repair_publication_unproven' };
+    }
+
+    let lease;
+    try {
+      lease = enterControllerLease({ projectRoot: root, runId: controllerRunId });
+      if (getSafeRecoveryRecord({
+        cwd, ownerId, issue: issueNumber, step: 'verify',
+        class: `changed_head_verification_recheck:${oldHead}:${headSha}`,
+      })) return { recover: false, reasonCode: 'changed_head_recheck_already_consumed' };
+      const currentStatus = run('git', ['status', '--porcelain=v1', '-z'], { cwd });
+      const currentUpstream = run('git', ['rev-list', '--left-right', '--count', '@{u}...HEAD'], { cwd });
+      const currentHead = run('git', ['rev-parse', 'HEAD'], { cwd });
+      if (!readBoundedFile(root, reportPath, MAX_REPORT_BYTES).equals(Buffer.from(reportContent))
+        || !readBoundedFile(root, artifactRelative, MAX_ARTIFACT_BYTES).equals(artifactBytes)
+        || !commandSucceeded(run('git', ['diff', '--quiet', oldHead, headSha, '--', specPath], { cwd }))
+        || !commandSucceeded(currentHead) || String(currentHead.stdout).trim() !== headSha
+        || !commandSucceeded(currentUpstream) || !/^0\s+0$/.test(String(currentUpstream.stdout).trim())
+        || !commandSucceeded(currentStatus)
+        || porcelainPaths(currentStatus.stdout).some((path) => path !== reportPath)) {
+        return { recover: false, reasonCode: 'repair_evidence_changed' };
+      }
+      const archive = `.omp/sdlc/history/verification-rechecks/${issueNumber}-${oldHead}-${headSha}`;
+      const receipt = `${JSON.stringify({
+        issue: issueNumber, ownerId, oldHead, newHead: headSha,
+        reportDigest: hashValue(reportContent), artifactDigest: hashValue(artifactBytes),
+      })}\n`;
+      archiveFailedVerification(root, archive, Buffer.from(reportContent), artifactBytes, Buffer.from(receipt));
+      const consumed = consumeSafeRecovery({
+        cwd, ownerId, issue: issueNumber, step: 'verify',
+        class: `changed_head_verification_recheck:${oldHead}:${headSha}`,
+        evidence: { oldHead, newHead: headSha, archive, reportDigest: hashValue(reportContent), artifactDigest: hashValue(artifactBytes) },
+      });
+      return consumed.consumed
+        ? { recover: true, kind: 'changed_head_failed_report' }
+        : { recover: false, reasonCode: 'changed_head_recheck_already_consumed' };
+    } catch (error) {
+      return { recover: false, reasonCode: error?.reasonCode ?? 'repair_recheck_unavailable' };
+    } finally {
+      if (lease?.owned) releaseControllerLease(lease.lease);
+    }
   }
 
   // consume one-use durable for owner

@@ -27,7 +27,7 @@ Inline architecture and acceptance review by the architecture-reviewer agent. No
 Before running verification, modifying code, or generating a report, bind the durable verify owner:
 
 ```bash
-node "<plugin-root>/scripts/sdlc-safe-recoveries.mjs" bind --issue N --step verify --spec specs/N-SLUG [--controller-run-id R]
+node "${NMG_SDLC_PLUGIN_ROOT}/scripts/sdlc-safe-recoveries.mjs" bind --issue N --step verify --spec specs/N-SLUG [--controller-run-id R]
 ```
 
 Use the exact worker-header controller run id; omit it only for standalone work. Require `NMG_SDLC_PUBLICATION` with `passed:true`. Owner or scope failure is intervention and stops before work. The lease is only a mutex: fresh leases and sessions reuse the existing incomplete project/issue/branch/verify owner, and standalone verification never creates execute `run.json`.
@@ -35,21 +35,21 @@ Use the exact worker-header controller run id; omit it only for standalone work.
 When a report already exists, after binding the verify owner and before publication-only finalization, invoke the bounded recovery classifier once:
 
 ```bash
-node "<plugin-root>/scripts/sdlc-recover-verification.mjs" --issue N --spec specs/N-SLUG [--controller-run-id R]
+node "${NMG_SDLC_PLUGIN_ROOT}/scripts/sdlc-recover-verification.mjs" --issue N --spec specs/N-SLUG [--controller-run-id R]
 ```
 
-Use the exact worker-header controller run id, or omit it for standalone verification. Parse its JSON even on nonzero exit. Only `{recover:true}` authorizes this invocation to proceed to the deterministic steering gate below. The classifier consumes one `external_verification_recheck` under the existing incomplete verify owner before returning: the previous report must be valid Incomplete, the bounded canonical artifact must match issue, Approved singular spec, registered identity and HEAD with complete coverage, and all applicable required validations must be passed except at least one incomplete external provider. A failed result, local incomplete, stale identity, unsafe path, foreign owner, dirty non-report scope, or consumed attempt is never authorization.
+Use the exact worker-header controller run id, or omit it for standalone verification. Parse JSON even on nonzero exit. `{recover:true,kind:"changed_head_failed_report"}` is a one-use authorization after a clean published issue-owned repair changes the HEAD of a prior Fail/Partial report and matching artifact; the classifier archives their exact original bytes and consumes the A-to-B recheck before validation. `{recover:true}` without that kind is the existing same-head external-only Incomplete recheck. Both authorize one registered gate at the current HEAD; neither is a passing result.
 
-If the classifier does not authorize a recheck, run Finalize Verification once without changing report bytes or reposting its issue comment, then stop. `not_applicable` keeps ordinary publication-only recovery; invalid or stale evidence remains intervention under the finalizer. An Incomplete report with an exact-head required `builtin.command` failure remains mixed actionable evidence: the finalizer preserves the report and artifact, and writes the existing non-intervention `next: implement` handoff. Never alter evidence to change its classification.
+If recovery is not authorized, run Finalize Verification once without changing report bytes or reposting its issue comment, then stop. `not_applicable` permits ordinary publication-only recovery only when current report/artifact still match current HEAD. An already consumed changed-head recheck, stale/unsafe evidence, or a new failed gate remains an intervention; do not redispatch the same repair or replay a gate. An Incomplete report with an exact-head required `builtin.command` failure remains mixed actionable evidence under the original finalizer contract.
 
-After `{recover:true}`, run the registered steering gate once for that exact issue/spec/HEAD and owner. Read its freshly written canonical artifact. If coverage is not complete or any applicable required validation is not passed, preserve the historical report and issue comment, run Finalize Verification once to record an intervention-bearing non-pass handoff, and stop. Do not rerun the gate or regenerate a report. Only complete, all-required-pass fresh evidence permits the normal reviews, accurate replacement report, issue comment, and controller finalization below; finalizer publication and execute advancement retain all existing gates.
+After authorized recovery, run the registered steering gate once for that exact issue/spec/HEAD and owner. Read its fresh canonical artifact. If coverage is not complete or any applicable required validation is not passed, preserve the archived old evidence and the new failure, run Finalize Verification once for an intervention-bearing handoff, and stop. Only complete, all-required-pass fresh evidence permits the normal acceptance review, accurate replacement report, and normal finalizer. Never call this classifier a second time in the same invocation.
 
 ## Deterministic Steering Gate
 
 Before prose review, run:
 
 ```bash
-node "<plugin-root>/scripts/sdlc-verify-steering.mjs" --project . --issue N --spec specs/N-SLUG --base main [--controller-run-id R]
+node "${NMG_SDLC_PLUGIN_ROOT}/scripts/sdlc-verify-steering.mjs" --project . --issue N --spec specs/N-SLUG --base main [--controller-run-id R]
 ```
 
 When the worker header provides a non-empty controller run id, replace the bracketed option with `--controller-run-id R` using that exact value. Omit the option only for standalone verification.
@@ -72,7 +72,7 @@ Read `.omp/sdlc/verification/N.json`. The same runner is mandatory for interacti
   Score 1-5, note findings. Average reported.
 
 - Test / BDD: run the test command from tech.md (or relevant subset). For plugin changes (detect via git diff on workflows/ and agents/):
-  Use updated exercise instructions (see exercise-testing.md): from a disposable project run `node "<plugin-root>/scripts/exercise-omp.mjs" --cwd <project> -- /sdlc-NAME [args]` with this extension loaded by the harness. Do not use `omp --print --load`. Preserve the prior dry-run contract and use state-based termination without a wall-clock deadline. Record output vs ACs.
+  Use updated exercise instructions (see exercise-testing.md): from a disposable project run `node "${NMG_SDLC_PLUGIN_ROOT}/scripts/exercise-omp.mjs" --cwd <project> -- /sdlc-NAME [args]` with this extension loaded by the harness. Do not use `omp --print --load`. Preserve the prior dry-run contract and use state-based termination without a wall-clock deadline. Record output vs ACs.
 
 - PR-only obligations: if present use the readiness rules from references (PR Evidence Pending allowed only when all local pass).
 
@@ -100,7 +100,7 @@ The controller owns report publication and the verify handoff. Never write hando
 Run:
 
 ```bash
-node "<plugin-root>/scripts/sdlc-finalize-verification.mjs" --issue N --spec specs/N-SLUG [--controller-run-id R]
+node "${NMG_SDLC_PLUGIN_ROOT}/scripts/sdlc-finalize-verification.mjs" --issue N --spec specs/N-SLUG [--controller-run-id R]
 ```
 
 When the worker header provides a non-empty controller run id, replace the bracketed option with `--controller-run-id R` using that exact value. Omit the option only for standalone verification.

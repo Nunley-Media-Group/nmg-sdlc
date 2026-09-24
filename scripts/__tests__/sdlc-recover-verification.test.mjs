@@ -19,7 +19,8 @@ function report(root, implementationStatus = 'Incomplete') {
   });
   const scope = { issueNumber, specPath, status: scopeStatus, delivery, regression };
   const status = implementationStatus == null ? '' : `## Implementation Status: **${implementationStatus}**\n\n`;
-  return `# Verification\n\n${status}<!-- nmg-sdlc-issue-scope: ${JSON.stringify(scope)} -->\n`;
+  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim();
+  return `# Verification\n\n${status}**Verification head**: ${head}\n\n<!-- nmg-sdlc-issue-scope: ${JSON.stringify(scope)} -->\n`;
 }
 
 function fixture(implementationStatus = 'Incomplete', { createOwner = true } = {}) {
@@ -156,6 +157,158 @@ describe('sdlc-recover-verification external-only incomplete recheck', () => {
     expect(after && after.records).toEqual(expect.arrayContaining([
       expect.objectContaining({ class: 'external_verification_recheck', runId: f.ownerId, issue: 42, step: 'verify', disposition: 'consumed' }),
     ]));
+  });
+
+  it('rechecks a failed report only after a published repair changes the exact head', async () => {
+    const f = fixture('Fail');
+    const oldHead = f.git('rev-parse', 'HEAD');
+    const artifact = f.writeArtifact([makeLocalFailed()]);
+    const oldReport = fs.readFileSync(path.join(f.root, REPORT));
+    const oldArtifact = fs.readFileSync(artifact);
+    fs.writeFileSync(path.join(f.root, 'repair.txt'), 'repaired\n');
+    f.git('add', 'repair.txt');
+    f.git('commit', '-m', 'fix: repair verification #42');
+    f.git('push');
+
+    expect(await f.recover()).toEqual({ recover: true, kind: 'changed_head_failed_report' });
+    const records = f.state().records.filter((entry) => entry.class.startsWith('changed_head_verification_recheck:'));
+    expect(records).toHaveLength(1);
+    expect(records[0].evidence.oldHead).toBe(oldHead);
+    expect(records[0].evidence.newHead).toBe(f.git('rev-parse', 'HEAD'));
+    const archive = path.join(f.root, records[0].evidence.archive);
+    expect(fs.readFileSync(path.join(archive, 'report.md'))).toEqual(oldReport);
+    expect(fs.readFileSync(path.join(archive, 'artifact.json'))).toEqual(oldArtifact);
+    expect(await f.recover()).toEqual({ recover: false, reasonCode: 'changed_head_recheck_already_consumed' });
+  });
+
+  it('allows a distinct second published repair but never reuses either head pair', async () => {
+    const f = fixture('Fail');
+    const firstHead = f.git('rev-parse', 'HEAD');
+    f.writeArtifact([makeLocalFailed()]);
+    fs.writeFileSync(path.join(f.root, 'repair.txt'), 'first repair\n');
+    f.git('add', 'repair.txt');
+    f.git('commit', '-m', 'fix: first repair #42');
+    f.git('push');
+    expect(await f.recover()).toMatchObject({ recover: true });
+    const secondHead = f.git('rev-parse', 'HEAD');
+    f.writeArtifact([makeLocalFailed()]);
+    fs.writeFileSync(path.join(f.root, REPORT), `${report(f.root, 'Fail')}\n**Verification head**: ${secondHead}\n`);
+    fs.writeFileSync(path.join(f.root, 'repair.txt'), 'different repair\n');
+    f.git('add', 'repair.txt');
+    f.git('commit', '-m', 'fix: different repair #42');
+    f.git('push');
+    expect(await f.recover()).toMatchObject({ recover: true });
+    expect(await f.recover()).toEqual({ recover: false, reasonCode: 'changed_head_recheck_already_consumed' });
+    expect(f.state().records.filter((entry) =>
+      entry.class.startsWith('changed_head_verification_recheck:')).map((entry) => entry.evidence.oldHead))
+      .toEqual([firstHead, secondHead]);
+  });
+
+  it('does not use a B artifact with the unreplaced A failure report to authorize B-to-C', async () => {
+    const f = fixture('Fail');
+    f.writeArtifact([makeLocalFailed()]);
+    fs.writeFileSync(path.join(f.root, 'repair.txt'), 'first repair\n');
+    f.git('add', 'repair.txt');
+    f.git('commit', '-m', 'fix: first repair #42');
+    f.git('push');
+    expect(await f.recover()).toMatchObject({ recover: true });
+    f.writeArtifact([makeLocalFailed()]);
+    fs.writeFileSync(path.join(f.root, 'repair.txt'), 'second repair\n');
+    f.git('add', 'repair.txt');
+    f.git('commit', '-m', 'fix: second repair #42');
+    f.git('push');
+    expect(await f.recover()).toEqual({ recover: false, reasonCode: 'failed_report_head_unproven' });
+    expect(f.state().records.filter((entry) =>
+      entry.class.startsWith('changed_head_verification_recheck:'))).toHaveLength(1);
+  });
+
+  it('rejects an empty or documentation-only head advance as a repair', async () => {
+    const f = fixture('Fail');
+    f.writeArtifact([makeLocalFailed()]);
+    f.git('commit', '--allow-empty', '-m', 'fix: no behavior changed #42');
+    f.git('push');
+    expect(await f.recover()).toEqual({ recover: false, reasonCode: 'repair_publication_unproven' });
+    expect(f.state().records).toEqual([]);
+  });
+
+  it('resumes a complete byte-bound archive left before durable consumption', async () => {
+    const f = fixture('Fail');
+    const oldHead = f.git('rev-parse', 'HEAD');
+    const artifact = f.writeArtifact([makeLocalFailed()]);
+    const reportBytes = fs.readFileSync(path.join(f.root, REPORT));
+    const artifactBytes = fs.readFileSync(artifact);
+    fs.writeFileSync(path.join(f.root, 'repair.txt'), 'repaired\n');
+    f.git('add', 'repair.txt');
+    f.git('commit', '-m', 'fix: published repair #42');
+    f.git('push');
+    const newHead = f.git('rev-parse', 'HEAD');
+    const archive = path.join(f.root, `.omp/sdlc/history/verification-rechecks/42-${oldHead}-${newHead}`);
+    fs.mkdirSync(archive, { recursive: true });
+    fs.writeFileSync(path.join(archive, 'report.md'), reportBytes);
+    fs.writeFileSync(path.join(archive, 'artifact.json'), artifactBytes);
+    fs.writeFileSync(path.join(archive, 'receipt.json'), `${JSON.stringify({
+      issue: 42, ownerId: f.ownerId, oldHead, newHead,
+      reportDigest: 'sha256:' + createHash('sha256').update(reportBytes).digest('hex'),
+      artifactDigest: 'sha256:' + createHash('sha256').update(artifactBytes).digest('hex'),
+    })}\n`);
+    expect(await f.recover()).toEqual({ recover: true, kind: 'changed_head_failed_report' });
+    expect(fs.readFileSync(path.join(archive, 'report.md'))).toEqual(reportBytes);
+  });
+
+  it('leaves an altered archive untouched rather than consuming a pair', async () => {
+    const f = fixture('Fail');
+    const oldHead = f.git('rev-parse', 'HEAD');
+    f.writeArtifact([makeLocalFailed()]);
+    fs.writeFileSync(path.join(f.root, 'repair.txt'), 'repaired\n');
+    f.git('add', 'repair.txt');
+    f.git('commit', '-m', 'fix: published repair #42');
+    f.git('push');
+    const archive = path.join(f.root, `.omp/sdlc/history/verification-rechecks/42-${oldHead}-${f.git('rev-parse', 'HEAD')}`);
+    fs.mkdirSync(archive, { recursive: true });
+    fs.writeFileSync(path.join(archive, 'report.md'), 'not the original report\n');
+    expect(await f.recover()).toEqual({ recover: false, reasonCode: 'repair_recheck_unavailable' });
+    expect(fs.readFileSync(path.join(archive, 'report.md'), 'utf8')).toBe('not the original report\n');
+    expect(f.state().records).toEqual([]);
+  });
+
+  it('keeps an unchanged failed report out of changed-head recovery', async () => {
+    const f = fixture('Fail');
+    f.writeArtifact([makeLocalFailed()]);
+    expect(await f.recover()).toEqual({ recover: false, reasonCode: 'not_applicable' });
+    expect(f.state().records).toEqual([]);
+  });
+
+  it('rejects an unpushed repair without archiving or consuming evidence', async () => {
+    const f = fixture('Fail');
+    f.writeArtifact([makeLocalFailed()]);
+    fs.writeFileSync(path.join(f.root, 'repair.txt'), 'repaired\n');
+    f.git('add', 'repair.txt');
+    f.git('commit', '-m', 'fix: repair verification #42');
+    expect(await f.recover()).toEqual({ recover: false, reasonCode: 'repair_publication_unproven' });
+    expect(f.state().records).toEqual([]);
+    expect(fs.existsSync(path.join(f.root, '.omp/sdlc/history/verification-rechecks'))).toBe(false);
+  });
+
+  it('rejects dirty non-report state even after a pushed repair', async () => {
+    const f = fixture('Partial');
+    f.writeArtifact([makeLocalFailed()]);
+    fs.writeFileSync(path.join(f.root, 'repair.txt'), 'repaired\n');
+    f.git('add', 'repair.txt');
+    f.git('commit', '-m', 'fix: repair verification #42');
+    f.git('push');
+    fs.writeFileSync(path.join(f.root, 'unexpected.txt'), 'unreviewed\n');
+    expect(await f.recover()).toEqual({ recover: false, reasonCode: 'verification_publish_failed' });
+    expect(f.state().records).toEqual([]);
+  });
+
+  it('rejects a symlinked failed report without following it', async () => {
+    const f = fixture('Fail');
+    f.writeArtifact([makeLocalFailed()]);
+    const target = path.join(f.root, 'outside.md');
+    fs.renameSync(path.join(f.root, REPORT), target);
+    fs.symlinkSync(target, path.join(f.root, REPORT));
+    expect(await f.recover()).toEqual({ recover: false, reasonCode: 'verification_report_invalid' });
+    expect(f.state().records).toEqual([]);
   });
 
   it('rejects a changed registered steering identity before consuming recovery', async () => {

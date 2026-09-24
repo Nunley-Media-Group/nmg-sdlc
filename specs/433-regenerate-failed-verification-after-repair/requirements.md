@@ -25,14 +25,18 @@ When the verify workflow replaces the report and finalizes it
 Then the passed handoff and canonical artifact bind B and the ordinary controller may advance to delivery; no old result grants authority.
 
 ### AC3: Unchanged or ambiguous evidence fails closed
-Given head A is unchanged, the report or artifact is unsafe, the spec/config/owner/branch differs, the tree is dirty, a worker or lease conflicts, or the recheck was already consumed without new authority
+Given head A is unchanged, the report or artifact is unsafe, the spec/config/owner/branch differs, the tree is dirty, a worker or lease conflicts, or the same A-to-B recheck was already consumed
 When recovery is requested
-Then no new validation, report overwrite, handoff forgery, or worker replay occurs and the exact reason is retained.
+Then no duplicate validation, report overwrite, handoff forgery, or worker replay occurs and the exact reason is retained.
 
-### AC4: Non-passing new evidence remains explicit
-Given a fresh registered gate at B fails or is incomplete
-When its result is inspected
-Then historical A evidence remains archived, B failure remains explicit, and no passing report or delivery handoff is manufactured. External-only same-head Incomplete recovery retains its existing one-use rules.
+### AC4: New non-passing evidence stays actionable only with progress
+Given a fresh registered gate at B fails
+When acceptance review records the exact new head, remaining failures and earlier attempted approaches in a truthful B report
+Then historical A evidence remains archived, B failure remains explicit, and a non-passing handoff may authorize another distinct issue-owned repair, but never delivery.
+Given a further repair publishes head C with materially changed project paths and distinct failure evidence
+When the controller compares the checkpointed heads, paths, report and gate outcomes
+Then it may continue without an arbitrary total attempt cutoff; unchanged/repeated work stops without replay.
+Incomplete or ambiguous B evidence remains intervention-bearing. External-only same-head Incomplete recovery retains its separate one-use rules.
 
 ### AC5: Deterministic regression and live proof
 Given the isolated #204 Fail-to-repair transition and unsafe variants
@@ -41,4 +45,4 @@ Then the before-fix loop reproduces, the changed-head path produces new exact-he
 
 ## Scope
 
-Own only verification recovery classification, its verify-code workflow/finalizer integration where necessary, bounded immutable evidence archive, targeted tests, README/changelog/version mirrors. No changes to the PennyScan #204 checkpoint, no weakened provider gate, no auto-retry of an unchanged or consumed dispatch, and no nmg-sdlc workflow on the plugin repository.
+Own verification recovery classification, verify-code workflow/finalizer, progress-aware verify remediation checkpointing and tests, bounded immutable evidence archives, README/changelog/version mirrors. No changes to PennyScan #204 checkpoint, no weakened provider gate, no automatic replay of an unchanged or consumed dispatch, and no nmg-sdlc workflow on the plugin repository.

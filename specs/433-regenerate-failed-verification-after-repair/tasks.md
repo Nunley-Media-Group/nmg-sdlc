@@ -11,6 +11,8 @@
 - [ ] Archive exact A evidence with digests and durable receipt before allowing a new B gate; do not clear or rewrite controller/owner state.
 - [ ] Update `workflows/verify-code/WORKFLOW.md` to distinguish changed-head Fail/Partial from same-head external-only Incomplete and genuine publication-only recovery.
 - [ ] Preserve `scripts/sdlc-finalize-verification.mjs` as the sole report/handoff publisher; change it only if needed to prove B identity and safe publication.
+- [ ] Checkpoint prior failure heads, changed paths, report/gate digests and attempted approaches in `scripts/sdlc-execute.mjs`; permit additional verify remediations only on distinct issue-owned progress and stop unchanged/repeated evidence.
+- [ ] Allow a truthful B Fail report with exact head and new gate evidence to drive a further distinct repair without granting delivery; preserve incomplete/unsafe intervention.
 
 ## Proof and delivery
 - [ ] Cover passing B, failing B, unchanged head, dirty/foreign/unsafe evidence, consumed recheck, and exact-head report replacement in focused tests.

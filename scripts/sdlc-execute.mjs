@@ -36,6 +36,7 @@ import { tmpdir } from 'node:os';
 import { inspectReviewReceipts } from '../src/sdlc-review-isolation.mjs';
 import {
   consumeSafeRecovery,
+  getChangedHeadVerificationRecord,
   inspectPublicationScope,
   getSafeRecoveryRecord,
   hasSafeRecoveryRecord,
@@ -109,6 +110,7 @@ const STEP_PANE_ENV_KEYS = Object.freeze({
 
 function stepPaneEnvironment(step, env, controllerRunId) {
   const environment = {};
+  if (step === 'verify') environment.NMG_SDLC_PLUGIN_ROOT = packageRoot;
   if (['fix1', 'fix2'].includes(step) && controllerRunId) {
     environment.NMG_SDLC_CONTROLLER_RUN_ID = controllerRunId;
   }
@@ -711,6 +713,59 @@ function inspectActionableVerificationArtifact(root, issue, head) {
     };
   }
 }
+function verificationFailureSnapshot({ cwd, issue, run }) {
+  const current = run('git', ['rev-parse', 'HEAD'], { cwd });
+  const headSha = commandSucceeded(current) ? String(current.stdout).trim() : '';
+  if (!/^[0-9a-f]{40}$/i.test(headSha)) return null;
+  try {
+    const artifactBytes = readBoundedNoFollowFile(
+      cwd, `${RUN_DIR}/verification/${issue}.json`,
+      MAX_VERIFICATION_ARTIFACT_BYTES, 'verification_artifact_invalid',
+    ).bytes;
+    const artifact = JSON.parse(artifactBytes.toString('utf8'));
+    const specDir = resolveSpecDir(cwd, issue);
+    if (!specDir || artifact.issue !== issue || !/^[0-9a-f]{40}$/i.test(artifact.identity?.headSha ?? '')) return null;
+    const reportPath = `${relative(cwd, specDir).split('\\').join('/')}/verification-report.md`;
+    const reportBytes = readBoundedNoFollowFile(cwd, reportPath, MAX_HANDOFF_BYTES, 'verification_report_invalid').bytes;
+    const report = reportBytes.toString('utf8');
+    const acceptance = [...report.matchAll(/^\s*\|\s*(AC\d+)[^|]*\|\s*([^|]+)\|/gm)]
+      .map(([, criterion, status]) => [criterion, status.trim().toLowerCase()]);
+    const results = artifact.results?.filter((result) => result?.required && result?.applicable)
+      .map(({ id, provider, effectiveStatus, result }) => {
+        const lines = (result?.evidence ?? []).flatMap((entry) =>
+          `${entry.stdout ?? ''}\n${entry.stderr ?? ''}`.split(/\r?\n/))
+          .filter((line) => /^\s*(?:FAILED|FAIL|ERROR|E\s{2,}|.*(?:AssertionError|Exception|error:))/i.test(line))
+          .slice(0, 50)
+          .map((line) => line.replace(/\b[0-9a-f]{40}\b/gi, '<head>').trim());
+        return { id, provider, effectiveStatus, summary: result?.summary ?? null, failures: lines };
+      });
+    if (!Array.isArray(results) || artifact.coverage?.complete !== true) return null;
+    return {
+      headSha,
+      artifactHead: artifact.identity.headSha,
+      reportDigest: createHash('sha256').update(reportBytes).digest('hex'),
+      artifactDigest: createHash('sha256').update(artifactBytes).digest('hex'),
+      failureFingerprint: createHash('sha256')
+        .update(JSON.stringify({ ceiling: artifact.ceiling, results, acceptance }))
+        .digest('hex'),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function verificationRemediationProgress(previous, current, changedPaths = []) {
+  if (!previous?.failureFingerprint || !current?.failureFingerprint
+    || previous.failureFingerprint === current.failureFingerprint) return false;
+  const substantiveChange = previous.headSha !== current.headSha
+    && changedPaths.some((path) => !path.startsWith('specs/')
+      && !['README.md', 'CHANGELOG.md', 'VERSION'].includes(path));
+  const newMeasurement = previous.headSha === current.headSha
+    && previous.artifactHead !== current.artifactHead
+    && current.artifactHead === current.headSha;
+  return substantiveChange || newMeasurement;
+}
+
 function inspectActionableVerificationResume({ cwd, checkpoint, checkout, run }) {
   if (!checkpoint || checkpoint.currentStep !== 'verify'
     || !checkout || !checkout.branch.startsWith(`${checkpoint.currentIssue}-`)) return null;
@@ -3503,6 +3558,7 @@ export function remediationPrompt({
       reasonCode: remediation.reasonCode,
       summary: remediation.summary,
       artifacts: remediation.artifacts,
+      history: remediation.history,
       closedName: remediation.closedWorker?.name,
       closedPaneId: remediation.closedWorker?.paneId,
     };
@@ -3511,6 +3567,11 @@ export function remediationPrompt({
   const artifacts = Array.isArray(resolvedEvidence.artifacts) && resolvedEvidence.artifacts.length > 0
     ? resolvedEvidence.artifacts.map((artifact) => `- ${artifact}`).join('\n')
     : '- (none)';
+  const priorAttempts = failedStep === 'verify' && Array.isArray(resolvedEvidence.history)
+    ? resolvedEvidence.history.slice(-8).map((entry) =>
+      `- attempt ${entry.attempt}, head ${entry.headSha ?? 'unproven'}, failure ${entry.failureFingerprint ?? 'unproven'}, report ${entry.reportDigest ?? 'unproven'}, gate ${entry.artifactDigest ?? 'unproven'}, prior archive ${entry.archive ?? '(none)'}, progress ${entry.progress === true}, paths ${(entry.changedPaths ?? []).join(', ') || '(none)'}, reason ${entry.reasonCode}: ${String(entry.summary ?? '').replace(/\s+/g, ' ').slice(0, 180)}`)
+      .join('\n')
+    : '';
   const header = [
     `You are remediating issue #${issue} step ${failedStep} (attempt ${resolvedEvidence.attempt}).`,
     resolvedEvidence.closedName && resolvedEvidence.closedPaneId
@@ -3520,6 +3581,8 @@ export function remediationPrompt({
     `summary: ${resolvedEvidence.summary}`,
     'artifacts:',
     artifacts,
+    ...(priorAttempts ? ['prior attempts (read the checkpoint and artifacts for full evidence):', priorAttempts,
+      'Explain why the previous approach failed and what different, measurable change this attempt makes. Repeating the same source and failure evidence is not progress.'] : []),
     '',
     `Diagnose that failure. Fix the defect. Update the approved issue spec only when observable behavior changes. Commit and push through the existing execute gates for this step. Then rerun the same failed step contract below and write .omp/sdlc/handoffs/${issue}-${failedStep}.json with issue ${issue} and step ${failedStep}. Never write a rem step identity. Never call ask.`,
   ].join('\n');
@@ -5911,19 +5974,43 @@ export function runExecute({
     const prior = runState.remediation?.issue === issue && runState.remediation?.step === step
       ? runState.remediation
       : null;
-    const completedAttempts = completedRemediations(prior)
+    const previousFailure = prior?.history?.at(-1);
+    let snapshot = step === 'verify' ? verificationFailureSnapshot({ cwd, issue, run }) : null;
+    if (snapshot) {
+      try {
+        const recheck = getChangedHeadVerificationRecord({
+          cwd, ownerId: runState.runId, issue, headSha: snapshot.artifactHead,
+        });
+        if (recheck) snapshot = { ...snapshot, archive: recheck.evidence?.archive ?? null };
+      } catch {
+        snapshot = { ...snapshot, archive: null };
+      }
+    }
+    let changedPaths = [];
+    if (snapshot && previousFailure?.headSha
+      && previousFailure.headSha !== snapshot.headSha) {
+      const changed = run('git', ['diff', '--name-only', '-z',
+        `${previousFailure.headSha}..${snapshot.headSha}`], { cwd });
+      if (commandSucceeded(changed)) changedPaths = String(changed.stdout).split('\0').filter(Boolean);
+    }
+    const progress = step === 'verify'
+      && verificationRemediationProgress(previousFailure, snapshot, changedPaths);
+    const completedAttempts = progress ? 0 : completedRemediations(prior)
       + (agentName === remAgentName(issue, step) ? 1 : 0);
-    const attempt = completedAttempts >= 2 ? prior.attempt : completedAttempts + 1;
+    const attempt = step === 'verify' ? (prior?.attempt ?? 0) + 1
+      : completedAttempts >= 2 ? prior.attempt : completedAttempts + 1;
     const artifacts = Array.isArray(handoff.artifacts) ? handoff.artifacts : [];
     const history = [
       ...(Array.isArray(prior?.history) ? prior.history : []),
       {
         attempt,
         reasonCode: handoff.reasonCode,
+        summary: handoff.summary,
         artifacts,
         closedName: agentName,
         closedPaneId: paneId,
         at: new Date().toISOString(),
+        ...(snapshot ? { ...snapshot, changedPaths, progress } : {}),
       },
     ];
     runState.failed = { issue, step, reasonCode: handoff.reasonCode };
@@ -5951,6 +6038,7 @@ export function runExecute({
       reasonCode: remediation.reasonCode,
       summary: remediation.summary,
       artifacts: remediation.artifacts,
+      history: remediation.history,
       closedName: remediation.closedWorker?.name,
       closedPaneId: remediation.closedWorker?.paneId,
     };

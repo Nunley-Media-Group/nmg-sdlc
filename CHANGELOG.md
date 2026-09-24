@@ -10,6 +10,10 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Fixed
+
+- Reverify each distinct published issue-owned repair after a Fail/Partial report, archiving exact prior evidence and one-use head-pair receipts; checkpoint failure history and continue verify remediation only while new source and gate/acceptance evidence demonstrate progress, not a fixed attempt count (#433).
+
 ## [3.24.9] - 2026-09-24
 
 ### Fixed

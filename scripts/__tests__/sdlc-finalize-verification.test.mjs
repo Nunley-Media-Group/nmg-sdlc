@@ -9,7 +9,7 @@ import { finalizeVerification } from '../sdlc-finalize-verification.mjs';
 import { inspectIssueSpecScope } from '../issue-spec-scope.mjs';
 import { isRemediableFailedHandoff, validateHandoff } from '../sdlc-execute.mjs';
 import { acquireControllerLease, releaseControllerLease } from '../sdlc-controller-lease.mjs';
-import { resolveRecoveryOwner } from '../sdlc-safe-recoveries.mjs';
+import { consumeSafeRecovery, resolveRecoveryOwner } from '../sdlc-safe-recoveries.mjs';
 
 const roots = [];
 const SPEC = 'specs/42-feature';
@@ -151,6 +151,57 @@ describe('verification finalization controller', () => {
     expect(fs.readFileSync(path.join(f.root, REPORT))).toEqual(before);
     expect(mutations(f.calls)).toEqual([]);
     expect(f.state().records).toEqual([]);
+  });
+
+  it('stops a consumed changed-head recheck when its new gate fails', () => {
+    const f = fixture('Fail');
+    const head = f.git('rev-parse', 'HEAD');
+    consumeSafeRecovery({
+      cwd: f.root, ownerId: f.ownerId, issue: 42, step: 'verify',
+      class: `changed_head_verification_recheck:${'a'.repeat(40)}:${head}`, evidence: { newHead: head },
+    });
+    writeVerificationArtifact(f, [{
+      id: 'repository.api-tests', provider: 'builtin.command',
+      required: true, applicable: true, effectiveStatus: 'failed',
+    }]);
+    const outcome = f.finalize();
+    expect(outcome).toMatchObject({
+      status: 1,
+      handoff: { intervention: true, reasonCode: 'verification_recheck_not_ready', next: null },
+    });
+    expect(mutations(f.calls)).toEqual([]);
+  });
+
+  it('publishes a passing replacement report only with passing changed-head gate evidence', () => {
+    const f = fixture('Fail');
+    consumeSafeRecovery({
+      cwd: f.root, ownerId: f.ownerId, issue: 42, step: 'verify',
+      class: `changed_head_verification_recheck:${'a'.repeat(40)}:${f.git('rev-parse', 'HEAD')}`, evidence: { newHead: f.git('rev-parse', 'HEAD') },
+    });
+    writeVerificationArtifact(f, [{
+      id: 'repository.api-tests', provider: 'builtin.command',
+      required: true, applicable: true, effectiveStatus: 'passed',
+    }]);
+    expect(f.finalize().handoff).toMatchObject({ intervention: true, reasonCode: 'verification_recheck_not_ready' });
+    fs.writeFileSync(path.join(f.root, REPORT), `${report(f.root, 'Pass')}\n**Verification head**: ${f.git('rev-parse', 'HEAD')}\n`);
+    expect(f.finalize()).toMatchObject({ status: 0, handoff: { status: 'passed', next: 'deliver' } });
+  });
+
+  it('retains a truthful new-head failure as remediable without delivering', () => {
+    const f = fixture('Fail');
+    const head = f.git('rev-parse', 'HEAD');
+    consumeSafeRecovery({
+      cwd: f.root, ownerId: f.ownerId, issue: 42, step: 'verify',
+      class: `changed_head_verification_recheck:${'a'.repeat(40)}:${head}`, evidence: { newHead: head },
+    });
+    writeVerificationArtifact(f, [{
+      id: 'repository.api-tests', provider: 'builtin.command',
+      required: true, applicable: true, effectiveStatus: 'failed',
+    }]);
+    fs.writeFileSync(path.join(f.root, REPORT), `${report(f.root, 'Fail')}\n**Verification head**: ${head}\n`);
+    expect(f.finalize()).toMatchObject({
+      status: 1, handoff: { intervention: false, reasonCode: 'verification_not_ready', next: null },
+    });
   });
 
   it('rewinds mixed Incomplete evidence to implementation for trusted local failures', () => {

@@ -11,7 +11,7 @@ import { inspectIssueSpecScope } from './issue-spec-scope.mjs';
 import { isSpecApproved, resolveSpecDir } from './sdlc-execute.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
 import { enterControllerLease, releaseControllerLease } from './sdlc-controller-lease.mjs';
-import { assertInitialStagePublication, resolveRecoveryOwner, reconcileStagePublication } from './sdlc-safe-recoveries.mjs';
+import { assertInitialStagePublication, getChangedHeadVerificationRecord, resolveRecoveryOwner, reconcileStagePublication } from './sdlc-safe-recoveries.mjs';
 
 const USAGE = 'Usage: node scripts/sdlc-finalize-verification.mjs --issue N --spec specs/N-SLUG [--controller-run-id ID]';
 
@@ -119,18 +119,50 @@ function finalizeVerificationUnlocked({
     failedExternal: [],
     incomplete: [],
   };
+  let freshArtifact;
   if (fs.existsSync(artifactPath)) {
     try {
       const artifactStat = fs.lstatSync(artifactPath);
       const bytes = fs.readFileSync(artifactPath);
       if (artifactStat.isFile() && !artifactStat.isSymbolicLink() && bytes.length <= 512 * 1024) {
-        artifactRepair = inspectVerificationArtifactRepair(JSON.parse(bytes.toString('utf8')), {
+        freshArtifact = JSON.parse(bytes.toString('utf8'));
+        artifactRepair = inspectVerificationArtifactRepair(freshArtifact, {
           expectedIssueNumber: issueNumber,
           expectedHeadSha: headSha,
         });
       }
     } catch {
       // Invalid runtime evidence remains intervention-bearing below.
+    }
+  }
+  let changedHeadRecheck;
+  try {
+    changedHeadRecheck = getChangedHeadVerificationRecord({
+      cwd, ownerId, issue: issueNumber, headSha,
+    });
+  } catch {
+    return fail('verification_recheck_invalid', `Changed-head recheck owner is unavailable for #${issueNumber}`);
+  }
+  if (changedHeadRecheck) {
+    const reportHead = fs.readFileSync(absoluteReport, 'utf8')
+      .match(/^\*\*Verification head\*\*:\s*([0-9a-f]{40})\s*$/m)?.[1];
+    if (changedHeadRecheck.evidence?.newHead !== headSha
+      || artifactRepair.status === 'unverifiable'
+      || (['pass', 'pr_evidence_pending', 'pr_evidence_satisfied'].includes(readiness.status)
+        && (freshArtifact?.ceiling !== null
+          || freshArtifact.results.some((result) => result.required && result.applicable
+            && result.effectiveStatus !== 'passed')))) {
+      return fail('verification_recheck_invalid', `Changed-head verification evidence is inconsistent for #${issueNumber}`);
+    }
+    if (reportHead !== headSha) {
+      return fail('verification_recheck_not_ready', `Changed-head verification report is stale for #${issueNumber}`, {
+        intervention: true, artifacts: [reportPath, artifactRelative],
+      });
+    }
+    if (readiness.implementationStatus === 'incomplete') {
+      return fail('verification_recheck_not_ready', `Changed-head verification is incomplete for #${issueNumber}`, {
+        intervention: true, artifacts: [reportPath, artifactRelative],
+      });
     }
   }
   if (!['pass', 'pr_evidence_pending', 'pr_evidence_satisfied'].includes(readiness.status)) {

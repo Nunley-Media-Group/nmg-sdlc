@@ -26,6 +26,7 @@ import {
   remAgentName,
   isRemediableFailedHandoff,
   remediationPrompt,
+  verificationRemediationProgress,
   exclusiveResumePrompt,
   writeRun,
   cleanupCompletedRun,
@@ -758,7 +759,8 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
         /node "([^"\r\n]+[\\/]scripts[\\/][A-Za-z0-9._-]+\.mjs)"/g,
       )].map((match) => match[1]);
       expect(operands.length).toBeGreaterThan(0);
-      expect(operands.every((operand) => operand.startsWith(path.join(REPOSITORY_ROOT, 'scripts'))))
+      expect(operands.every((operand) => operand.startsWith(path.join(REPOSITORY_ROOT, 'scripts'))
+        || (step === 'verify' && operand.startsWith('${NMG_SDLC_PLUGIN_ROOT}/scripts'))))
         .toBe(true);
       expect(prompt).toContain(`nmg-sdlc ${step} worker for #42.`);
       expect(prompt).toContain(`.omp/sdlc/handoffs/42-${step}.json`);
@@ -6956,7 +6958,7 @@ describe('runExecute controller', () => {
     expect(fixture.splits[VALID_STEPS.indexOf('verify')]).toEqual({
       direction: 'right',
       cwd: fixture.cwd,
-      environment: { NMG_SDLC_SMOKE_ISSUES: queue },
+      environment: { NMG_SDLC_PLUGIN_ROOT: REPOSITORY_ROOT, NMG_SDLC_SMOKE_ISSUES: queue },
     });
     expect(fixture.splits.filter((split) => split.environment?.NMG_SDLC_SMOKE_ISSUES)).toHaveLength(1);
   });
@@ -6981,7 +6983,7 @@ describe('runExecute controller', () => {
     expect(fixture.splits[VALID_STEPS.indexOf('verify')]).toEqual({
       direction: 'right',
       cwd: fixture.cwd,
-      environment: { NMG_SDLC_SMOKE_OWNED: '1', NMG_SDLC_SMOKE_RECOVERY: token },
+      environment: { NMG_SDLC_PLUGIN_ROOT: REPOSITORY_ROOT, NMG_SDLC_SMOKE_OWNED: '1', NMG_SDLC_SMOKE_RECOVERY: token },
     });
     expect(fixture.splits[VALID_STEPS.indexOf('deliver')]).toEqual({
       direction: 'right',
@@ -7100,7 +7102,7 @@ describe('runExecute controller', () => {
     expect(fixture.splits[VALID_STEPS.indexOf('verify')]).toEqual({
       direction: 'right',
       cwd: fixture.cwd,
-      environment: { NMG_SDLC_SMOKE_ISSUES: queue },
+      environment: { NMG_SDLC_PLUGIN_ROOT: REPOSITORY_ROOT, NMG_SDLC_SMOKE_ISSUES: queue },
     });
     expect(fixture.splits.filter((split) => split.environment?.NMG_SDLC_SMOKE_ISSUES)).toHaveLength(1);
   });
@@ -7223,12 +7225,12 @@ describe('runExecute controller', () => {
       {
         direction: 'right',
         cwd: fixture.cwd,
-        environment: { NMG_SDLC_SMOKE_ISSUES: queue },
+        environment: { NMG_SDLC_PLUGIN_ROOT: REPOSITORY_ROOT, NMG_SDLC_SMOKE_ISSUES: queue },
       },
       {
         direction: 'right',
         cwd: fixture.cwd,
-        environment: { NMG_SDLC_SMOKE_ISSUES: queue },
+        environment: { NMG_SDLC_PLUGIN_ROOT: REPOSITORY_ROOT, NMG_SDLC_SMOKE_ISSUES: queue },
       },
     ]);
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
@@ -7257,9 +7259,9 @@ describe('runExecute controller', () => {
       { name: 'r42-verify', paneId: 'pane-9', kind: 'omp' },
     ]);
     expect(fixture.splits.slice(6, 9).map(({ environment }) => environment)).toEqual([
-      { NMG_SDLC_SMOKE_ISSUES: queue },
-      { NMG_SDLC_SMOKE_ISSUES: queue },
-      { NMG_SDLC_SMOKE_ISSUES: queue },
+      { NMG_SDLC_PLUGIN_ROOT: REPOSITORY_ROOT, NMG_SDLC_SMOKE_ISSUES: queue },
+      { NMG_SDLC_PLUGIN_ROOT: REPOSITORY_ROOT, NMG_SDLC_SMOKE_ISSUES: queue },
+      { NMG_SDLC_PLUGIN_ROOT: REPOSITORY_ROOT, NMG_SDLC_SMOKE_ISSUES: queue },
     ]);
     expect(fixture.events.indexOf('close:pane-8')).toBeLessThan(
       fixture.events.lastIndexOf('start:r42-verify'),
@@ -7343,6 +7345,74 @@ describe('runExecute controller', () => {
     expect(persisted.remediation).toMatchObject({ issue: 42, step: 'verify', status: 'stopped' });
     expect(persisted.failed).toMatchObject({ issue: 42, step: 'verify' });
   });
+  it('continues verified remediation beyond two distinct progressful approaches but rejects repetition', () => {
+    const first = {
+      headSha: 'a'.repeat(40), artifactHead: 'a'.repeat(40), failureFingerprint: 'first-failure',
+    };
+    const second = {
+      headSha: 'b'.repeat(40), artifactHead: 'b'.repeat(40), failureFingerprint: 'new-defect',
+    };
+    const third = {
+      headSha: 'c'.repeat(40), artifactHead: 'c'.repeat(40), failureFingerprint: 'last-defect',
+    };
+    expect(verificationRemediationProgress(first, second, ['src/fix.ts'])).toBe(true);
+    expect(verificationRemediationProgress(second, third, ['tests/fix.test.ts'])).toBe(true);
+    expect(verificationRemediationProgress(second, { ...third, failureFingerprint: second.failureFingerprint }, ['src/fix.ts']))
+      .toBe(false);
+    expect(verificationRemediationProgress(second, third, ['README.md'])).toBe(false);
+    expect(verificationRemediationProgress(
+      { ...second, artifactHead: first.headSha },
+      { ...second, failureFingerprint: 'fresh-gate' }, [],
+    )).toBe(true);
+    expect(verificationRemediationProgress(second, { ...second, failureFingerprint: 'fresh-gate' }, [])).toBe(false);
+  });
+
+  it.each([
+    ['new gate failures', true, 0, 4],
+    ['only revised prose', false, 1, 2],
+  ])('classifies repeated verify repair with %s', (_case, progress, expectedStatus, workers) => {
+    let head = 'a'.repeat(40);
+    let failures = 0;
+    let fixture;
+    fixture = makeControllerFixture({
+      remediableFailedStep: 'verify',
+      remFailures: 3,
+      handoffContent: (handoff, { step, isRem }) => {
+        if (step === 'verify' && handoff.status === 'failed') {
+          failures += 1;
+          if (isRem) head = String.fromCharCode(97 + failures).repeat(40);
+          const artifact = path.join(fixture.cwd, '.omp/sdlc/verification/42.json');
+          const report = path.join(fixture.cwd, 'specs/42-ship-it/verification-report.md');
+          fs.mkdirSync(path.dirname(artifact), { recursive: true });
+          fs.writeFileSync(artifact, JSON.stringify({
+            schemaVersion: 1, issue: 42, identity: { headSha: head },
+            coverage: { complete: true },
+            ceiling: 'Fail',
+            results: [{ id: 'required', provider: 'builtin.command',
+              required: true, applicable: true, effectiveStatus: 'failed',
+              result: { summary: progress ? `distinct failure ${failures}` : 'same failure' } }],
+          }));
+          fs.writeFileSync(report, `# Verification\n| AC1 | ${progress ? `Fail ${failures}` : 'Fail'} |\nNote: attempt ${failures}\n`);
+        }
+        return JSON.stringify(handoff);
+      },
+    });
+    const originalRun = fixture.run;
+    fixture.run = (command, args, options) => {
+      if (command === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { status: 0, stdout: `${head}\n`, stderr: '' };
+      }
+      if (command === 'git' && args[0] === 'merge-base' && args[1] === '--is-ancestor') {
+        return { status: 0, stdout: '', stderr: '' };
+      }
+      return originalRun(command, args, options);
+    };
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result.status).toBe(expectedStatus);
+    expect(fixture.starts.filter(({ name }) => name === 'r42-verify')).toHaveLength(workers);
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(!progress);
+  });
+
   it.each(REMEDIABLE_STEPS.filter((step) => !step.startsWith('review')))('SCN010 stops after two failed remediation completions for step %s with remediation_loop and no third worker', (step) => {
     const fixture = makeControllerFixture({ remediableFailedStep: step, remFailures: 2 });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
