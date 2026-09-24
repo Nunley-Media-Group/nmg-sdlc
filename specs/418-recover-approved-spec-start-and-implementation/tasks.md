@@ -37,10 +37,18 @@
 - [ ] Reproduce PennyScan pre-publication upstream-ahead failure and synchronized old commits with in-scope dirty implementation (AC4).
 - [ ] Consume one exact owner-bound recovery to normal implementation publication; reject changed history, published implementation, foreign/ignored/denied paths and repeat dispatch (AC4, AC5).
 
-### T005: Document and verify delivery
+### T005: Explain owner-bound stop evidence and one re-probe
+
+**File(s)**: `scripts/sdlc-execute.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`, `workflows/execute/`, `commands/sdlc-execute.md`, `README.md`
+**Type**: Modify
+**Acceptance**:
+- [ ] Surface exact start/implement proof failures and observed immutable identities in controller/discovery output, with a concrete owner-safe action or missing-proof blocker (AC6).
+- [ ] When an external branch release or exact existing-commit sync changes facts, offer one material operator intervention only when needed; re-probe once and continue the same issue when proven, never replay consumed dispatch or bypass provider safety (AC7).
+
+### T006: Document and verify delivery
 
 **File(s)**: `workflows/execute/`, `workflows/start-issue/`, `workflows/write-code/`, `commands/sdlc-execute.md`, `README.md`, `CHANGELOG.md`, `VERSION`, `package.json`, `scripts/__tests__/`
 **Type**: Modify
 **Acceptance**:
-- [ ] Align workflow instructions and user guidance with exact-head recovery, preserving existing authority and #417 integration (AC1–AC5).
-- [ ] Record pre-fix reproduction, focused/full tests, candidate install, registered smoke, review/CI and exact-head merged/pinned installation without touching PennyScan.
+- [ ] Align workflow instructions and user guidance with exact-head recovery, diagnostic action, and #417 integration (AC1–AC8).
+- [ ] Record pre-fix reproduction, focused/full tests, read-only PennyScan #217 candidate classifier with unchanged evidence hashes, candidate install, independent registered smoke, review/CI, exact-head merged/pinned installation, and real #217 exact-head delivery/closure before #218; never manually edit PennyScan.

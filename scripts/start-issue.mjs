@@ -162,7 +162,7 @@ function integrateDefaultHistory({ run, cwd, expectedBranch, issue }) {
   if (matching.length !== 1) return { status: 1, reasonCode: 'divergent_unproven' };
   const pr = parseJson(run('gh', [
     'pr', 'view', String(matching[0].number),
-    '--json', 'number,title,state,headRefName,headRefOid,baseRefName,headRepository,headRepositoryOwner,mergeCommit,files',
+    '--json', 'number,state,headRefName,headRefOid,baseRefName,headRepository,headRepositoryOwner,mergeCommit,files',
   ], { cwd }));
   const repository = parseJson(run('gh', ['repo', 'view', '--json', 'owner,name'], { cwd }));
   const paths = pr?.files?.map((file) => file?.path);
@@ -171,7 +171,6 @@ function integrateDefaultHistory({ run, cwd, expectedBranch, issue }) {
     ? paths[0].slice(0, paths[0].lastIndexOf('/'))
     : '';
   if (pr?.number !== matching[0].number || pr.state !== 'MERGED'
-    || pr.title !== `docs: approve spec for #${issue}`
     || pr.headRefName !== expectedBranch || pr.headRefOid !== branchHead
     || pr.baseRefName !== defaultBranch
     || typeof repository?.owner?.login !== 'string'

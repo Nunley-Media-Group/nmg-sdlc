@@ -41,3 +41,28 @@ Feature: Recover an approved-spec start and pre-publication implementation
     When recovery is inspected
     Then checkpoint, handoff and evidence remain unchanged
     And no force push, branch takeover or worker dispatch occurs
+
+  @SCN006 @regression
+  Scenario: A changeable start or implement blocker reports its proof and one action
+    Given START is blocked by an identified other worktree or IMPLEMENT by an exact unsynchronized reconciliation head
+    When the controller stops
+    Then its output names the observed branch/head or owner and the failed proof
+    And it offers only a bounded owner-safe release or non-force synchronization action
+    When that external fact changes and discovery re-probes once
+    Then the same issue resumes automatically through the normal worker if exact authority is proven
+
+  @SCN007 @safety
+  Scenario: Ambiguous or consumed recovery reports the missing proof without replay
+    Given the branch owner, source PR, head, dirty scope or prior dispatch is ambiguous or consumed
+    When recovery is classified or the controller stops
+    Then the output identifies the missing proof and preserves checkpoint and handoff
+    And it does not prompt for an unsafe replay, force push, worktree takeover or provider bypass
+
+  @SCN008 @acceptance
+  Scenario: Same retained PennyScan issue proves merged recovery end to end
+    Given PennyScan issue 217 retains its failed implement checkpoint and preserved dirty work
+    When candidate discovery runs read-only from the exact PennyScan root
+    Then the classifier reports an exact recovery or named missing proof without mutating evidence
+    When the #418 PR and a separate registered smoke pass and the clean merged plugin is pinned
+    Then the existing Herdr OMP controller resumes issue 217 through a new exact-head merged implementation PR and closed issue
+    And issue 218 is not attempted first

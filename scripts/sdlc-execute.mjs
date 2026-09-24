@@ -612,6 +612,9 @@ const MAX_GOAL_EVIDENCE_BYTES = 256 * 1024;
 const MAX_HANDOFF_BYTES = 256 * 1024;
 const MAX_VERIFICATION_ARTIFACT_BYTES = 512 * 1024;
 const SAFE_IGNORED_STATE_DIRECTORIES = new Set([
+  '.pytest_cache',
+  '.ruff_cache',
+  '.venv',
   '.cache',
   '.dart_tool',
   '.pub-cache',
@@ -929,6 +932,14 @@ function isIrrelevantIgnoredState(root, path, protectedPaths, workspaceAuthority
   const components = path.replace(/\/+$/, '').split('/');
   const workspaceBound = components.length > 1
     && hasWorkspaceManifest(root, components[0], workspaceAuthorityPaths);
+  if (['.pytest_cache', '.ruff_cache', '.venv'].includes(components[0])) {
+    try {
+      const stat = lstatSync(join(root, path));
+      return !stat.isSymbolicLink() && (stat.isFile() || stat.isDirectory());
+    } catch {
+      return false;
+    }
+  }
   const basename = components.at(-1);
   if (basename === '.DS_Store') {
     return isBoundedDsStorePath(root, path, workspaceAuthorityPaths);
@@ -962,6 +973,15 @@ function isIrrelevantIgnoredState(root, path, protectedPaths, workspaceAuthority
     ].includes(basename))
   )) return true;
   if (components.includes('__pycache__')) return true;
+  if (components.some((part) => /^[A-Za-z0-9_.-]+\.egg-info$/.test(part))) {
+    try {
+      assertNoSymlinkParents(root, path, 'workflow_evidence_unproven');
+      const stat = lstatSync(join(root, path));
+      return !stat.isSymbolicLink() && (stat.isDirectory() || stat.isFile());
+    } catch {
+      return false;
+    }
+  }
   if (workspaceBound && components.length > 2
     && components[1] === 'android' && components[2] === '.gradle') return true;
   if (workspaceBound && components.length > 2 && components[1] === 'ios'
@@ -970,6 +990,51 @@ function isIrrelevantIgnoredState(root, path, protectedPaths, workspaceAuthority
     && components[2] === 'Flutter' && components[3] === 'ephemeral') return true;
   return workspaceBound && components.length > 3 && components[1] === 'test'
     && ['golden', 'goldens'].includes(components[2]) && components[3] === 'failures';
+}
+
+const SESSION_EVIDENCE_TOKEN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const SESSION_EVIDENCE_FILE = /^sessions\/([0-9a-f-]{36})\/(recovery-owner\.json|run\.json|handoffs\/([1-9]\d*)-(start|implement|review1|fix1|review2|fix2|verify|deliver)\.json)$/;
+
+function sessionEvidenceOwner(root, token, safeState) {
+  if (!SESSION_EVIDENCE_TOKEN.test(token)) throw new Error('workflow_evidence_unproven');
+  const records = [];
+  for (const name of ['recovery-owner.json', 'run.json']) {
+    const path = `${RUN_DIR}/sessions/${token}/${name}`;
+    if (!existsSync(join(root, path))) continue;
+    let data;
+    try {
+      data = JSON.parse(readBoundedNoFollowFile(root, path, 4096, 'workflow_evidence_unproven').bytes.toString('utf8'));
+    } catch {
+      throw Object.assign(new Error('workflow_evidence_unproven'), {
+        proof: { runtimePath: path, failure: 'invalid_session_owner' },
+      });
+    }
+    const ownerId = data?.recoveryOwnerId ?? data?.ownerId;
+    const issue = data?.issue ?? data?.currentIssue;
+    const step = data?.step ?? data?.currentStep;
+    if (!Number.isSafeInteger(issue) || issue <= 0
+      || !VALID_STEPS.includes(step) || typeof ownerId !== 'string' || !ownerId
+      || data.projectRoot !== root || typeof data.branch !== 'string'
+      || !data.branch.startsWith(`${issue}-`)
+      || (name === 'run.json' && (data.schemaVersion !== 1 || data.runId !== token
+        || !/^[0-9a-f]{40}$/.test(data.head || '')))
+      || safeState.owners.filter((owner) => owner.ownerId === ownerId
+        && owner.projectRoot === root && owner.issue === issue
+        && owner.step === step && owner.branch === data.branch).length !== 1) {
+      throw Object.assign(new Error('workflow_evidence_unproven'), {
+        proof: { runtimePath: path, failure: 'session_owner_mismatch' },
+      });
+    }
+    records.push({ ownerId, issue, step, branch: data.branch });
+  }
+  if (records.length === 0 || records.some((record) =>
+    record.ownerId !== records[0].ownerId || record.issue !== records[0].issue
+      || record.step !== records[0].step || record.branch !== records[0].branch)) {
+    throw Object.assign(new Error('workflow_evidence_unproven'), {
+      proof: { runtimePath: `${RUN_DIR}/sessions/${token}`, failure: 'session_owner_missing_or_ambiguous' },
+    });
+  }
+  return records[0];
 }
 
 function knownControllerStatePath(
@@ -983,6 +1048,8 @@ function knownControllerStatePath(
   if (allowOwnedLease && relativePath === `${RUN_DIR}/controller.lock`) return true;
   if (allowedArchivePath && relativePath === allowedArchivePath) return true;
   const local = relativePath.slice(`${RUN_DIR}/`.length);
+  const session = SESSION_EVIDENCE_FILE.exec(local);
+  if (session && SESSION_EVIDENCE_TOKEN.test(session[1])) return true;
   if (local.startsWith('handoffs/')) return expectedHandoffPaths.has(relativePath);
   if (/^prompt-provenance\/(?:sdlc-[a-z0-9-]+|worker-(?:start|implement|review1|fix1|review2|fix2|verify|deliver))\.json$/.test(local)) {
     return true;
@@ -1014,20 +1081,36 @@ function assertKnownControllerState(
   const expectedHandoffPaths = new Set(
     expectedSlots.map((slot) => `${HANDOFF_DIR}/${slot}.json`),
   );
+  const sessionOwners = new Map();
   const runtime = join(root, RUN_DIR);
   const pending = [[runtime, RUN_DIR]];
   while (pending.length > 0) {
     const [directory, relativeDirectory] = pending.pop();
     const directoryStat = lstatSync(directory);
     if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory()) {
-      throw new Error('workflow_evidence_unproven');
+      throw Object.assign(new Error('workflow_evidence_unproven'), {
+        proof: { runtimePath: relativeDirectory, failure: 'unsafe_runtime_directory' },
+      });
     }
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const relativePath = `${relativeDirectory}/${entry.name}`;
       const target = join(directory, entry.name);
       const stat = lstatSync(target);
-      if (stat.isSymbolicLink()) throw new Error('workflow_evidence_unproven');
+      if (stat.isSymbolicLink()) throw Object.assign(new Error('workflow_evidence_unproven'), {
+        proof: { runtimePath: relativePath, failure: 'symlink' },
+      });
       if (stat.isDirectory()) {
+        if (relativePath.startsWith(`${RUN_DIR}/sessions/`)) {
+          const parts = relativePath.slice(`${RUN_DIR}/`.length).split('/');
+          if (parts.length === 2 && SESSION_EVIDENCE_TOKEN.test(parts[1])) {
+            sessionOwners.set(parts[1], sessionEvidenceOwner(root, parts[1], safeState));
+          } else if (parts.length !== 3 || parts[2] !== 'handoffs'
+            || !sessionOwners.has(parts[1])) {
+            throw Object.assign(new Error('workflow_evidence_unproven'), {
+              proof: { runtimePath: relativePath, failure: 'unrecognized_session_directory' },
+            });
+          }
+        }
         pending.push([target, relativePath]);
       } else if (!stat.isFile() || stat.size > 512 * 1024
         || !knownControllerStatePath(
@@ -1036,16 +1119,42 @@ function assertKnownControllerState(
           expectedHandoffPaths,
           allowedArchivePath,
         )) {
-        throw new Error('workflow_evidence_unproven');
+        throw Object.assign(new Error('workflow_evidence_unproven'), {
+          proof: {
+            runtimePath: relativePath,
+            failure: !stat.isFile() ? 'nonregular' : stat.size > 512 * 1024 ? 'oversize' : 'unrecognized',
+          },
+        });
+      } else if (relativePath.startsWith(`${RUN_DIR}/sessions/`)) {
+        const session = SESSION_EVIDENCE_FILE.exec(relativePath.slice(`${RUN_DIR}/`.length));
+        const owner = session && sessionOwners.get(session[1]);
+        if (!owner || (session[3] && (Number(session[3]) !== owner.issue || session[4] !== owner.step))) {
+          throw Object.assign(new Error('workflow_evidence_unproven'), {
+            proof: { runtimePath: relativePath, failure: 'session_handoff_owner_mismatch' },
+          });
+        }
+        if (session[3]) {
+          try {
+            readStrictHandoffSnapshot(root, relativePath, owner.issue, owner.step);
+          } catch {
+            throw Object.assign(new Error('workflow_evidence_unproven'), {
+              proof: { runtimePath: relativePath, failure: 'invalid_session_handoff' },
+            });
+          }
+        }
       } else if (relativePath.startsWith(`${HANDOFF_DIR}/`)) {
         const slot = relativePath.slice(HANDOFF_DIR.length + 1, -'.json'.length);
         const match = /^([1-9]\d*)-(start|implement|review1|fix1|review2|fix2|verify|deliver)$/
           .exec(slot);
-        if (!match) throw new Error('workflow_evidence_unproven');
+        if (!match) throw Object.assign(new Error('workflow_evidence_unproven'), {
+          proof: { runtimePath: relativePath, failure: 'invalid_handoff_slot' },
+        });
         try {
           readStrictHandoffSnapshot(root, relativePath, Number(match[1]), match[2]);
         } catch {
-          throw new Error('workflow_evidence_unproven');
+          throw Object.assign(new Error('workflow_evidence_unproven'), {
+            proof: { runtimePath: relativePath, failure: 'invalid_handoff' },
+          });
         }
       }
     }
@@ -2080,14 +2189,13 @@ export function inspectPrepublicationImplementResume({
   if (!defaultBranch || eligible.length !== 1) throw new Error('prepublication_source_unproven');
   const pr = parseCommandOutput(run('gh', [
     'pr', 'view', String(eligible[0].number),
-    '--json', 'number,title,state,headRefName,headRefOid,baseRefName,headRepository,headRepositoryOwner,mergeCommit,files',
+    '--json', 'number,state,headRefName,headRefOid,baseRefName,headRepository,headRepositoryOwner,mergeCommit,files',
   ], { cwd: root }));
   const repository = parseCommandOutput(run('gh', [
     'repo', 'view', '--json', 'owner,name',
   ], { cwd: root }));
   const paths = pr?.files?.map((file) => file?.path);
   if (pr?.number !== eligible[0].number || pr.state !== 'MERGED'
-    || pr.title !== `docs: approve spec for #${issue}`
     || pr.headRefName !== checkout.branch || pr.headRefOid !== parents[1]
     || pr.baseRefName !== defaultBranch
     || typeof repository?.owner?.login !== 'string'
@@ -2100,11 +2208,6 @@ export function inspectPrepublicationImplementResume({
     || required.some((path) => !paths.includes(path))) {
     throw new Error('prepublication_source_unproven');
   }
-  const remote = run('git', ['ls-remote', '--heads', 'origin', checkout.branch], { cwd: root });
-  if (!commandSucceeded(remote)
-    || String(remote.stdout || '').trim() !== `${checkout.head}\trefs/heads/${checkout.branch}`) {
-    throw new Error('upstream_not_synchronized');
-  }
   const lease = readControllerLease(root);
   if (lease && !(allowOwnedLease && lease.runId === checkpoint.runId && lease.pid === process.pid)) {
     throw new Error('controller_lease_held');
@@ -2113,7 +2216,23 @@ export function inspectPrepublicationImplementResume({
     .some((className) => hasSafeRecoveryRecord({
       cwd: root, ownerId: probe.ownerId, issue, step: 'implement', class: className,
     }))) throw new Error('recovery_consumed');
+  const remote = run('git', ['ls-remote', '--heads', 'origin', checkout.branch], { cwd: root });
+  if (!commandSucceeded(remote)) throw new Error('upstream_unreadable');
+  const remoteMatch = String(remote.stdout || '').trim().match(/^([0-9a-f]{40})\trefs\/heads\/(.+)$/);
+  if (!remoteMatch || remoteMatch[2] !== checkout.branch) throw new Error('upstream_unreadable');
+  if (remoteMatch[1] !== checkout.head) {
+    throw Object.assign(new Error('upstream_not_synchronized'), {
+      proof: {
+        branch: checkout.branch, checkpointHead: checkpoint.head,
+        currentHead: checkout.head, sourceHead: parents[1],
+        upstreamHead: remoteMatch[1],
+      },
+    });
+  }
   assertKnownControllerState(root, allowOwnedLease, checkpoint, true);
+  const startHandoff = readStrictHandoffSnapshot(root, `${HANDOFF_DIR}/${issue}-start.json`, issue, 'start').handoff;
+  if (startHandoff.status !== 'passed' || startHandoff.intervention
+    || startHandoff.next !== 'implement') throw new Error('start_handoff_unproven');
   const status = porcelainStatusEntries(run('git', [
     'status', '--porcelain=v1', '-z', '--ignored=matching', '--untracked-files=all',
   ], { cwd: root }));
@@ -2123,7 +2242,8 @@ export function inspectPrepublicationImplementResume({
   const dirtyPaths = status.filter(({ status: code }) => code !== '!!')
     .flatMap(({ paths: entries }) => entries);
   if (!dirtyPaths.length || dirtyPaths.some((path) =>
-    publicationPathDenied(path, { spec: specRelative, readOnlyPaths: probe.scope.readOnlyPaths }))) {
+    pathWithin(path, '.pi-glla')
+      || publicationPathDenied(path, { spec: specRelative, readOnlyPaths: probe.scope.readOnlyPaths }))) {
     throw new Error('publication_dirty_partial');
   }
   const dirtyFiles = dirtyPaths.map((path) => ({
@@ -2137,12 +2257,40 @@ export function inspectPrepublicationImplementResume({
     observedTrackedPaths: dirtyPaths,
     protectedRoots: [specRelative, RUN_DIR, '.pi-glla'],
   });
+  const implementationRoots = new Set(dirtyPaths.map((path) => path.split('/')[0]));
   for (const { status: code, paths: entries } of status) {
     if (code !== '!!') continue;
     for (const path of entries) {
       if (pathWithin(path, RUN_DIR) || pathWithin(RUN_DIR, path)) continue;
+      if (path === '.pi-glla/') {
+        let goal;
+        try {
+          goal = lstatSync(join(root, '.pi-glla'));
+        } catch {
+          throw Object.assign(new Error('workflow_evidence_unproven'), {
+            proof: { ignoredPath: path, failure: 'goal_directory_unreadable' },
+          });
+        }
+        if (goal.isDirectory() && !goal.isSymbolicLink()
+          && !dirtyPaths.some((entry) => pathWithin(entry, '.pi-glla'))
+          && !probe.scope.allowedPaths?.some((entry) => pathWithin(entry, '.pi-glla'))) continue;
+      }
       if (!isIrrelevantIgnoredState(root, path, protectedPaths, workspaceAuthorityPaths)) {
-        throw new Error('workflow_evidence_unproven');
+        const protectedScope = protectedPaths.some((entry) =>
+          pathWithin(path, entry) || pathWithin(entry, path))
+          || implementationRoots.has(path.split('/')[0]);
+        if (!protectedScope) {
+          try {
+            assertNoSymlinkParents(root, path, 'workflow_evidence_unproven');
+            const ignoredFile = lstatSync(join(root, path));
+            if (ignoredFile.isFile() && !ignoredFile.isSymbolicLink()) continue;
+          } catch {
+            // Inert ignored files must remain ordinary, in-tree, and outside publication scope.
+          }
+        }
+        throw Object.assign(new Error('workflow_evidence_unproven'), {
+          proof: { ignoredPath: path, failure: protectedScope ? 'protected_ignored_path' : 'ignored_path_unproven' },
+        });
       }
     }
   }
@@ -2160,11 +2308,38 @@ const STANDALONE_INTERVENTION_COMMANDS = Object.freeze({
   deliver: (issue) => `/sdlc-open-pr #${issue}`,
 });
 
+function ownerRecoveryAction(checkpoint, evidence, proof) {
+  if (checkpoint?.currentStep === 'start'
+    && evidence === 'branch_owned_by_worktree'
+    && typeof proof?.owningWorktree === 'string') {
+    return `Release branch ${proof.branch} from its owning worktree ${JSON.stringify(proof.owningWorktree)} without detaching, removing, or taking it. After the owner confirms release, re-probe this same issue once; a fresh exact proof resumes START automatically.`;
+  }
+  if (checkpoint?.currentStep === 'implement'
+    && evidence === 'upstream_not_synchronized'
+    && proof?.upstreamHead === proof?.sourceHead
+    && /^[0-9a-f]{40}$/.test(proof?.currentHead || '')) {
+    return `Synchronize only the already-existing reconciliation head ${proof.currentHead} on ${proof.branch} without force after verifying origin still equals ${proof.sourceHead}. Re-probe this same issue once; a fresh exact proof resumes IMPLEMENT automatically.`;
+  }
+  return null;
+}
+
+function blockedRecoveryLine(recovery, fallback) {
+  const proof = recovery.recoveryProof;
+  const observed = proof && Object.entries(proof)
+    .filter(([, value]) => typeof value === 'string' && value.length > 0)
+    .map(([key, value]) => `${key}=${JSON.stringify(value)}`).join(', ');
+  return `${recovery.state}: ${recovery.reasonCode || fallback}`
+    + `${recovery.recoveryEvidenceReasonCode ? ` (${recovery.recoveryEvidenceReasonCode})` : ''}`
+    + `${recovery.cleanupReasonCode ? `; cleanup: ${recovery.cleanupReasonCode}` : ''}`
+    + `${observed ? `; observed ${observed}` : ''}. ${recovery.action}`;
+}
+
 function blockedRecoveryIntervention(
   checkpoint,
   reasonCode,
   recoveryEvidenceReasonCode = null,
   allowStandalone = false,
+  operatorAction = null,
 ) {
   const issue = Number.isSafeInteger(checkpoint?.currentIssue) ? checkpoint.currentIssue : null;
   const step = VALID_STEPS.includes(checkpoint?.currentStep) ? checkpoint.currentStep : null;
@@ -2186,7 +2361,17 @@ function blockedRecoveryIntervention(
       description: 'Preserve the checkpoint, handoff, ownership, and exact-head evidence without another worker dispatch.',
       command: null,
     }]
-    : [{
+    : operatorAction ? [{
+      id: 'reprobe-once',
+      label: 'Re-probe changed facts once',
+      description: operatorAction,
+      command: null,
+    }, {
+      id: 'keep-stopped',
+      label: 'Keep stopped',
+      description: 'Preserve the checkpoint, handoff, and owner evidence unchanged.',
+      command: null,
+    }] : [{
       id: 'inspect-evidence-once',
       label: 'Inspect evidence',
       description: 'Run /sdlc-status --json once and report the checkpoint, ownership, and handoff evidence without mutation.',
@@ -2306,9 +2491,15 @@ function inspectBranchCheckoutFailedStartResume({ cwd, checkpoint, run, herdr, a
     throw new Error('checkpoint_branch_mismatch');
   }
   const worktrees = run('git', ['worktree', 'list', '--porcelain'], { cwd });
-  if (worktrees?.status !== 0 || String(worktrees.stdout || '').split(/\r?\n/)
-    .some((line) => line === `branch refs/heads/${expectedBranch}`)) {
-    throw new Error('branch_checkout_failed');
+  if (worktrees?.status !== 0) throw new Error('worktree_ownership_unreadable');
+  const owner = String(worktrees.stdout || '').split(/\r?\n\r?\n/)
+    .find((entry) => entry.split(/\r?\n/).includes(`branch refs/heads/${expectedBranch}`));
+  if (owner) {
+    const owningWorktree = owner.match(/^worktree (.+)$/m)?.[1];
+    if (!owningWorktree || owningWorktree.length > 4096) throw new Error('worktree_ownership_unreadable');
+    throw Object.assign(new Error('branch_owned_by_worktree'), {
+      proof: { branch: expectedBranch, owningWorktree, checkpointHead: checkpoint.head },
+    });
   }
   const handoffPath = `${HANDOFF_DIR}/${issue}-start.json`;
   const snapshot = readStrictHandoffSnapshot(cwd, handoffPath, issue, 'start');
@@ -2329,19 +2520,20 @@ function inspectBranchCheckoutFailedStartResume({ cwd, checkpoint, run, herdr, a
 
 export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr = defaultHerdr(run, cwd) } = {}) {
   let checkpoint = null;
-  const blocked = (reasonCode, recoveryEvidenceReasonCode = null, allowStandalone = false) => {
+  const blocked = (reasonCode, recoveryEvidenceReasonCode = null, allowStandalone = false, proof = null) => {
+    const operatorAction = ownerRecoveryAction(checkpoint, recoveryEvidenceReasonCode, proof);
     const intervention = blockedRecoveryIntervention(
-      checkpoint,
-      reasonCode,
-      recoveryEvidenceReasonCode,
-      allowStandalone,
+      checkpoint, reasonCode, recoveryEvidenceReasonCode, allowStandalone, operatorAction,
     );
     return {
       state: 'blocked',
       reasonCode,
       ...(recoveryEvidenceReasonCode ? { recoveryEvidenceReasonCode } : {}),
+      ...(proof ? { recoveryProof: proof } : {}),
       intervention,
-      action: 'Use the bounded intervention prompt. Run at most the selected action once, rediscover once, and never replay unchanged execution.',
+      action: operatorAction
+        ? `${operatorAction} Choose the bounded re-probe only after that fact changes; never replay unchanged execution.`
+        : `Missing proof: ${recoveryEvidenceReasonCode || reasonCode}. Preserve the checkpoint and handoff; inspect once or keep stopped. Do not replay an ambiguous or consumed dispatch.`,
     };
   };
   try {
@@ -2474,6 +2666,12 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
           return blocked(
             'implementation_failed',
             evidenceError?.message || 'exclusive_implement_resume_unproven',
+            false,
+            evidenceError?.proof || {
+              checkpointHead: data.head,
+              currentHead: checkout.head,
+              branch: checkout.branch,
+            },
           );
         }
       }
@@ -2519,7 +2717,9 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
       try {
         branchCheckoutStart = inspectBranchCheckoutFailedStartResume({ cwd, checkpoint: data, run, herdr });
       } catch (error) {
-        return blocked('branch_checkout_failed', error.message);
+        return blocked('branch_checkout_failed', error.message, false, error.proof || {
+          checkpointHead: data.head, currentHead: checkout.head, branch: checkout.branch,
+        });
       }
     }
     const closedWorkerResume = !recovery
@@ -4392,7 +4592,7 @@ function stopResult({
   output.push(sentence);
   const recovery = discoverRecovery({ cwd, run, herdr });
   if (!['absent', 'completed'].includes(recovery.state)) {
-    output.push(`${recovery.state}: ${recovery.reasonCode || reasonCode}${recovery.cleanupReasonCode ? `; cleanup: ${recovery.cleanupReasonCode}` : ''}. ${recovery.action}`);
+    output.push(blockedRecoveryLine(recovery, reasonCode));
   }
   return { status: 1, stdout: `${output.join('\n')}\n`, stderr: '' };
 }
@@ -4572,10 +4772,7 @@ export function runExecute({
   if (parsedArgs.defaultBacklog) {
     const discovery = discoverRecovery({ cwd, run, herdr: herdrApi });
     if (discovery.state === 'blocked') {
-      if (discovery.recoveryEvidenceReasonCode === 'recovery_tuple_unproven') {
-        return { status: 1, stdout: '', stderr: 'recovery_tuple_unproven\n' };
-      }
-      return { status: 1, stdout: '', stderr: `${discovery.reasonCode}: ${discovery.action}\n` };
+      return { status: 1, stdout: '', stderr: `${blockedRecoveryLine(discovery, discovery.reasonCode)}\n` };
     }
     if (discovery.issues) {
       issues = discovery.issues;

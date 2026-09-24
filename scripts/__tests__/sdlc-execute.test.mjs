@@ -2545,7 +2545,7 @@ describe('runExecute controller', () => {
     })).toBe(true);
   });
 
-  function pennyScanPrepublicationFixture({ fork = false } = {}) {
+  function pennyScanPrepublicationFixture({ fork = false, matureSessions = false } = {}) {
     const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-pennyscan-recovery-'));
     roots.push(temporary);
     const root = path.join(temporary, 'clone');
@@ -2570,7 +2570,7 @@ describe('runExecute controller', () => {
     git(root, 'config', 'user.name', 'Recovery Fixture');
     git(root, 'config', 'user.email', 'fixture@example.test');
     git(root, 'config', 'commit.gpgsign', 'false');
-    put('.gitignore', '.omp/sdlc/\n');
+    put('.gitignore', '.omp/sdlc/\n.omp/config.yml\n.pi-glla\n.pi-glla/\n.env\n*.egg-info/\nunknown-ignored.txt\nsrc/unknown-ignored.txt\n');
     put('src/scan.mjs', 'export const scan = 1;\n');
     git(root, 'add', '.');
     git(root, 'commit', '-m', 'initial');
@@ -2611,14 +2611,42 @@ describe('runExecute controller', () => {
     };
     put(`${runtime}/run.json`, `${JSON.stringify(checkpoint)}\n`);
     put(handoffPath, `${JSON.stringify(handoff)}\n`);
+    put(`${runtime}/handoffs/217-start.json`, `${JSON.stringify({
+      schemaVersion: 1, issue: 217, step: 'start', status: 'passed',
+      intervention: false, summary: 'Branch ready', artifacts: [],
+      next: 'implement', reasonCode: null,
+    })}\n`);
     put(`${runtime}/safe-recoveries.json`, `${JSON.stringify({
       schemaVersion: 1, revision: 1,
       owners: [{
         ownerId: runId, projectRoot: fs.realpathSync(root), issue: 217,
         branch, step: 'implement', status: 'incomplete',
-      }],
+      }, ...(matureSessions ? [{
+        ownerId: 'b0c71dde-edc3-4fa0-aa35-6223d4c9c313',
+        projectRoot: fs.realpathSync(root), issue: 185,
+        branch: '185-shared-canonical-scan', step: 'deliver', status: 'incomplete',
+      }] : [])],
       records: [],
     })}\n`);
+    if (matureSessions) {
+      const historicalOwner = 'b0c71dde-edc3-4fa0-aa35-6223d4c9c313';
+      const historicalSession = 'f547d009-be8c-442f-91ca-b468058a906d';
+      const historical = {
+        projectRoot: fs.realpathSync(root), issue: 185,
+        branch: '185-shared-canonical-scan', step: 'deliver', recoveryOwnerId: historicalOwner,
+      };
+      put(`${runtime}/sessions/${historicalOwner}/run.json`, `${JSON.stringify({
+        ...historical, schemaVersion: 1, runId: historicalOwner,
+        head: checkpointHead, currentIssue: 185, currentStep: 'deliver',
+      })}\n`);
+      fs.mkdirSync(path.join(root, runtime, 'sessions', historicalOwner, 'handoffs'));
+      put(`${runtime}/sessions/${historicalSession}/recovery-owner.json`, `${JSON.stringify(historical)}\n`);
+      put(`${runtime}/sessions/${historicalSession}/handoffs/185-deliver.json`, `${JSON.stringify({
+        schemaVersion: 1, issue: 185, step: 'deliver', status: 'passed',
+        intervention: false, summary: 'Historical delivery', artifacts: [],
+        next: null, reasonCode: null,
+      })}\n`);
+    }
     const run = (command, args, options = {}) => {
       if (command === 'gh' && args[0] === 'auth') return { status: 0, stdout: '' };
       if (command === 'gh' && args[0] === 'repo') return args.includes('owner,name')
@@ -2678,9 +2706,26 @@ describe('runExecute controller', () => {
 
   it('recovers PennyScan-like synchronized reconciliation with preserved implementation once', () => {
     const fixture = pennyScanPrepublicationFixture();
-    expect(fixture.discovery()).toMatchObject({
+    const unsynchronized = fixture.discovery();
+    expect(unsynchronized).toMatchObject({
       state: 'blocked', reasonCode: 'implementation_failed',
+      recoveryEvidenceReasonCode: 'upstream_not_synchronized',
+      recoveryProof: {
+        branch: fixture.branch,
+        checkpointHead: fixture.checkpointHead,
+        currentHead: fixture.reconciledHead,
+        sourceHead: fixture.oldBranchHead,
+        upstreamHead: fixture.oldBranchHead,
+      },
+      intervention: { options: [{ id: 'reprobe-once' }, { id: 'keep-stopped' }] },
     });
+    const stopped = runExecute({
+      args: '', cwd: fixture.root, env, run: fixture.run, herdr: fixture.herdr,
+    });
+    expect(stopped.stderr).toContain(`upstreamHead="${fixture.oldBranchHead}"`);
+    expect(stopped.stderr).toContain(`currentHead="${fixture.reconciledHead}"`);
+    expect(stopped.stderr).toContain('Synchronize only the already-existing reconciliation head');
+    expect(fixture.starts).toEqual([]);
     fixture.git(fixture.root, 'push', 'origin', fixture.branch);
     const before = fs.readFileSync(path.join(fixture.root, '.omp/sdlc/run.json'));
     const eligible = fixture.discovery();
@@ -2705,6 +2750,152 @@ describe('runExecute controller', () => {
     })]);
     expect(fixture.discovery().state).toBe('blocked');
   });
+  it('does not offer a re-probe prompt for a consumed prepublication owner', () => {
+    const fixture = pennyScanPrepublicationFixture();
+    const consumed = consumeSafeRecovery({
+      cwd: fixture.root, ownerId: fixture.runId, issue: 217, step: 'implement',
+      class: 'prepublication_implement_resume',
+      evidence: { head: fixture.reconciledHead },
+    });
+    expect(consumed.consumed).toBe(true);
+    expect(fixture.discovery()).toMatchObject({
+      state: 'blocked', recoveryEvidenceReasonCode: 'recovery_consumed',
+      intervention: { options: [{ id: 'inspect-evidence-once' }, { id: 'keep-stopped' }] },
+    });
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('admits only owner-bound historical session receipts in a mature runtime', () => {
+    const fixture = pennyScanPrepublicationFixture({ matureSessions: true });
+    fixture.git(fixture.root, 'push', 'origin', fixture.branch);
+    const checkpoint = fs.readFileSync(path.join(fixture.root, '.omp/sdlc/run.json'));
+    const pointer = fs.readFileSync(path.join(
+      fixture.root, '.omp/sdlc/sessions/f547d009-be8c-442f-91ca-b468058a906d/recovery-owner.json',
+    ));
+    expect(fixture.discovery()).toMatchObject({
+      state: 'loop-recovery-available', recoveryClass: 'prepublication_implement_resume',
+    });
+    expect(fs.readFileSync(path.join(fixture.root, '.omp/sdlc/run.json'))).toEqual(checkpoint);
+    expect(fs.readFileSync(path.join(
+      fixture.root, '.omp/sdlc/sessions/f547d009-be8c-442f-91ca-b468058a906d/recovery-owner.json',
+    ))).toEqual(pointer);
+  });
+
+  it('blocks an unknown or oversized file inside a historical session', () => {
+    for (const [relativePath, bytes] of [
+      ['sessions/f547d009-be8c-442f-91ca-b468058a906d/unexpected.json', '{}\n'],
+      ['sessions/b0c71dde-edc3-4fa0-aa35-6223d4c9c313/extra.bin', Buffer.alloc(512 * 1024 + 1)],
+    ]) {
+      const fixture = pennyScanPrepublicationFixture({ matureSessions: true });
+      fixture.git(fixture.root, 'push', 'origin', fixture.branch);
+      fixture.put(`.omp/sdlc/${relativePath}`, bytes);
+      const before = fs.readFileSync(path.join(fixture.root, '.omp/sdlc/run.json'));
+      expect(fixture.discovery()).toMatchObject({
+        state: 'blocked', recoveryEvidenceReasonCode: 'workflow_evidence_unproven',
+      });
+      expect(fs.readFileSync(path.join(fixture.root, '.omp/sdlc/run.json'))).toEqual(before);
+      expect(fixture.starts).toEqual([]);
+    }
+  });
+
+  (process.platform === 'win32' ? it.skip : it)('blocks a symlinked historical session receipt', () => {
+    const fixture = pennyScanPrepublicationFixture({ matureSessions: true });
+    fixture.git(fixture.root, 'push', 'origin', fixture.branch);
+    const pointer = path.join(
+      fixture.root, '.omp/sdlc/sessions/f547d009-be8c-442f-91ca-b468058a906d/recovery-owner.json',
+    );
+    fs.unlinkSync(pointer);
+    fs.symlinkSync(path.join(fixture.root, 'src/scan.mjs'), pointer);
+    expect(fixture.discovery()).toMatchObject({
+      state: 'blocked', recoveryEvidenceReasonCode: 'workflow_evidence_unproven',
+    });
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('admits ordinary ignored files outside protected implementation paths only', () => {
+    const fixture = pennyScanPrepublicationFixture({ matureSessions: true });
+    fixture.git(fixture.root, 'push', 'origin', fixture.branch);
+    fixture.put('.omp/config.yml', 'model: fixture\n');
+    fixture.put('.env', 'FIXTURE_ONLY=not-a-real-secret\n');
+    expect(fixture.discovery()).toMatchObject({
+      state: 'loop-recovery-available', recoveryClass: 'prepublication_implement_resume',
+    });
+    fixture.put('unknown-ignored.txt', 'unrelated operator note\n');
+    expect(fixture.discovery()).toMatchObject({
+      state: 'loop-recovery-available', recoveryClass: 'prepublication_implement_resume',
+    });
+    fixture.put('src/fixture.egg-info/PKG-INFO', 'generated metadata\n');
+    expect(fixture.discovery()).toMatchObject({
+      state: 'loop-recovery-available', recoveryClass: 'prepublication_implement_resume',
+    });
+    fixture.put('src/unknown-ignored.txt', 'hidden implementation\n');
+    expect(fixture.discovery()).toMatchObject({
+      state: 'blocked', recoveryEvidenceReasonCode: 'workflow_evidence_unproven',
+      recoveryProof: { ignoredPath: 'src/unknown-ignored.txt', failure: 'protected_ignored_path' },
+    });
+  });
+
+  (process.platform === 'win32' ? it.skip : it)('rejects a symlinked root private env file', () => {
+    const fixture = pennyScanPrepublicationFixture();
+    fixture.git(fixture.root, 'push', 'origin', fixture.branch);
+    fs.symlinkSync(path.join(fixture.root, 'src/scan.mjs'), path.join(fixture.root, '.env'));
+    expect(fixture.discovery()).toMatchObject({
+      state: 'blocked', recoveryEvidenceReasonCode: 'workflow_evidence_unproven',
+      recoveryProof: { ignoredPath: '.env' },
+    });
+  });
+  it('rejects an ignored path escaping the repository before recovery dispatch', () => {
+    const fixture = pennyScanPrepublicationFixture();
+    fixture.git(fixture.root, 'push', 'origin', fixture.branch);
+    const run = (command, args, options) => {
+      const result = fixture.run(command, args, options);
+      if (command === 'git' && args[0] === 'status' && args.includes('--ignored=matching')) {
+        return { ...result, stdout: `${result.stdout}!! ../escape.txt\0` };
+      }
+      return result;
+    };
+    const before = fs.readFileSync(path.join(fixture.root, '.omp/sdlc/run.json'));
+    expect(discoverRecovery({ cwd: fixture.root, run, herdr: fixture.herdr })).toMatchObject({
+      state: 'blocked', recoveryEvidenceReasonCode: 'publication_state_unreadable',
+    });
+    expect(fs.readFileSync(path.join(fixture.root, '.omp/sdlc/run.json'))).toEqual(before);
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('rejects goal evidence presented as dirty implementation work', () => {
+    const fixture = pennyScanPrepublicationFixture();
+    fixture.git(fixture.root, 'push', 'origin', fixture.branch);
+    fixture.put('.pi-glla/owner.json', '{"historical":true}\n');
+    const run = (command, args, options) => {
+      const result = fixture.run(command, args, options);
+      if (command === 'git' && args[0] === 'status' && args.includes('--ignored=matching')) {
+        return { ...result, stdout: `${result.stdout} M .pi-glla/owner.json\0` };
+      }
+      return result;
+    };
+    expect(discoverRecovery({ cwd: fixture.root, run, herdr: fixture.herdr })).toMatchObject({
+      state: 'blocked', recoveryEvidenceReasonCode: 'publication_dirty_partial',
+    });
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('ignores only an ordinary top-level goal directory outside publication scope', () => {
+    const fixture = pennyScanPrepublicationFixture();
+    fixture.git(fixture.root, 'push', 'origin', fixture.branch);
+    fixture.put('.pi-glla/owner.json', '{"historical":true}\n');
+    expect(fixture.discovery()).toMatchObject({
+      state: 'loop-recovery-available', recoveryClass: 'prepublication_implement_resume',
+    });
+  });
+
+  (process.platform === 'win32' ? it.skip : it)('blocks a symlinked ignored goal directory', () => {
+    const fixture = pennyScanPrepublicationFixture();
+    fixture.git(fixture.root, 'push', 'origin', fixture.branch);
+    fs.symlinkSync(path.join(fixture.root, 'src'), path.join(fixture.root, '.pi-glla'), 'dir');
+    expect(fixture.discovery().state).toBe('blocked');
+  });
+
+
   it('does not consume recovery when preserved dirty bytes change after discovery', () => {
     const fixture = pennyScanPrepublicationFixture();
     fixture.git(fixture.root, 'push', 'origin', fixture.branch);
@@ -2732,7 +2923,10 @@ describe('runExecute controller', () => {
     const source = pennyScanPrepublicationFixture();
     const fork = pennyScanPrepublicationFixture({ fork: true });
     fork.git(fork.root, 'push', 'origin', fork.branch);
-    expect(fork.discovery().state).toBe('blocked');
+    expect(fork.discovery()).toMatchObject({
+      state: 'blocked',
+      intervention: { options: [{ id: 'inspect-evidence-once' }, { id: 'keep-stopped' }] },
+    });
     source.git(source.root, 'push', 'origin', source.branch);
     source.put('specs/217-repair-scan/tasks.md', 'changed Approved input\n');
     expect(source.discovery().state).toBe('blocked');
@@ -2894,6 +3088,7 @@ describe('runExecute controller', () => {
     });
     fs.writeFileSync(handoffPath, `${failure}\n`);
     const run = (command, args, options = {}) => {
+      if (command === 'gh' && args[0] === 'auth') return { status: 0, stdout: '' };
       if (command === 'gh' && args[0] === 'issue') {
         return { status: 0, stdout: '{"number":42,"title":"Ship It!","state":"OPEN"}' };
       }
@@ -2902,10 +3097,22 @@ describe('runExecute controller', () => {
       }
       return spawnSync(command, args, { cwd: root, encoding: 'utf8', ...options });
     };
-    const herdr = { listAgents: () => ({ status: 0, stdout: '[]' }) };
+    const herdr = {
+      listAgents: () => ({ status: 0, stdout: '[]' }),
+      integrationStatus: () => ({ status: 0, stdout: 'omp: current (v8)\n' }),
+    };
     const inspect = () => discoverRecovery({ cwd: root, run, herdr });
     const before = fs.readFileSync(path.join(root, '.omp/sdlc/run.json'));
-    expect(inspect()).toMatchObject({ state: 'blocked', reasonCode: 'branch_checkout_failed' });
+    const blocked = inspect();
+    expect(blocked).toMatchObject({
+      state: 'blocked', reasonCode: 'branch_checkout_failed',
+      recoveryEvidenceReasonCode: 'branch_owned_by_worktree',
+      recoveryProof: { branch: '42-ship-it', owningWorktree: fs.realpathSync(other), checkpointHead: head },
+      intervention: { options: [{ id: 'reprobe-once' }, { id: 'keep-stopped' }] },
+    });
+    const stopped = runExecute({ args: '', cwd: root, env, run, herdr });
+    expect(stopped.stderr).toContain(`owningWorktree=${JSON.stringify(fs.realpathSync(other))}`);
+    expect(stopped.stderr).toContain('Release branch 42-ship-it');
     git('worktree', 'remove', other);
     expect(inspect()).toMatchObject({
       state: 'loop-recovery-available', recoveryClass: 'branch_checkout_failed_start_resume',
@@ -4929,7 +5136,8 @@ describe('runExecute controller', () => {
     const result = runExecute({
       args: '', cwd: fixture.root, env, run: fixture.run, herdr: fixture.herdr,
     });
-    expect(result).toMatchObject({ status: 1, stderr: 'recovery_tuple_unproven\n' });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('recovery_tuple_unproven');
     expect(fixture.snapshot()).toEqual(before);
     expect(fixture.splits).toHaveLength(0);
     expect(fixture.starts).toHaveLength(0);
