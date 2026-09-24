@@ -1,0 +1,61 @@
+**Issue**: #429
+**Date**: 2026-09-24
+**Status**: Approved
+**Author**: NMG
+
+Feature: Exact-head spec publication survives stale UNSTABLE mergeability
+  @SCN001 @regression
+  Scenario: Passing checks precede CLEAN for an existing PR
+    Given an OPEN non-draft approved spec PR already exists at head H on its expected branch and base
+    And all expected, required, and reported checks for H are terminal passing
+    And the aggregate mergeability of that PR is UNSTABLE without separate policy-block evidence
+    When the same PR and H later report CLEAN on successive fresh observations without changing checks or the branch
+    Then publication waits through UNSTABLE without classifying it as pr_merge_blocked
+    And publication creates no second PR or changes H
+    And it squash-merges exactly once with --match-head-commit H only after fresh passing CLEAN rechecks
+
+  @SCN002 @regression
+  Scenario: Explicit policy block remains terminal
+    Given an OPEN spec PR at unchanged head H has all expected and reported checks passing
+    And the fresh PR evidence explicitly reports BLOCKED by non-CI policy
+    When publication observes readiness
+    Then it reports pr_merge_blocked with actionable PR, head, and blocker evidence
+    And it issues no merge or delivery success
+
+  @SCN003 @regression
+  Scenario: Terminal check failure overrides stale aggregate readiness
+    Given the pinned PR head has a terminal failed required or reported check
+    When publication observes checks even if aggregate mergeability is UNSTABLE or CLEAN
+    Then it reports actionable pr_check_failed evidence for that check and H
+    And it issues no merge or delivery success
+
+  @SCN004 @regression
+  Scenario Outline: Changed or disallowed PR identity fails closed
+    Given an approved spec PR was pinned to its OPEN non-draft identity, branch, base, and H
+    When a fresh observation finds <change>
+    Then publication reports actionable identity or readiness failure for that PR and H
+    And it issues no merge or delivery success
+    Examples:
+      | change             |
+      | a different head   |
+      | a different branch |
+      | a different base   |
+      | a closed PR        |
+      | a draft PR         |
+
+  @SCN005 @regression
+  Scenario: Incomplete or unknown evidence does not imply success
+    Given expected checks are absent or required or reported checks are pending
+    Or aggregate mergeability is UNKNOWN
+    When publication observes the same PR and H
+    Then it does not issue a merge while readiness is unproven
+    And it continues observing healthy nonterminal states without an artificial deadline
+
+  @SCN006 @regression
+  Scenario: Deterministic regression changes only the erroneous classification
+    Given a fixture reuses one existing PR at unchanged H with passing checks and UNSTABLE then CLEAN views
+    When the focused regression runs before the readiness fix
+    Then it reproduces premature pr_merge_blocked without a merge
+    When the same fixture runs after the readiness fix
+    Then it sees no duplicate PR and exactly one merge guarded by --match-head-commit H
+    And genuine policy, failed-check, and identity-drift rejection scenarios still pass
