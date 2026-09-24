@@ -1,0 +1,54 @@
+**Issue**: #433
+**Status**: Approved
+**Date**: 2026-09-24
+**Author**: NMG
+
+Feature: Reverify a repaired implementation without replaying failed evidence
+  As an operator of an issue-owned execute controller
+  I want a bounded exact-head recheck after a verified source repair
+  So that stale failed verification neither blocks delivery forever nor bypasses gates
+
+  @regression
+  Scenario: Exact changed-head repair enables a fresh registered gate
+    Given a Fail report and matching canonical gate artifact belong to head A under the active verify owner
+    And a clean issue-owned repair publishes distinct head B on the same Approved spec and branch
+    When the verify worker resumes under that owner
+    Then the A report and artifact are archived with exact digests
+    And a one-use A-to-B recheck is consumed before the registered gate runs at B
+
+  @regression
+  Scenario: Passing evidence advances only from the new head
+    Given the changed-head recheck produces complete passing required validations at B
+    When acceptance review approves the repaired implementation and normal finalization publishes the report
+    Then the report and passed verify handoff bind B
+    And the controller may advance to delivery
+
+  @regression
+  Scenario Outline: Unproved or consumed recovery does not dispatch
+    Given the prior report is Fail or Partial
+    And <condition> prevents exact changed-head proof
+    When verify recovery is requested
+    Then it does not run a new gate or overwrite report evidence
+    And it leaves controller and handoff authority unchanged
+
+    Examples:
+      | condition                         |
+      | the head is unchanged             |
+      | the working tree is dirty         |
+      | the verify owner is foreign       |
+      | the report is a symlink           |
+      | the spec identity changed         |
+      | the recheck is already consumed   |
+
+  @regression
+  Scenario: New non-passing evidence is not promoted
+    Given a valid changed-head recheck consumes its one-use authority
+    When the registered gate at B fails or remains incomplete
+    Then historical A evidence remains archived and B failure stays explicit
+    And no passed handoff or delivery dispatch is created
+
+  @regression
+  Scenario: Prior same-head external-only incomplete recovery remains independent
+    Given an external-only Incomplete artifact remains at its original head
+    When its existing one-use prerequisite recheck is requested
+    Then its current exact-head and external-only gates remain unchanged
