@@ -10,11 +10,9 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
-## [3.24.6] - 2026-09-24
+### Changed
 
-### Fixed
-
-- Wait for all review slices to settle before closing sibling panes, and recheck a transiently incomplete host receipt once without weakening fail-closed review evidence (#420).
+- Harden review collection to wait for sibling settlements and recheck transient receipts; live review1 still fails and remains blocked pending precise diagnosis (#420).
 
 ## [3.24.5] - 2026-09-23
 
