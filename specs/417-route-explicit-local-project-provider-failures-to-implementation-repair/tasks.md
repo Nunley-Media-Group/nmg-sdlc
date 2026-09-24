@@ -30,7 +30,7 @@
 - [ ] Reject mismatched digest, issue, HEAD, owner, incomplete evidence or repeated use; do not trust summary text.
 
 ### T004: Verify and deliver scoped plugin repair
-**File(s)**: README.md, CHANGELOG.md, specs/417-route-explicit-local-project-provider-failures-to-implementation-repair/verification-report.md
+**File(s)**: `README.md`, `CHANGELOG.md`, `VERSION`, `package.json`, `commands/sdlc-verify-code.md`, `specs/417-route-explicit-local-project-provider-failures-to-implementation-repair/verification-report.md`
 **Type**: Modify/Create
 **Depends**: T001, T002, T003
 **Acceptance**:
