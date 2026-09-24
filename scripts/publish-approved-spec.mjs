@@ -422,7 +422,7 @@ function expectedCheckNames(pr, head, url, base) {
 function publicationSnapshot(pr, branch, base, head) {
   const details = readJson(run('gh', [
     'pr', 'view', String(pr), '--json',
-    'number,state,headRefName,headRefOid,baseRefName,mergeStateStatus,url',
+    'number,state,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,url',
   ]), 'pr_readiness_failed');
   if (details.number !== pr || details.state !== 'OPEN'
     || details.headRefName !== branch || details.baseRefName !== base
@@ -430,6 +430,10 @@ function publicationSnapshot(pr, branch, base, head) {
     || details.headRefOid !== head) {
     fail('pr_head_changed', { pr, head, observed: details });
   }
+  if (typeof details.isDraft !== 'boolean') {
+    fail('pr_readiness_failed', { pr, head, detail: 'PR draft state unavailable' });
+  }
+  if (details.isDraft) fail('pr_merge_blocked', { pr, head, isDraft: true });
 
   // The ruleset may require a check before it has reported to this PR.
   const expected = expectedCheckNames(pr, head, details.url, base);
@@ -444,7 +448,7 @@ function publicationSnapshot(pr, branch, base, head) {
   const pending = checks.length === 0 || checks.some((check) => PENDING_CHECK_STATES.has(check.state))
     || [...expected].some((name) => !checks.some((check) => check.name === name));
   if (!['CLEAN', 'UNKNOWN', 'BLOCKED', 'UNSTABLE'].includes(details.mergeStateStatus)
-    || (!pending && ['BLOCKED', 'UNSTABLE'].includes(details.mergeStateStatus))) {
+    || (!pending && details.mergeStateStatus === 'BLOCKED')) {
     fail('pr_merge_blocked', { pr, head, mergeStateStatus: details.mergeStateStatus });
   }
   return !pending && details.mergeStateStatus === 'CLEAN';

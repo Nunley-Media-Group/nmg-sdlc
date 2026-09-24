@@ -123,6 +123,8 @@ if [ "$1" = "api" ]; then
     */rules/branches/main)
       if [ "$GH_EXPECTED_MISSING" = "1" ] && [ "$GH_PROTECTED" != "1" ]; then
         printf '%s\\n' '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"guardrails"}]}}]'
+      elif [ "$GH_STALE_UNSTABLE" = "1" ] || [ "$GH_BLOCKED_PENDING" = "1" ]; then
+        printf '%s\\n' '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"contribution"}]}}]'
       else
         printf '%s\\n' '[]'
       fi
@@ -144,19 +146,26 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   printf '%s\\n' "$count" > .pr-view-count
   state=CLEAN
   if [ "$GH_POLICY_BLOCK" = "1" ]; then state=BLOCKED; fi
-  if [ "$GH_POLICY_UNSTABLE" = "1" ]; then state=UNSTABLE; fi
+  if [ "$GH_STALE_UNSTABLE" = "1" ] && [ "$count" -lt 3 ]; then state=UNSTABLE; fi
   if [ "$GH_PENDING_CI" = "1" ] && [ "$count" -lt 3 ]; then state=UNSTABLE; fi
   if [ "$GH_OPTIONAL_PENDING" = "1" ] && [ "$count" -lt 3 ]; then state=UNSTABLE; fi
   if [ "$GH_EXPECTED_MISSING" = "1" ] && [ "$count" -eq 2 ]; then state=UNSTABLE; fi
+  if [ "$GH_BLOCKED_PENDING" = "1" ] && [ "$count" -lt 3 ]; then state=BLOCKED; fi
+  printf '%s\\n' "$state" >> .pr-state-log
   sha=$(git rev-parse HEAD)
+  if [ "$GH_DRIFT_BRANCH" = "1" ] && [ "$count" -ge 2 ]; then prhead=other; else prhead=42-add-x; fi
   if [ "$GH_DRIFT_HEAD" = "1" ] && [ "$count" -ge 2 ]; then sha=0000000000000000000000000000000000000000; fi
   prstate=OPEN
+  if [ "$GH_CLOSED_PR" = "1" ] && [ "$count" -ge 2 ]; then prstate=CLOSED; fi
   if [ -f .remote-merged ]; then prstate=MERGED; fi
   if [ "$GH_RECONCILE_OPEN" = "1" ] && [ "$count" -ge 3 ]; then prstate=OPEN; fi
   if [ "$GH_RECONCILE_HEAD_DRIFT" = "1" ] && [ "$count" -ge 3 ]; then sha=0000000000000000000000000000000000000000; fi
   prbase=main
+  if [ "$GH_DRIFT_BASE" = "1" ] && [ "$count" -ge 2 ]; then prbase=other; fi
   if [ "$GH_RECONCILE_BASE_DRIFT" = "1" ] && [ "$count" -ge 3 ]; then prbase=other; fi
-  printf '{"number":99,"state":"%s","headRefName":"42-add-x","headRefOid":"%s","baseRefName":"%s","mergeStateStatus":"%s","url":"https://github.com/example/repo/pull/99"}\\n' "$prstate" "$sha" "$prbase" "$state"
+  draft=false
+  if [ "$GH_DRAFT_PR" = "1" ] && [ "$count" -ge 2 ]; then draft=true; fi
+  printf '{"number":99,"state":"%s","isDraft":%s,"headRefName":"%s","headRefOid":"%s","baseRefName":"%s","mergeStateStatus":"%s","url":"https://github.com/example/repo/pull/99"}\\n' "$prstate" "$draft" "$prhead" "$sha" "$prbase" "$state"
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
@@ -936,6 +945,25 @@ describe('publish-approved-spec', () => {
     expect(log.match(/pr merge 99/g)).toHaveLength(1);
   });
 
+  it('observes BLOCKED with absent then pending checks until passing CLEAN rechecks', () => {
+    const { root, env } = makeRepo();
+    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
+    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+    expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
+    const head = git(root, ['rev-parse', 'HEAD']).trim();
+    const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], {
+      ...env, GH_EXISTING_PR: '1', GH_PENDING_CI: '1', GH_BLOCKED_PENDING: '1',
+    });
+    expect(result.status).toBe(0);
+    const log = fs.readFileSync(path.join(root, '.gh-log'), 'utf8');
+    expect(log).not.toContain('pr create');
+    expect(fs.readFileSync(path.join(root, '.pr-state-log'), 'utf8').trim().split('\n'))
+      .toEqual(['BLOCKED', 'BLOCKED', 'CLEAN', 'CLEAN']);
+    expect(log.match(/pr checks 99 --required/g)).toHaveLength(4);
+    expect(log.match(/pr merge 99 /g)).toHaveLength(1);
+    expect(log).toContain(`pr merge 99 --squash --match-head-commit ${head} --delete-branch`);
+  });
+
   it.each([
     ['ruleset', {}],
     ['branch protection', { GH_PROTECTED: '1' }],
@@ -955,8 +983,12 @@ describe('publish-approved-spec', () => {
 
   it.each([
     ['pr_check_failed', { GH_FAILED_CI: '1' }, { check: { name: 'contribution', state: 'FAILURE' } }],
+    ['pr_check_failed', { GH_FAILED_CI: '1', GH_STALE_UNSTABLE: '1' }, { check: { name: 'contribution', state: 'FAILURE' } }],
     ['pr_merge_blocked', { GH_POLICY_BLOCK: '1' }, { mergeStateStatus: 'BLOCKED' }],
-    ['pr_merge_blocked', { GH_POLICY_UNSTABLE: '1' }, { mergeStateStatus: 'UNSTABLE' }],
+    ['pr_head_changed', { GH_DRIFT_BRANCH: '1' }, { observed: { headRefName: 'other' } }],
+    ['pr_head_changed', { GH_DRIFT_BASE: '1' }, { observed: { baseRefName: 'other' } }],
+    ['pr_head_changed', { GH_CLOSED_PR: '1' }, { observed: { state: 'CLOSED' } }],
+    ['pr_merge_blocked', { GH_DRAFT_PR: '1' }, { isDraft: true }],
     ['pr_head_changed', { GH_DRIFT_HEAD: '1' }, { head: expect.stringMatching(/^[0-9a-f]{40}$/) }],
   ])('fails closed on %s without merging', (reasonCode, flags, evidence) => {
     const { root, env } = makeRepo();
@@ -967,6 +999,28 @@ describe('publish-approved-spec', () => {
     expect(result.status).not.toBe(0);
     expect(parse(result)).toMatchObject({ ok: false, reasonCode, pr: 99, ...evidence });
     expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).not.toContain('pr merge 99');
+  });
+
+  it('waits through stale UNSTABLE on an existing PR before two passing CLEAN views', () => {
+    const { root, env } = makeRepo();
+    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
+    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+    expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
+    const head = git(root, ['rev-parse', 'HEAD']).trim();
+    const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], {
+      ...env, GH_EXISTING_PR: '1', GH_STALE_UNSTABLE: '1',
+    });
+    const log = fs.readFileSync(path.join(root, '.gh-log'), 'utf8');
+    expect(result.status).toBe(0);
+    expect(parse(result)).toMatchObject({ ok: true, pr: 99, merged: true });
+    expect(log).not.toContain('pr create');
+    expect(log.match(/pr view 99/g)).toHaveLength(4);
+    expect(log.match(/pr checks 99 --required/g)).toHaveLength(4);
+    expect(fs.readFileSync(path.join(root, '.pr-state-log'), 'utf8').trim().split('\n'))
+      .toEqual(['UNSTABLE', 'UNSTABLE', 'CLEAN', 'CLEAN']);
+    expect(log.match(/pr merge 99/g)).toHaveLength(1);
+    expect(log).toContain(`pr merge 99 --squash --match-head-commit ${head} --delete-branch`);
+    expect(git(root, ['rev-parse', '42-add-x']).trim()).toBe(head);
   });
 
   it('reuses the existing spec PR and merges only its exact head', () => {
