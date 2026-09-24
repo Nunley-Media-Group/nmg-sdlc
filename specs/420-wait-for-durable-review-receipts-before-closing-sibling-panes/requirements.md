@@ -13,30 +13,33 @@
 
 ## Problem and hypothesis
 
-`runBoundedReview` in `scripts/sdlc-execute.mjs` currently waits, reads, and closes each slice sequentially; failure cleanup also closes owned slices. A terminal agent status does not prove that the host `message_end` receipt has reached durable JSONL. A short append delay or partially written last line **could** account for a transient failed inspection; the retained smokes do not prove this is the sole cause. The requested correction must reproduce the boundary deterministically and preserve evidence if it still fails.
+`runBoundedReview` in `scripts/sdlc-execute.mjs` currently waits, reads, and closes each slice sequentially; failure cleanup also closes owned slices. An `agentWait` return may still leave an agent working, and idle/done status does not prove that the host `message_end` receipt has reached durable JSONL. A short append delay or partially written last line **could** account for a transient failed inspection; the retained smokes do not prove this is the sole cause. The correction must reproduce the boundary deterministically without changing the existing one-use contamination recovery.
 
 ## Acceptance criteria
 
 ### AC1: All siblings settle before receipt inspection or closure
 
-**Given** concurrently launched review slices with exact assignments
+**Given** concurrently launched review slices with exact assignments, including an `agentWait` return while a worker remains working
 **When** the controller collects their results
-**Then** it observes all sibling workers through settlement before inspecting any slice receipt or closing any review pane
-**And** idle/done status alone never counts as a durable host result.
+**Then** it continues the existing state observation loop until each sibling is actually idle/done, with no settlement deadline
+**And** it observes all sibling workers through settlement before inspecting any slice receipt or closing any review pane
+**And** idle/done status alone never counts as a durable host result; failed, missing, blocked, or unknown worker states fail.
 
 ### AC2: Bounded exact-host receipt quiescence
 
-**Given** all sibling workers have settled but one exact-assignment receipt has not yet durably recorded a complete `review_result`
+**Given** all sibling workers are idle/done but one exact-assignment host JSONL receipt has not yet durably recorded a complete `review_result`
 **When** the controller inspects host JSONL
-**Then** it re-inspects that same assignment-bound host receipt after up to 30 one-second observation pauses, stopping when valid nonempty final evidence arrives
+**Then** it re-inspects that same assignment-bound host receipt after up to 30 one-second observation pauses, stopping when a valid nonempty final result arrives
+**And** the 30-pause limit applies only to receipt quiescence, never to the worker-settlement observation loop
 **And** it uses only that host-captured result, never terminal text, prompt prose, or inferred findings.
 
-### AC3: Fail closed and preserve diagnosis
+### AC3: Unproven receipts and worker failure preserve diagnosis without recovery
 
-**Given** any required receipt remains missing, malformed, foreign to its assignment, contaminated by prohibited access, or has missing/empty result after the bound, or a sibling aborts/fails
+**Given** a required host receipt remains missing, malformed, foreign, wrong-assignment, or has a missing/empty result at the receipt limit, or a sibling worker fails
 **When** collection stops
 **Then** review remains failed with no review artifact or handoff derived from these slices
-**And** all review panes, assignments, receipts, and retained failure evidence remain available for diagnosis, without starting another review attempt.
+**And** all review panes, assignments, receipts, and retained failure evidence remain available for diagnosis
+**And** no `invalid_review_slice` allowance is consumed or replacement attempt launched.
 
 ### AC4: Successful completion has one cleanup boundary
 
@@ -45,6 +48,14 @@
 **Then** the existing aggregation/finalization path may publish its artifact and review handoff
 **And** only after all required host evidence is valid may it close the sibling panes; review findings retain their existing meaning.
 
+### AC5: Proven contamination retains the existing one-use whole-stage recovery
+
+**Given** exact host receipt evidence proves prohibited access and contains a complete nonempty `review_result`
+**When** the bound owner has an unused `invalid_review_slice` recovery allowance
+**Then** preserve the original review evidence, consume exactly one owner-bound replacement for the entire review stage, and re-run all slices once
+**And** a failed replacement or second contamination stops without replenishment or a third attempt
+**And** an absent, changed, or already-consumed owner fails without replacement.
+
 ## Scope
 
-Only `scripts/sdlc-execute.mjs` review collection and its focused behavioral regression during later implementation. Preserve the existing assignment digest, invocation, snapshot-read restrictions, `inspectReviewReceipts` authority, and review result framing. No terminal-result fallback, review replay/retry, widened scope, smoke-project application-source edits, provider classification change, or #418 start/implement recovery change. Do not replay smoke issues #129, #131, or #141. A later registered smoke remains a separate required gate and must use a fresh consumer issue/spec through its normal workflow; this spec records prior failures, not a passed outcome.
+Only `scripts/sdlc-execute.mjs` review collection and its focused behavioral regression during later implementation. Preserve the existing assignment digest, invocation, snapshot-read restrictions, `inspectReviewReceipts` authority, review result framing, and one-use `invalid_review_slice` recovery with its regressions. Do not reinterpret proven contamination as a missing receipt or remove/relax its replacement tests. No terminal-result fallback, missing-receipt replay/retry, widened scope, smoke-project application-source edits, provider classification change, or #418 start/implement recovery change. Do not replay smoke issues #129, #131, or #141. A later registered smoke remains a separate required gate and must use a fresh consumer issue/spec through its normal workflow; this spec records prior failures, not a passed outcome.

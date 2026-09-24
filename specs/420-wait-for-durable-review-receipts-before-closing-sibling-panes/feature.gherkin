@@ -7,9 +7,10 @@ Feature: Wait for exact host review receipts before closing sibling panes
   @SCN001 @regression
   Scenario: Every sibling settles before any receipt inspection or pane close
     Given three concurrently launched reviewers have distinct exact assignments
-    And the first reviewer becomes idle while the other two remain working
+    And agentWait returns while a second reviewer is still working
     When execute collects review results
-    Then it awaits all three workers before inspecting the first host receipt
+    Then it continues observing the working reviewer until idle or done without a settlement deadline
+    And it awaits all three workers before inspecting the first host receipt
     And it closes no review pane while a sibling remains unsettled
     And idle or done state alone is not accepted as a final review result
 
@@ -23,28 +24,30 @@ Feature: Wait for exact host review receipts before closing sibling panes
     And only then does it close the sibling panes
 
   @SCN003 @regression
-  Scenario Outline: Unsafe evidence cannot pass review or trigger early pane cleanup
+  Scenario Outline: Unproven receipt evidence cannot spend review recovery
     Given all review siblings have settled
-    And one required host receipt has <condition> throughout the bounded observation
-    When execute reaches the receipt observation limit
+    And one required host receipt path has <condition> through its bounded observation
+    When execute cannot validate every nonempty review_result
     Then review fails without an aggregate artifact or review handoff
     And all review panes, assignments, and receipt artifacts remain for diagnosis
-    And no terminal prose is substituted for host evidence or review attempt replayed
+    And it does not consume invalid_review_slice recovery or launch a replacement
+    And no terminal prose is substituted for host evidence
 
     Examples:
-      | condition                              |
-      | no final review_result                 |
-      | a persistently malformed JSONL line   |
-      | a foreign assignment digest            |
-      | prohibited tool access contamination  |
-      | an empty delimited review result       |
+      | condition                            |
+      | no final review_result               |
+      | a persistently malformed JSONL line |
+      | a foreign receipt                    |
+      | a wrong-assignment digest            |
+      | an empty delimited review result     |
 
   @SCN004 @regression
   Scenario: Receipt arriving after the bound is too late
-    Given every reviewer is idle or done but one valid final host result remains absent for 30 one-second observation pauses
-    When the collection deadline is reached
-    Then execute fails without waiting indefinitely or accepting a later terminal message
-    And it leaves all review panes and evidence intact without a review handoff
+    Given every reviewer is idle or done but one valid final host result remains absent for 30 one-second receipt observation pauses
+    When the receipt observation limit is reached
+    Then execute fails without accepting a later terminal message
+    And it leaves all review panes and evidence intact without an artifact or review handoff
+    And it does not consume invalid_review_slice recovery
 
   @SCN005 @regression
   Scenario: Review findings preserve their meaning
@@ -53,3 +56,42 @@ Feature: Wait for exact host review receipts before closing sibling panes
     When execute completes review collection
     Then the existing aggregation retains the findings without treating them as a missing receipt
     And pane closure occurs only after every required receipt has validated
+
+  @SCN006 @regression
+  Scenario: Proven prohibited access consumes one whole-stage replacement
+    Given every sibling has settled and its exact host receipt has a complete nonempty review_result
+    And a host receipt proves prohibited access on one original slice
+    And the bound review owner has an unconsumed invalid_review_slice allowance
+    When execute handles the contaminated review stage
+    Then it preserves the original review evidence and consumes exactly one owner-bound whole-stage replacement
+    And it relaunches the review stage once rather than just the contaminated slice
+    And only valid replacement receipts can produce the successful aggregate handoff
+
+  @SCN007 @regression
+  Scenario Outline: A replacement failure cannot replenish review recovery
+    Given proven prohibited access consumed the one owner-bound whole-stage replacement
+    When <replacement outcome> occurs
+    Then execute stops without a third review attempt or replenished allowance
+    And the original review evidence remains intact
+
+    Examples:
+      | replacement outcome                  |
+      | a second proven contamination       |
+      | a failed replacement worker         |
+      | a missing replacement review_result |
+
+  @SCN008 @regression
+  Scenario: No valid owner or consumed allowance prevents replacement
+    Given an exact host receipt proves prohibited access with a complete nonempty review_result
+    And the review owner is absent, changed, or has already consumed its allowance
+    When execute evaluates invalid_review_slice recovery
+    Then it fails without launching another review attempt
+    And it preserves the original review evidence
+
+  @SCN009 @regression
+  Scenario: Worker failure is not receipt quiescence or contamination
+    Given a sibling worker fails before all reviewers become idle or done
+    When execute observes the failed worker
+    Then it stops before reading any host receipt or closing any review pane
+    And it retains all panes and evidence without an aggregate artifact or handoff
+    And it consumes no invalid_review_slice recovery or replacement
