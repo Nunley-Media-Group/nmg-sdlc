@@ -3003,6 +3003,7 @@ describe('runExecute controller', () => {
       failed: { issue: 42, step: 'verify', reasonCode: 'verification_not_ready', intervention: true },
       workers: {},
     });
+    fs.writeFileSync(path.join(fixture.cwd, 'specs/42-ship-it/verification-report.md'), '# Failed local test\n');
     const runtime = path.join(fixture.cwd, '.omp/sdlc');
     fs.mkdirSync(path.join(runtime, 'handoffs'), { recursive: true });
     fs.mkdirSync(path.join(runtime, 'verification'), { recursive: true });

@@ -61,7 +61,11 @@ import {
 import { packageRoot } from '../src/sdlc-workflows.mjs';
 import { issueHasSpecCreatedLabel, SPEC_CREATED_LABEL } from './spec-created-label.mjs';
 import { isCliEntry, materializeControllerPaths } from './plugin-controller-path.mjs';
-import { inspectVerificationArtifactRepair, inspectLegacyVerificationArtifactForRepair } from './verification-readiness.mjs';
+import {
+  inspectVerificationArtifactRepair,
+  inspectLegacyVerificationArtifactForRepair,
+  MAX_VERIFICATION_REPORT_BYTES,
+} from './verification-readiness.mjs';
 import {
   isAuthorizedOmpSdlcUntrackTransition,
   untrackOmpSdlcRuntime,
@@ -745,6 +749,13 @@ function inspectActionableVerificationResume({ cwd, checkpoint, checkout, run, l
   const specDir = resolveSpecDir(cwd, checkpoint.currentIssue);
   if (!specDir) return null;
   const reportPath = `${relative(cwd, specDir).split('\\').join('/')}/verification-report.md`;
+  if (legacyRecoveryDigest) {
+    try {
+      readBoundedNoFollowFile(cwd, reportPath, MAX_VERIFICATION_REPORT_BYTES, 'verification_report_invalid');
+    } catch {
+      return null;
+    }
+  }
   const status = run('git', [
     'status', '--porcelain=v1', '-z', '--untracked-files=all',
   ], { cwd });
