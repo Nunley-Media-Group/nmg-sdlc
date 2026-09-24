@@ -10,6 +10,14 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.24.9] - 2026-09-24
+
+### Fixed
+
+- Observe every review sibling through idle/done before exact host-receipt reads; allow 30 one-second receipt rechecks, retain unproven evidence without replay, and preserve one owner-bound whole-stage replacement for proven prohibited access (#420).
+
+## [3.24.8] - 2026-09-24
+
 ### Fixed
 
 - Wait through stale `UNSTABLE` mergeability on an exact-head spec PR after passing CI, requiring two fresh passing `CLEAN` observations before the guarded squash merge; preserve explicit policy-block and draft rejection (#429).
