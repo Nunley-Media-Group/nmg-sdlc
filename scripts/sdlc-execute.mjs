@@ -4150,10 +4150,12 @@ export function runBoundedReview({ cwd, issue, step, baseRef, runState, run = de
     return { assignment, assignmentPath };
   });
   writeFileSync(indexPath, `${JSON.stringify({ baseRef, headSha, baseSha, specDigest: digest, slices }, null, 2)}\n`, { flag: 'wx' });
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const suffix = attempt === 1 ? '' : '.attempt-2';
   const workers = [];
   for (const slice of slices) {
     const { assignment, assignmentPath } = slice;
-    const receiptPath = join(directory, `${prefix}-${assignment.sliceId}.access.jsonl`);
+    const receiptPath = join(directory, `${prefix}-${assignment.sliceId}${suffix}.access.jsonl`);
     if (existsSync(receiptPath)) throw new Error('review_scope_unproven');
     const split = herdr.paneSplit({
       direction: 'right', cwd: assignment.snapshotDir,
@@ -4165,7 +4167,7 @@ export function runBoundedReview({ cwd, issue, step, baseRef, runState, run = de
     });
     const paneId = splitPaneId(split);
     if (!commandSucceeded(split) || !paneId) throw new Error('pane_split_failed');
-    const name = `s${issue}-${step}-${assignment.sliceId}`;
+    const name = `s${issue}-${step}-${assignment.sliceId}${suffix}`;
     runState.workers[name] = {
       name, paneId, projectRoot: runState.projectRoot, runId: runState.runId,
       issue, step, branch, head: headSha, promptDelivery: 'pending',
@@ -4193,29 +4195,35 @@ export function runBoundedReview({ cwd, issue, step, baseRef, runState, run = de
     persistRunState(runState, cwd);
     workers.push({ name, paneId, assignmentPath, receiptPath });
   }
+  let contaminated = false;
   const findings = [];
   for (const worker of workers) herdr.agentWait({ name: worker.name });
-  if (workers.some((worker) =>
-    !['idle', 'done', 'working'].includes(observedAgentState(herdr, worker.name)))) {
-    throw new Error('review_failed');
+  for (const worker of workers) {
+    for (;;) {
+      const state = observedAgentState(herdr, worker.name);
+      if (state === 'idle' || state === 'done') break;
+      if (state !== 'working') throw new Error('review_failed');
+      herdr.observationPause?.();
+    }
   }
   for (const worker of workers) {
-    let proof;
     let result;
     for (let observation = 0; observation <= 30; observation += 1) {
       const state = observedAgentState(herdr, worker.name);
-      if (!['idle', 'done', 'working'].includes(state)) throw new Error('review_failed');
+      if (state !== 'idle' && state !== 'done' && state !== 'working') throw new Error('review_failed');
       try {
         const stat = lstatSync(worker.receiptPath);
         if (stat.isSymbolicLink() || !stat.isFile()) throw new Error('review_scope_unproven');
       } catch (error) {
         if (error?.code !== 'ENOENT') throw new Error('review_scope_unproven');
       }
-      proof = inspectReviewReceipts(worker.assignmentPath, worker.receiptPath);
-      if (proof.contaminated) throw new Error('invalid_review_slice');
+      const proof = inspectReviewReceipts(worker.assignmentPath, worker.receiptPath);
       if (proof.valid && Object.hasOwn(proof, 'resultText')) {
         result = parsedReviewResult(proof.resultText);
-        if (result) break;
+        if (result) {
+          contaminated ||= proof.contaminated;
+          break;
+        }
       }
       if (observation === 30) {
         throw new Error(!proof.valid ? 'review_scope_unproven'
@@ -4232,10 +4240,23 @@ export function runBoundedReview({ cwd, issue, step, baseRef, runState, run = de
     delete runState.workers[worker.name];
     persistRunState(runState, cwd);
   }
-  const artifact = join(directory, `${prefix}.md`);
+  const artifact = join(directory, `${prefix}${suffix}.md`);
   const body = findings.filter((text) => text !== 'No findings.').join('\n\n') || 'No findings.';
   writeFileSync(artifact, `${body}\n`, { flag: 'wx' });
-  return runReviewMain({ cwd, issue, step, generation, attempt: 1, run });
+  const finalized = runReviewMain({ cwd, issue, step, generation, attempt, run, result: contaminated ? 'review_failed' : undefined });
+  if (!contaminated) return finalized;
+  if (attempt === 2) throw new Error('invalid_review_slice');
+  const consumed = consumeSafeRecovery({
+    cwd, ownerId, issue, step, class: 'invalid_review_slice',
+    evidence: { headSha, baseSha, specDigest: digest, assignmentPaths: slices.map((slice) => slice.assignmentPath) },
+  });
+  if (!consumed.consumed) throw new Error('invalid_review_slice');
+  writeFileSync(invalidationPath, `${JSON.stringify({
+    reason: 'invalid_review_slice', invocationId: slices[0].assignment.invocationId,
+    originalArtifact: artifact, originalHandoff: finalized.handoffPath, at: new Date().toISOString(),
+  }, null, 2)}\n`, { flag: 'wx' });
+  }
+  throw new Error('invalid_review_slice');
 }
 
 function submitReviewProtocol({
