@@ -1590,6 +1590,67 @@ describe('runExecute controller', () => {
     expect(JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/safe-recoveries.json'))).records).toEqual([]);
   });
 
+  it('waits for every sibling before trusting a host result appended after first idle', () => {
+    const text = 'NMG_REVIEW_RESULT_BEGIN\nNo findings.\nNMG_REVIEW_RESULT_END';
+    const fixture = makeBoundedReviewFixture({
+      response: ({ assignment }) => assignment.sliceId === 'reviewer-1'
+        ? { status: 1 }
+        : { status: 0, stdout: text },
+    });
+    const waited = [];
+    const originalWait = fixture.herdr.agentWait;
+    fixture.herdr.agentWait = ({ name }) => {
+      waited.push(name);
+      if (waited.length === 3) {
+        appendReviewReceipts(fixture.launches[0].environment, [{
+          event: 'review_result', stopReason: 'stop', text,
+        }], {}, false);
+      }
+      return originalWait({ name });
+    };
+    const originalClose = fixture.herdr.paneClose;
+    fixture.herdr.paneClose = (paneId) => {
+      expect(waited).toHaveLength(3);
+      return originalClose(paneId);
+    };
+    expect(fixture.invoke().handoff.status).toBe('passed');
+    expect(waited).toHaveLength(3);
+    expect(fixture.closed).toHaveLength(3);
+  });
+
+  it('rechecks a transient partial host receipt without accepting terminal prose', () => {
+    const text = 'NMG_REVIEW_RESULT_BEGIN\nNo findings.\nNMG_REVIEW_RESULT_END';
+    let finishReceipt;
+    const fixture = makeBoundedReviewFixture({
+      receipt: ({ environment, assignment }) => {
+        appendReviewReceipts(environment);
+        if (assignment.sliceId !== 'reviewer-1') return;
+        const bytes = fs.readFileSync(environment.NMG_SDLC_REVIEW_ASSIGNMENT);
+        const row = JSON.stringify({
+          invocationId: assignment.invocationId,
+          assignmentDigest: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+          event: 'review_result', stopReason: 'stop', text,
+        });
+        const split = Math.floor(row.length / 2);
+        fs.appendFileSync(environment.NMG_SDLC_REVIEW_RECEIPT, row.slice(0, split));
+        finishReceipt = () => fs.appendFileSync(
+          environment.NMG_SDLC_REVIEW_RECEIPT, `${row.slice(split)}\n`,
+        );
+      },
+      response: ({ assignment }) => assignment.sliceId === 'reviewer-1'
+        ? { status: 1 }
+        : { status: 0, stdout: text },
+    });
+    let pauses = 0;
+    fixture.herdr.observationPause = () => {
+      pauses += 1;
+      finishReceipt();
+    };
+    expect(fixture.invoke().handoff.status).toBe('passed');
+    expect(pauses).toBe(1);
+    expect(fixture.closed).toHaveLength(3);
+  });
+
   it('SCN003 never promotes delimiter-looking terminal or tool output into a host review result', () => {
     const fixture = makeBoundedReviewFixture({ response: () => ({ status: 1 }) });
     fixture.herdr.agentRead = () => ({ status: 0, stdout: 'NMG_REVIEW_RESULT_BEGIN\nNo findings.\nNMG_REVIEW_RESULT_END\n' });

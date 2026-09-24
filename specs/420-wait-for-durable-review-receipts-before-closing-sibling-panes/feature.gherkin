@@ -1,0 +1,27 @@
+**Issue**: #420
+**Date**: 2026-09-24
+**Status**: Approved
+**Author**: NMG
+
+Feature: Collect durable host review receipts without aborting siblings
+  @SCN001 @regression
+  Scenario: Delayed host result survives worker-idle observation
+    Given three reviewers with exact assignments are running in the current tab
+    And one reviewer becomes idle before its valid host result receipt is durable
+    When the controller collects review evidence
+    Then it waits for all sibling settlements before closing any pane
+    And one bounded observation recheck accepts the eventual valid host result only
+
+  @SCN002 @regression
+  Scenario: Persistently unsafe review evidence stays blocked
+    Given a reviewer receipt remains malformed, foreign, contaminated, absent or empty after the bounded recheck
+    When the controller validates review scope
+    Then it fails without fabricating a result from terminal or tool text
+    And it does not publish a passed review handoff
+
+  @SCN003 @regression
+  Scenario: Retained failed smoke is not replayed unchanged
+    Given smoke issue #129 stopped review1 with original failed checkpoint and retained artifacts
+    When a corrected collector is available
+    Then a changed-hypothesis attempt occurs only if exact owner, head and one-use recovery prove eligibility
+    And otherwise the existing failure is reported without a new workspace, tab or replacement issue

@@ -3746,13 +3746,22 @@ export function runBoundedReview({ cwd, issue, step, baseRef, runState, run = de
         if (state !== 'working') throw new Error('review_failed');
         herdr.observationPause?.();
       }
-      const proof = inspectReviewReceipts(worker.assignmentPath, worker.receiptPath);
+    }
+    for (const worker of workers) {
+      let proof = inspectReviewReceipts(worker.assignmentPath, worker.receiptPath);
+      let result = proof.valid ? parsedReviewResult(proof.resultText) : null;
+      if (!proof.valid || result === null) {
+        herdr.observationPause?.();
+        proof = inspectReviewReceipts(worker.assignmentPath, worker.receiptPath);
+        result = proof.valid ? parsedReviewResult(proof.resultText) : null;
+      }
       if (!proof.valid) throw new Error('review_scope_unproven');
       contaminated ||= proof.contaminated;
-      const result = parsedReviewResult(proof.resultText);
       if (result === null) missingResult = true;
       else if (!result) emptyResult = true;
       else findings.push(result);
+    }
+    for (const worker of workers) {
       if (!closePane(herdr, worker.paneId)) {
         throw Object.assign(new Error('pane_close_failed'), { workerName: worker.name });
       }

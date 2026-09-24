@@ -241,6 +241,8 @@ Validated resumed implement success clears only the ephemeral pending-dispatch f
 
 Workers are sibling Herdr `--kind omp` panes. Execute owns orchestration, not product edits in the main pane. Worker success is determined by validated handoffs, not terminal prose or an exit code alone. Reviews use separate file-assigned snapshots outside the checkout, host-enforced read-only tools, and invocation-bound append-only receipts. Only host-captured final assistant output supplies findings; terminal or tool text cannot substitute for a review result. Missing isolation proof, missing output, and empty output remain non-passing.
 
+Review collection waits for every sibling worker to settle before closing any review pane. A transiently incomplete host receipt gets one observation recheck; persistent missing, malformed, foreign, or empty evidence still fails without substituting terminal prose or replaying the review.
+
 ### Autonomous repair and progress limits
 
 Workers resolve in-scope implementation details using approved requirements, repository evidence, and conservative engineering judgment. They repair and reverify ordinary code/test failures rather than asking for decisions a model can make within that authority.
