@@ -10,6 +10,10 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Fixed
+
+- Treat coherently different prior smoke verification identities or queues as retained historical evidence instead of blocking a fresh registered attempt; keep same-attempt malformed recovery fail-closed (#423).
+
 ## [3.24.5] - 2026-09-23
 
 ### Fixed

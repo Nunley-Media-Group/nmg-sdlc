@@ -168,7 +168,7 @@ function harness(options = {}) {
   };
 }
 
-function legacyBootstrapFixture(mutateArtifact = () => {}) {
+function legacyBootstrapFixture(mutateArtifact = () => {}, smokeIssues = '109', fresh = false) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-smoke-outer-'));
   const clone = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-smoke-'));
   commandFixtures.push({ root, marker: path.join(root, 'absent-marker') });
@@ -180,19 +180,19 @@ function legacyBootstrapFixture(mutateArtifact = () => {}) {
   const initialHead = '7f64196'.padEnd(40, '0');
   const nestedRunId = '85bad261-c3e2-4895-a2f9-a52a28a4decd';
   const currentIdentity = {
-    headSha: 'a'.repeat(40),
+    headSha: 'b'.repeat(40),
     treeState: 'dirty',
     dirtyDiffHash: 'sha256:current-report',
-    specHash: 'sha256:current-spec',
-    steeringHash: 'sha256:current-steering',
-    validationConfigHash: 'sha256:validation',
+    specHash: `sha256:${'c'.repeat(64)}`,
+    steeringHash: `sha256:${'d'.repeat(64)}`,
+    validationConfigHash: `sha256:${'e'.repeat(64)}`,
   };
   const legacyIdentity = {
     headSha: 'b'.repeat(40),
     treeState: 'dirty',
     dirtyDiffHash: 'sha256:legacy-report',
-    specHash: 'sha256:legacy-spec',
-    steeringHash: 'sha256:legacy-steering',
+    specHash: `sha256:${'c'.repeat(64)}`,
+    steeringHash: `sha256:${'d'.repeat(64)}`,
     validationConfigHash: currentIdentity.validationConfigHash,
   };
   const writeJson = (file, value) => {
@@ -344,11 +344,30 @@ function legacyBootstrapFixture(mutateArtifact = () => {}) {
   const calls = [];
   const runCommand = jest.fn(async (program, args, options = {}) => {
     calls.push({ program, args, options });
+    if (program === 'git' && args[0] === 'clone') {
+      commandFixtures.push({ root: args.at(-1), marker: path.join(args.at(-1), 'absent-marker') });
+      return fresh ? result() : result(1, '', { reasonCode: 'launch_failed' });
+    }
+    if (fresh && program === 'git' && args[0] === 'status') return result();
+    if (fresh && program === 'git' && args[0] === 'rev-parse') return result(0, 'a'.repeat(40));
+    if (fresh && program === process.execPath) {
+      return result(1, '', { reasonCode: 'launch_failed' });
+    }
     if (program === 'gh' && args[0] === 'auth') return result();
     if (program === 'git' && args[0] === 'remote') {
       return result(0, 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git\n');
     }
     if (program === 'git' && args[0] === 'merge-base') return result();
+    if (fresh && program === 'gh' && args[0] === 'api') {
+      const issue = Number(args.find((arg) => arg.startsWith('number='))?.slice('number='.length));
+      return result(0, JSON.stringify({
+        data: { repository: { issue: {
+          state: 'OPEN',
+          url: `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/${issue}`,
+          closedByPullRequestsReferences: { nodes: [], pageInfo: { hasNextPage: false } },
+        } } },
+      }));
+    }
     if (program === 'gh' && args[0] === 'api') {
       return result(0, JSON.stringify({
         data: {
@@ -396,7 +415,7 @@ function legacyBootstrapFixture(mutateArtifact = () => {}) {
     runCommand,
     recoveryStore,
     resolveOuterScope: () => scope,
-    env: { ...VALID_ENV, NMG_SDLC_SMOKE_ISSUES: '109' },
+    env: { ...VALID_ENV, NMG_SDLC_SMOKE_ISSUES: smokeIssues },
   });
   return { artifact, calls, cloneRoot, provider, recoveryStore, request, scope, states };
 }
@@ -1374,6 +1393,12 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
         ...artifact.results[0].result.evidence.find((item) => item.summary === 'sdlc-execute run #109'),
       });
     }],
+    ['nonterminal failure', (artifact) => {
+      artifact.results[0].result.status = 'incomplete';
+    }],
+    ['unproved nested delivery', (_artifact, { cloneRoot }) => {
+      fs.rmSync(path.join(cloneRoot, '.omp/sdlc/handoffs/109-deliver.json'));
+    }],
     ['mismatched config', (artifact) => {
       artifact.results[0].request.config = { issues: [110] };
     }],
@@ -1395,6 +1420,54 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     });
     expect(fixture.states.size).toBe(0);
     expect(fixture.calls.some((call) => call.program === process.execPath)).toBe(false);
+    expect(fixture.calls.some((call) => call.program === 'git' && call.args[0] === 'clone')).toBe(false);
+  });
+
+  it.each([
+    ['changed head', '109', (request) => { request.identity.headSha = 'c'.repeat(40); }],
+    ['changed spec', '109', (request) => { request.identity.specHash = 'sha256:new-spec'; }],
+    ['changed steering', '109', (request) => { request.identity.steeringHash = 'sha256:new-steering'; }],
+    ['changed config identity', '109', (request) => { request.identity.validationConfigHash = 'sha256:new-config'; }],
+    ['changed head and queue', '135', (request) => { request.identity.headSha = 'c'.repeat(40); }],
+    ['changed queue', '135', () => {}],
+  ])('preserves historical evidence and starts a fresh clone for %s', async (_name, queue, change) => {
+    const fixture = legacyBootstrapFixture(undefined, queue, true);
+    change(fixture.request);
+    const artifactPath = path.join(fixture.scope.projectRoot, '.omp/sdlc/verification/379.json');
+    const before = fs.readFileSync(artifactPath);
+
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(outcome).toMatchObject({ status: 'incomplete', summary: 'nmg-sdlc-smoke execute launch_failed' });
+    expect(fixture.calls.filter((call) => call.program === 'git' && call.args[0] === 'clone')).toHaveLength(1);
+    expect(fixture.calls.filter((call) => call.program === 'gh' && call.args[0] === 'api')
+      .map((call) => call.args.find((arg) => arg.startsWith('number=')))).toEqual([`number=${queue}`]);
+    expect(fixture.calls.filter((call) => call.program === process.execPath)
+      .map((call) => call.args.at(-1))).toEqual([`#${queue}`]);
+    expect(fixture.states.get(fixture.scope.recoveryKey)).toMatchObject({
+      issues: [Number(queue)],
+      phase: 'incomplete',
+    });
+    expect(fs.readFileSync(artifactPath)).toEqual(before);
+    expect(fs.existsSync(fixture.cloneRoot)).toBe(true);
+  });
+
+  it('keeps ambiguous old provider results fail-closed even across a changed identity', async () => {
+    const fixture = legacyBootstrapFixture((artifact) => {
+      artifact.results.push(structuredClone(artifact.results[0]));
+    });
+    fixture.request.identity.headSha = 'c'.repeat(40);
+
+    expect(inspectLegacySmokeFailure(fs.readFileSync, {
+      request: fixture.request,
+      scope: fixture.scope,
+      issues: [109],
+      pluginRoot: SOURCE_ROOT,
+    }).presence).toBe('invalid');
+    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
+      status: 'failed',
+      summary: 'nmg-sdlc-smoke legacy recovery evidence invalid',
+    });
     expect(fixture.calls.some((call) => call.program === 'git' && call.args[0] === 'clone')).toBe(false);
   });
 

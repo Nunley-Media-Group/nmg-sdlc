@@ -1,0 +1,36 @@
+**Issue**: #423
+**Date**: 2026-09-23
+**Status**: Approved
+**Author**: NMG
+
+Feature: Historical smoke failures do not own changed verification attempts
+
+  @AC1 @AC4
+  Scenario: A changed head and queue starts a fresh owned smoke attempt
+    Given plugin issue #418 retains an old failed #133 artifact and clone
+    And the new #135 request has a different exact identity and no matching recovery-store owner
+    When registered smoke verification starts
+    Then it preserves old evidence and clones a fresh smoke workspace for #135
+    And it records a new #135 baseline before dispatching the owned controller
+    And only a new exact-head merged implementation PR and closed #135 can pass
+
+  @AC1
+  Scenario: A changed queue alone is historical
+    Given an internally attributable old smoke queue differs from the current explicit queue
+    When legacy recovery is inspected without a current store owner
+    Then old nested work is not replayed or deleted
+    And the current queue follows fresh clone and baseline checks
+
+  @AC2
+  Scenario: Matching but unsafe recovery cannot dispatch twice
+    Given an old artifact belongs to the exact current identity and queue
+    And its failure evidence is malformed, ambiguous, nonterminal or unproved
+    When legacy recovery is inspected
+    Then the provider fails with legacy recovery evidence invalid
+    And no clone or controller dispatch occurs
+
+  @AC3
+  Scenario: Matching valid failed delivery resumes once
+    Given an exact-identity failed delivery has valid legacy recovery proof
+    When the provider resumes its retained invocation
+    Then it uses bounded recovery without a second nested dispatch
