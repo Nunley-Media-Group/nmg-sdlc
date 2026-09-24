@@ -313,6 +313,8 @@ This repository registers the required `repository.nmg-sdlc-smoke` provider agai
 4. Run normal nmg-sdlc verification. The provider clones the allowlisted smoke repository, records linked-PR baselines, and invokes this candidate's execute controller for the configured queue. Only the enclosing provider sets its nested-execution ownership marker; do not set `NMG_SDLC_SMOKE_OWNED` to bypass verification.
 5. Accept success only with this invocation's pre-merge delivery proof, an exact matching new merged PR outside the baseline, and closed issue evidence for each configured issue. Status output is not smoke proof.
 
+An older failed verification artifact for the same plugin issue but a coherently different head/spec/steering/config identity or proven smoke queue remains historical evidence. With no matching recovery-store owner, verification starts a new clone and baseline for the current explicit queue; it never reuses or deletes the old clone. Malformed or ambiguous evidence for the *same* identity and queue still stops with `nmg-sdlc-smoke legacy recovery evidence invalid` rather than dispatching twice.
+
 Smoke is a **plugin experiment**, not a second repair backlog. Change smoke code only when it is a necessary fixture or means to prove a named nmg-sdlc change. Classify a failure before editing: repair confirmed plugin defects in nmg-sdlc; record unrelated smoke-project defects without fixing them. Stop unchanged/no-progress failures. A new attempt requires a concrete changed plugin fix or hypothesis and its expected observation—not the hope that rerunning will pass. Do not repeatedly create fresh issues, weaken assertions, recycle consumed evidence, or repair unrelated smoke code to manufacture a green gate.
 
 ## Status and troubleshooting
