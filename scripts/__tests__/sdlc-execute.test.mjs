@@ -2995,6 +2995,65 @@ describe('runExecute controller', () => {
     expect(fs.existsSync(path.join(runtime, 'run.json'))).toBe(false);
   });
 
+  it('requires original artifact digest and run identity for legacy project recovery', () => {
+    const fixture = makeControllerFixture();
+    seedRun(fixture.cwd, {
+      runId: 'legacy-verify-run', branch: '42-ship-it', currentStep: 'verify',
+      completed: { 42: ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2'] },
+      failed: { issue: 42, step: 'verify', reasonCode: 'verification_not_ready', intervention: true },
+      workers: {},
+    });
+    const runtime = path.join(fixture.cwd, '.omp/sdlc');
+    fs.mkdirSync(path.join(runtime, 'handoffs'), { recursive: true });
+    fs.mkdirSync(path.join(runtime, 'verification'), { recursive: true });
+    fs.writeFileSync(path.join(runtime, 'handoffs/42-verify.json'), `${JSON.stringify({
+      schemaVersion: 1, issue: 42, step: 'verify', status: 'failed', intervention: true,
+      summary: 'local test failed', artifacts: [], next: null, reasonCode: 'verification_not_ready',
+    })}\n`);
+    const identity = {
+      headSha: 'a'.repeat(40), steeringHash: 'steering', specHash: 'spec',
+      validationConfigHash: 'config', treeState: 'clean', dirtyDiffHash: null,
+    };
+    const artifactPath = path.join(runtime, 'verification/42.json');
+    fs.writeFileSync(artifactPath, `${JSON.stringify({
+      schemaVersion: 1, issue: 42, identity: {
+        headSha: identity.headSha, steeringHash: identity.steeringHash, specHash: identity.specHash,
+      },
+      ceiling: 'Fail',
+      coverage: { declared: 1, recorded: 1, complete: true, missing: [], duplicate: [], unknown: [] },
+      results: [{
+        id: 'repository.robot-integration', provider: 'project.robot-integration',
+        required: true, applicable: true, effectiveStatus: 'failed',
+        request: {
+          validationId: 'repository.robot-integration', identity,
+          verification: { issue: 42, runId: 'legacy-verify-run', specPath: 'specs/42-ship-it' },
+        },
+        result: {
+          schemaVersion: 1, status: 'failed', summary: 'integration tests exited 1',
+          identity, evidence: [{ kind: 'command', summary: 'flutter test exited 1' }],
+        },
+      }],
+    })}\n`);
+    const original = fs.readFileSync(artifactPath);
+    const digest = createHash('sha256').update(original).digest('hex');
+    const fixtureRun = fixture.run;
+    fixture.run = (command, args) => (
+      command === 'git' && args[0] === 'merge-base' && args[1] === '--is-ancestor'
+        && args[2] === 'a'.repeat(40) && args[3] === 'a'.repeat(40)
+        ? { status: 0, stdout: '', stderr: '' }
+        : fixtureRun(command, args)
+    );
+    const inspect = (sha) => discoverRecovery({
+      cwd: fixture.cwd, run: fixture.run, herdr: fixture.herdr, legacyRecoveryDigest: sha,
+    });
+    expect(inspect(digest)).toMatchObject({
+      state: 'loop-recovery-available', recoveryClass: 'actionable_verification_resume',
+      recoveryEvidence: { failedLocal: ['repository.robot-integration'] },
+    });
+    expect(inspect('f'.repeat(64)).recoveryClass).not.toBe('actionable_verification_resume');
+    expect(fs.readFileSync(artifactPath)).toEqual(original);
+  });
+
   it('never offers a standalone stage while the recorded worker is still present', () => {
     const fixture = makeControllerFixture();
     const worker = {

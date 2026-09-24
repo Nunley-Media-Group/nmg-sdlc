@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.24.6] - 2026-09-23
+
+### Fixed
+
+- Route explicitly repairable, registered local project-provider test failures back through implementation, review and verification; permit one digest-bound recovery of an original pre-marker failed artifact without treating that gate as passed (#417).
+
 ## [3.24.5] - 2026-09-23
 
 ### Fixed
