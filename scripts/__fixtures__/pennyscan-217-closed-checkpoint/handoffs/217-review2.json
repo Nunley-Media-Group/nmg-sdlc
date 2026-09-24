@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "issue": 217,
+  "step": "review2",
+  "status": "passed",
+  "intervention": false,
+  "summary": "Review review2 completed for #217",
+  "artifacts": [
+    ".omp/sdlc/reviews/217-review2.md"
+  ],
+  "next": "fix2",
+  "reasonCode": null
+}

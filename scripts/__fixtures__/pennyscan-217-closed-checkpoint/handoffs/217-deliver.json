@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "issue": 217,
+  "step": "deliver",
+  "status": "failed",
+  "intervention": true,
+  "summary": "Delivery failed for #217: declared text version field is missing in compose.yaml: `x-runtime.image` default tag",
+  "artifacts": [],
+  "next": null,
+  "reasonCode": "delivery_failed"
+}

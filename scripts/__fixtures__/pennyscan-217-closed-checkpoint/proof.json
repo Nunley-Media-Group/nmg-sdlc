@@ -1,0 +1,49 @@
+{
+  "source": "PennyScan live read-only snapshot 2026-09-24 of run 7be03667-98de-473f-84a1-89a9dfb2b3c2 and PR #230",
+  "sourceDigests": {
+    "run.json": "544fd3889e1cf80163d78a93ff6735aca929e5d7744d8437c860c7b4c2c09528",
+    "safe-recoveries.json": "892d6e14d92e6f548c0773683f70d7f2c9d92dc6b2409b396b12ecd49b23a3b8",
+    "handoffs/217-start.json": "4e3b22747cf005b05303f5ee1426926495d64b74f57303e8fcdeac8b16e3a532",
+    "handoffs/217-implement.json": "516704b1192bd9d42eb09b0d0e24ae48307d08c5fb0bcb34902821e9d19b01bd",
+    "handoffs/217-review1.json": "8a1822fc2792cc951939c9e0bd5c818e65f6015157aa642405b22d9223caafa8",
+    "handoffs/217-fix1.json": "8500d0b2650eb276d601308e33a0b8d9d2c2dc612a64808681b4b37d7b2659ef",
+    "handoffs/217-review2.json": "ff85234300f6efe9347f05213f71337082d17a724ed6e5bacf4c1a9754f6b6a1",
+    "handoffs/217-fix2.json": "aa5d02b4e1bdb89fcea9d90fb290137a2a8b91c760538edc8ff0148bd149e546",
+    "handoffs/217-verify.json": "05628bfc9151f779843122c7bf67e10caaeca7f26c1ae2a6f0c87c72dec57c9d",
+    "handoffs/217-deliver.json": "492fae08e7bd1ee91e82e841a0a661e61061ecfc3cd5cc431f5fe3e81d464de1",
+    "reviews/217-review1.md": "046c77e23078fce378d180581bb1a108036b850b73e897fdb8dd6d833a50e6d4",
+    "reviews/217-review2.md": "aecf7aeee30a597d93452d703d638fab87429217c7ba3154cb02767644222e5f",
+    "history/217-implement.json": "c54319e1ff5f0933c35b8059a53ff5ad1748aec35e2c2fcc2af7a120d7e30b81",
+    "verification/217.json": "ff9aaaef1af6f61718cd3c48c06a38d6832a2d2d9172be1fe9bbef770d6e9f3c",
+    "session/recovery-owner.json": "ac585e23875aff5637d14fc2c0b6101572eb70ce957027240b703da9f7e1b154",
+    "session/217-deliver.json": "91399af06b1d60104407cef748fe25ae288707a30b0a881477e5d221b8b21441",
+    "session/run.json": "184d0bb70e1a69b22d298289e9d395191b28a678f6d4c4108dee02a8d16108fd"
+  },
+  "sessionToken": "0461a37a-9e18-4620-9ded-e51ac2a19ce4",
+  "runSessionToken": "7be03667-98de-473f-84a1-89a9dfb2b3c2",
+  "ownerSteps": ["implement", "review1", "fix1", "review2", "fix2", "verify", "deliver"],
+  "plannedSubject": "fix: complete bounded IEX setup evidence #217",
+  "postMergeRecord": {
+    "class": "post_merge_observation",
+    "step": "deliver",
+    "invocationId": "ead3ef15-5991-4fea-9d4b-24ad9eacb521",
+    "consumedAt": "2026-09-24T07:30:28.846Z",
+    "evidence": {
+      "pullRequest": 230,
+      "headSha": "50b89c001a3a60bad7f05d30d82a042573b6d73c"
+    }
+  },
+  "issue": { "number": 217, "state": "CLOSED" },
+  "pr": {
+    "number": 230,
+    "state": "MERGED",
+    "headRefOid": "50b89c001a3a60bad7f05d30d82a042573b6d73c",
+    "headRefName": "217-fix-complete-iex-setup-evidence-acquisition",
+    "baseRefName": "main",
+    "mergeCommit": { "oid": "4e824268d3d8d73a3325396d877dff943f5b4afa" },
+    "closingIssuesReferences": [{
+      "number": 217,
+      "repository": { "name": "pennyscan", "owner": { "login": "Nunley-Media-Group" } }
+    }]
+  }
+}

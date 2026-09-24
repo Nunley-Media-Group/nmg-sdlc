@@ -260,6 +260,17 @@ function validateSafeRows(data) {
   }
   return data;
 }
+export function validateSafeRecoverySnapshot(bytes) {
+  let state;
+  try {
+    state = JSON.parse(bytes.toString('utf8'));
+  } catch {
+    throw safeError('invalid_safe_recoveries');
+  }
+  if (!validSafeState(state)) throw safeError('invalid_safe_recoveries');
+  return validateSafeRows(state);
+}
+
 
 function readSafeRecoveries(root = process.cwd()) {
   const canonicalRoot = realpathSync(root);
@@ -379,6 +390,7 @@ function writeSafeRecoveriesAt(safeData, root = process.cwd(), expectedRevision 
     }
   }
 }
+
 function persistSafeState(state, root) {
   const expectedRevision = Number.isSafeInteger(state.revision) ? state.revision : 0;
   const previous = state.revision;

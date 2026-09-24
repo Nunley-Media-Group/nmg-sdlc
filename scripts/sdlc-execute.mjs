@@ -43,6 +43,7 @@ import {
   publicationPathDenied,
   resolveRecoveryOwner,
   expectedExecuteHandoffSlots,
+  validateSafeRecoverySnapshot,
 } from './sdlc-safe-recoveries.mjs';
 import { provePublicationLabelRepair } from './sdlc-upgrade.mjs';
 import { runReviewMain } from './sdlc-review-main.mjs';
@@ -3397,6 +3398,391 @@ function reconcileDeliveredFailure(runData, checkpointBytes, root, run, herdr) {
 }
 
 
+// A pre-delivery cancellation has no delivery tuple. Only GitHub's exact closing
+// relation and the local merged history can establish terminal delivery.
+function reconcileClosedIssueFailure(checkpoint, originalBytes, root, run, herdr) {
+  const issue = checkpoint?.issue;
+  const step = checkpoint?.currentStep;
+  const fail = (reason) => ({ ok: false, reason });
+  if (!Buffer.isBuffer(originalBytes) || !validRunIdentity(checkpoint)
+    || checkpoint.projectRoot !== realpathSync(root)
+    || !/^[a-z0-9-]{1,100}$/i.test(checkpoint.runId)
+    || checkpoint.issues.length !== 1 || checkpoint.issues[0] !== issue
+    || checkpoint.currentIssue !== issue || !VALID_STEPS.includes(step)
+    || checkpoint.failed?.issue !== issue || checkpoint.failed?.step !== step
+    || typeof checkpoint.failed.reasonCode !== 'string'
+    || checkpoint.remediation != null || checkpoint.consumedDispatch != null
+    || Object.keys(checkpoint.workers ?? {}).length !== 0
+    || !/^[0-9a-f]{40}$/.test(checkpoint.head)
+    || !validPromptDeliveryStates(checkpoint) || !validConsumedDispatchState(checkpoint)
+    || (checkpoint.recoveryOwnerId != null && checkpoint.recoveryOwnerId !== checkpoint.runId)
+    || !Array.isArray(checkpoint.completed?.[String(issue)])
+    || checkpoint.completed[String(issue)].join(',') !== VALID_STEPS.slice(0, VALID_STEPS.indexOf(step)).join(',')) {
+    return fail('checkpoint_identity_unproven');
+  }
+
+  const cwd = realpathSync(root);
+  const sha = (bytes) => createHash('sha256').update(bytes).digest('hex');
+  const snapshots = new Map();
+  const capture = (path, limit = MAX_HANDOFF_BYTES) => {
+    const snapshot = readBoundedNoFollowFile(cwd, path, limit, 'controller_evidence_unproven');
+    snapshots.set(path, snapshot);
+    return snapshot.bytes;
+  };
+  const git = (args) => {
+    const result = run('git', args, { cwd });
+    return commandSucceeded(result) ? String(result.stdout ?? '').trim() : null;
+  };
+  const ancestor = (ref, head) => commandSucceeded(
+    run('git', ['merge-base', '--is-ancestor', ref, head], { cwd }),
+  );
+  const gh = (args) => {
+    const result = run('gh', args, { cwd });
+    if (!commandSucceeded(result)) throw new Error('github_proof_unreadable');
+    const data = parseCommandOutput(result);
+    if (!data || typeof data !== 'object') throw new Error('github_proof_unreadable');
+    return data;
+  };
+  const checkoutProof = (base, head, merge) => {
+    const checkoutHead = git(['rev-parse', 'HEAD']);
+    if (git(['branch', '--show-current']) !== base) throw new Error('default_checkout_required');
+    if (!/^[0-9a-f]{40}$/.test(checkoutHead ?? '')) throw new Error('checkout_head_unreadable');
+    if (git(['status', '--porcelain=v1', '-z', '--untracked-files=all']) !== '') {
+      throw new Error('checkout_not_clean');
+    }
+    if (!ancestor(checkpoint.head, head)) throw new Error('checkpoint_to_pr_head_unproven');
+    if (!ancestor(merge, checkoutHead)) throw new Error('merge_ancestry_unproven');
+    return checkoutHead;
+  };
+  let lock;
+  const runPath = join(cwd, RUN_FILE);
+  const lockPath = `${runPath}.lock`;
+  try {
+    const repoArgs = ['repo', 'view', '--json', 'nameWithOwner,defaultBranchRef'];
+    const repo = gh(repoArgs);
+    const match = /^([^/]+)\/([^/]+)$/.exec(repo.nameWithOwner ?? '');
+    const base = repo.defaultBranchRef?.name;
+    if (!match || !/^[\w.-]+$/.test(base ?? '')) throw new Error('default_repository_unproven');
+    const query = 'query($owner:String!,$name:String!,$number:Int!,$after:String){repository(owner:$owner,name:$name){issue(number:$number){number state closedByPullRequestsReferences(first:100,after:$after){nodes{number repository{nameWithOwner}} pageInfo{hasNextPage endCursor}}}}}';
+    const linkedArgs = ['api', 'graphql', '-f', `query=${query}`, '-f', `owner=${match[1]}`,
+      '-f', `name=${match[2]}`, '-F', `number=${issue}`];
+    const linked = gh(linkedArgs);
+    const remoteIssue = linked.data?.repository?.issue;
+    const relation = remoteIssue?.closedByPullRequestsReferences;
+    if (remoteIssue?.number !== issue) throw new Error('issue_identity_unproven');
+    if (remoteIssue.state !== 'CLOSED') throw new Error('issue_not_closed');
+    if (!Array.isArray(relation?.nodes) || relation.pageInfo?.hasNextPage !== false) {
+      throw new Error('closing_pr_relation_incomplete');
+    }
+    if (relation.nodes.length !== 1 || !Number.isSafeInteger(relation.nodes[0]?.number)) {
+      throw new Error('closing_pr_not_unique');
+    }
+    if (relation.nodes[0]?.repository?.nameWithOwner !== repo.nameWithOwner) {
+      throw new Error('closing_pr_repository_mismatch');
+    }
+    const prNumber = relation.nodes[0].number;
+    const prArgs = ['pr', 'view', String(prNumber), '--json',
+      'number,state,headRefOid,mergeCommit,baseRefName,headRefName,closingIssuesReferences'];
+    const pr = gh(prArgs);
+    const head = pr.headRefOid;
+    const merge = pr.mergeCommit?.oid;
+    const branch = pr.headRefName;
+    if (pr.number !== prNumber) throw new Error('pr_number_mismatch');
+    if (pr.state !== 'MERGED') throw new Error('pr_not_merged');
+    if (!/^[0-9a-f]{40}$/.test(head ?? '')) throw new Error('pr_head_unproven');
+    if (!/^[0-9a-f]{40}$/.test(merge ?? '')) throw new Error('merge_commit_unproven');
+    if (typeof branch !== 'string' || !branch.startsWith(`${issue}-`)) {
+      throw new Error('pr_branch_mismatch');
+    }
+    if (pr.baseRefName !== base) throw new Error('pr_base_mismatch');
+    if (!Array.isArray(pr.closingIssuesReferences)
+      || !pr.closingIssuesReferences.some((entry) => entry?.number === issue
+        && entry.repository?.name === match[2]
+        && entry.repository?.owner?.login === match[1])) {
+      throw new Error('closing_reference_mismatch');
+    }
+    if (![base, branch].includes(checkpoint.branch)) throw new Error('checkpoint_branch_unproven');
+    const checkoutHead = checkoutProof(base, head, merge);
+    const assertWorkersAbsent = () => {
+      const workers = inspectRecoveryWorkers(checkpoint, herdr);
+      if (workers.present.length || workers.absent.length) throw new Error('worker_ownership_unproven');
+      const agentResponse = herdr.listAgents();
+      const agentData = parseCommandOutput(agentResponse);
+      const agents = Array.isArray(agentData) ? agentData
+        : agentData?.result?.agents ?? agentData?.agents;
+      const lease = readControllerLease(cwd);
+      if (lease?.runId !== checkpoint.runId) throw new Error('controller_lease_unproven');
+      const controllerPane = lease.controllerPaneId;
+      if (!commandSucceeded(agentResponse) || !Array.isArray(agents)
+        || agents.some((agent) => (agent.cwd === cwd || agent.foreground_cwd === cwd)
+          && String(agent.pane_id ?? agent.paneId ?? '') !== String(controllerPane)
+          && !['done', 'error', 'stopped'].includes(agent.agent_status ?? agent.state))) {
+        throw new Error('foreign_worker_ownership_unproven');
+      }
+      const paneResponse = herdr.listPanes();
+      const panes = parseCommandOutput(paneResponse);
+      const paneRows = Array.isArray(panes) ? panes : panes?.result?.panes ?? panes?.panes;
+      if (!commandSucceeded(paneResponse) || !Array.isArray(paneRows)
+        || paneRows.some((pane) => String(pane.name ?? pane.title ?? '').startsWith(`s${issue}-`))) {
+        throw new Error('worker_ownership_unproven');
+      }
+    };
+    assertWorkersAbsent();
+    const runSnapshot = capture(RUN_FILE, 2 * 1024 * 1024);
+    if (!runSnapshot.equals(originalBytes)) throw new Error('checkpoint_changed');
+    const completed = checkpoint.completed[String(issue)];
+    const handoffDir = join(cwd, HANDOFF_DIR);
+    assertSafeRuntimeDirectory(handoffDir);
+    const handoffNames = readdirSync(handoffDir).filter((name) => name.startsWith(`${issue}-`));
+    const reviewArtifacts = new Map();
+    const handoffNameFor = (stage) => {
+      if (stage !== 'review1' && stage !== 'review2') return `${issue}-${stage}.json`;
+      if (!reviewArtifacts.has(stage)) {
+        reviewArtifacts.set(stage, resolveReviewArtifacts({ cwd, issue, step: stage }));
+      }
+      return reviewArtifacts.get(stage).handoffPath.slice(HANDOFF_DIR.length + 1);
+    };
+    const expectedHandoffs = new Map(completed.map((stage) => [stage, handoffNameFor(stage)]));
+    expectedHandoffs.set(step, handoffNameFor(step));
+    for (const stage of completed) {
+      if (!handoffNames.includes(expectedHandoffs.get(stage))) throw new Error('required_handoff_missing');
+    }
+    if (checkpoint.failed.reasonCode !== 'controller_cancelled'
+      && !handoffNames.includes(expectedHandoffs.get(step))) throw new Error('required_handoff_missing');
+    for (const name of handoffNames) {
+      const stage = VALID_STEPS.find((candidate) => name === `${issue}-${candidate}.json`
+        || (['review1', 'review2'].includes(candidate)
+          && new RegExp(`^${issue}-${candidate}(?:\\.head-[0-9a-f]{40})?(?:\\.attempt-2)?\\.json$`).test(name)));
+      if (!stage || (stage !== step && !completed.includes(stage))
+        || (name !== expectedHandoffs.get(stage) && !['review1', 'review2'].includes(stage))) {
+        throw new Error('handoff_ownership_ambiguous');
+      }
+      const path = `${HANDOFF_DIR}/${name}`;
+      const snapshot = readStrictHandoffSnapshot(cwd, path, issue, stage);
+      if (name === expectedHandoffs.get(step) && stage === step) {
+        if (snapshot.handoff.status !== 'failed'
+          || snapshot.handoff.reasonCode !== checkpoint.failed.reasonCode) {
+          throw new Error('failed_handoff_disagrees');
+        }
+      } else if (name === expectedHandoffs.get(stage) && snapshot.handoff.status !== 'passed') {
+        throw new Error('handoff_evidence_unproven');
+      }
+      snapshots.set(path, snapshot);
+    }
+    const ledgerPath = `${RUN_DIR}/safe-recoveries.json`;
+    const ledger = validateSafeRecoverySnapshot(capture(ledgerPath, 4 * 1024 * 1024));
+    const implicated = ledger.owners.filter((owner) => owner.projectRoot === cwd && owner.issue === issue);
+    if (!implicated.length || implicated.some((owner) => owner.ownerId !== checkpoint.runId
+      || owner.branch !== branch || owner.status !== 'incomplete')
+      || (step === 'implement' && implicated.filter((owner) => owner.step === step).length !== 1)
+      || ledger.records.some((record) => record.issue === issue && record.runId !== checkpoint.runId)) {
+      throw new Error('recovery_owner_ambiguous');
+    }
+    if (ledger.records.some((record) => record.issue === issue
+      && record.class === 'post_merge_observation'
+      && (record.evidence?.pullRequest !== prNumber || record.evidence?.headSha !== head))) {
+      throw new Error('recovery_delivery_conflict');
+    }
+    const sessionsDirectory = join(cwd, RUN_DIR, 'sessions');
+    let sessionDirectoryStat;
+    try {
+      sessionDirectoryStat = lstatSync(sessionsDirectory);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw new Error('session_evidence_unproven');
+    }
+    if (sessionDirectoryStat) {
+      if (sessionDirectoryStat.isSymbolicLink() || !sessionDirectoryStat.isDirectory()) {
+        throw new Error('session_evidence_unproven');
+      }
+      const tokens = readdirSync(sessionsDirectory);
+      if (tokens.length > 128) throw new Error('session_evidence_unproven');
+      for (const token of tokens) {
+        const directory = join(sessionsDirectory, token);
+        const sessionStat = lstatSync(directory);
+        if (!SESSION_EVIDENCE_TOKEN.test(token)
+          || sessionStat.isSymbolicLink() || !sessionStat.isDirectory()) {
+          throw new Error('session_evidence_unproven');
+        }
+        for (const name of readdirSync(directory)) {
+          if (!['recovery-owner.json', 'run.json', 'handoffs'].includes(name)
+            || lstatSync(join(directory, name)).isSymbolicLink()) {
+            throw new Error('session_evidence_unproven');
+          }
+        }
+        const owner = sessionEvidenceOwner(cwd, token, ledger);
+        if (owner.issue !== issue) continue;
+        if (owner.ownerId !== checkpoint.runId || owner.branch !== branch) {
+          throw new Error('session_owner_conflict');
+        }
+        const prefix = `${RUN_DIR}/sessions/${token}`;
+        for (const name of ['recovery-owner.json', 'run.json']) {
+          const path = `${prefix}/${name}`;
+          if (!existsSync(join(cwd, path))) continue;
+          const bytes = capture(path, 4096);
+          if (name === 'run.json') {
+            const session = JSON.parse(bytes.toString('utf8'));
+            if (session.delivery && (session.delivery.issue !== issue
+              || session.delivery.pullRequest !== prNumber
+              || session.delivery.expectedHead !== head
+              || session.delivery.branch !== branch)) {
+              throw new Error('session_delivery_conflict');
+            }
+          }
+        }
+        const sessionHandoffs = join(cwd, prefix, 'handoffs');
+        if (!existsSync(sessionHandoffs)) continue;
+        assertSafeRuntimeDirectory(sessionHandoffs);
+        for (const name of readdirSync(sessionHandoffs)) {
+          const match = new RegExp(`^${issue}-(${VALID_STEPS.join('|')})\\.json$`).exec(name);
+          if (!match) throw new Error('session_evidence_unproven');
+          const path = `${prefix}/handoffs/${name}`;
+          snapshots.set(path, readStrictHandoffSnapshot(cwd, path, issue, match[1]));
+        }
+      }
+    }
+    if (checkpoint.recoveries !== undefined && !Array.isArray(checkpoint.recoveries)) {
+      throw new Error('recovery_evidence_unproven');
+    }
+    const recoveryRows = checkpoint.recoveries ?? [];
+    const checkpointOnly = [
+      ISSUE_UNREADABLE_START_RESUME, BRANCH_CHECKOUT_FAILED_START_RESUME,
+      CLOSED_WORKER_RESUME, ACTIONABLE_VERIFICATION_RESUME,
+    ];
+    const ledgerBound = [
+      REPAIRED_PUBLICATION_RECOVERY, EXCLUSIVE_IMPLEMENT_RESUME,
+      PREPUBLICATION_IMPLEMENT_RESUME,
+    ];
+    if (recoveryRows.some((entry) => {
+      const source = entry?.source;
+      if (entry?.runId !== checkpoint.runId || entry.issue !== issue
+        || !VALID_STEPS.includes(entry.step)
+        || typeof entry.invocationId !== 'string' || !entry.invocationId
+        || typeof entry.consumedAt !== 'string' || Number.isNaN(Date.parse(entry.consumedAt))
+        || entry.disposition !== 'consumed' || !source || typeof source !== 'object') return true;
+      if (source.class === undefined) {
+        return source.issue !== issue || source.step !== entry.step
+          || !Number.isSafeInteger(source.attempt) || source.attempt <= 0;
+      }
+      if (checkpointOnly.includes(source.class)) return false;
+      if (!ledgerBound.includes(source.class)) return true;
+      return !ledger.records.some((record) => record.class === source.class
+        && record.runId === entry.runId && record.issue === issue && record.step === entry.step);
+    })) {
+      throw new Error('recovery_evidence_unproven');
+    }
+    for (const { stage, reference } of [
+      ...recoveryRows.map((entry) => ({ stage: entry.step, reference: entry.source?.handoffArchive })),
+      ...ledger.records.filter((record) => record.issue === issue)
+        .map((record) => ({ stage: record.step, reference: record.evidence?.handoffArchive })),
+    ]) {
+      if (reference == null) continue;
+      if (typeof reference.path !== 'string'
+        || !reference.path.startsWith(`${RUN_DIR}/history/`)
+        || !/^[0-9a-f]{64}$/.test(reference.digest ?? '')) {
+        throw new Error('recovery_archive_unproven');
+      }
+      const historical = readStrictHandoffSnapshot(cwd, reference.path, issue, stage);
+      if (historical.digest !== reference.digest) throw new Error('recovery_archive_unproven');
+      snapshots.set(reference.path, historical);
+    }
+    const evidenceDir = `${RUN_DIR}/verification`;
+    const reviewsDir = `${RUN_DIR}/reviews`;
+    for (const [directory, names] of [
+      [evidenceDir, [`${issue}.json`]],
+      [reviewsDir, null],
+    ]) {
+      const absolute = join(cwd, directory);
+      if (!existsSync(absolute)) continue;
+      assertSafeRuntimeDirectory(absolute);
+      for (const name of readdirSync(absolute)) {
+        if (names && (name.startsWith(`${issue}-`) || name.startsWith(`${issue}.`))
+          && !names.includes(name)) throw new Error('verification_evidence_ambiguous');
+        if (names ? !names.includes(name) : !name.startsWith(`${issue}-`)) continue;
+        if (name.includes('/') || name.includes('\\')) throw new Error('controller_evidence_unproven');
+        capture(`${directory}/${name}`, MAX_VERIFICATION_ARTIFACT_BYTES);
+      }
+    }
+    if ((step === 'verify' || completed.includes('verify'))
+      && !snapshots.has(`${evidenceDir}/${issue}.json`)) {
+      throw new Error('verification_evidence_missing');
+    }
+    const verification = snapshots.get(`${evidenceDir}/${issue}.json`);
+    if (verification) {
+      let artifact;
+      try {
+        artifact = JSON.parse(verification.bytes.toString('utf8'));
+      } catch {
+        throw new Error('verification_evidence_unproven');
+      }
+      if (artifact?.schemaVersion !== 1 || artifact.issue !== issue
+        || !/^[0-9a-f]{40}$/.test(artifact.identity?.headSha ?? '')) {
+        throw new Error('verification_evidence_unproven');
+      }
+    }
+    for (const reviewStep of ['review1', 'review2']) {
+      if (completed.includes(reviewStep)
+        && !snapshots.has(reviewArtifacts.get(reviewStep).artifactPath)) {
+        throw new Error('review_evidence_missing');
+      }
+    }
+    const proof = { issue, runId: checkpoint.runId, pullRequest: prNumber,
+      head, branch, base, mergeCommit: merge, checkoutHead,
+      ownerEntries: implicated, recoveryRecords: ledger.records.filter((record) => record.issue === issue) };
+    const archiveParent = `${RUN_DIR}/archive/delivered-failures`;
+    const archiveRelative = `${archiveParent}/${checkpoint.runId}`;
+    const archive = join(cwd, archiveRelative);
+    const receiptPath = join(archive, 'reconciliation.json');
+    if (existsSync(archive) || lstatSync(runPath).isSymbolicLink()) {
+      throw new Error('archive_collision_or_unsafe_path');
+    }
+    lock = openSync(lockPath, 'wx', 0o600);
+    if (readControllerLease(cwd)?.runId !== checkpoint.runId) {
+      throw new Error('controller_lease_unproven');
+    }
+    if (JSON.stringify(gh(repoArgs)) !== JSON.stringify(repo)
+      || JSON.stringify(gh(linkedArgs)) !== JSON.stringify(linked)
+      || JSON.stringify(gh(prArgs)) !== JSON.stringify(pr)) {
+      throw new Error('github_proof_changed');
+    }
+    checkoutProof(base, head, merge);
+    assertWorkersAbsent();
+    const assertCapturedUnchanged = () => {
+      for (const [path, snapshot] of snapshots) {
+        const current = readBoundedNoFollowFile(cwd, path, snapshot.bytes.length, 'controller_evidence_changed');
+        if (!current.bytes.equals(snapshot.bytes)
+          || !sameFileIdentity(lstatSync(join(cwd, path)), snapshot.identity)) {
+          throw new Error('controller_evidence_changed');
+        }
+      }
+    };
+    assertCapturedUnchanged();
+    ensureControllerHistoryDirectory(cwd, archiveParent);
+    mkdirSync(archive, { mode: 0o700 });
+    const files = {};
+    for (const [path, snapshot] of snapshots) {
+      const destination = join(archive, path === RUN_FILE ? 'run.json' : path.slice(RUN_DIR.length + 1));
+      ensureControllerHistoryDirectory(archive, relative(archive, dirname(destination)));
+      writeFileSync(destination, snapshot.bytes, { flag: 'wx', mode: 0o400 });
+      if (!readFileSync(destination).equals(snapshot.bytes)) throw new Error('archive_verification_failed');
+      files[relative(archive, destination).split('\\').join('/')] = sha(snapshot.bytes);
+    }
+    writeFileSync(receiptPath, `${JSON.stringify({ ...proof, files }, null, 2)}\n`, { flag: 'wx', mode: 0o400 });
+    if (!lstatSync(receiptPath).isFile()) throw new Error('archive_verification_failed');
+    assertCapturedUnchanged();
+    checkoutProof(base, head, merge);
+    assertWorkersAbsent();
+    unlinkSync(runPath);
+    return { ok: true, receipt: archiveRelative };
+  } catch (error) {
+    return fail(error?.message || 'closed_issue_proof_unreadable');
+  } finally {
+    if (lock !== undefined) {
+      closeSync(lock);
+      unlinkSync(lockPath);
+    }
+  }
+}
+
 export function resolveSpecDirForIssue(root, issueN) {
   return resolveSpecDir(root, issueN);
 }
@@ -4919,9 +5305,27 @@ export function runExecute({
     );
     const legacyTerminal = legacyCompletedRunState(existingRun);
     if (!boundTerminal && !legacyTerminal) {
-      if (parsedArgs.defaultBacklog || issues.includes(existingRun?.issue)
-        || !reconcileDeliveredFailure(existingRun, existingCheckpoint.bytes, cwd, run, herdrApi)) {
+      if (parsedArgs.defaultBacklog || issues.includes(existingRun?.issue)) {
         return { status: 1, stdout: '', stderr: 'Run checkpoint identity mismatch\n' };
+      }
+      if (existingRun?.currentStep === 'deliver'
+        && existingRun.failed?.reasonCode === 'merge_failed') {
+        if (!reconcileDeliveredFailure(existingRun, existingCheckpoint.bytes, cwd, run, herdrApi)) {
+          return { status: 1, stdout: '', stderr: 'Run checkpoint identity mismatch\n' };
+        }
+      } else {
+        const reconciliation = reconcileClosedIssueFailure(
+          existingRun, existingCheckpoint.bytes, cwd, run, herdrApi,
+        );
+        if (!reconciliation.ok) {
+          const archiveHint = /^[a-z0-9-]{1,100}$/i.test(existingRun?.runId ?? '')
+            ? ` and ${RUN_DIR}/archive/delivered-failures/${existingRun.runId}`
+            : '';
+          return {
+            status: 1, stdout: '',
+            stderr: `Closed issue reconciliation: ${reconciliation.reason}; inspect ${RUN_FILE}${archiveHint} read-only, then repair the reported proof without redispatch\n`,
+          };
+        }
       }
       existingRun = null;
       runState = null;

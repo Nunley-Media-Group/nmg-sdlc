@@ -1,0 +1,33 @@
+{
+  "source": "PennyScan retained manual-206-52a802ac-d62c-4459-b582-0216d878d787 archive and merged PR #208",
+  "sourceDigests": {
+    "run.json": "796185c989a48795a1b063f89e33bc0d0473bbd9869465c90e481fd7222afef7",
+    "206-start.json": "c1e75b3e7631c955f7d241a1961f32f7b486d91ea228509b2b129d150df40c91",
+    "safe-recoveries.json": "20d85ec3d353f95d8e9a0c64935c231286bbbb7554120eafa9a238abac9759cd"
+  },
+  "owner": {
+    "ownerId": "52a802ac-d62c-4459-b582-0216d878d787",
+    "projectRoot": "/Volumes/Fast Brick/source/repos/pennyscan",
+    "issue": 206,
+    "branch": "206-restore-paper-and-cash-strategy-authority-parity",
+    "step": "implement",
+    "status": "incomplete"
+  },
+  "pr": {
+    "number": 208,
+    "state": "MERGED",
+    "headRefOid": "626daed9eeab2254c77ebe96028df026d705248f",
+    "headRefName": "206-restore-paper-and-cash-strategy-authority-parity",
+    "baseRefName": "main",
+    "mergeCommit": { "oid": "b853c36dddfd242341852ce3a7e35d26e2718303" },
+    "closingIssuesReferences": [
+      {
+        "number": 206,
+        "repository": {
+          "name": "pennyscan",
+          "owner": { "login": "Nunley-Media-Group" }
+        }
+      }
+    ]
+  }
+}

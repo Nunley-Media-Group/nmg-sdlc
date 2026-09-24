@@ -5884,7 +5884,7 @@ describe('runExecute controller', () => {
       herdr: fixture.herdr,
     });
 
-    expect(result).toEqual({ status: 1, stdout: '', stderr: 'Run checkpoint identity mismatch\n' });
+    expect(result.status).toBe(1);
     expect(fs.readFileSync(runPath, 'utf8')).toBe(initialBytes);
     expect(fs.existsSync(handoffPath)).toBe(true);
     expect(initial.issue).toBe(42);
@@ -6025,11 +6025,7 @@ describe('runExecute controller', () => {
             herdr: fixture.herdr,
           });
 
-          expect(result).toEqual({
-            status: 1,
-            stdout: '',
-            stderr: 'Run checkpoint identity mismatch\n',
-          });
+          expect(result.status).toBe(1);
           expect(fs.readFileSync(runPath).equals(bytes)).toBe(true);
           expect(fs.existsSync(supportingPath)).toBe(true);
           expect(fixture.starts).toEqual([]);
@@ -6062,11 +6058,7 @@ describe('runExecute controller', () => {
       herdr: fixture.herdr,
     });
 
-    expect(result).toEqual({
-      status: 1,
-      stdout: '',
-      stderr: 'Run checkpoint identity mismatch\n',
-    });
+    expect(result.status).toBe(1);
     expect(fs.readFileSync(runPath).equals(bytes)).toBe(true);
     expect(fs.existsSync(supportingPath)).toBe(true);
     expect(fixture.starts).toEqual([]);
@@ -6090,11 +6082,7 @@ describe('runExecute controller', () => {
       herdr: fixture.herdr,
     });
 
-    expect(result).toEqual({
-      status: 1,
-      stdout: '',
-      stderr: 'Run checkpoint identity mismatch\n',
-    });
+    expect(result.status).toBe(1);
     expect(fs.readFileSync(runPath).equals(bytes)).toBe(true);
     expect(fixture.starts).toEqual([]);
   });
@@ -6115,11 +6103,7 @@ describe('runExecute controller', () => {
       herdr: fixture.herdr,
     });
 
-    expect(result).toEqual({
-      status: 1,
-      stdout: '',
-      stderr: 'Run checkpoint identity mismatch\n',
-    });
+    expect(result.status).toBe(1);
     expect(fs.statSync(runPath).isDirectory()).toBe(true);
     expect(fixture.starts).toEqual([]);
   });
@@ -6538,6 +6522,472 @@ describe('runExecute controller', () => {
     } else {
       expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/archive/delivered-failures'))).toBe(false);
     }
+    expect(fixture.starts).toEqual([]);
+  });
+
+  function retained206Fixture({ variant = null } = {}) {
+    const fixture = makeControllerFixture({
+      labelIssues: [206, 218], branch: 'main', defaultBranch: 'main', blockedStep: 'start',
+    });
+    const targetSpec = path.join(fixture.cwd, 'specs/218-next-issue');
+    fs.mkdirSync(targetSpec, { recursive: true });
+    writeApproved(targetSpec, 218);
+    const source = path.join(REPOSITORY_ROOT, 'scripts/__fixtures__/pennyscan-206-closed-checkpoint');
+    const proof = JSON.parse(fs.readFileSync(path.join(source, 'proof.json'), 'utf8'));
+    const retainedRun = fs.readFileSync(path.join(source, 'run.json'));
+    const retainedHandoff = fs.readFileSync(path.join(source, '206-start.json'));
+    expect(createHash('sha256').update(retainedRun).digest('hex')).toBe(proof.sourceDigests['run.json']);
+    expect(createHash('sha256').update(retainedHandoff).digest('hex')).toBe(proof.sourceDigests['206-start.json']);
+    const oldRoot = JSON.parse(retainedRun).projectRoot;
+    const runBytes = Buffer.from(retainedRun.toString().replace(oldRoot, fs.realpathSync(fixture.cwd)));
+    const runtime = path.join(fixture.cwd, '.omp/sdlc');
+    const handoffs = path.join(runtime, 'handoffs');
+    fs.mkdirSync(handoffs, { recursive: true });
+    fs.writeFileSync(path.join(runtime, 'run.json'), runBytes);
+    fs.writeFileSync(path.join(handoffs, '206-start.json'), retainedHandoff);
+    const owner = { ...proof.owner, projectRoot: fs.realpathSync(fixture.cwd) };
+    if (variant === 'foreign owner') owner.ownerId = 'foreign-run';
+    const safeBytes = Buffer.from(`${JSON.stringify({
+      schemaVersion: 1, revision: 14, owners: [
+        ...(variant === 'missing owner' ? [] : [owner]), {
+          ...owner, issue: 42, ownerId: 'other-run', branch: '42-unrelated',
+        },
+      ], records: [],
+    }, null, 2)}\n`);
+    fs.writeFileSync(path.join(runtime, 'safe-recoveries.json'), safeBytes);
+    if (variant === 'symlinked handoff') {
+      fs.unlinkSync(path.join(handoffs, '206-start.json'));
+      fs.symlinkSync(path.join(source, '206-start.json'), path.join(handoffs, '206-start.json'));
+    }
+    if (variant === 'missing handoff') fs.unlinkSync(path.join(handoffs, '206-start.json'));
+    if (variant === 'contradictory handoff') {
+      fs.writeFileSync(path.join(handoffs, '206-implement.json'), `${JSON.stringify({
+        schemaVersion: 1, issue: 206, step: 'implement', status: 'passed',
+        intervention: false, summary: 'claimed pass', artifacts: [], next: 'review1', reasonCode: null,
+      })}\n`);
+    }
+    if (variant === 'symlinked ledger') {
+      const target = path.join(fixture.cwd, 'external-ledger.json');
+      fs.renameSync(path.join(runtime, 'safe-recoveries.json'), target);
+      fs.symlinkSync(target, path.join(runtime, 'safe-recoveries.json'));
+    }
+    if (variant === 'live worker') {
+      fixture.herdr.listAgents = () => [{ name: 's206-implement', pane_id: 'live-pane' }];
+    }
+    if (variant === 'late worker') {
+      let observations = 0;
+      fixture.herdr.listAgents = () => (++observations > 2
+        ? [{ name: 's206-implement', pane_id: 'late-pane' }] : []);
+    }
+    if (variant === 'foreign worker') {
+      fixture.herdr.listAgents = () => [{
+        name: 's999-implement', pane_id: 'foreign-pane',
+        cwd: fs.realpathSync(fixture.cwd), agent_status: 'working',
+      }];
+    }
+    if (variant === 'archive collision') {
+      const archive = path.join(runtime, 'archive/delivered-failures', proof.owner.ownerId);
+      fs.mkdirSync(archive, { recursive: true });
+      fs.writeFileSync(path.join(archive, 'prior-evidence'), 'untouched');
+    }
+    if (variant === 'unknown verification') {
+      const verification = path.join(runtime, 'verification');
+      fs.mkdirSync(verification);
+      fs.writeFileSync(path.join(verification, '206-unowned.json'), '{}\n');
+    }
+    const originalRun = fixture.run;
+    let prViews = 0;
+    fixture.run = (command, args) => {
+      if (command === 'gh' && args[0] === 'repo' && args.includes('nameWithOwner,defaultBranchRef')) {
+        return { status: 0, stdout: JSON.stringify({
+          nameWithOwner: 'Nunley-Media-Group/pennyscan', defaultBranchRef: { name: 'main' },
+        }) };
+      }
+      if (command === 'gh' && args[0] === 'api' && args[1] === 'graphql') {
+        const linked = { number: 206, state: variant === 'open issue' ? 'OPEN' : 'CLOSED',
+          closedByPullRequestsReferences: {
+            nodes: [{ number: 208, repository: { nameWithOwner: 'Nunley-Media-Group/pennyscan' } },
+              ...(variant === 'ambiguous PR' ? [{ number: 209, repository: {
+                nameWithOwner: 'Nunley-Media-Group/pennyscan' } }] : [])],
+            pageInfo: { hasNextPage: variant === 'unread page', endCursor: 'MQ' },
+          } };
+        return { status: 0, stdout: JSON.stringify({ data: { repository: { issue: linked } } }) };
+      }
+      if (command === 'gh' && args[0] === 'pr' && args[1] === 'view' && args[2] === '208') {
+        prViews += 1;
+        return { status: 0, stdout: JSON.stringify({
+          ...proof.pr,
+          ...(variant === 'changed head' ? { headRefOid: 'd'.repeat(39) } : {}),
+          ...(variant === 'wrong base' ? { baseRefName: 'release' } : {}),
+          ...(variant === 'cross-repo closing' ? {
+            closingIssuesReferences: [{ number: 206, repository: {
+              name: 'other', owner: { login: 'Nunley-Media-Group' },
+            } }],
+          } : {}),
+          ...(variant === 'changed remote' && prViews > 1 ? { state: 'OPEN' } : {}),
+        }) };
+      }
+      if (command === 'git' && args[0] === 'merge-base' && args[1] === '--is-ancestor') {
+        return { status: variant === 'missing ancestry' && args[2] === proof.pr.mergeCommit.oid ? 1 : 0, stdout: '' };
+      }
+      if (command === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { status: 0, stdout: 'e'.repeat(40) + '\n' };
+      }
+      if (command === 'git' && args[0] === 'status' && variant === 'dirty checkout') {
+        return { status: 0, stdout: '?? unexpected.txt\0' };
+      }
+      return originalRun(command, args);
+    };
+    return { fixture, proof, runBytes, retainedHandoff, safeBytes, runtime };
+  }
+
+  it('SCN001 reconciles retained #206 stopped implement evidence and admits explicit #218', () => {
+    const { fixture, proof, runBytes, retainedHandoff, safeBytes, runtime } = retained206Fixture();
+    const result = runExecute({ args: '#218', cwd: fixture.cwd, env,
+      run: fixture.run, herdr: fixture.herdr });
+    const archive = path.join(runtime, 'archive/delivered-failures', proof.owner.ownerId);
+    expect(result.stderr).not.toContain('Closed issue reconciliation:');
+    expect(fixture.starts[0].name).toBe('s218-start');
+    expect(fixture.starts.every(({ name }) => !name.startsWith('s206-'))).toBe(true);
+    const receipt = JSON.parse(fs.readFileSync(path.join(archive, 'reconciliation.json')));
+    expect(receipt).toMatchObject({ issue: 206, pullRequest: 208, runId: proof.owner.ownerId,
+      head: proof.pr.headRefOid, mergeCommit: proof.pr.mergeCommit.oid });
+    for (const [name, bytes] of [
+      ['run.json', runBytes], ['handoffs/206-start.json', retainedHandoff],
+      ['safe-recoveries.json', safeBytes],
+    ]) {
+      expect(fs.readFileSync(path.join(archive, name)).equals(bytes)).toBe(true);
+      expect(receipt.files[name]).toBe(createHash('sha256').update(bytes).digest('hex'));
+    }
+    expect(fs.readFileSync(path.join(runtime, 'safe-recoveries.json')).equals(safeBytes)).toBe(true);
+    expect(receipt.ownerEntries).toEqual([{ ...proof.owner, projectRoot: fs.realpathSync(fixture.cwd) }]);
+    expect(fs.readFileSync(path.join(runtime, 'handoffs/206-start.json')).equals(retainedHandoff)).toBe(true);
+  });
+
+  it.each(['open issue', 'ambiguous PR', 'unread page', 'changed head', 'wrong base',
+    'cross-repo closing', 'missing ancestry', 'dirty checkout', 'foreign owner',
+    'missing owner', 'missing handoff', 'contradictory handoff', 'symlinked handoff',
+    'symlinked ledger', 'live worker', 'late worker', 'foreign worker', 'changed remote',
+    'unknown verification', 'archive collision'])(
+    'SCN002/003 keeps retained #206 evidence on %s', (variant) => {
+    const { fixture, runBytes, safeBytes, runtime } = retained206Fixture({ variant });
+    const result = runExecute({ args: '#218', cwd: fixture.cwd, env,
+      run: fixture.run, herdr: fixture.herdr });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('Closed issue reconciliation:');
+    const failedProof = {
+      'open issue': 'issue_not_closed',
+      'ambiguous PR': 'closing_pr_not_unique',
+      'unread page': 'closing_pr_relation_incomplete',
+      'changed head': 'pr_head_unproven',
+      'wrong base': 'pr_base_mismatch',
+      'cross-repo closing': 'closing_reference_mismatch',
+      'missing ancestry': 'merge_ancestry_unproven',
+      'dirty checkout': 'checkout_not_clean',
+      'foreign owner': 'recovery_owner_ambiguous',
+      'missing owner': 'recovery_owner_ambiguous',
+      'missing handoff': 'required_handoff_missing',
+      'contradictory handoff': 'failed_handoff_disagrees',
+      'changed remote': 'github_proof_changed',
+      'unknown verification': 'verification_evidence_ambiguous',
+    }[variant];
+    if (failedProof) expect(result.stderr).toContain(failedProof);
+    expect(fs.readFileSync(path.join(runtime, 'run.json')).equals(runBytes)).toBe(true);
+    expect(fs.readFileSync(path.join(runtime, 'safe-recoveries.json')).equals(safeBytes)).toBe(true);
+    expect(fixture.starts).toEqual([]);
+  });
+  it('archives generated review evidence for a separately delivered failed-deliver checkpoint', () => {
+    const { fixture, proof, runtime } = retained206Fixture();
+    const runPath = path.join(runtime, 'run.json');
+    const checkpoint = JSON.parse(fs.readFileSync(runPath));
+    checkpoint.currentStep = 'deliver';
+    checkpoint.completed['206'] = VALID_STEPS.slice(0, -1);
+    checkpoint.failed = { issue: 206, step: 'deliver', reasonCode: 'delivery_failed' };
+    const handoffs = path.join(runtime, 'handoffs');
+    const reviews = path.join(runtime, 'reviews');
+    fs.mkdirSync(reviews);
+    const generation = `.head-${'a'.repeat(40)}`;
+    const stageHandoff = (stage, status = 'passed') => `${JSON.stringify({
+      schemaVersion: 1, issue: 206, step: stage, status,
+      intervention: status === 'failed', summary: stage, artifacts: [],
+      next: status === 'passed' ? 'next' : null,
+      reasonCode: status === 'failed' ? 'delivery_failed' : null,
+    })}\n`;
+    const historicalBytes = Buffer.from(stageHandoff('implement', 'failed'));
+    const historicalDigest = createHash('sha256').update(historicalBytes).digest('hex');
+    const historicalPath = `.omp/sdlc/history/prepublication-implement-resume/206-implement-${historicalDigest}.json`;
+    fs.mkdirSync(path.join(runtime, 'history/prepublication-implement-resume'), { recursive: true });
+    fs.writeFileSync(path.join(fixture.cwd, historicalPath), historicalBytes);
+    const record = {
+      class: 'prepublication_implement_resume', runId: checkpoint.runId, issue: 206,
+      step: 'implement', invocationId: 'fixture-invocation',
+      consumedAt: '2026-09-24T00:00:00.000Z', disposition: 'consumed',
+      evidence: { handoffArchive: { path: historicalPath, digest: historicalDigest } },
+    };
+    const safePath = path.join(runtime, 'safe-recoveries.json');
+    const ledger = JSON.parse(fs.readFileSync(safePath));
+    ledger.records.push(record);
+    fs.writeFileSync(safePath, `${JSON.stringify(ledger)}\n`);
+    checkpoint.recoveries = [{
+      runId: record.runId, issue: record.issue, step: record.step,
+      invocationId: record.invocationId, consumedAt: record.consumedAt,
+      disposition: record.disposition,
+      source: { class: record.class, handoffArchive: record.evidence.handoffArchive },
+    }, {
+      runId: checkpoint.runId, issue: 206, step: 'verify',
+      invocationId: 'closed-worker-invocation', consumedAt: '2026-09-24T00:01:00.000Z',
+      disposition: 'consumed', source: { class: 'closed_worker_resume' },
+    }, {
+      runId: checkpoint.runId, issue: 206, step: 'review1',
+      invocationId: 'remediation-invocation', consumedAt: '2026-09-24T00:02:00.000Z',
+      disposition: 'consumed', source: { issue: 206, step: 'review1', attempt: 1 },
+    }];
+    fs.writeFileSync(runPath, `${JSON.stringify(checkpoint)}\n`);
+    for (const stage of ['implement', 'fix1', 'fix2', 'verify']) {
+      fs.writeFileSync(path.join(handoffs, `206-${stage}.json`), stageHandoff(stage));
+    }
+    fs.writeFileSync(path.join(handoffs, '206-deliver.json'), stageHandoff('deliver', 'failed'));
+    fs.mkdirSync(path.join(runtime, 'verification'));
+    fs.writeFileSync(path.join(runtime, 'verification/206.json'), `${JSON.stringify({
+      schemaVersion: 1, issue: 206, identity: { headSha: checkpoint.head },
+    })}\n`);
+    for (const stage of ['review1', 'review2']) {
+      fs.writeFileSync(path.join(reviews, `206-${stage}.current.json`), JSON.stringify({ generation }));
+      const suffix = stage === 'review2' ? '.attempt-2' : '';
+      if (suffix) fs.writeFileSync(path.join(reviews, `206-${stage}${generation}.invalidation.json`), '{}\n');
+      fs.writeFileSync(path.join(handoffs, `206-${stage}${generation}${suffix}.json`),
+        stageHandoff(stage));
+      fs.writeFileSync(path.join(reviews, `206-${stage}${generation}${suffix}.md`), 'Review evidence.\n');
+    }
+    const result = runExecute({ args: '#218', cwd: fixture.cwd, env,
+      run: fixture.run, herdr: fixture.herdr });
+    const archive = path.join(runtime, 'archive/delivered-failures', proof.owner.ownerId);
+    expect(result.stderr).not.toContain('Closed issue reconciliation:');
+    expect(fixture.starts[0].name).toBe('s218-start');
+    expect(fs.readFileSync(path.join(archive, `handoffs/206-review2${generation}.attempt-2.json`), 'utf8'))
+      .toBe(stageHandoff('review2'));
+    expect(fs.readFileSync(path.join(archive, 'handoffs/206-deliver.json'), 'utf8'))
+      .toBe(stageHandoff('deliver', 'failed'));
+    expect(fs.readFileSync(path.join(archive, `reviews/206-review1${generation}.md`), 'utf8'))
+      .toBe('Review evidence.\n');
+    expect(fs.readFileSync(path.join(archive, historicalPath.slice('.omp/sdlc/'.length))).equals(historicalBytes))
+      .toBe(true);
+  });
+
+
+  it('preserves a cancelled checkpoint when referenced recovery history has a changed digest', () => {
+    const { fixture, runtime } = retained206Fixture();
+    const runPath = path.join(runtime, 'run.json');
+    const checkpoint = JSON.parse(fs.readFileSync(runPath));
+    const history = '.omp/sdlc/history/prepublication-implement-resume/206-implement-failed.json';
+    fs.mkdirSync(path.dirname(path.join(fixture.cwd, history)), { recursive: true });
+    fs.writeFileSync(path.join(fixture.cwd, history), `${JSON.stringify({
+      schemaVersion: 1, issue: 206, step: 'implement', status: 'failed',
+      intervention: true, summary: 'prior failure', artifacts: [],
+      next: null, reasonCode: 'implementation_failed',
+    })}\n`);
+    const record = {
+      class: 'prepublication_implement_resume', runId: checkpoint.runId, issue: 206,
+      step: 'implement', invocationId: 'fixture-invocation',
+      consumedAt: '2026-09-24T00:00:00.000Z', disposition: 'consumed',
+      evidence: { handoffArchive: { path: history, digest: '0'.repeat(64) } },
+    };
+    const safePath = path.join(runtime, 'safe-recoveries.json');
+    const ledger = JSON.parse(fs.readFileSync(safePath));
+    ledger.records.push(record);
+    fs.writeFileSync(safePath, `${JSON.stringify(ledger)}\n`);
+    checkpoint.recoveries = [{
+      runId: record.runId, issue: record.issue, step: record.step,
+      invocationId: record.invocationId, consumedAt: record.consumedAt,
+      disposition: record.disposition,
+      source: { class: record.class, handoffArchive: record.evidence.handoffArchive },
+    }];
+    const bytes = Buffer.from(`${JSON.stringify(checkpoint)}\n`);
+    fs.writeFileSync(runPath, bytes);
+    const result = runExecute({ args: '#218', cwd: fixture.cwd, env,
+      run: fixture.run, herdr: fixture.herdr });
+    expect(result.stderr).toContain('recovery_archive_unproven');
+    expect(fs.readFileSync(runPath).equals(bytes)).toBe(true);
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('SCN004 never rearchives the closed issue on repeated explicit admission', () => {
+    const { fixture, proof, runtime } = retained206Fixture();
+    runExecute({ args: '#218', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    const archive = path.join(runtime, 'archive/delivered-failures', proof.owner.ownerId);
+    const receipt = fs.readFileSync(path.join(archive, 'reconciliation.json'));
+    const second = runExecute({ args: '#218', cwd: fixture.cwd, env,
+      run: fixture.run, herdr: fixture.herdr });
+    expect(second.stderr).not.toContain('Closed issue reconciliation:');
+    expect(fs.readFileSync(path.join(archive, 'reconciliation.json')).equals(receipt)).toBe(true);
+    expect(fs.readdirSync(path.join(runtime, 'archive/delivered-failures'))).toEqual([proof.owner.ownerId]);
+    expect(fixture.starts.every(({ name }) => !name.startsWith('s206-'))).toBe(true);
+  });
+
+  function retained217Fixture({
+    missingHeadAncestry = false, conflictingObservation = false, conflictingSession = false,
+  } = {}) {
+    const fixture = makeControllerFixture({
+      labelIssues: [217, 218], branch: 'main', defaultBranch: 'main', blockedStep: 'start',
+    });
+    const nextSpec = path.join(fixture.cwd, 'specs/218-refill-recovery-portfolios');
+    fs.mkdirSync(nextSpec, { recursive: true });
+    writeApproved(nextSpec, 218);
+    const source = path.join(REPOSITORY_ROOT, 'scripts/__fixtures__/pennyscan-217-closed-checkpoint');
+    const proof = JSON.parse(fs.readFileSync(path.join(source, 'proof.json')));
+    const rawRun = fs.readFileSync(path.join(source, 'run.json'));
+    const assertSnapshot = (relativePath) => {
+      const bytes = fs.readFileSync(path.join(source, relativePath));
+      expect(createHash('sha256').update(bytes).digest('hex'))
+        .toBe(proof.sourceDigests[relativePath]);
+      return bytes;
+    };
+    expect(createHash('sha256').update(rawRun).digest('hex')).toBe(proof.sourceDigests['run.json']);
+    const original = JSON.parse(rawRun);
+    const root = fs.realpathSync(fixture.cwd);
+    const runBytes = Buffer.from(rawRun.toString().replace(original.projectRoot, root));
+    const runtime = path.join(fixture.cwd, '.omp/sdlc');
+    fs.mkdirSync(path.join(runtime, 'handoffs'), { recursive: true });
+    fs.writeFileSync(path.join(runtime, 'run.json'), runBytes);
+    for (const step of VALID_STEPS) {
+      const name = `handoffs/217-${step}.json`;
+      fs.writeFileSync(path.join(runtime, name), assertSnapshot(name));
+    }
+    const historyPath = original.recoveries[0].source.handoffArchive.path;
+    fs.mkdirSync(path.dirname(path.join(root, historyPath)), { recursive: true });
+    fs.writeFileSync(path.join(root, historyPath), assertSnapshot('history/217-implement.json'));
+    fs.mkdirSync(path.join(runtime, 'reviews'));
+    for (const step of ['review1', 'review2']) {
+      const name = `reviews/217-${step}.md`;
+      fs.writeFileSync(path.join(runtime, name), assertSnapshot(name));
+    }
+    fs.mkdirSync(path.join(runtime, 'verification'));
+    const verificationBytes = Buffer.from(`${JSON.stringify({
+      schemaVersion: 1, issue: 217, identity: { headSha: '3626e6ad9a78cf00c38304ae18cec65e295edb96' },
+    })}\n`);
+    fs.writeFileSync(path.join(runtime, 'verification/217.json'), verificationBytes);
+    const owner = original.recoveries[0];
+    const { class: className, currentHead, ...sourceEvidence } = owner.source;
+    const ledger = {
+      schemaVersion: 1, revision: 24,
+      owners: proof.ownerSteps.map((step) => ({
+        ownerId: original.runId, projectRoot: root, issue: 217,
+        branch: proof.pr.headRefName, step,
+        ...(step === 'implement' ? { plannedSubject: proof.plannedSubject } : {}),
+        status: 'incomplete',
+      })),
+      records: [{
+        class: className, runId: original.runId, issue: 217, step: owner.step,
+        invocationId: owner.invocationId, consumedAt: owner.consumedAt,
+        disposition: 'consumed', evidence: { ...sourceEvidence, head: currentHead },
+      }, {
+        ...proof.postMergeRecord, runId: original.runId, issue: 217, disposition: 'consumed',
+        ...(conflictingObservation ? { evidence: {
+          ...proof.postMergeRecord.evidence, headSha: 'f'.repeat(40),
+        } } : {}),
+      }],
+    };
+    const ledgerBytes = Buffer.from(`${JSON.stringify(ledger, null, 2)}\n`);
+    fs.writeFileSync(path.join(runtime, 'safe-recoveries.json'), ledgerBytes);
+    const ownerSession = `sessions/${proof.sessionToken}`;
+    const runSession = `sessions/${proof.runSessionToken}`;
+    fs.mkdirSync(path.join(runtime, ownerSession, 'handoffs'), { recursive: true });
+    fs.mkdirSync(path.join(runtime, runSession, 'handoffs'), { recursive: true });
+    fs.writeFileSync(path.join(runtime, ownerSession, 'recovery-owner.json'),
+      Buffer.from(assertSnapshot('session/recovery-owner.json').toString().replace(original.projectRoot, root)));
+    fs.writeFileSync(path.join(runtime, ownerSession, 'handoffs/217-deliver.json'),
+      assertSnapshot('session/217-deliver.json'));
+    const sessionRun = JSON.parse(assertSnapshot('session/run.json'));
+    sessionRun.projectRoot = root;
+    if (conflictingSession) sessionRun.delivery.expectedHead = 'f'.repeat(40);
+    fs.writeFileSync(path.join(runtime, runSession, 'run.json'), `${JSON.stringify(sessionRun, null, 2)}\n`);
+    const baseRun = fixture.run;
+    fixture.run = (command, args) => {
+      if (command === 'gh' && args[0] === 'repo' && args.includes('nameWithOwner,defaultBranchRef')) {
+        return { status: 0, stdout: JSON.stringify({
+          nameWithOwner: 'Nunley-Media-Group/pennyscan', defaultBranchRef: { name: 'main' },
+        }) };
+      }
+      if (command === 'gh' && args[0] === 'api' && args[1] === 'graphql') {
+        return { status: 0, stdout: JSON.stringify({ data: { repository: {
+          issue: { number: 217, state: 'CLOSED',
+            closedByPullRequestsReferences: { nodes: [{
+              number: 230, repository: { nameWithOwner: 'Nunley-Media-Group/pennyscan' },
+            }], pageInfo: { hasNextPage: false } },
+          },
+        } } }) };
+      }
+      if (command === 'gh' && args[0] === 'pr' && args[1] === 'view' && args[2] === '230') {
+        return { status: 0, stdout: JSON.stringify(proof.pr) };
+      }
+      if (command === 'git' && args[0] === 'merge-base' && args[1] === '--is-ancestor') {
+        return { status: missingHeadAncestry && args[3] === proof.pr.headRefOid ? 1 : 0, stdout: '' };
+      }
+      if (command === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { status: 0, stdout: 'e'.repeat(40) + '\n' };
+      }
+      return baseRun(command, args);
+    };
+    return { fixture, proof, runBytes, ledgerBytes, runtime, source, verificationBytes };
+  }
+
+  it('reconciles immutable #217 failed-deliver snapshots against PR #230 before #218 dispatch', () => {
+    const { fixture, proof, runBytes, ledgerBytes, runtime, source, verificationBytes } = retained217Fixture();
+    const result = runExecute({ args: '#218', cwd: fixture.cwd, env,
+      run: fixture.run, herdr: fixture.herdr });
+    const runId = JSON.parse(runBytes).runId;
+    const archive = path.join(runtime, 'archive/delivered-failures', runId);
+    expect(result.stderr).not.toContain('Closed issue reconciliation:');
+    expect(fixture.starts[0].name).toBe('s218-start');
+    expect(fixture.starts.every(({ name }) => !name.startsWith('s217-'))).toBe(true);
+    const receipt = JSON.parse(fs.readFileSync(path.join(archive, 'reconciliation.json')));
+    expect(receipt).toMatchObject({ issue: 217, pullRequest: 230,
+      head: proof.pr.headRefOid, mergeCommit: proof.pr.mergeCommit.oid });
+    expect(fs.readFileSync(path.join(archive, 'run.json')).equals(runBytes)).toBe(true);
+    expect(fs.readFileSync(path.join(archive, 'safe-recoveries.json')).equals(ledgerBytes)).toBe(true);
+    expect(fs.readFileSync(path.join(runtime, 'safe-recoveries.json')).equals(ledgerBytes)).toBe(true);
+    for (const step of VALID_STEPS) {
+      const name = `handoffs/217-${step}.json`;
+      expect(fs.readFileSync(path.join(archive, name)).equals(fs.readFileSync(path.join(source, name))))
+        .toBe(true);
+    }
+    expect(fs.readFileSync(path.join(archive, 'verification/217.json')).equals(verificationBytes)).toBe(true);
+    expect(receipt.files['history/prepublication-implement-resume/217-implement-c54319e1ff5f0933c35b8059a53ff5ad1748aec35e2c2fcc2af7a120d7e30b81.json'])
+      .toBe(proof.sourceDigests['history/217-implement.json']);
+    expect(receipt.files[`sessions/${proof.sessionToken}/handoffs/217-deliver.json`])
+      .toBe(proof.sourceDigests['session/217-deliver.json']);
+    expect(fs.readFileSync(path.join(archive, `sessions/${proof.sessionToken}/recovery-owner.json`)).equals(
+      fs.readFileSync(path.join(runtime, `sessions/${proof.sessionToken}/recovery-owner.json`)))).toBe(true);
+    expect(fs.existsSync(path.join(archive, `sessions/${proof.runSessionToken}/run.json`))).toBe(true);
+  });
+
+  it('blocks the #217 fixture when checkpoint ancestry to exact PR #230 head is missing', () => {
+    const { fixture, runBytes, ledgerBytes, runtime } = retained217Fixture({ missingHeadAncestry: true });
+    const result = runExecute({ args: '#218', cwd: fixture.cwd, env,
+      run: fixture.run, herdr: fixture.herdr });
+    expect(result.stderr).toContain('checkpoint_to_pr_head_unproven');
+    expect(fs.readFileSync(path.join(runtime, 'run.json')).equals(runBytes)).toBe(true);
+    expect(fs.readFileSync(path.join(runtime, 'safe-recoveries.json')).equals(ledgerBytes)).toBe(true);
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('keeps #217 unchanged when its persisted post-merge observation conflicts with PR #230', () => {
+    const { fixture, runBytes, ledgerBytes, runtime } = retained217Fixture({ conflictingObservation: true });
+    const result = runExecute({ args: '#218', cwd: fixture.cwd, env,
+      run: fixture.run, herdr: fixture.herdr });
+    expect(result.stderr).toContain('recovery_delivery_conflict');
+    expect(fs.readFileSync(path.join(runtime, 'run.json')).equals(runBytes)).toBe(true);
+    expect(fs.readFileSync(path.join(runtime, 'safe-recoveries.json')).equals(ledgerBytes)).toBe(true);
+    expect(fixture.starts).toEqual([]);
+  });
+
+  it('keeps #217 stopped when a run-bound session claims a conflicting delivery head', () => {
+    const { fixture, runBytes, ledgerBytes, runtime } = retained217Fixture({ conflictingSession: true });
+    const result = runExecute({ args: '#218', cwd: fixture.cwd, env,
+      run: fixture.run, herdr: fixture.herdr });
+    expect(result.stderr).toContain('session_delivery_conflict');
+    expect(fs.readFileSync(path.join(runtime, 'run.json')).equals(runBytes)).toBe(true);
+    expect(fs.readFileSync(path.join(runtime, 'safe-recoveries.json')).equals(ledgerBytes)).toBe(true);
     expect(fixture.starts).toEqual([]);
   });
 

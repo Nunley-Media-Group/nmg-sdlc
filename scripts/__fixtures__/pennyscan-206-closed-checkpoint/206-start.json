@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "issue": 206,
+  "step": "start",
+  "status": "passed",
+  "intervention": false,
+  "summary": "Branch ready for #206",
+  "artifacts": [],
+  "next": "implement",
+  "reasonCode": null
+}

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "issue": 217,
+  "step": "deliver",
+  "status": "passed",
+  "intervention": false,
+  "summary": "PR #230 merged at 50b89c001a3a60bad7f05d30d82a042573b6d73c, issue #217 closed, version 0.48.9",
+  "artifacts": [
+    "https://github.com/Nunley-Media-Group/pennyscan/pull/230"
+  ],
+  "next": null,
+  "reasonCode": null
+}

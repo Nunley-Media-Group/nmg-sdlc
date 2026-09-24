@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "issue": 217,
+  "step": "implement",
+  "status": "failed",
+  "intervention": true,
+  "summary": "Implemented bounded IEX windows and verified 18 targeted tests, including capped 50-symbol sessions, conflicting and malformed responses, permutation invariance, and ten-call preflight. Publication bind rejected with publication_dirty_partial: branch 217-fix-complete-iex-setup-evidence-acquisition is already two commits ahead of its upstream (git rev-list --left-right --count @{u}...HEAD: 0 2), before implementation staging. Preserved changes; requires reconciliation of the pre-existing ahead commits under publication authority before bind, commit, and push.",
+  "artifacts": [
+    "src/pennyscan/market_data.py",
+    "tests/test_market_data.py",
+    "tests/features/complete_iex_setup_evidence.feature",
+    "tests/features/test_complete_iex_setup_evidence_bdd.py",
+    "tests/features/steps/complete_iex_setup_evidence_steps.py"
+  ],
+  "next": null,
+  "reasonCode": "implementation_failed"
+}

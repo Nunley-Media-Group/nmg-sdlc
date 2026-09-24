@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "issue": 217,
+  "step": "verify",
+  "status": "passed",
+  "intervention": false,
+  "summary": "Verification evidence published for #217",
+  "artifacts": [
+    "specs/217-fix-complete-iex-setup-evidence-acquisition/verification-report.md"
+  ],
+  "next": "deliver",
+  "reasonCode": null
+}

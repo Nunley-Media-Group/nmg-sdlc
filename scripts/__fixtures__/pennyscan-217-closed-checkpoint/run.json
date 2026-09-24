@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "projectRoot": "/Volumes/Fast Brick/source/repos/pennyscan",
+  "runId": "7be03667-98de-473f-84a1-89a9dfb2b3c2",
+  "issue": 217,
+  "branch": "217-fix-complete-iex-setup-evidence-acquisition",
+  "head": "b6e495ff1d703fda524ec01955350c44083ec50d",
+  "issues": [
+    217
+  ],
+  "revision": 66,
+  "currentIssue": 217,
+  "currentStep": "deliver",
+  "completed": {
+    "217": [
+      "start",
+      "implement",
+      "review1",
+      "fix1",
+      "review2",
+      "fix2",
+      "verify"
+    ]
+  },
+  "failed": {
+    "issue": 217,
+    "step": "deliver",
+    "reasonCode": "delivery_failed"
+  },
+  "startedAt": "2026-09-24T00:05:59.971Z",
+  "workers": {},
+  "recoveries": [
+    {
+      "runId": "7be03667-98de-473f-84a1-89a9dfb2b3c2",
+      "issue": 217,
+      "step": "implement",
+      "invocationId": "0848ea60-5929-4581-a5fb-7917c90e4d84",
+      "consumedAt": "2026-09-24T06:17:00.395Z",
+      "source": {
+        "class": "prepublication_implement_resume",
+        "checkpointHead": "a45a1a3d48d3cc3302bbc54eda1af4cdae8a8f11",
+        "currentHead": "b6e495ff1d703fda524ec01955350c44083ec50d",
+        "branch": "217-fix-complete-iex-setup-evidence-acquisition",
+        "sourcePr": 228,
+        "sourceHead": "060af762a7914d1d9e3a7d26b735dcaf26634a7b",
+        "dirtyPaths": [
+          "src/pennyscan/market_data.py",
+          "tests/test_market_data.py",
+          "tests/features/complete_iex_setup_evidence.feature",
+          "tests/features/steps/complete_iex_setup_evidence_steps.py",
+          "tests/features/test_complete_iex_setup_evidence_bdd.py"
+        ],
+        "dirtyFiles": [
+          {
+            "path": "src/pennyscan/market_data.py",
+            "digest": "b7e671e6e4278f74ec174edd788894f4afd543231d48fddc0703fa7bc7c39e02"
+          },
+          {
+            "path": "tests/test_market_data.py",
+            "digest": "2f8e8dcfb409bea68d069e17cf31606a356dc99b38a906995f7d4b0157df7356"
+          },
+          {
+            "path": "tests/features/complete_iex_setup_evidence.feature",
+            "digest": "857cafbe4293888b6570b6b758f53a603501bf19a3f7d49940f3d49750bcfb60"
+          },
+          {
+            "path": "tests/features/steps/complete_iex_setup_evidence_steps.py",
+            "digest": "c817d4a0d93b693c1d51e21bdd3abbcc36b6b819c6eb9455688c91149789c56f"
+          },
+          {
+            "path": "tests/features/test_complete_iex_setup_evidence_bdd.py",
+            "digest": "35509d6ae66942613f1af4336bca4af2af3f72dced7079853d4d3cb84ef7b663"
+          }
+        ],
+        "handoffArchive": {
+          "path": ".omp/sdlc/history/prepublication-implement-resume/217-implement-c54319e1ff5f0933c35b8059a53ff5ad1748aec35e2c2fcc2af7a120d7e30b81.json",
+          "digest": "c54319e1ff5f0933c35b8059a53ff5ad1748aec35e2c2fcc2af7a120d7e30b81"
+        }
+      },
+      "failure": {
+        "issue": 217,
+        "step": "implement",
+        "reasonCode": "implementation_failed"
+      },
+      "handoff": {
+        "schemaVersion": 1,
+        "issue": 217,
+        "step": "implement",
+        "status": "failed",
+        "intervention": true,
+        "summary": "Implemented bounded IEX windows and verified 18 targeted tests, including capped 50-symbol sessions, conflicting and malformed responses, permutation invariance, and ten-call preflight. Publication bind rejected with publication_dirty_partial: branch 217-fix-complete-iex-setup-evidence-acquisition is already two commits ahead of its upstream (git rev-list --left-right --count @{u}...HEAD: 0 2), before implementation staging. Preserved changes; requires reconciliation of the pre-existing ahead commits under publication authority before bind, commit, and push.",
+        "artifacts": [
+          "src/pennyscan/market_data.py",
+          "tests/test_market_data.py",
+          "tests/features/complete_iex_setup_evidence.feature",
+          "tests/features/test_complete_iex_setup_evidence_bdd.py",
+          "tests/features/steps/complete_iex_setup_evidence_steps.py"
+        ],
+        "next": null,
+        "reasonCode": "implementation_failed"
+      },
+      "disposition": "consumed"
+    }
+  ],
+  "remediation": null,
+  "recoveryOwnerId": "7be03667-98de-473f-84a1-89a9dfb2b3c2"
+}

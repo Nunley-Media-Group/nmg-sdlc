@@ -1,0 +1,52 @@
+**Issue**: #425
+**Date**: 2026-09-24
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/409-reconcile-independently-merged-failed-deliver-checkpoint/
+
+Feature: Release a stopped controller only after independently proven terminal delivery
+  A stopped issue must never be replayed or silently discarded.
+
+  @SCN001 @regression
+  Scenario: Archived #206 evidence permits the next explicit issue
+    Given the retained cancelled implement checkpoint, owner ledger and strict handoff for PennyScan #206
+    And PR #208 uniquely closes #206 at its recorded head on the default branch
+    And the checkpoint head is an ancestor of PR #208's exact head and its merge is on the clean default checkout
+    And no worker or foreign controller owns the old run
+    When a distinct approved issue is explicitly selected
+    Then the original evidence and owner records are archived byte-exact with digests and a receipt
+    And only the active run pointer is released before the new issue starts through ordinary dispatch
+    And #206 is not replayed or represented as a new successful worker run
+
+  @SCN002 @regression
+  Scenario: Changed or ambiguous delivery evidence blocks
+    Given the retained stopped checkpoint
+    But its issue is open, PR is unmerged, head or branch differs, closing PRs conflict, base differs, or ancestry is absent
+    When a different issue is explicitly selected
+    Then the exact missing proof is reported and no worker starts
+    And the checkpoint, handoffs and recovery ledger are unchanged
+
+  @SCN003 @regression
+  Scenario: Unsafe local evidence blocks release
+    Given a symlinked, missing, partial, changed or colliding evidence archive
+    Or a dirty or non-default checkout, active worker, foreign controller lease, ambiguous recovery owner or conflicting session delivery
+    When a different issue is explicitly selected
+    Then the original active checkpoint and supporting evidence remain unchanged
+    And no old or new issue worker starts
+
+  @SCN004 @regression
+  Scenario: Repeated admission cannot repeat reconciliation
+    Given the prior run was archived and its pointer released before a new run started
+    When the next issue is invoked again
+    Then the original receipt and archive remain immutable
+    And no duplicate archive or old recovery consumption occurs
+
+  @SCN005 @regression @readonly
+  Scenario: Current #217 failed delivery safely admits #218 without live mutation
+    Given immutable byte-and-hash snapshots of PennyScan #217's failed-deliver run and all strict handoffs
+    And PR #230 uniquely closes #217 at its exact head on the default branch
+    And the checkpoint is an ancestor of that PR head while the merge is on the clean default checkout
+    When isolated explicit #218 admission uses those snapshots and stubbed GitHub and Herdr responses
+    Then the #217 run, handoffs, owner ledger, standalone sessions and referenced recovery archive are preserved with a digest receipt
+    And only the isolated active pointer is released before the ordinary #218 worker starts
+    And the live PennyScan #217 runtime remains unchanged and undispatched

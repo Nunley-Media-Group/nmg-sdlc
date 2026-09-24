@@ -10,10 +10,13 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.24.8] - 2026-09-24
+
 ### Fixed
 
 - Recover one owner-bound approved-spec start after another worktree releases its branch, reconcile squash-merged default history without force, and bind its synchronized head before implementation; resume exact pre-publication dirty work and report failed START/IMPLEMENT proofs with one owner-safe re-probe instead of generic blockers, without weakening publication or exact-head gates (#418).
 - Treat coherently different prior smoke verification identities or queues as retained historical evidence instead of blocking a fresh registered attempt; keep same-attempt malformed recovery fail-closed (#423).
+- Reconcile a stopped CLOSED issue before a different explicit issue only after unique repository-bound merged closing PR proof, checkpoint ancestry to its exact head, and merge ancestry on a clean default checkout. Archive byte-exact controller, handoff, owner, review, verification and referenced recovery evidence with digests and receipt before releasing only the active pointer; preserve unsafe/ambiguous states without worker replay (#425).
 
 ## [3.24.5] - 2026-09-23
 

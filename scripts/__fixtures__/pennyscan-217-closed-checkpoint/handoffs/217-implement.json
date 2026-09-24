@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "issue": 217,
+  "step": "implement",
+  "status": "passed",
+  "intervention": false,
+  "summary": "All tasks from tasks.md executed for #217; full-session IEX acquisition, incomplete-response rejection, order-independent normalization, and ten-call preflight verified. The managed execution batch cap was aligned to the full-session budget. Targeted market, BDD, and daemon continuation checks: 35 passed. Published a1e8936c428119325a02fd302dbb97217c65dc6a; upstream equal and worktree clean.",
+  "artifacts": [
+    "src/pennyscan/market_data.py",
+    "tests/test_market_data.py",
+    "tests/test_execution_daemon_continuation.py",
+    "tests/features/complete_iex_setup_evidence.feature",
+    "tests/features/steps/complete_iex_setup_evidence_steps.py",
+    "tests/features/test_complete_iex_setup_evidence_bdd.py"
+  ],
+  "next": "review1",
+  "reasonCode": null
+}
