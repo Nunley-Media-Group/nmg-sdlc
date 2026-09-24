@@ -7,6 +7,7 @@ import {
   inspectDeliveryValidation,
   inspectVerificationReadiness,
   inspectVerificationArtifactRepair,
+  inspectLegacyVerificationArtifactForRepair,
   resolveDeclaredCheck,
   runCli,
 } from '../verification-readiness.mjs';
@@ -82,7 +83,18 @@ function report(status, readiness) {
 }
 
 function verificationArtifact(results, overrides = {}) {
-  const required = results.filter((result) => result.required && result.applicable);
+  const enriched = (Array.isArray(results) ? results : []).map((r) => {
+    if (r && r.provider === 'builtin.command') return r;
+    if (r && r.applicable && !r.request) {
+      return {
+        ...r,
+        request: { validationId: r.id, identity: { headSha: HEAD_1 } },
+        result: { schemaVersion: 1, status: r.effectiveStatus || 'failed', summary: 'x', identity: { headSha: HEAD_1 }, evidence: [] },
+      };
+    }
+    return r;
+  });
+  const required = enriched.filter((result) => result.required && result.applicable);
   const ceiling = required.some(({ effectiveStatus }) => effectiveStatus === 'incomplete')
     ? 'Incomplete'
     : required.some(({ effectiveStatus }) => effectiveStatus !== 'passed')
@@ -94,7 +106,7 @@ function verificationArtifact(results, overrides = {}) {
     identity: { headSha: HEAD_1 },
     ceiling,
     coverage: { complete: true, missing: [], duplicate: [], unknown: [] },
-    results,
+    results: enriched,
     ...overrides,
   };
 }
@@ -386,6 +398,133 @@ describe('verification readiness contract', () => {
       failedLocal: [],
       failedExternal: ['repository.remote-policy'],
     });
+  });
+  it('routes a registered failed local project command while retaining the failed gate', () => {
+    const command = {
+      kind: 'command', program: 'flutter', args: ['test', 'integration_test/app_test.dart'],
+      cwd: 'mobile', exitCode: 1,
+    };
+    const identity = {
+      headSha: HEAD_1, steeringHash: 'sha256:steering', specHash: 'sha256:spec',
+      validationConfigHash: 'sha256:validation',
+    };
+    const project = {
+      id: 'repository.robot-integration', provider: 'project.robot-integration',
+      required: true, applicable: true, effectiveStatus: 'failed',
+      request: { validationId: 'repository.robot-integration', identity },
+      result: {
+        schemaVersion: 1, status: 'failed', summary: 'robot tests exited 1',
+        identity, evidence: [command], repairable: true,
+      },
+    };
+    const artifact = verificationArtifact([project], {
+      identity: { headSha: HEAD_1, steeringHash: identity.steeringHash, specHash: identity.specHash },
+      coverage: { declared: 1, recorded: 1, complete: true, missing: [], duplicate: [], unknown: [] },
+    });
+    expect(inspectVerificationArtifactRepair(artifact, {
+      expectedIssueNumber: 42, expectedHeadSha: HEAD_1,
+    })).toMatchObject({
+      status: 'repairable', failedLocal: ['repository.robot-integration'],
+      failedExternal: [], incomplete: [],
+    });
+    expect(artifact.ceiling).toBe('Fail');
+
+    for (const mutate of [
+      (copy) => { delete copy.results[0].result.repairable; },
+      (copy) => { copy.results[0].result.repairable = false; },
+      (copy) => { copy.results[0].result.evidence[0].exitCode = undefined; },
+      (copy) => { copy.results[0].result.evidence[0].program = ''; },
+      (copy) => { copy.results[0].request.identity.headSha = HEAD_2; },
+      (copy) => { copy.coverage.recorded = 0; },
+      (copy) => { copy.identity.headSha = HEAD_2; },
+      (copy) => { copy.results[0].result.unknownField = true; },
+    ]) {
+      const copy = structuredClone(artifact);
+      mutate(copy);
+      expect(inspectVerificationArtifactRepair(copy, {
+        expectedIssueNumber: 42, expectedHeadSha: HEAD_1,
+      }).status).not.toBe('repairable');
+    }
+  });
+
+  it('keeps external prerequisites and absent local project execution blocked', () => {
+    const identity = { headSha: HEAD_1, steeringHash: 'steering', specHash: 'spec' };
+    const result = {
+      id: 'repository.robot-integration', provider: 'project.robot-integration',
+      required: true, applicable: true, effectiveStatus: 'failed',
+      request: { validationId: 'repository.robot-integration', identity },
+      result: {
+        schemaVersion: 1, status: 'failed', summary: 'device unavailable',
+        identity, evidence: [], repairable: true,
+      },
+    };
+    const makeArtifact = (results) => verificationArtifact(results, {
+      identity, coverage: {
+        declared: results.length, recorded: results.length, complete: true,
+        missing: [], duplicate: [], unknown: [],
+      },
+    });
+    expect(inspectVerificationArtifactRepair(makeArtifact([result]), {
+      expectedIssueNumber: 42, expectedHeadSha: HEAD_1,
+    }).status).not.toBe('repairable');
+    result.result.evidence = [{
+      kind: 'command', program: 'flutter', args: ['test'], cwd: 'mobile', exitCode: 1,
+    }];
+    const incomplete = {
+      id: 'repository.device', provider: 'project.device', required: true,
+      applicable: true, effectiveStatus: 'incomplete',
+    };
+    expect(inspectVerificationArtifactRepair(makeArtifact([result, incomplete]), {
+      expectedIssueNumber: 42, expectedHeadSha: HEAD_1,
+    }).status).toBe('intervention');
+  });
+
+  it('requires an owner-bound original envelope for legacy local command recovery', () => {
+    const requestIdentity = {
+      headSha: HEAD_1, steeringHash: 'steering', specHash: 'spec',
+      validationConfigHash: 'config', treeState: 'dirty', dirtyDiffHash: 'diff',
+    };
+    const result = {
+      id: 'repository.robot-integration', provider: 'project.robot-integration',
+      required: true, applicable: true, effectiveStatus: 'failed',
+      request: {
+        validationId: 'repository.robot-integration', identity: requestIdentity,
+        verification: { runId: 'original-run', issue: 42, specPath: SPEC_PATH },
+      },
+      result: {
+        schemaVersion: 1, status: 'failed', summary: 'test exited 1',
+        identity: requestIdentity, evidence: [{ kind: 'command', summary: 'test exited 1' }],
+      },
+    };
+    const legacy = verificationArtifact([result], {
+      identity: { headSha: HEAD_1, steeringHash: 'steering', specHash: 'spec' },
+      coverage: { declared: 1, recorded: 1, complete: true, missing: [], duplicate: [], unknown: [] },
+    });
+    const expected = {
+      expectedIssueNumber: 42, expectedHeadSha: HEAD_1,
+      expectedRunId: 'original-run', expectedSpecPath: SPEC_PATH,
+    };
+    expect(inspectVerificationArtifactRepair(legacy, expected).status).toBe('intervention');
+    expect(inspectLegacyVerificationArtifactForRepair(legacy, expected)).toMatchObject({
+      status: 'repairable', failedLocal: ['repository.robot-integration'],
+    });
+    for (const mutate of [
+      (copy) => { copy.results[0].request.verification.runId = 'foreign'; },
+      (copy) => {
+        copy.results[0].result.identity = {
+          ...copy.results[0].result.identity, validationConfigHash: 'foreign',
+        };
+      },
+      (copy) => { copy.results[0].result.repairable = true; },
+      (copy) => { copy.results[0].result.evidence = []; },
+      (copy) => { copy.results.push({ ...copy.results[0], id: 'duplicate' }); },
+      (copy) => { copy.coverage.complete = false; },
+      (copy) => { copy.ceiling = 'Incomplete'; },
+    ]) {
+      const copy = structuredClone(legacy);
+      mutate(copy);
+      expect(inspectLegacyVerificationArtifactForRepair(copy, expected).status).not.toBe('repairable');
+    }
   });
 
   it.each([

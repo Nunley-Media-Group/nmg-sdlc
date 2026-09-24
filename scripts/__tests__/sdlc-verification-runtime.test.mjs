@@ -8,6 +8,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { applySteeringPlan, createInitializePlan } from '../sdlc-steering.mjs';
 import { evaluateCondition, runSteeringValidations, validationResultCoverage, verificationCeiling } from '../../src/sdlc-verification-runtime.mjs';
+import { inspectVerificationArtifactRepair } from '../verification-readiness.mjs';
 import {
   acquireControllerLease,
   releaseControllerLease,
@@ -354,6 +355,42 @@ describe('deterministic verification runtime', () => {
     expect(cancelled.results[0].result.summary).toBe('cancelled');
   });
 
+  it('accepts only registered project test-command failures with explicit executed-command evidence', async () => {
+    const root = await fixture([]);
+    fs.mkdirSync(path.join(root, 'steering', 'extensions'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'steering/extensions/local-test.mjs'), [
+      'export const extension = Object.freeze({',
+      '  schemaVersion: 1, id: "local.test.extension",',
+      '  providers: Object.freeze({ "project.local-test": async (request) => ({',
+      '    schemaVersion: 1, status: "failed", summary: "local tests failed",',
+      '    identity: request.identity, repairable: true,',
+      '    evidence: [{ kind: "command", program: "node", args: ["test.mjs"], cwd: ".", exitCode: 1 }],',
+      '  }) }),',
+      '});',
+    ].join('\n'));
+    const manifestPath = path.join(root, 'steering/manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.extensions.push({
+      id: 'local.test.extension', path: 'steering/extensions/local-test.mjs',
+      providers: ['project.local-test'],
+    });
+    manifest.validations.push({
+      id: 'repository.local-test', provider: 'project.local-test',
+      required: true, when: { kind: 'always' }, config: { value: 1 },
+    });
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    run(root, 'git', ['add', '.']);
+    run(root, 'git', ['commit', '-m', 'register local test']);
+    const artifact = await runSteeringValidations({
+      projectRoot: root, issue: 42, specDir: path.join(root, 'specs/42-test'), baseRef: 'HEAD',
+    });
+    expect(artifact.ceiling).toBe('Fail');
+    expect(artifact.results[0].result.repairable).toBe(true);
+    expect(inspectVerificationArtifactRepair(artifact, {
+      expectedIssueNumber: 42, expectedHeadSha: artifact.identity.headSha,
+    }).failedLocal).toEqual(['repository.local-test']);
+  });
+
   (process.platform === 'win32' ? it.skip : it).each(['cancel', 'SIGKILL', 'denied'])(
     'settles owned descendant cleanup truthfully on command %s',
     async (mode) => {
@@ -506,4 +543,18 @@ describe('deterministic verification runtime', () => {
     expect(evaluateCondition({ kind: 'path_exists', path: 'exists.txt' }, { projectRoot: root, paths: [] })).toBe(true);
     expect(evaluateCondition({ kind: 'glob_exists', root: '.', pattern: '*.txt' }, { projectRoot: root, paths: [] })).toBe(true);
   });
+
+  it('treats malformed/malicious repairable flags from providers as non-repairable (schema exact fail closed, incomplete)', async () => {
+    const root = await fixture([
+      { id: 'ext.bad.repair', provider: 'builtin.external-evidence', required: true, when: { kind: 'always' }, config: { path: 'bad-repair.json' } },
+    ]);
+    fs.writeFileSync(path.join(root, 'bad-repair.json'), JSON.stringify({
+      schemaVersion: 1, status: 'passed', summary: 'bad', identity: { headSha: 'ignored' }, evidence: [], repairable: true,
+    }));
+    const artifact = await runSteeringValidations({ projectRoot: root, issue: 42, specDir: path.join(root, 'specs', '42-test'), baseRef: 'HEAD' });
+    const r = artifact.results[0];
+    expect(r.effectiveStatus).toBe('incomplete');
+    expect(r.result.repairable).toBeUndefined();
+  });
+
 });

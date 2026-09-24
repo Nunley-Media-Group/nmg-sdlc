@@ -61,7 +61,7 @@ import {
 import { packageRoot } from '../src/sdlc-workflows.mjs';
 import { issueHasSpecCreatedLabel, SPEC_CREATED_LABEL } from './spec-created-label.mjs';
 import { isCliEntry, materializeControllerPaths } from './plugin-controller-path.mjs';
-import { inspectVerificationArtifactRepair } from './verification-readiness.mjs';
+import { inspectVerificationArtifactRepair, inspectLegacyVerificationArtifactForRepair } from './verification-readiness.mjs';
 import {
   isAuthorizedOmpSdlcUntrackTransition,
   untrackOmpSdlcRuntime,
@@ -106,7 +106,7 @@ const STEP_PANE_ENV_KEYS = Object.freeze({
   deliver: Object.freeze(['NMG_SDLC_SMOKE_OWNED']),
 });
 
-function stepPaneEnvironment(step, env, controllerRunId) {
+function stepPaneEnvironment(step, env, controllerRunId, legacyRecoveryDigest = null) {
   const environment = {};
   if (['fix1', 'fix2'].includes(step) && controllerRunId) {
     environment.NMG_SDLC_CONTROLLER_RUN_ID = controllerRunId;
@@ -114,13 +114,13 @@ function stepPaneEnvironment(step, env, controllerRunId) {
   for (const key of STEP_PANE_ENV_KEYS[step] ?? []) {
     if (typeof env?.[key] === 'string') environment[key] = env[key];
   }
+  if (step === 'verify' && legacyRecoveryDigest) {
+    environment.NMG_SDLC_LEGACY_RECOVERY_DIGEST = legacyRecoveryDigest;
+  }
   return Object.keys(environment).length > 0 ? environment : null;
 }
-
-
-
 function usageError() {
-  return 'Usage: /sdlc-execute [--retain-worker] [--recover-stale] [#N ...]';
+  return 'Usage: /sdlc-execute [--retain-worker] [--recover-stale] [--legacy-recovery-digest=SHA256] [#N ...]';
 }
 
 
@@ -135,6 +135,7 @@ export function parseArgs(input = '') {
   const seen = new Set();
   let retainWorker = false;
   let recoverStale = false;
+  let legacyRecoveryDigest = null;
   for (const tok of tokens) {
     if (tok === '--retain-worker') {
       if (retainWorker) throw new Error(usageError());
@@ -144,6 +145,13 @@ export function parseArgs(input = '') {
     if (tok === '--recover-stale') {
       if (recoverStale) throw new Error(usageError());
       recoverStale = true;
+      continue;
+    }
+    if (tok.startsWith('--legacy-recovery-digest=')) {
+      if (legacyRecoveryDigest !== null) throw new Error(usageError());
+      const val = tok.slice('--legacy-recovery-digest='.length);
+      if (!/^[0-9a-f]{64}$/.test(val)) throw new Error(usageError());
+      legacyRecoveryDigest = val;
       continue;
     }
     const m = tok.match(/^(?:#|issue:\/\/|pr:\/\/)?(\d+)$/);
@@ -160,9 +168,11 @@ export function parseArgs(input = '') {
   if (issues.length > 20) {
     throw new Error(usageError());
   }
+  if (legacyRecoveryDigest && (issues.length || recoverStale || retainWorker)) throw new Error(usageError());
   const parsed = { issues, defaultBacklog: issues.length === 0 };
   if (retainWorker) parsed.retainWorker = true;
   if (recoverStale) parsed.recoverStale = true;
+  if (legacyRecoveryDigest) parsed.legacyRecoveryDigest = legacyRecoveryDigest;
   return parsed;
 }
 
@@ -683,7 +693,7 @@ function readBoundedNoFollowFile(root, relativePath, maxBytes, reasonCode) {
     if (descriptor !== undefined) closeSync(descriptor);
   }
 }
-function inspectActionableVerificationArtifact(root, issue, head) {
+function inspectActionableVerificationArtifact(root, issue, head, legacyRecoveryDigest = null, expectedRunId = null, expectedSpecPath = null) {
   try {
     const { bytes } = readBoundedNoFollowFile(
       root,
@@ -691,7 +701,27 @@ function inspectActionableVerificationArtifact(root, issue, head) {
       MAX_VERIFICATION_ARTIFACT_BYTES,
       'verification_artifact_invalid',
     );
-    return inspectVerificationArtifactRepair(JSON.parse(bytes.toString('utf8')), {
+    const text = bytes.toString('utf8');
+    const data = JSON.parse(text);
+    if (legacyRecoveryDigest) {
+      const actual = createHash('sha256').update(bytes).digest('hex');
+      if (actual !== legacyRecoveryDigest) {
+        return {
+          status: 'unverifiable',
+          reasonCode: 'legacy_digest_mismatch',
+          failedLocal: [],
+          failedExternal: [],
+          incomplete: [],
+        };
+      }
+      return inspectLegacyVerificationArtifactForRepair(data, {
+        expectedIssueNumber: issue,
+        expectedHeadSha: head,
+        expectedRunId,
+        expectedSpecPath,
+      });
+    }
+    return inspectVerificationArtifactRepair(data, {
       expectedIssueNumber: issue,
       expectedHeadSha: head,
     });
@@ -705,7 +735,7 @@ function inspectActionableVerificationArtifact(root, issue, head) {
     };
   }
 }
-function inspectActionableVerificationResume({ cwd, checkpoint, checkout, run }) {
+function inspectActionableVerificationResume({ cwd, checkpoint, checkout, run, legacyRecoveryDigest = null, expectedRunId = null }) {
   if (!checkpoint || checkpoint.currentStep !== 'verify'
     || !checkout || !checkout.branch.startsWith(`${checkpoint.currentIssue}-`)) return null;
   const ancestor = run('git', [
@@ -727,12 +757,14 @@ function inspectActionableVerificationResume({ cwd, checkpoint, checkout, run })
     cwd,
     checkpoint.currentIssue,
     checkout.head,
+    legacyRecoveryDigest,
+    expectedRunId ?? (checkpoint ? checkpoint.runId : null),
+    relative(cwd, specDir).split('\\').join('/'),
   );
   return artifact.status === 'repairable'
     ? { ...artifact, checkpointHead: checkpoint.head, currentHead: checkout.head, reportPath }
     : null;
 }
-
 
 
 function readStrictHandoffSnapshot(root, handoffPath, issue, step) {
@@ -2112,7 +2144,7 @@ function inspectUnreadableStartResume({ cwd, checkpoint, run, herdr, allowOwnedL
   };
 }
 
-export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr = defaultHerdr(run, cwd) } = {}) {
+export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr = defaultHerdr(run, cwd), legacyRecoveryDigest = null } = {}) {
   let checkpoint = null;
   const blocked = (reasonCode, recoveryEvidenceReasonCode = null, allowStandalone = false) => {
     const intervention = blockedRecoveryIntervention(
@@ -2313,7 +2345,7 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
       && checkout.branch === linked
       && !exhausted
       ? inspectActionableVerificationResume({
-        cwd, checkpoint: data, checkout, run,
+        cwd, checkpoint: data, checkout, run, legacyRecoveryDigest, expectedRunId: checkpoint ? checkpoint.runId : data.runId,
       })
       : null;
     const actionableVerificationResume = actionableVerification?.status === 'repairable';
@@ -4231,6 +4263,7 @@ export function runExecute({
   } catch {
     return { status: 2, stdout: '', stderr: `${usageError()}\n` };
   }
+  const legacyRecoveryDigest = parsedArgs.legacyRecoveryDigest || null;
 
   const herdrApi = herdr || defaultHerdr(run, cwd);
   let integration;
@@ -4282,12 +4315,15 @@ export function runExecute({
     return { status: 1, stdout: '', stderr: 'issue_unreadable_start_requires_parameter_free\n' };
   }
   if (parsedArgs.defaultBacklog) {
-    const discovery = discoverRecovery({ cwd, run, herdr: herdrApi });
+    const discovery = discoverRecovery({ cwd, run, herdr: herdrApi, legacyRecoveryDigest });
     if (discovery.state === 'blocked') {
       if (discovery.recoveryEvidenceReasonCode === 'recovery_tuple_unproven') {
         return { status: 1, stdout: '', stderr: 'recovery_tuple_unproven\n' };
       }
       return { status: 1, stdout: '', stderr: `${discovery.reasonCode}: ${discovery.action}\n` };
+    }
+    if (legacyRecoveryDigest && discovery.recoveryClass !== ACTIONABLE_VERIFICATION_RESUME) {
+      return { status: 1, stdout: '', stderr: 'legacy_recovery_unproven\n' };
     }
     if (discovery.issues) {
       issues = discovery.issues;
@@ -4695,7 +4731,7 @@ export function runExecute({
     const layout = herdrApi.paneLayout(env.HERDR_PANE_ID);
     const direction = standardPaneDirection(layout);
     if (!direction) return null;
-    const environment = stepPaneEnvironment(step, env, runState.runId);
+    const environment = stepPaneEnvironment(step, env, runState.runId, legacyRecoveryDigest);
     const split = herdrApi.paneSplit({
       direction,
       cwd,
@@ -4831,7 +4867,7 @@ export function runExecute({
           throw new Error('safe_recovery_unproven');
         }
         const artifact = inspectActionableVerificationResume({
-          cwd, checkpoint: runState, checkout, run,
+          cwd, checkpoint: runState, checkout, run, legacyRecoveryDigest, expectedRunId: (runState || checkpoint) ? (runState || checkpoint).runId : runState.runId,
         });
         if (artifact?.status !== 'repairable') throw new Error('safe_recovery_unproven');
         const ownership = inspectRecoveryWorkers(runState, herdrApi);
@@ -5467,7 +5503,7 @@ export function runExecute({
             runState, cwd, herdr: herdrApi, output,
           });
         }
-        const environment = stepPaneEnvironment(step, env, runState.runId);
+        const environment = stepPaneEnvironment(step, env, runState.runId, legacyRecoveryDigest);
         const split = herdrApi.paneSplit({
           direction,
           cwd,
@@ -6362,7 +6398,7 @@ export function runExecute({
             runState, cwd, herdr: herdrApi, output,
           });
         }
-        const environment = stepPaneEnvironment(step, env, runState.runId);
+        const environment = stepPaneEnvironment(step, env, runState.runId, legacyRecoveryDigest);
         const split = herdrApi.paneSplit({
           direction,
           cwd,

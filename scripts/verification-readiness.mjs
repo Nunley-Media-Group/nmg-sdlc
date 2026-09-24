@@ -308,6 +308,34 @@ export function inspectVerificationArtifactRepair(artifact, {
       gaps.push('verification artifact contains an invalid result');
       continue;
     }
+    const inner = result.result;
+    if (inner != null && (!exactKeys(inner, ['schemaVersion', 'status', 'summary', 'identity', 'evidence'])
+      && !exactKeys(inner, ['schemaVersion', 'status', 'summary', 'identity', 'evidence', 'repairable']))) {
+      gaps.push('verification artifact contains an invalid result envelope');
+      continue;
+    }
+    if (inner && Object.hasOwn(inner, 'repairable')) {
+      const req = result.request;
+      if (!result.provider.startsWith('project.') || result.effectiveStatus !== 'failed'
+        || !exactKeys(inner, ['schemaVersion', 'status', 'summary', 'identity', 'evidence', 'repairable'])
+        || inner.schemaVersion !== 1 || inner.status !== 'failed' || inner.repairable !== true
+        || artifact.coverage?.declared !== artifact.results.length
+        || artifact.coverage?.recorded !== artifact.results.length
+        || !req || typeof req !== 'object' || req.validationId !== result.id
+        || req.identity?.headSha !== artifact.identity?.headSha
+        || req.identity?.steeringHash !== artifact.identity?.steeringHash
+        || req.identity?.specHash !== artifact.identity?.specHash
+        || !equalJson(inner.identity, req.identity)
+        || !Array.isArray(inner.evidence)
+        || !inner.evidence.some((e) => e?.kind === 'command'
+          && typeof e.program === 'string' && e.program.length > 0
+          && Array.isArray(e.args) && e.args.every((arg) => typeof arg === 'string')
+          && typeof e.cwd === 'string' && e.cwd.length > 0
+          && Number.isSafeInteger(e.exitCode) && e.exitCode !== 0)) {
+        gaps.push('verification artifact contains an invalid repairability result');
+        continue;
+      }
+    }
     ids.push(result.id);
     if (result.required && result.applicable) required.push(result);
   }
@@ -329,17 +357,22 @@ export function inspectVerificationArtifactRepair(artifact, {
     };
   }
   const failedLocal = required
-    .filter(({ provider, effectiveStatus }) => provider === 'builtin.command' && effectiveStatus === 'failed')
+    .filter((r) => r.effectiveStatus === 'failed'
+      && (r.provider === 'builtin.command'
+        || (r.provider.startsWith('project.') && r.result?.repairable === true)))
     .map(({ id }) => id);
   const failedExternal = required
-    .filter(({ provider, effectiveStatus }) => provider !== 'builtin.command' && effectiveStatus === 'failed')
+    .filter((r) => r.effectiveStatus === 'failed' && !failedLocal.includes(r.id))
     .map(({ id }) => id);
   const incomplete = required
     .filter(({ effectiveStatus }) => effectiveStatus === 'incomplete')
     .map(({ id }) => id);
+  const projectFailure = required.some((r) => r.provider.startsWith('project.')
+    && r.effectiveStatus === 'failed' && r.result?.repairable === true);
+  const repairable = failedLocal.length > 0 && (!projectFailure || (!incomplete.length && !failedExternal.length));
   return {
-    status: failedLocal.length ? 'repairable' : 'intervention',
-    reasonCode: failedLocal.length ? 'required_local_validation_failed' : 'no_local_validation_failure',
+    status: repairable ? 'repairable' : 'intervention',
+    reasonCode: repairable ? 'required_local_validation_failed' : 'no_local_validation_failure',
     gaps: [],
     failedLocal,
     failedExternal,
@@ -617,6 +650,76 @@ export function runCli(argv, streams = {}) {
     stderr.write(`Verification readiness unavailable: ${error.message}\n`);
     return 2;
   }
+}
+export function inspectLegacyVerificationArtifactForRepair(artifact, { expectedIssueNumber, expectedHeadSha, expectedRunId, expectedSpecPath }) {
+  if (!artifact || typeof artifact !== 'object' || Array.isArray(artifact)) {
+    return { status: 'unverifiable', reasonCode: 'legacy_artifact_invalid', failedLocal: [], failedExternal: [], incomplete: [] };
+  }
+  if (artifact.schemaVersion !== 1 || artifact.issue !== expectedIssueNumber || artifact.ceiling !== 'Fail') {
+    return { status: 'unverifiable', reasonCode: 'legacy_issue_or_ceiling_mismatch', failedLocal: [], failedExternal: [], incomplete: [] };
+  }
+  const topIdentity = artifact.identity || {};
+  if (topIdentity.headSha !== expectedHeadSha) {
+    return { status: 'unverifiable', reasonCode: 'legacy_head_mismatch', failedLocal: [], failedExternal: [], incomplete: [] };
+  }
+  const cov = artifact.coverage || {};
+  const results = Array.isArray(artifact.results) ? artifact.results : [];
+  if (!Array.isArray(cov.missing) || cov.missing.length !== 0 ||
+      !Array.isArray(cov.duplicate) || cov.duplicate.length !== 0 ||
+      !Array.isArray(cov.unknown) || cov.unknown.length !== 0 ||
+      cov.declared !== cov.recorded || cov.declared !== results.length || cov.complete !== true) {
+    return { status: 'unverifiable', reasonCode: 'legacy_coverage_incomplete', failedLocal: [], failedExternal: [], incomplete: [] };
+  }
+  const seenIds = new Set();
+  for (const r of results) {
+    if (!r || typeof r !== 'object' || Array.isArray(r) || typeof r.id !== 'string' || !r.id
+        || typeof r.provider !== 'string' || !r.provider || typeof r.required !== 'boolean'
+        || typeof r.applicable !== 'boolean' || !['passed', 'failed'].includes(r.effectiveStatus)
+        || seenIds.has(r.id)) {
+      return { status: 'unverifiable', reasonCode: 'legacy_result_shape', failedLocal: [], failedExternal: [], incomplete: [] };
+    }
+    seenIds.add(r.id);
+  }
+  for (const r of results) {
+    if (r.required === true && r.applicable === true) {
+      if (r.effectiveStatus === 'failed') {
+        const prov = r.provider || '';
+        const res = r.result || {};
+        const evs = Array.isArray(res.evidence) ? res.evidence : [];
+        const hasCmd = evs.some((e) => e && e.kind === 'command');
+        if (!prov.startsWith('project.') || res.status !== 'failed' || !hasCmd) {
+          return { status: 'unverifiable', reasonCode: 'legacy_unqualified_required_provider', failedLocal: [], failedExternal: [], incomplete: [] };
+        }
+      } else if (r.effectiveStatus !== 'passed') {
+        return { status: 'unverifiable', reasonCode: 'legacy_required_incomplete', failedLocal: [], failedExternal: [], incomplete: [] };
+      }
+    }
+  }
+  const failedLocal = [];
+  for (const r of results) {
+    if (r.required !== true || r.applicable !== true || r.effectiveStatus !== 'failed') continue;
+    const prov = r.provider || '';
+    if (!prov.startsWith('project.')) continue;
+    const res = r.result || {};
+    if (res.status !== 'failed') continue;
+    const evs = Array.isArray(res.evidence) ? res.evidence : [];
+    if (!evs.some((e) => e && e.kind === 'command')) continue;
+    const req = r.request || {};
+    if (!exactKeys(res, ['schemaVersion', 'status', 'summary', 'identity', 'evidence'])
+      || res.schemaVersion !== 1 || req.validationId !== r.id
+      || req.identity?.headSha !== expectedHeadSha
+      || req.identity?.steeringHash !== topIdentity.steeringHash
+      || req.identity?.specHash !== topIdentity.specHash
+      || !equalJson(req.identity, res.identity)
+      || !req.verification || req.verification.issue !== expectedIssueNumber
+      || req.verification.runId !== expectedRunId
+      || req.verification.specPath !== expectedSpecPath) continue;
+    failedLocal.push(r.id);
+  }
+  if (failedLocal.length === 0) {
+    return { status: 'unverifiable', reasonCode: 'no_legacy_qualifying_provider', failedLocal: [], failedExternal: [], incomplete: [] };
+  }
+  return { status: 'repairable', failedLocal, failedExternal: [], incomplete: [] };
 }
 
 if (isCliEntry(import.meta.url)) process.exitCode = runCli(process.argv.slice(2));

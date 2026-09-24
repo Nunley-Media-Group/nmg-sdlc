@@ -88,8 +88,22 @@ function identity(projectRoot, specDir, runtime, validation) {
   return Object.freeze({ headSha, ...dirtyIdentity(projectRoot), specHash: specHash(specDir), steeringHash: runtime.steeringHash, validationConfigHash: hash(canonicalJson(validation)) });
 }
 function resultEnvelope(status, summary, requestIdentity, evidence = []) { return { schemaVersion: 1, status, summary, identity: requestIdentity, evidence }; }
-function validateProviderResult(result, requestIdentity) {
-  if (!result || typeof result !== "object" || Array.isArray(result) || Object.keys(result).sort().join("\0") !== ["evidence", "identity", "schemaVersion", "status", "summary"].sort().join("\0") || result.schemaVersion !== 1 || !RESULT_STATUSES.has(result.status) || typeof result.summary !== "string" || !result.summary || !Array.isArray(result.evidence)) fail("steering_result_invalid");
+function validateProviderResult(result, requestIdentity, provider) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) fail("steering_result_invalid");
+  const keys = Object.keys(result).sort();
+  const baseKeys = ["evidence", "identity", "schemaVersion", "status", "summary"].sort();
+  const hasRepairable = keys.includes("repairable");
+  const expected = hasRepairable ? [...baseKeys, "repairable"].sort() : baseKeys;
+  if (keys.join("\0") !== expected.join("\0")) fail("steering_result_invalid");
+  if (result.schemaVersion !== 1 || !RESULT_STATUSES.has(result.status) || typeof result.summary !== "string" || !result.summary || !Array.isArray(result.evidence)) fail("steering_result_invalid");
+  if (hasRepairable) {
+    if (!provider?.startsWith("project.") || result.status !== "failed" || result.repairable !== true
+      || !result.evidence.some((item) => item?.kind === "command"
+        && typeof item.program === "string" && item.program.length > 0
+        && Array.isArray(item.args) && item.args.every((arg) => typeof arg === "string")
+        && typeof item.cwd === "string" && item.cwd.length > 0
+        && Number.isSafeInteger(item.exitCode) && item.exitCode !== 0)) fail("steering_result_invalid");
+  }
   if (canonicalJson(result.identity) !== canonicalJson(requestIdentity)) fail("steering_evidence_stale");
   if (result.status === "passed" && result.evidence.length === 0) fail("steering_result_invalid");
   return result;
@@ -186,7 +200,7 @@ function artifactProvider(request) {
 function externalProvider(request) {
   const path = resolve(request.projectRoot, request.config.path);
   if (!(path === request.projectRoot || path.startsWith(`${request.projectRoot}/`)) || !existsSync(path)) return resultEnvelope("incomplete", "external evidence missing", request.identity);
-  try { return validateProviderResult(JSON.parse(readFileSync(path, "utf8")), request.identity); } catch (error) { return resultEnvelope("incomplete", error.reasonCode ?? "external evidence malformed", request.identity); }
+  try { return validateProviderResult(JSON.parse(readFileSync(path, "utf8")), request.identity, "builtin.external-evidence"); } catch (error) { return resultEnvelope("incomplete", error.reasonCode ?? "external evidence malformed", request.identity); }
 }
 function deepFreeze(value) {
   if (!value || typeof value !== "object" || Object.isFrozen(value) || value instanceof AbortSignal) return value;
@@ -302,7 +316,7 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
       }, signal, spawnCommand);
       let result;
       try {
-        result = validateProviderResult(await invokeProvider(runtime, validation, request), request.identity);
+        result = validateProviderResult(await invokeProvider(runtime, validation, request), request.identity, validation.provider);
         if (result.status === "skipped" || result.status === "not_applicable") result = resultEnvelope("incomplete", "applicable provider attempted to skip", request.identity);
       } catch (error) {
         result = resultEnvelope("incomplete", error.reasonCode ?? `provider crashed: ${error.message}`, request.identity);

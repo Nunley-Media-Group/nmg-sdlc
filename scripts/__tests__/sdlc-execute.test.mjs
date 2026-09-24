@@ -179,8 +179,8 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
   });
 
   it('parseArgs rejects comma-only input', () => {
-    expect(() => parseArgs(',')).toThrow(/Usage: \/sdlc-execute \[--retain-worker\] \[--recover-stale\] \[#N \.\.\.\]/);
-    expect(() => parseArgs(', ,')).toThrow(/Usage: \/sdlc-execute \[--retain-worker\] \[--recover-stale\] \[#N \.\.\.\]/);
+    expect(() => parseArgs(',')).toThrow(/Usage: \/sdlc-execute \[--retain-worker\] \[--recover-stale\] \[--legacy-recovery-digest=SHA256\] \[#N \.\.\.\]/);
+    expect(() => parseArgs(', ,')).toThrow(/Usage: \/sdlc-execute \[--retain-worker\] \[--recover-stale\] \[--legacy-recovery-digest=SHA256\] \[#N \.\.\.\]/);
   });
 
   it('parseArgs collects unique numbers in given order', () => {
@@ -212,6 +212,23 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
       recoverStale: true,
     });
     expect(() => parseArgs('--recover-stale --recover-stale #12')).toThrow(/Usage:/);
+  });
+  it('accepts an exact SHA-256 legacy authorization only on parameter-free recovery', () => {
+    const sha = '4a7afb16391e03492beb941e5f7a35bb406b9683ef22271c110e0fd18afc232c';
+    expect(parseArgs(`--legacy-recovery-digest=${sha}`)).toEqual({
+      issues: [], defaultBacklog: true, legacyRecoveryDigest: sha,
+    });
+    expect(() => parseArgs(`#169 --legacy-recovery-digest=${sha}`)).toThrow(/Usage:/);
+    expect(() => parseArgs(`--recover-stale --legacy-recovery-digest=${sha}`)).toThrow(/Usage:/);
+    expect(() => parseArgs(`--retain-worker --legacy-recovery-digest=${sha}`)).toThrow(/Usage:/);
+  });
+
+  it('rejects malformed or duplicate legacy digests', () => {
+    const sha = '4a7afb16391e03492beb941e5f7a35bb406b9683ef22271c110e0fd18afc232c';
+    expect(() => parseArgs('#169 --legacy-recovery-digest=zzzz')).toThrow(/Usage:/);
+    expect(() => parseArgs(`--legacy-recovery-digest=${sha} --legacy-recovery-digest=${sha}`)).toThrow(/Usage:/);
+    expect(() => parseArgs('#169 --legacy-recovery-digest=4a7afb16391e03492beb941e5f7a35bb406b9683ef22271c110e0fd18afc232')).toThrow(/Usage:/);
+    expect(() => parseArgs(`#169 --legacy-recovery-digest=${sha} --recover-stale --legacy-recovery-digest=${sha}`)).toThrow(/Usage:/);
   });
 
   it('parseArgs accepts OMP-expanded issue and pull-request tokens', () => {
@@ -310,7 +327,7 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
   });
 
   it('parseArgs rejects other tokens and lists over 20', () => {
-    expect(() => parseArgs('1 nope')).toThrow(/Usage: \/sdlc-execute \[--retain-worker\] \[--recover-stale\] \[#N \.\.\.\]/);
+    expect(() => parseArgs('1 nope')).toThrow(/Usage: \/sdlc-execute \[--retain-worker\] \[--recover-stale\] \[--legacy-recovery-digest=SHA256\] \[#N \.\.\.\]/);
     const twentyOne = Array.from({ length: 21 }, (_, index) => `#${index + 1}`).join(' ');
     expect(() => parseArgs(twentyOne)).toThrow();
   });
@@ -4685,7 +4702,7 @@ describe('runExecute controller', () => {
   it('rejects invalid arguments with the stable usage line', () => {
     const fixture = makeControllerFixture();
     const result = runExecute({ args: '#42 nope', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [--retain-worker] [--recover-stale] [#N ...]\n' });
+    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [--retain-worker] [--recover-stale] [--legacy-recovery-digest=SHA256] [#N ...]\n' });
     expect(fixture.calls).toHaveLength(0);
   });
 
@@ -4994,7 +5011,7 @@ describe('runExecute controller', () => {
   it('rejects comma-only arguments before controller side effects', () => {
     const fixture = makeControllerFixture();
     const result = runExecute({ args: ', ,', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [--retain-worker] [--recover-stale] [#N ...]\n' });
+    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [--retain-worker] [--recover-stale] [--legacy-recovery-digest=SHA256] [#N ...]\n' });
     expect(fixture.calls).toHaveLength(0);
     expect(fixture.starts).toHaveLength(0);
   });
@@ -5009,7 +5026,7 @@ describe('runExecute controller', () => {
   it('requires an explicit selection when empty args find specified issues', () => {
     const fixture = makeControllerFixture({ specifiedIssues: [{ number: 42, title: 'Ship It' }] });
     const result = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
-    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [--retain-worker] [--recover-stale] [#N ...]\n' });
+    expect(result).toEqual({ status: 2, stdout: '', stderr: 'Usage: /sdlc-execute [--retain-worker] [--recover-stale] [--legacy-recovery-digest=SHA256] [#N ...]\n' });
     expect(fixture.starts).toEqual([]);
   });
 

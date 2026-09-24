@@ -75,7 +75,19 @@ function fixture(implementationStatus = 'Pass', { createOwner = true } = {}) {
 const mutations = (calls) => calls.filter((call) => ['add', 'commit', 'push'].includes(call[1]));
 
 function writeVerificationArtifact(f, results, overrides = {}) {
-  const required = results.filter((result) => result.required && result.applicable);
+  const headSha = f.git('rev-parse', 'HEAD');
+  const enriched = (Array.isArray(results) ? results : []).map((r) => {
+    if (r && r.provider === 'builtin.command') return r;
+    if (r && r.applicable && !r.request) {
+      return {
+        ...r,
+        request: { validationId: r.id, identity: { headSha } },
+        result: { schemaVersion: 1, status: r.effectiveStatus || 'failed', summary: 'x', identity: { headSha }, evidence: [] },
+      };
+    }
+    return r;
+  });
+  const required = enriched.filter((result) => result.required && result.applicable);
   const ceiling = required.some(({ effectiveStatus }) => effectiveStatus === 'incomplete')
     ? 'Incomplete'
     : required.some(({ effectiveStatus }) => effectiveStatus !== 'passed')
@@ -86,10 +98,10 @@ function writeVerificationArtifact(f, results, overrides = {}) {
   fs.writeFileSync(target, `${JSON.stringify({
     schemaVersion: 1,
     issue: 42,
-    identity: { headSha: f.git('rev-parse', 'HEAD') },
+    identity: { headSha },
     ceiling,
     coverage: { complete: true, missing: [], duplicate: [], unknown: [] },
-    results,
+    results: enriched,
     ...overrides,
   })}\n`);
   return target;
@@ -186,6 +198,38 @@ describe('verification finalization controller', () => {
       state: 'idle',
       handoff: outcome.handoff,
     })).toBe(true);
+    expect(mutations(f.calls)).toEqual([]);
+  });
+
+  it('returns a failed project test to implementation without publishing a passing report', () => {
+    const f = fixture('Fail');
+    const identity = {
+      headSha: f.git('rev-parse', 'HEAD'), steeringHash: 'steering', specHash: 'spec',
+      validationConfigHash: 'config',
+    };
+    writeVerificationArtifact(f, [{
+      id: 'repository.robot-integration', provider: 'project.robot-integration',
+      required: true, applicable: true, effectiveStatus: 'failed',
+      request: { validationId: 'repository.robot-integration', identity },
+      result: {
+        schemaVersion: 1, status: 'failed', summary: 'robot tests exited 1', identity,
+        evidence: [{
+          kind: 'command', program: 'flutter', args: ['test', 'integration_test/app_test.dart'],
+          cwd: 'mobile', exitCode: 1,
+        }],
+        repairable: true,
+      },
+    }], {
+      identity: { headSha: identity.headSha, steeringHash: identity.steeringHash, specHash: identity.specHash },
+      coverage: { declared: 1, recorded: 1, complete: true, missing: [], duplicate: [], unknown: [] },
+    });
+    expect(f.finalize()).toMatchObject({
+      status: 1,
+      handoff: {
+        status: 'failed', intervention: false, next: 'implement',
+        artifacts: [REPORT, '.omp/sdlc/verification/42.json'],
+      },
+    });
     expect(mutations(f.calls)).toEqual([]);
   });
 

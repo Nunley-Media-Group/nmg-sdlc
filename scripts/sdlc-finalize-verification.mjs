@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   inspectVerificationArtifactRepair,
   inspectVerificationReadiness,
+  inspectLegacyVerificationArtifactForRepair,
 } from './verification-readiness.mjs';
 import { inspectIssueSpecScope } from './issue-spec-scope.mjs';
 import { isSpecApproved, resolveSpecDir } from './sdlc-execute.mjs';
@@ -119,10 +121,11 @@ function finalizeVerificationUnlocked({
     failedExternal: [],
     incomplete: [],
   };
+  let bytes = null;
   if (fs.existsSync(artifactPath)) {
     try {
       const artifactStat = fs.lstatSync(artifactPath);
-      const bytes = fs.readFileSync(artifactPath);
+      bytes = fs.readFileSync(artifactPath);
       if (artifactStat.isFile() && !artifactStat.isSymbolicLink() && bytes.length <= 512 * 1024) {
         artifactRepair = inspectVerificationArtifactRepair(JSON.parse(bytes.toString('utf8')), {
           expectedIssueNumber: issueNumber,
@@ -133,17 +136,53 @@ function finalizeVerificationUnlocked({
       // Invalid runtime evidence remains intervention-bearing below.
     }
   }
+
+  // explicit operator-authorized one-time legacy recovery for exact 5-key unmarked artifacts (distinct from new repairable:true path)
+  // only when digest matches on-disk (no summary trust), and only if passed identity/coverage (fail closed)
+  const legacyDigest = process.env.NMG_SDLC_LEGACY_RECOVERY_DIGEST;
+  if (controllerRunId && legacyDigest && bytes && artifactRepair.status === 'intervention') {
+    try {
+      const actual = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+      const expected = legacyDigest.startsWith('sha256:') ? legacyDigest : `sha256:${legacyDigest}`;
+      if (actual === expected) {
+        const parsed = JSON.parse(bytes.toString('utf8'));
+        const leg = inspectLegacyVerificationArtifactForRepair(parsed, {
+          expectedIssueNumber: issueNumber,
+          expectedHeadSha: headSha,
+          expectedRunId: controllerRunId,
+          expectedSpecPath: specPath,
+        });
+        if (leg.status === 'repairable' && leg.failedLocal && leg.failedLocal.length > 0) {
+          artifactRepair = {
+            status: 'repairable',
+            reasonCode: 'required_local_validation_failed',
+            gaps: [],
+            failedLocal: leg.failedLocal,
+            failedExternal: [],
+            incomplete: [],
+          };
+        }
+      }
+    } catch {}
+  }
   if (!['pass', 'pr_evidence_pending', 'pr_evidence_satisfied'].includes(readiness.status)) {
+    const hasLocalRepairableFailure = artifactRepair.status === 'repairable' && artifactRepair.failedLocal.length > 0;
     const mixedLocalFailure = readiness.status === 'blocked'
       && readiness.reasonCode === 'implementation_non_pass'
       && readiness.implementationStatus === 'incomplete'
-      && artifactRepair.status === 'repairable';
+      && hasLocalRepairableFailure;
+    const failWithLocal = readiness.status === 'blocked'
+      && readiness.reasonCode === 'implementation_non_pass'
+      && readiness.gaps.length === 0
+      && hasLocalRepairableFailure
+      && ['fail', 'partial'].includes(readiness.implementationStatus);
     const remediableReport = readiness.status === 'unverifiable'
       || (readiness.status === 'blocked'
         && readiness.reasonCode === 'implementation_non_pass'
         && ['fail', 'partial'].includes(readiness.implementationStatus))
-      || mixedLocalFailure;
-    const detail = mixedLocalFailure
+      || mixedLocalFailure
+      || failWithLocal;
+    const detail = (mixedLocalFailure || failWithLocal)
       ? `; local failures: ${artifactRepair.failedLocal.join(', ')}`
         + `${artifactRepair.incomplete.length ? `; external incomplete: ${artifactRepair.incomplete.join(', ')}` : ''}`
       : '';
@@ -153,13 +192,12 @@ function finalizeVerificationUnlocked({
       remediableReport
         ? {
           intervention: false,
-          artifacts: mixedLocalFailure ? [reportPath, artifactRelative] : [reportPath],
-          ...(mixedLocalFailure ? { next: 'implement' } : {}),
+          artifacts: (mixedLocalFailure || failWithLocal) ? [reportPath, artifactRelative] : [reportPath],
+          ...((mixedLocalFailure || failWithLocal) ? { next: 'implement' } : {}),
         }
         : undefined,
     );
   }
-
   const branch = run('git', ['branch', '--show-current'], { cwd });
   if (!commandSucceeded(branch) || !String(branch.stdout ?? '').trim().startsWith(`${issueNumber}-`)) {
     return fail('verification_publish_failed', `Verification branch does not belong to #${issueNumber}`);
