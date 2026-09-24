@@ -1,0 +1,55 @@
+**Issue**: #420
+**Date**: 2026-09-24
+**Status**: Approved
+**Author**: NMG
+
+Feature: Wait for exact host review receipts before closing sibling panes
+  @SCN001 @regression
+  Scenario: Every sibling settles before any receipt inspection or pane close
+    Given three concurrently launched reviewers have distinct exact assignments
+    And the first reviewer becomes idle while the other two remain working
+    When execute collects review results
+    Then it awaits all three workers before inspecting the first host receipt
+    And it closes no review pane while a sibling remains unsettled
+    And idle or done state alone is not accepted as a final review result
+
+  @SCN002 @regression
+  Scenario: Delayed host append becomes durable within the bounded window
+    Given all review siblings have settled and one assignment-bound host JSONL lacks a final result
+    And the host appends a partial JSONL line before completing a valid final review_result after multiple one-second observation pauses
+    When execute re-inspects that same receipt within 30 pauses
+    Then it uses only the completed host result with its exact assignment
+    And it publishes the existing aggregate artifact and handoff only after all sibling host results validate
+    And only then does it close the sibling panes
+
+  @SCN003 @regression
+  Scenario Outline: Unsafe evidence cannot pass review or trigger early pane cleanup
+    Given all review siblings have settled
+    And one required host receipt has <condition> throughout the bounded observation
+    When execute reaches the receipt observation limit
+    Then review fails without an aggregate artifact or review handoff
+    And all review panes, assignments, and receipt artifacts remain for diagnosis
+    And no terminal prose is substituted for host evidence or review attempt replayed
+
+    Examples:
+      | condition                              |
+      | no final review_result                 |
+      | a persistently malformed JSONL line   |
+      | a foreign assignment digest            |
+      | prohibited tool access contamination  |
+      | an empty delimited review result       |
+
+  @SCN004 @regression
+  Scenario: Receipt arriving after the bound is too late
+    Given every reviewer is idle or done but one valid final host result remains absent for 30 one-second observation pauses
+    When the collection deadline is reached
+    Then execute fails without waiting indefinitely or accepting a later terminal message
+    And it leaves all review panes and evidence intact without a review handoff
+
+  @SCN005 @regression
+  Scenario: Review findings preserve their meaning
+    Given every sibling has settled and every exact host result is valid and nonempty
+    And one result contains review findings while another says "No findings."
+    When execute completes review collection
+    Then the existing aggregation retains the findings without treating them as a missing receipt
+    And pane closure occurs only after every required receipt has validated
