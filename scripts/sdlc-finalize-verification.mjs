@@ -9,10 +9,11 @@ import {
   inspectVerificationReadiness,
 } from './verification-readiness.mjs';
 import { inspectIssueSpecScope } from './issue-spec-scope.mjs';
-import { isSpecApproved, resolveSpecDir } from './sdlc-execute.mjs';
+import { isSpecApproved, resolveSpecDir } from './issue-spec-scope.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
 import { enterControllerLease, releaseControllerLease } from './sdlc-controller-lease.mjs';
-import { assertInitialStagePublication, getChangedHeadVerificationRecord, resolveRecoveryOwner, reconcileStagePublication } from './sdlc-safe-recoveries.mjs';
+import { reconcileStagePublication } from './sdlc-safe-recoveries.mjs';
+import { parseIssueBranch } from './sdlc-status.mjs';
 import { canonicalJson, resolveSteeringPath } from '../src/sdlc-steering-runtime.mjs';
 import { changedPaths, evaluateCondition, validationResultCoverage } from '../src/sdlc-verification-runtime.mjs';
 
@@ -38,7 +39,7 @@ function porcelainPaths(output) {
   return paths.filter((path) => !path.startsWith('.omp/'));
 }
 
-function matchesRegisteredResults(root, artifact, { issue, specPath, gateHead, activeRun, reportPath, run }) {
+export function matchesRegisteredResults(root, artifact, { issue, specPath, gateHead, reportPath, run }) {
   try {
     const manifestPath = resolveSteeringPath(root, 'steering/manifest.json');
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
@@ -68,6 +69,7 @@ function matchesRegisteredResults(root, artifact, { issue, specPath, gateHead, a
       if (JSON.stringify(current) !== JSON.stringify(recorded)) return false;
     }
     const coverage = validationResultCoverage(manifest.validations, artifact.results);
+    let expectedRunId;
     if (!coverage.complete || artifact.coverage?.complete !== true
       || artifact.coverage.declared !== coverage.declared
       || artifact.coverage.recorded !== coverage.recorded
@@ -83,11 +85,13 @@ function matchesRegisteredResults(root, artifact, { issue, specPath, gateHead, a
       if (!declaration.required) return true;
       const request = result.request;
       const proof = result.result;
-      const expectedRunId = activeRun?.runId ?? `verification-${createHash('sha256')
-        .update(`${realpathSync(root)}\0${issue}\0${specPath}\0${gateHead}`).digest('hex')}`;
       const { timeoutMs: _legacyTimeoutMs, ...registered } = declaration;
       const validationHash = `sha256:${createHash('sha256')
         .update(canonicalJson(registered)).digest('hex')}`;
+      const rid = request?.verification?.runId;
+      if (!rid) return false;
+      if (expectedRunId === undefined) expectedRunId = rid;
+      if (rid !== expectedRunId) return false;
       return request?.schemaVersion === 1 && request.validationId === declaration.id
         && request.projectRoot === realpathSync(root)
         && canonicalJson(request.config) === canonicalJson(declaration.config)
@@ -95,7 +99,6 @@ function matchesRegisteredResults(root, artifact, { issue, specPath, gateHead, a
         && request.identity.steeringHash === steeringHash
         && request.identity.specHash === specHash
         && request.identity.validationConfigHash === validationHash
-        && request.verification?.runId === expectedRunId
         && request.verification.issue === issue
         && request.verification.specPath === specPath
         && proof?.schemaVersion === 1 && proof.status === 'passed'
@@ -142,8 +145,6 @@ function finalizeVerificationUnlocked({
   run = defaultRun,
   fs = { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync },
   controllerRunId,
-  explicitControllerRunId = false,
-  sessionToken,
 } = {}) {
   const issueNumber = Number(issue);
   const specPath = String(spec ?? '').split('\\').join('/').replace(/\/$/, '');
@@ -222,33 +223,8 @@ function finalizeVerificationUnlocked({
       }
     } catch {}
   }
-  let activeRun = null;
-  const runPath = join(root, '.omp/sdlc/run.json');
-  try {
-    const runStat = fs.existsSync(runPath) ? fs.lstatSync(runPath) : null;
-    if (runStat) {
-      if (!runStat.isFile() || runStat.isSymbolicLink()) throw new Error('unsafe_run');
-      activeRun = JSON.parse(fs.readFileSync(runPath, 'utf8'));
-      if (activeRun.schemaVersion !== 1 || activeRun.projectRoot !== fs.realpathSync(root)
-        || activeRun.currentIssue !== issueNumber || activeRun.currentStep !== 'verify') {
-        throw new Error('foreign_run');
-      }
-    }
-  } catch {
-    return { status: 1, stdout: '', stderr: 'recovery_owner_ambiguous\n', handoff: null, handoffPath };
-  }
-  if (explicitControllerRunId && (!activeRun || activeRun.runId !== controllerRunId)) {
-    return { status: 1, stdout: '', stderr: 'recovery_owner_ambiguous\n', handoff: null, handoffPath };
-  }
-  let ownerId;
-  try {
-    ownerId = resolveRecoveryOwner({ cwd, issue: issueNumber, step: 'verify', controllerRunId, sessionToken, run });
-  } catch (error) {
-    return fail(error.reasonCode ?? 'recovery_owner_unreadable', `Verification owner unavailable for #${issueNumber}: ${error.message}`);
-  }
-  if (activeRun && ownerId !== activeRun.runId) {
-    return { status: 1, stdout: '', stderr: 'recovery_owner_ambiguous\n', handoff: null, handoffPath };
-  }
+  // fresh source/issue/spec/gate evidence only - no run.json, no resolveRecoveryOwner, no one-use ownership, no activeRun (plan step 3)
+  // controllerRunId (from lease if present) used optionally for pub reconcile only; lease ensures live mutex
   const absoluteReport = resolve(root, reportPath);
   if (!(absoluteReport.startsWith(`${root}${sep}`)) || relative(root, absoluteReport).split(sep).join('/') !== reportPath
     || !fs.existsSync(absoluteReport)) return fail('verification_report_invalid', `Verification report missing for #${issueNumber}`);
@@ -302,78 +278,19 @@ function finalizeVerificationUnlocked({
       // Invalid runtime evidence remains intervention-bearing below.
     }
   }
-  let changedHeadRecheck;
-  try {
-    changedHeadRecheck = getChangedHeadVerificationRecord({
-      cwd, ownerId, issue: issueNumber, headSha,
+  // only full-green at current exact head publishes 'passed' handoff; failed/pending/partial/incomplete never do (per acceptance)
+  if (readiness.status !== 'pass' && readiness.status !== 'pr_evidence_satisfied') {
+    // Truthful non-green evidence is diagnosis input, not a terminal controller intervention.
+    return fail('verification_not_ready', `Verification is not ready for #${issueNumber}: ${readiness.reasonCode}`, {
+      intervention: false,
+      next: readiness.status === 'pr_evidence_pending' ? 'verify' : 'implement',
+      artifacts: [reportPath, artifactRelative],
     });
-  } catch {
-    return fail('verification_recheck_invalid', `Changed-head recheck owner is unavailable for #${issueNumber}`);
-  }
-  const mixedLocalFailure = readiness.status === 'blocked'
-    && readiness.reasonCode === 'implementation_non_pass'
-    && readiness.implementationStatus === 'incomplete'
-    && artifactRepair.status === 'repairable'
-    && artifactRepair.failedLocal.length > 0;
-  if (changedHeadRecheck) {
-    const markers = [...fs.readFileSync(absoluteReport, 'utf8')
-      .matchAll(/^\*\*Verification head\*\*:\s*([0-9a-f]{40})\s*$/gm)];
-    const reportHead = markers.length === 1 ? markers[0][1] : null;
-    if (changedHeadRecheck.evidence?.newHead !== headSha
-      || !Array.isArray(readiness.gaps) || readiness.gaps.length > 0
-      || artifactRepair.status === 'unverifiable'
-      || (['pass', 'pr_evidence_pending', 'pr_evidence_satisfied'].includes(readiness.status)
-        && (freshArtifact?.ceiling !== null
-          || freshArtifact.results.some((result) => result.required && result.applicable
-            && result.effectiveStatus !== 'passed')))) {
-      return fail('verification_recheck_invalid', `Changed-head verification evidence is inconsistent for #${issueNumber}`);
-    }
-    if (reportHead !== headSha || markers.length !== 1) {
-      return fail('verification_recheck_not_ready', `Changed-head verification report is stale for #${issueNumber}`, {
-        intervention: true, artifacts: [reportPath, artifactRelative],
-      });
-    }
-    const externalBlocker = freshArtifact.ceiling === 'Incomplete'
-      || freshArtifact.results.some((result) => result.required && result.applicable
-        && (result.effectiveStatus === 'skipped'
-          || (result.provider !== 'builtin.command' && result.effectiveStatus !== 'passed')));
-    if (externalBlocker && !mixedLocalFailure) {
-      return fail('verification_recheck_not_ready', `Changed-head required provider evidence blocks #${issueNumber}`, {
-        intervention: true, artifacts: [reportPath, artifactRelative],
-      });
-    }
-    if (readiness.implementationStatus === 'incomplete' && !mixedLocalFailure) {
-      return fail('verification_recheck_not_ready', `Changed-head verification is incomplete for #${issueNumber}`, {
-        intervention: true, artifacts: [reportPath, artifactRelative],
-      });
-    }
-  }
-  if (!['pass', 'pr_evidence_pending', 'pr_evidence_satisfied'].includes(readiness.status)) {
-    const remediableReport = readiness.status === 'unverifiable'
-      || (readiness.status === 'blocked'
-        && readiness.reasonCode === 'implementation_non_pass'
-        && ['fail', 'partial'].includes(readiness.implementationStatus))
-      || mixedLocalFailure;
-    const detail = mixedLocalFailure
-      ? `; local failures: ${artifactRepair.failedLocal.join(', ')}`
-        + `${artifactRepair.incomplete.length ? `; external incomplete: ${artifactRepair.incomplete.join(', ')}` : ''}`
-      : '';
-    return fail(
-      'verification_not_ready',
-      `Verification is not ready for #${issueNumber}: ${readiness.reasonCode}${detail}`,
-      remediableReport
-        ? {
-          intervention: false,
-          artifacts: changedHeadRecheck || mixedLocalFailure ? [reportPath, artifactRelative] : [reportPath],
-          ...(mixedLocalFailure || changedHeadRecheck ? { verificationHead: headSha } : {}),
-          ...(mixedLocalFailure || changedHeadRecheck ? { next: 'implement' } : {}),
-        }
-        : undefined,
-    );
   }
 
   // No Pass publication, standalone or execute-owned, without the current registered gate.
-  if (['pass', 'pr_evidence_pending', 'pr_evidence_satisfied'].includes(readiness.status)) {
+  // exact-head report artifact + report-only parent reuse supported; no-follow in handoff write
+  {
     const markers = [...fs.readFileSync(absoluteReport, 'utf8')
       .matchAll(/^\*\*Verification head\*\*:\s*([0-9a-f]{40})\s*$/gm)];
     const gateHead = freshArtifact?.identity?.headSha;
@@ -389,16 +306,19 @@ function finalizeVerificationUnlocked({
       gateRepair.status !== 'unverifiable' &&
       freshArtifact.ceiling === null &&
       matchesRegisteredResults(root, freshArtifact, {
-        issue: issueNumber, specPath, gateHead, activeRun, reportPath, run,
+        issue: issueNumber, specPath, gateHead, reportPath, run,
       }) &&
       !freshArtifact.results.some((result) => result && result.required && result.applicable && result.effectiveStatus !== 'passed');
     if (!isCompletePassingExactHead) {
-      return fail('verification_recheck_invalid', `Passing report requires complete passing exact-source-head registered artifact for #${issueNumber}`);
+      return fail('verification_recheck_invalid', `Passing report requires complete passing exact-source-head registered artifact for #${issueNumber}`, {
+        intervention: false, next: 'implement', artifacts: [reportPath, artifactRelative],
+      });
     }
   }
-
-  const branch = run('git', ['branch', '--show-current'], { cwd });
-  if (!commandSucceeded(branch) || !String(branch.stdout ?? '').trim().startsWith(`${issueNumber}-`)) {
+  const branchRes = run('git', ['branch', '--show-current'], { cwd });
+  const branchName = commandSucceeded(branchRes) ? String(branchRes.stdout ?? '').trim() : '';
+  const p = typeof parseIssueBranch === 'function' ? parseIssueBranch(branchName) : null;
+  if (!branchName || (p && p.issueNumber !== issueNumber) || (!p && !branchName.startsWith(`${issueNumber}-`))) {
     return fail('verification_publish_failed', `Verification branch does not belong to #${issueNumber}`);
   }
   const status = run('git', ['status', '--porcelain=v1', '-z'], { cwd });
@@ -410,11 +330,6 @@ function finalizeVerificationUnlocked({
 
   let needsReconciliation = !dirty.includes(reportPath);
   if (dirty.includes(reportPath)) {
-    try {
-      assertInitialStagePublication({ cwd, ownerId, issue: issueNumber, step: 'verify', run });
-    } catch (error) {
-      return fail('verification_publish_failed', `Verification publication remains stopped: ${error.reasonCode ?? error.message}`);
-    }
     const add = run('git', ['add', '--', reportPath], { cwd });
     if (!commandSucceeded(add)) return fail('verification_publish_failed', `Failed to stage verification report for #${issueNumber}`);
     const staged = run('git', ['diff', '--cached', '--quiet', '--', reportPath], { cwd });
@@ -425,9 +340,9 @@ function finalizeVerificationUnlocked({
     needsReconciliation = !commandSucceeded(push);
   }
   if (needsReconciliation) {
-    // Reconcile a failed first push before emitting a terminal handoff.
+    // Reconcile a failed first push before emitting a terminal handoff. Uses content/remote/exact head (owner optional, ledger ignored).
     const publication = reconcileStagePublication({
-      cwd, issue: issueNumber, step: 'verify', ownerId, run,
+      cwd, issue: issueNumber, step: 'verify', run,
       expectedSubject: `docs: record verification for #${issueNumber}`, allowedPaths: [reportPath],
     });
     if (!publication.passed) return fail('verification_publish_failed', publication.summary);
@@ -488,7 +403,7 @@ export function finalizeVerification(options = {}) {
   try {
     const controllerRunId = leaseContext.owned ? leaseContext.lease.record.runId : leaseContext.lease.runId;
     return finalizeVerificationUnlocked({
-      ...options, controllerRunId, explicitControllerRunId: options.controllerRunId != null,
+      ...options, controllerRunId,
     });
   } finally {
     for (const [signal, handler] of signalHandlers) processApi.removeListener(signal, handler);
@@ -506,8 +421,8 @@ function parseCli(argv) {
     else if (argv[index] === '--controller-run-id' && controllerRunId === undefined && argv[index + 1] !== undefined) controllerRunId = argv[index += 1];
     else return null;
   }
-  if (!/^#?[1-9]\d*$/.test(issue ?? '') || !spec || controllerRunId === '') return null;
-  return { issue: Number(String(issue).replace(/^#/, '')), spec, controllerRunId };
+  if (!/^#?[1-9]\d*$/.test(issue ?? '') || !spec) return null;
+  return { issue: Number(String(issue).replace(/^#/, '')), spec, controllerRunId: controllerRunId || undefined };
 }
 
 function runCli(argv = process.argv.slice(2)) {
@@ -515,7 +430,7 @@ function runCli(argv = process.argv.slice(2)) {
   if (!options) { process.stderr.write(`${USAGE}\n`); return 2; }
   const outcome = finalizeVerification(options);
   if (outcome.stdout) process.stdout.write(outcome.stdout);
-  if (outcome.stderr) process.stderr.write(outcome.stderr);
+  if (outcome.stderr) process.stdout.write(outcome.stderr);
   return outcome.status;
 }
 

@@ -13,13 +13,9 @@ import {
   releaseControllerLease,
 } from './sdlc-controller-lease.mjs';
 import {
-  VALID_STEPS,
   defaultHerdr,
-  inspectInterruptedRepairedPublicationDispatch,
   parseArgs,
-  readRun,
   runExecute,
-  writeRun,
 } from './sdlc-execute.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
@@ -92,69 +88,15 @@ function parsedHerdrPanes(herdr) {
   return panes;
 }
 
-function cleanupInterruptedConsumedDispatch({
-  controllerPid,
-  root,
-  runState,
-  herdr,
-  reasonCode,
-}) {
-  if (!['controller_cancelled', 'controller_process_lost'].includes(reasonCode)
-    || !runState.consumedDispatch) return false;
-  const dispatch = runState.consumedDispatch;
-  if (!['prepared', 'pending', 'started', 'stopped'].includes(dispatch.disposition)
-    || Object.keys(runState.workers || {}).length !== 0) {
-    return false;
-  }
-  const classified = inspectInterruptedRepairedPublicationDispatch({
-    cwd: root,
-    checkpoint: runState,
-    herdr,
-    ownedLeasePid: controllerPid,
-  });
-  const panes = parsedHerdrPanes(herdr);
-  const ownedPane = panes.find((pane) =>
-    String(pane?.pane_id ?? pane?.paneId ?? '') === dispatch.paneId);
-  if (ownedPane && herdr.paneClose(dispatch.paneId).status !== 0) {
-    throw new Error('pane_close_failed');
-  }
-  if (classified.stage === 'consumed') {
-    if (dispatch.disposition !== 'pending') {
-      dispatch.disposition = 'stopped';
-      const recovery = runState.recoveries?.find((entry) =>
-        entry.runId === runState.runId
-        && entry.issue === runState.currentIssue
-        && entry.step === 'implement'
-        && entry.invocationId === dispatch.invocationId);
-      if (!recovery) throw new Error('controller_cleanup_ownership_mismatch');
-      recovery.disposition = 'stopped';
-      recovery.reasonCode = 'process_lost';
-      recovery.stoppedAt = new Date().toISOString();
-    }
-    dispatch.reasonCode = 'process_lost';
-    runState.failed = {
-      issue: runState.currentIssue,
-      step: runState.currentStep,
-      reasonCode: 'process_lost',
-    };
-  }
-  const expectedRevision = runState.revision;
-  runState.revision += 1;
-  writeRun(runState, root, expectedRevision);
-  return true;
-}
-
-function cleanupCancelledRun(controllerPid, cwd, retainWorker, reasonCode) {
+function cleanupCancelledRun(controllerPid, cwd, retainWorker, ownedPanes, ownedLease) {
   const lease = readControllerLease(cwd);
-  // Cancellation before acquisition, or after normal release, owns no checkpoint.
+  // A controller without an authenticated lease announcement owns no cleanup.
   if (!lease) return;
   const root = realpathSync(cwd);
   const path = controllerLeasePath(root);
   const serialized = readFileSync(path, 'utf8');
-  const runState = readRun(root);
-  if (lease.pid !== controllerPid || lease.projectRoot !== root
-    || JSON.stringify(JSON.parse(serialized)) !== JSON.stringify(lease)
-    || runState?.runId !== lease.runId || runState.projectRoot !== root) {
+  if (!ownedLease || lease.pid !== controllerPid || lease.projectRoot !== root
+    || lease.runId !== ownedLease.runId || serialized !== ownedLease.serialized) {
     throw new Error('controller_cleanup_ownership_mismatch');
   }
 
@@ -162,61 +104,21 @@ function cleanupCancelledRun(controllerPid, cwd, retainWorker, reasonCode) {
     cwd: root, encoding: 'utf8', ...options,
   });
   const herdr = defaultHerdr(run, root);
-  if (!retainWorker && cleanupInterruptedConsumedDispatch({
-    controllerPid,
-    root,
-    runState,
-    herdr,
-    reasonCode,
-  })) {
-    if (!releaseControllerLease({ path, serialized })) {
-      throw new Error('controller_lease_release_failed');
-    }
-    return;
-  }
-  let checkout = null;
-  if (retainWorker) {
-    const branch = run('git', ['branch', '--show-current']);
-    const head = run('git', ['rev-parse', 'HEAD']);
-    if (branch.status === 0 && head.status === 0) {
-      checkout = { branch: branch.stdout.trim(), head: head.stdout.trim() };
-    }
-  }
   let closeFailed = false;
-  for (const [name, worker] of Object.entries(runState.workers || {})) {
-    if (worker?.name !== name || worker.projectRoot !== root || worker.runId !== lease.runId
-      || !Number.isSafeInteger(worker.issue) || worker.issue <= 0 || !VALID_STEPS.includes(worker.step)
-      || ![`s${worker.issue}-${worker.step}`, `r${worker.issue}-${worker.step}`].includes(name)
-      || typeof worker.paneId !== 'string' || !worker.paneId || worker.paneId === lease.controllerPaneId) {
-      continue;
-    }
-    if (retainWorker) {
-      if (checkout) Object.assign(worker, checkout);
-      continue;
-    }
+  const live = parsedHerdrPanes(herdr);
+  const controllerPaneId = lease.controllerPaneId;
+  for (const paneId of ownedPanes) {
+    if (!paneId || paneId === controllerPaneId) continue;
+    if (retainWorker) continue;
+    const isLive = live.some((p) => String(p?.pane_id ?? p?.paneId ?? '') === paneId);
+    if (!isLive) continue;
     try {
-      if (herdr.paneClose(worker.paneId).status === 0) delete runState.workers[name];
-      else closeFailed = true;
+      if (herdr.paneClose(paneId).status !== 0) closeFailed = true;
     } catch {
       closeFailed = true;
     }
   }
-  const persistedReasonCode = runState.consumedDispatch
-    && reasonCode === 'controller_process_lost'
-    ? 'process_lost'
-    : reasonCode;
-  if (Number.isSafeInteger(runState.currentIssue) && VALID_STEPS.includes(runState.currentStep)) {
-    runState.failed = {
-      issue: runState.currentIssue,
-      step: runState.currentStep,
-      reasonCode: persistedReasonCode,
-      ...(closeFailed ? { cleanupReasonCode: 'pane_close_failed' } : {}),
-    };
-  }
-  const expectedRevision = runState.revision;
-  runState.revision += 1;
-  writeRun(runState, root, expectedRevision);
-  // Failed close or CAS leaves exact ownership available for recovery, never a false success.
+  // Failed close leaves lease for recovery; never false success.
   if (closeFailed) throw new Error('pane_close_failed');
   if (!releaseControllerLease({ path, serialized })) throw new Error('controller_lease_release_failed');
 }
@@ -234,6 +136,30 @@ async function runSupervisor(args, cancellation) {
   const controller = spawn(process.execPath, [SCRIPT, 'controller', args], {
     cwd: process.cwd(), env: process.env,
     detached: true, shell: false, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+  });
+  const ownedPanes = new Set();
+  let ownedLease = null;
+  controller.on('message', (message) => {
+    if (!message || typeof message !== 'object') return;
+    if (message.type === 'lease-acquired' && typeof message.runId === 'string') {
+      try {
+        const current = readControllerLease(process.cwd());
+        const serialized = readFileSync(controllerLeasePath(process.cwd()), 'utf8');
+        if (current?.pid === controller.pid && current.runId === message.runId
+          && current.projectRoot === realpathSync(process.cwd())) {
+          ownedLease = { runId: message.runId, serialized };
+        }
+      } catch {
+        // No lease proof: cleanup must preserve the unknown controller state.
+      }
+    }
+    if (message.type === 'owned-pane' || message.type === 'pane-closed') {
+      const id = typeof message.paneId === 'string' ? message.paneId : (typeof message === 'string' ? message : null);
+      if (id) {
+        if (message.type === 'owned-pane') ownedPanes.add(id);
+        else ownedPanes.delete(id);
+      }
+    }
   });
   let stdout = '';
   let stderr = '';
@@ -274,12 +200,11 @@ async function runSupervisor(args, cancellation) {
   if (cancelSignal || leaderLost) {
     status = cancelSignal ? (cancelSignal === 'SIGINT' ? 130 : 143) : 1;
     try {
-      // Stop the group before reading its last checkpoint or releasing ownership.
+      // Stop the group before releasing ownership. Close only panes reported via IPC for this invocation.
       const cleanup = await (leaderLost ? terminateOwnedProcessGroupAfterLeaderLoss : terminateOwnedProcessGroup)(controller);
       if (!cleanup.ok) throw new Error(`controller_process_cleanup_failed: ${cleanup.error.message}`);
       await closed;
-      cleanupCancelledRun(controller.pid, process.cwd(), parsed.retainWorker,
-        cancelSignal ? 'controller_cancelled' : 'controller_process_lost');
+      cleanupCancelledRun(controller.pid, process.cwd(), parsed.retainWorker, ownedPanes, ownedLease);
     } catch (error) {
       stderr += `${error.message}\n`;
       // Failed termination must not hang on surviving children or release their lease.
@@ -537,7 +462,12 @@ if (isCliEntry(import.meta.url)) {
     process.stderr.write('execute supervisor requires an owned IPC invocation\n');
     process.exitCode = 2;
   } else if (mode === 'controller') {
-    const result = runExecute({ args });
+    const result = runExecute({
+      args,
+      onOwnedPane: (paneId) => { if (process.send && typeof paneId === 'string') process.send({ type: 'owned-pane', paneId }); },
+      onLeaseAcquired: (runId) => { if (process.send && typeof runId === 'string') process.send({ type: 'lease-acquired', runId }); },
+      onPaneClosed: (paneId) => { if (process.send && typeof paneId === 'string') process.send({ type: 'pane-closed', paneId }); },
+    });
     if (result.stdout) process.stdout.write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);
     process.exitCode = result.status;

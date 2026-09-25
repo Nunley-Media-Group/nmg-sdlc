@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, relative } from 'node:path';
 
-import { isSpecApproved, resolveSpecDir, specStatus } from './sdlc-execute.mjs';
+import { isSpecApproved, resolveSpecDir, specStatus } from './issue-spec-scope.mjs';
 import { applySpecCreatedLabel, issueHasSpecCreatedLabel } from './spec-created-label.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
 import { parseDeliveryTaskFileLines } from './sdlc-safe-recoveries.mjs';

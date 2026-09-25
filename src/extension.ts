@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { resolvePluginController } from "../scripts/plugin-controller-path.mjs";
 
 import {
@@ -12,7 +10,6 @@ import {
   sessionModeFromEntries,
   writeSpecPlanReentry,
 } from "./sdlc-commands.mjs";
-import { installReviewIsolation } from "./sdlc-review-isolation.mjs";
 type ExtensionAPI = {
   setLabel(label: string): void;
   registerCommand(name: string, options: {
@@ -20,12 +17,6 @@ type ExtensionAPI = {
     handler: (args: string, ctx: CommandContext) => void | Promise<void>;
   }): void;
   sendUserMessage(content: string, options?: { deliverAs?: "steer" | "followUp" }): void;
-  appendEntry(customType: string, data?: unknown): void;
-  getActiveTools(): string[];
-  setActiveTools(toolNames: string[]): Promise<void>;
-  on(event: "tool_call", handler: (event: { toolName?: string; input?: { path?: string; [key: string]: unknown } }, ctx?: unknown) => { block?: boolean; reason?: string } | void): void;
-  on(event: "user_bash", handler: (event: { command?: string }, ctx?: unknown) => { result: unknown } | void): void;
-  on(event: "user_python", handler: (event: { code?: string }, ctx?: unknown) => { result: unknown } | void): void;
   on(event: string, handler: (event: unknown, ctx: unknown) => unknown): void;
 };
 
@@ -36,16 +27,8 @@ type CommandContext = {
   sessionManager?: { getEntries?: () => Array<{ type?: string; mode?: string }> };
 };
 
-function readRunState(): unknown | null {
-  try {
-    return JSON.parse(readFileSync(join(process.cwd(), ".omp", "sdlc", "run.json"), "utf8"));
-  } catch {
-    return null;
-  }
-}
 
 export default function nmgSdlc(pi: ExtensionAPI): void {
-  installReviewIsolation(pi, { env: process.env });
   process.env.NMG_SDLC_PLUGIN_ROOT = packageRoot;
   resolvePluginController("sdlc-deliver.mjs", {
     env: process.env,
@@ -102,15 +85,10 @@ export default function nmgSdlc(pi: ExtensionAPI): void {
   // them as the initial prompt. Do not registerCommand those names: extension
   // handlers win and sendUserMessage is dropped in print mode.
 
-  pi.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", (_event, ctx) => {
     const session = (ctx ?? {}) as CommandContext;
     if (process.env.HERDR_ENV === "1") {
       session.ui?.notify?.("NMG SDLC ready in Herdr");
-    }
-
-    const run = readRunState();
-    if (run !== null) {
-      pi.appendEntry("com.nmg-sdlc.run", run);
     }
   });
 }

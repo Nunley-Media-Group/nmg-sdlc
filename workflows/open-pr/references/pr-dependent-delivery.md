@@ -1,18 +1,7 @@
-# Controlled PR-Dependent Delivery (v3)
+# PR-Dependent Verification
 
-Kept for PR-evidence-pending path from verify.
+`pr_evidence_pending` permits `prepare-pr-evidence --issue N` to create or reuse a draft on the current issue branch and observe exact-head PR-only checks. It does not authorize ready or merge.
 
-Entry requires pr_evidence_pending from readiness helper.
+With green checks at that draft head, `/sdlc-verify-code #N` updates the truthful report to Pass and finalizes it using the passing gate from the source parent if the new commit changes only the report. A new implementation or version head requires the full registered gate again. `reconcileStagePublication` may acknowledge a known exact report commit or safely push it without force; old session tokens and consumed ledgers never grant publication.
 
-Create/reuse exact draft for head, collect H1 evidence with exact event: pull_request, re-verify, push report update, collect H2, write final marker, gh pr ready.
-
-Before report mutation, bind the standalone session or controller namespace to
-its durable logical recovery owner. A previously committed unpublished report
-is reconciled by `reconcileStagePublication` for step `deliver`, subject
-`docs: record PR evidence for #N`, and only the active report path. Push the
-known commit once without force, or acknowledge its exact upstream state.
-Fail/Partial/Incomplete reports never become Pass to escape publication.
-
-No epic reconciliation.
-
-Failure keeps branch + draft, reports exact gap. Resume re-validates markers and heads.
+Observe checks again on the final report head. Only fully green final-head evidence permits ordinary delivery to mark ready, exact-head merge, and issue closure. A failed or pending report remains non-passing. Preserve draft and branch on a blocker; resume from live PR and issue state.

@@ -524,7 +524,7 @@ describe('verification readiness CLI', () => {
     ], {
       stdout: { write: (chunk) => { stdout += chunk; } },
       stderr: { write: (chunk) => { stderr += chunk; } },
-    })).toBe(0);
+    })).toBe(1);
     expect(JSON.parse(stdout)).toMatchObject({ status: 'pr_evidence_pending' });
     expect(stderr).toBe('');
 

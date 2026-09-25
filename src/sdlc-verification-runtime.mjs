@@ -23,7 +23,8 @@ function globRegex(glob) {
 }
 function matches(path, patterns) { return patterns.some((pattern) => globRegex(pattern).test(path)); }
 function git(projectRoot, args, allowFailure = false) {
-  const result = spawnSync("git", args, { cwd: projectRoot, encoding: "utf8", shell: false });
+  // Dirty identity hashes full binary diffs; the default 1 MiB buffer rejects ordinary large changes.
+  const result = spawnSync("git", args, { cwd: projectRoot, encoding: "utf8", shell: false, maxBuffer: 1024 * 1024 * 1024 });
   if (result.error || (!allowFailure && result.status !== 0)) fail("steering_result_invalid", result.error?.message ?? result.stderr);
   return result;
 }
@@ -284,10 +285,47 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
   try {
     runtime = await loadSteeringRuntime(root);
     const paths = changedPaths(root, baseRef);
-    const results = [];
+    const resultById = new Map();
+    // Phase 1: run required local builtin.command validations first.
+    const localRequiredCommandIds = new Set();
+    let localRequiredCommandsPassed = true;
     for (const validation of runtime.validations) {
       const applicable = evaluateCondition(validation.when, { projectRoot: root, paths });
-      if (!applicable) { results.push({ id: validation.id, provider: validation.provider, required: validation.required, applicable: false, effectiveStatus: "skipped", result: null }); continue; }
+      if (!applicable) {
+        resultById.set(validation.id, { id: validation.id, provider: validation.provider, required: validation.required, applicable: false, effectiveStatus: "skipped", result: null });
+        continue;
+      }
+      if (validation.provider === "builtin.command" && validation.required) {
+        localRequiredCommandIds.add(validation.id);
+        const request = providerRequest({
+          schemaVersion: 1,
+          validationId: validation.id,
+          projectRoot: root,
+          config: structuredClone(validation.config),
+          identity: identity(root, specDir, runtime, validation),
+          verification: verificationRunId ? {
+            runId: verificationRunId,
+            issue: Number(issue),
+            specPath: relative(root, resolve(specDir)).split("\\").join("/"),
+          } : null,
+        }, signal, spawnCommand);
+        let result;
+        try {
+          result = validateProviderResult(await invokeProvider(runtime, validation, request), request.identity);
+          if (result.status === "skipped" || result.status === "not_applicable") result = resultEnvelope("incomplete", "applicable provider attempted to skip", request.identity);
+        } catch (error) {
+          result = resultEnvelope("incomplete", error.reasonCode ?? `provider crashed: ${error.message}`, request.identity);
+        }
+        const entry = { id: validation.id, provider: validation.provider, required: validation.required, applicable: true, effectiveStatus: result.status, request, result };
+        resultById.set(validation.id, entry);
+        if (entry.effectiveStatus !== "passed") localRequiredCommandsPassed = false;
+      }
+    }
+    // Phase 2: non-local-required applicable validations.
+    for (const validation of runtime.validations) {
+      if (resultById.has(validation.id)) continue;
+      const applicable = evaluateCondition(validation.when, { projectRoot: root, paths });
+      if (!applicable) continue; // already set
       const request = providerRequest({
         schemaVersion: 1,
         validationId: validation.id,
@@ -300,15 +338,24 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
           specPath: relative(root, resolve(specDir)).split("\\").join("/"),
         } : null,
       }, signal, spawnCommand);
-      let result;
-      try {
-        result = validateProviderResult(await invokeProvider(runtime, validation, request), request.identity);
-        if (result.status === "skipped" || result.status === "not_applicable") result = resultEnvelope("incomplete", "applicable provider attempted to skip", request.identity);
-      } catch (error) {
-        result = resultEnvelope("incomplete", error.reasonCode ?? `provider crashed: ${error.message}`, request.identity);
+      let entry;
+      const isProjectProvider = !String(validation.provider).startsWith("builtin.");
+      if (isProjectProvider && !localRequiredCommandsPassed) {
+        const defer = resultEnvelope("incomplete", "deferred until required local validations pass", request.identity);
+        entry = { id: validation.id, provider: validation.provider, required: validation.required, applicable: true, effectiveStatus: "incomplete", request, result: defer };
+      } else {
+        let result;
+        try {
+          result = validateProviderResult(await invokeProvider(runtime, validation, request), request.identity);
+          if (result.status === "skipped" || result.status === "not_applicable") result = resultEnvelope("incomplete", "applicable provider attempted to skip", request.identity);
+        } catch (error) {
+          result = resultEnvelope("incomplete", error.reasonCode ?? `provider crashed: ${error.message}`, request.identity);
+        }
+        entry = { id: validation.id, provider: validation.provider, required: validation.required, applicable: true, effectiveStatus: result.status, request, result };
       }
-      results.push({ id: validation.id, provider: validation.provider, required: validation.required, applicable: true, effectiveStatus: result.status, request, result });
+      resultById.set(validation.id, entry);
     }
+    const results = runtime.validations.map((v) => resultById.get(v.id)).filter(Boolean);
     const coverage = validationResultCoverage(runtime.validations, results);
     const artifact = { schemaVersion: 1, issue: Number(issue), generatedAt: new Date().toISOString(), identity: setupIdentity(root, specDir, runtime), baseRef, ceiling: verificationCeiling(results, coverage), changedPaths: paths, coverage, results };
     writeVerificationArtifact(root, issue, artifact);

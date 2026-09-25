@@ -12,8 +12,139 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { isCliEntry } from './plugin-controller-path.mjs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, readdirSync, statSync } from 'node:fs';
+const { join } = path;
+const REQUIRED_SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
+
+
 
 const SPEC_PATH = /^specs\/[a-z0-9][a-z0-9-]*$/;
+export function resolveSpecDir(root, issueN, { detailed = false } = {}) {
+  const result = { dir: null, reasonCode: null };
+  if (!Number.isInteger(issueN) || issueN <= 0) return detailed ? result : null;
+  const specsDir = join(root || process.cwd(), 'specs');
+  if (!existsSync(specsDir)) return detailed ? result : null;
+  let entries;
+  try {
+    entries = readdirSync(specsDir).filter((e) => {
+      try {
+        const st = statSync(join(specsDir, e));
+        return st.isDirectory() && !st.isSymbolicLink();
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    result.reasonCode = 'spec_status_unreadable';
+    return detailed ? result : null;
+  }
+  const prefixRe = new RegExp(`^${issueN}-`);
+  const matches = entries.filter((e) => prefixRe.test(e)).sort();
+  if (matches.length > 1) {
+    result.reasonCode = 'spec_status_ambiguous';
+  } else if (matches.length === 1) {
+    result.dir = join(specsDir, matches[0]);
+  }
+  return detailed ? result : result.dir;
+}
+
+function parseFrontmatterStatusAndIssue(source, expectedIssue) {
+  const issueMatch = source.match(/^\*\*Issue\*\*:\s*#(\d+)\s*$/m);
+  const statusMatch = source.match(/^\*\*Status\*\*:\s*(Draft|Approved)\s*$/im);
+  const issueNumber = issueMatch ? Number(issueMatch[1]) : null;
+  const status = statusMatch ? statusMatch[1].trim().toLowerCase() : null;
+  return {
+    issueOk: issueNumber === expectedIssue,
+    status,
+  };
+}
+
+function readFrontmatterStatusAndIssue(filePath, expectedIssue) {
+  if (!existsSync(filePath)) return { present: false };
+  try {
+    return {
+      present: true,
+      ...parseFrontmatterStatusAndIssue(readFileSync(filePath, 'utf8'), expectedIssue),
+    };
+  } catch {
+    return { present: true, error: true };
+  }
+}
+
+export function isSpecApproved(specDir, issueN) {
+  if (!specDir || !existsSync(specDir)) return false;
+  return REQUIRED_SPEC_FILES.every((name) => {
+    const info = readFrontmatterStatusAndIssue(join(specDir, name), issueN);
+    return info.present === true
+      && info.error !== true
+      && info.issueOk === true
+      && info.status === 'approved';
+  });
+}
+
+function gitForEachRef(root, pattern) {
+  const result = spawnSync('git', ['-C', root, 'for-each-ref', '--format=%(refname:short)', pattern], {
+    encoding: 'utf8',
+  });
+  if (result.status !== 0) return [];
+  return result.stdout.split('\n').map((line) => line.trim()).filter(Boolean);
+}
+
+function matchingIssueBranches(shortRefs, issueN, remotePrefix) {
+  const prefixRe = new RegExp(`^${issueN}-`);
+  const matches = [];
+  for (const short of shortRefs) {
+    const name = remotePrefix && short.startsWith(`${remotePrefix}/`)
+      ? short.slice(remotePrefix.length + 1)
+      : short;
+    if (prefixRe.test(name)) {
+      matches.push({ name, ref: short });
+    }
+  }
+  return matches;
+}
+
+function specApprovedOnRef(root, ref, specRel, issueN) {
+  return REQUIRED_SPEC_FILES.every((file) => {
+    const result = spawnSync('git', ['-C', root, 'show', `${ref}:${specRel}/${file}`], {
+      encoding: 'utf8',
+    });
+    if (result.status !== 0) return false;
+    const info = parseFrontmatterStatusAndIssue(result.stdout, issueN);
+    return info.issueOk === true && info.status === 'approved';
+  });
+}
+
+export function specStatus(issueN, root = process.cwd()) {
+  const resolved = resolveSpecDir(root, issueN, { detailed: true });
+  if (resolved.reasonCode) {
+    return { dir: null, approved: false, reasonCode: resolved.reasonCode };
+  }
+  if (resolved.dir) {
+    return { dir: resolved.dir, approved: isSpecApproved(resolved.dir, issueN) };
+  }
+
+  const local = matchingIssueBranches(gitForEachRef(root, 'refs/heads'), issueN);
+  if (local.length > 1) {
+    return { dir: null, approved: false, reasonCode: 'spec_status_ambiguous' };
+  }
+
+  const candidates = local.length === 1
+    ? local
+    : matchingIssueBranches(gitForEachRef(root, 'refs/remotes/origin'), issueN, 'origin');
+  if (candidates.length > 1) {
+    return { dir: null, approved: false, reasonCode: 'spec_status_ambiguous' };
+  }
+  if (candidates.length !== 1) return { dir: null, approved: false };
+
+  const { name, ref } = candidates[0];
+  const specRel = `specs/${name}`;
+  if (!specApprovedOnRef(root, ref, specRel, issueN)) {
+    return { dir: null, approved: false };
+  }
+  return { dir: specRel, approved: true, ref };
+}
 export const ISSUE_SPEC_MARKDOWN_LIMIT_BYTES = 256 * 1024;
 const MANIFEST_LIMIT_BYTES = 128 * 1024;
 const GROUP_CATEGORIES = Object.freeze({

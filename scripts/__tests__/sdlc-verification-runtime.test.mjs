@@ -286,6 +286,15 @@ describe('deterministic verification runtime', () => {
     });
   });
 
+  it('records identity for a tracked diff larger than the default child-process buffer', async () => {
+    const root = await fixture([command('large.pass', 'process.exit(0)')]);
+    fs.writeFileSync(path.join(root, 'evidence.json'), `${'x'.repeat(2 * 1024 * 1024)}\n`);
+    const artifact = await runSteeringValidations({ projectRoot: root, issue: 42, specDir: path.join(root, 'specs', '42-test'), baseRef: 'HEAD' });
+    expect(artifact.runtimeError).toBeUndefined();
+    expect(artifact.ceiling).toBeNull();
+    expect(artifact.results[0].request.identity).toMatchObject({ treeState: 'dirty', dirtyDiffHash: expect.stringMatching(/^sha256:/) });
+  });
+
   it('caps required failures while optional failures remain recorded', async () => {
     const root = await fixture([command('required.fail', 'process.exit(2)'), command('optional.fail', 'process.exit(3)', false)]);
     const artifact = await runSteeringValidations({ projectRoot: root, issue: 42, specDir: path.join(root, 'specs', '42-test'), baseRef: 'HEAD' });
@@ -353,6 +362,62 @@ describe('deterministic verification runtime', () => {
     expect(cancelled.ceiling).toBe('Incomplete');
     expect(cancelled.results[0].result.summary).toBe('cancelled');
   });
+  it('defers required project providers (never passes them) when a required local builtin.command fails or is incomplete, and invokes them normally once local required commands are green', async () => {
+    const root = await fixture([]);
+    fs.mkdirSync(path.join(root, 'steering', 'extensions'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'steering', 'extensions', 'defer-test-provider.mjs'), [
+      'export const extension = Object.freeze({',
+      '  schemaVersion: 1,',
+      '  id: "test.defer",',
+      '  providers: Object.freeze({',
+      '    "project.defertest": (request) => ({',
+      '      schemaVersion: 1,',
+      '      status: "passed",',
+      '      summary: "project provider invoked",',
+      '      identity: request.identity,',
+      '      evidence: [{ kind: "extension", summary: request.validationId, artifact: null }],',
+      '    }),',
+      '  }),',
+      '});',
+      '',
+    ].join('\n'));
+    const manifestPath = path.join(root, 'steering', 'manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.extensions.push({ id: 'test.defer', path: 'steering/extensions/defer-test-provider.mjs', providers: ['project.defertest'] });
+    // failing local required cmd + project
+    manifest.validations = [
+      command('repository.tests', 'process.exit(42)'),
+      { id: 'repository.nmg-sdlc-smoke', provider: 'project.defertest', required: true, when: { kind: 'always' }, config: {} },
+    ];
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    run(root, 'git', ['add', '.']);
+    run(root, 'git', ['commit', '-m', 'setup defer test']);
+
+    const failedLocal = await runSteeringValidations({ projectRoot: root, issue: 42, specDir: path.join(root, 'specs', '42-test'), baseRef: 'HEAD' });
+    expect(failedLocal.ceiling).toBe('Incomplete');
+    expect(failedLocal.results.map(r => ({id: r.id, effectiveStatus: r.effectiveStatus}))).toEqual([
+      { id: 'repository.tests', effectiveStatus: 'failed' },
+      { id: 'repository.nmg-sdlc-smoke', effectiveStatus: 'incomplete' },
+    ]);
+    const smokeResult = failedLocal.results.find(r => r.id === 'repository.nmg-sdlc-smoke');
+    expect(smokeResult.result.summary).toBe('deferred until required local validations pass');
+    expect(smokeResult.required).toBe(true);
+
+    // now fix the local cmd to pass, should invoke provider
+    manifest.validations[0] = command('repository.tests', 'process.exit(0)');
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    run(root, 'git', ['add', '.']);
+    run(root, 'git', ['commit', '-m', 'fix local to green']);
+
+    const greenLocal = await runSteeringValidations({ projectRoot: root, issue: 42, specDir: path.join(root, 'specs', '42-test'), baseRef: 'HEAD' });
+    expect(greenLocal.ceiling).toBeNull();
+    expect(greenLocal.results.map(r => ({id: r.id, effectiveStatus: r.effectiveStatus}))).toEqual([
+      { id: 'repository.tests', effectiveStatus: 'passed' },
+      { id: 'repository.nmg-sdlc-smoke', effectiveStatus: 'passed' },
+    ]);
+    expect(greenLocal.results[1].result.summary).toBe('project provider invoked');
+  });
+
 
   (process.platform === 'win32' ? it.skip : it).each(['cancel', 'SIGKILL', 'denied'])(
     'settles owned descendant cleanup truthfully on command %s',

@@ -5,11 +5,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { inspectReviewReceipts } from '../../src/sdlc-review-isolation.mjs';
-import {
+// review removed
+// import { inspectReviewReceipts } from "../../src/sdlc-review-isolation.mjs";
+import { 
   createSmokeProvider,
   createSmokeRecoveryStore,
-  inspectLegacySmokeFailure,
   inspectRecoveredDeliveryHandoff,
   inspectRecoveredVerificationEvidence,
   resolveSmokeRecoveryScope,
@@ -56,29 +56,11 @@ function harness(options = {}) {
   const readFileSync = jest.fn((file) => {
     if (options.readFile) return options.readFile(file, { configured, deliveryHead });
     const text = String(file);
-    if (text.endsWith('/.omp/sdlc/run.json')) {
-      if (options.runPresence !== 'valid' && !options.proofAvailable) {
-        throw Object.assign(new Error('missing run'), { code: 'ENOENT' });
-      }
-      return JSON.stringify({
-        schemaVersion: 1,
-        projectRoot: '/tmp/nmg-sdlc-smoke-fixture',
-        runId: 'nested-run',
-        issues: configured,
-        currentIssue: configured[0],
-        currentStep: 'deliver',
-        delivery: {
-          issue: configured[0],
-          pullRequest: configured[0],
-          expectedHead: deliveryHead(configured[0]),
-        },
-      });
-    }
     if (text.includes('/smoke-deliveries/') && options.proofAvailable?.value === false) return '{}';
     const issue = Number(text.match(/\/smoke-deliveries\/(\d+)\.json$/)?.[1]);
     return JSON.stringify({
       schemaVersion: 1,
-      runId: 'nested-run',
+      invocationId: TEST_SCOPE.recoveryKey,
       issue,
       pullRequest: issue,
       headSha: deliveryHead(issue),
@@ -95,6 +77,8 @@ function harness(options = {}) {
       return result(0, 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git\n');
     }
     if (program === 'git' && args[0] === 'status') return result();
+    if (program === 'git' && ['read-tree', 'add'].includes(args[0])) return result();
+    if (program === 'git' && args[0] === 'write-tree') return result(0, `${options.candidate?.value ?? 'e'.repeat(40)}\n`);
     if (program === 'git' && args[0] === 'rev-parse') return result(0, 'a'.repeat(40));
     if (program === 'git' && args[0] === 'merge-base') return result();
     if (program === process.execPath) return result();
@@ -135,15 +119,14 @@ function harness(options = {}) {
     recoveryStore,
     resolveOuterScope: () => scope,
     validateNestedOwnership: options.validateNestedOwnership ?? (() => null),
-    readRecoveryRecord: options.readRecoveryRecord ?? ((_read, _work, runId, issue) => (
-      runId === 'nested-run' ? {
+    readRecoveryRecord: options.readRecoveryRecord ?? ((_read, _work, invocationId, issue) => (
+      invocationId === TEST_SCOPE.recoveryKey ? {
         issue,
-        runId,
+        invocationId,
         pullRequest: issue,
         headSha: deliveryHead(issue),
       } : null
     )),
-    verifyOptionalHandoff: options.verifyOptionalHandoff ?? (() => true),
     verifyRecoveredDelivery: options.verifyRecoveredDelivery ?? (() => true),
     verifyCurrentEvidence: options.verifyCurrentEvidence ?? (() => true),
     verifyRetainedClone: options.verifyRetainedClone ?? (async () => ({ status: 'passed', evidence: [] })),
@@ -166,258 +149,6 @@ function harness(options = {}) {
     calls, deliveryHead, mkdtempSync, provider, readFileSync, recoveryStore,
     request, rmSync, runCommand, scope, states,
   };
-}
-
-function legacyBootstrapFixture(mutateArtifact = () => {}, smokeIssues = '109', fresh = false) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-smoke-outer-'));
-  const clone = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-smoke-'));
-  commandFixtures.push({ root, marker: path.join(root, 'absent-marker') });
-  commandFixtures.push({ root: clone, marker: path.join(clone, 'absent-marker') });
-  const outerRoot = fs.realpathSync(root);
-  const cloneRoot = fs.realpathSync(clone);
-  const immutableHead = '23f5f71'.padEnd(40, '0');
-  const finalHead = '044365a'.padEnd(40, '0');
-  const initialHead = '7f64196'.padEnd(40, '0');
-  const nestedRunId = '85bad261-c3e2-4895-a2f9-a52a28a4decd';
-  const currentIdentity = {
-    headSha: 'b'.repeat(40),
-    treeState: 'dirty',
-    dirtyDiffHash: 'sha256:current-report',
-    specHash: `sha256:${'c'.repeat(64)}`,
-    steeringHash: `sha256:${'d'.repeat(64)}`,
-    validationConfigHash: `sha256:${'e'.repeat(64)}`,
-  };
-  const legacyIdentity = {
-    headSha: 'b'.repeat(40),
-    treeState: 'dirty',
-    dirtyDiffHash: 'sha256:legacy-report',
-    specHash: `sha256:${'c'.repeat(64)}`,
-    steeringHash: `sha256:${'d'.repeat(64)}`,
-    validationConfigHash: currentIdentity.validationConfigHash,
-  };
-  const writeJson = (file, value) => {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(value));
-  };
-  writeJson(path.join(cloneRoot, '.omp/sdlc/run.json'), {
-    schemaVersion: 1,
-    projectRoot: cloneRoot,
-    runId: nestedRunId,
-    issue: 109,
-    head: initialHead,
-    issues: [109],
-    currentIssue: 109,
-    currentStep: 'deliver',
-    failed: {
-      issue: 109,
-      step: 'deliver',
-      reasonCode: 'automatic_review_unactionable',
-    },
-    delivery: {
-      issue: 109,
-      pullRequest: 112,
-      expectedHead: immutableHead,
-      status: 'expected',
-    },
-  });
-  writeJson(path.join(cloneRoot, '.omp/sdlc/safe-recoveries.json'), {
-    schemaVersion: 1,
-    records: [{
-      class: 'post_merge_observation',
-      runId: nestedRunId,
-      issue: 109,
-      step: 'deliver',
-      disposition: 'consumed',
-      evidence: { pullRequest: 112, headSha: finalHead },
-    }],
-  });
-  writeJson(path.join(cloneRoot, '.omp/sdlc/verification/109.json'), {
-    schemaVersion: 1,
-    issue: 109,
-    ceiling: null,
-    coverage: { complete: true },
-    identity: { headSha: immutableHead },
-    results: [],
-  });
-  writeJson(path.join(cloneRoot, '.omp/sdlc/handoffs/109-deliver.json'), {
-    schemaVersion: 1,
-    issue: 109,
-    step: 'deliver',
-    status: 'failed',
-    intervention: true,
-    summary: 'Automatic delivery remediation for #109 is unsafe, unsupported, or unchanged',
-    artifacts: [],
-    next: null,
-    reasonCode: 'automatic_review_unactionable',
-  });
-  const session = path.join(cloneRoot, '.omp/sdlc/sessions/recovered');
-  writeJson(path.join(session, 'recovery-owner.json'), {
-    projectRoot: cloneRoot,
-    recoveryOwnerId: nestedRunId,
-    issue: 109,
-    step: 'deliver',
-  });
-  writeJson(path.join(session, 'handoffs/109-deliver.json'), {
-    schemaVersion: 1,
-    issue: 109,
-    step: 'deliver',
-    status: 'passed',
-    intervention: false,
-    artifacts: ['https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull/112'],
-    reasonCode: null,
-  });
-  const baseline = {
-    data: {
-      repository: {
-        issue: {
-          state: 'OPEN',
-          url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/109',
-          closedByPullRequestsReferences: {
-            nodes: [],
-            pageInfo: { hasNextPage: false },
-          },
-        },
-      },
-    },
-  };
-  const artifact = {
-    schemaVersion: 1,
-    issue: 379,
-    identity: {
-      headSha: legacyIdentity.headSha,
-      steeringHash: legacyIdentity.steeringHash,
-      specHash: legacyIdentity.specHash,
-    },
-    ceiling: 'Fail',
-    coverage: { complete: true },
-    results: [{
-      id: 'repository.nmg-sdlc-smoke',
-      provider: 'project.nmg-sdlc-smoke',
-      required: true,
-      applicable: true,
-      effectiveStatus: 'failed',
-      request: {
-        schemaVersion: 1,
-        validationId: 'repository.nmg-sdlc-smoke',
-        projectRoot: outerRoot,
-        config: { issuesEnv: 'NMG_SDLC_SMOKE_ISSUES' },
-        identity: legacyIdentity,
-      },
-      result: {
-        schemaVersion: 1,
-        status: 'failed',
-        summary: 'nmg-sdlc-smoke execute exited 1',
-        identity: legacyIdentity,
-        evidence: [
-          {
-            kind: 'command',
-            summary: 'git clone --single-branch https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git',
-            artifact: cloneRoot,
-            stdout: '',
-            stderr: '',
-          },
-          {
-            kind: 'command',
-            summary: 'gh issue closing PR baseline 109',
-            artifact: null,
-            stdout: JSON.stringify(baseline),
-            stderr: '',
-          },
-          {
-            kind: 'command',
-            summary: 'sdlc-execute run #109',
-            artifact: cloneRoot,
-            stdout: 'Stopped on #109 deliver.',
-            stderr: '',
-          },
-          {
-            kind: 'artifact',
-            summary: 'retained smoke clone',
-            artifact: cloneRoot,
-          },
-        ],
-      },
-    }],
-  };
-  mutateArtifact(artifact, { cloneRoot, legacyIdentity });
-  writeJson(path.join(outerRoot, '.omp/sdlc/verification/379.json'), artifact);
-  const calls = [];
-  const runCommand = jest.fn(async (program, args, options = {}) => {
-    calls.push({ program, args, options });
-    if (program === 'git' && args[0] === 'clone') {
-      commandFixtures.push({ root: args.at(-1), marker: path.join(args.at(-1), 'absent-marker') });
-      return fresh ? result() : result(1, '', { reasonCode: 'launch_failed' });
-    }
-    if (fresh && program === 'git' && args[0] === 'status') return result();
-    if (fresh && program === 'git' && args[0] === 'rev-parse') return result(0, 'a'.repeat(40));
-    if (fresh && program === process.execPath) {
-      return result(1, '', { reasonCode: 'launch_failed' });
-    }
-    if (program === 'gh' && args[0] === 'auth') return result();
-    if (program === 'git' && args[0] === 'remote') {
-      return result(0, 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git\n');
-    }
-    if (program === 'git' && args[0] === 'merge-base') return result();
-    if (fresh && program === 'gh' && args[0] === 'api') {
-      const issue = Number(args.find((arg) => arg.startsWith('number='))?.slice('number='.length));
-      return result(0, JSON.stringify({
-        data: { repository: { issue: {
-          state: 'OPEN',
-          url: `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/${issue}`,
-          closedByPullRequestsReferences: { nodes: [], pageInfo: { hasNextPage: false } },
-        } } },
-      }));
-    }
-    if (program === 'gh' && args[0] === 'api') {
-      return result(0, JSON.stringify({
-        data: {
-          repository: {
-            issue: {
-              state: 'CLOSED',
-              url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/109',
-              closedByPullRequestsReferences: {
-                nodes: [{
-                  number: 112,
-                  state: 'MERGED',
-                  url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull/112',
-                  headRefOid: finalHead,
-                }],
-                pageInfo: { hasNextPage: false },
-              },
-            },
-          },
-        },
-      }));
-    }
-    throw new Error(`unexpected command: ${program} ${args.join(' ')}`);
-  });
-  const states = new Map();
-  const recoveryStore = memoryRecoveryStore(states);
-  const scope = {
-    recoveryKey: 'd'.repeat(64),
-    projectRoot: outerRoot,
-    runId: 'outer-run',
-    issue: 379,
-    specPath: 'specs/379-fix',
-  };
-  const request = {
-    validationId: 'repository.nmg-sdlc-smoke',
-    projectRoot: outerRoot,
-    config: { issuesEnv: 'NMG_SDLC_SMOKE_ISSUES' },
-    identity: currentIdentity,
-    verification: {
-      runId: scope.runId,
-      issue: scope.issue,
-      specPath: scope.specPath,
-    },
-  };
-  const provider = createSmokeProvider({
-    runCommand,
-    recoveryStore,
-    resolveOuterScope: () => scope,
-    env: { ...VALID_ENV, NMG_SDLC_SMOKE_ISSUES: smokeIssues },
-  });
-  return { artifact, calls, cloneRoot, provider, recoveryStore, request, scope, states };
 }
 
 function retained(resultEnvelope) {
@@ -486,6 +217,8 @@ function commandFixture() {
     if (args[0] === 'clone' || args[0] === 'status') process.exit(0);
     if (args[0] === 'rev-parse') console.log('${'a'.repeat(40)}');
     else if (args[0] === 'remote') console.log('https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git');
+    else if (args[0] === 'read-tree' || args[0] === 'add') process.exit(0);
+    else if (args[0] === 'write-tree') console.log('${'e'.repeat(40)}');
     else throw new Error('Unexpected fixture git command');
   `);
   fs.writeFileSync(path.join(root, 'scripts', 'sdlc-execute.mjs'), `
@@ -516,59 +249,6 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect(fixture.mkdtempSync).not.toHaveBeenCalled();
   });
 
-  it('executes the explicit candidate in clone cwd and inspects its unchanged isolation receipts', async () => {
-    const fixture = commandFixture();
-    const candidate = path.join(fixture.root, 'candidate');
-    fs.mkdirSync(path.join(candidate, 'scripts'), { recursive: true });
-    fs.mkdirSync(path.join(candidate, 'src'));
-    fs.writeFileSync(path.join(candidate, 'package.json'), JSON.stringify({ name: 'nmg-sdlc' }));
-    fs.copyFileSync(new URL('../../src/sdlc-review-isolation.mjs', import.meta.url),
-      path.join(candidate, 'src/sdlc-review-isolation.mjs'));
-    const assignmentPath = path.join(fixture.work, 'assignment.json');
-    const receiptPath = path.join(fixture.work, 'access.jsonl');
-    fs.writeFileSync(path.join(fixture.work, 'allowed.txt'), 'snapshot\n');
-    fs.writeFileSync(assignmentPath, JSON.stringify({
-      issue: 7, step: 'review1', sliceId: 'reviewer-1', runId: 'owner',
-      invocationId: 'candidate-parity', baseSha: 'base', headSha: 'head',
-      specDigest: 'digest', snapshotDir: fixture.work, allowedPaths: ['allowed.txt'],
-    }));
-    const isolation = await import(pathToFileURL(path.join(candidate, 'src/sdlc-review-isolation.mjs')).href);
-    const handlers = new Map();
-    let tools = [];
-    isolation.installReviewIsolation({
-      on: (event, fn) => handlers.set(event, fn),
-      setActiveTools: async (names) => { tools = names; },
-      getActiveTools: () => tools,
-    }, { env: { NMG_SDLC_REVIEW_SLICE: '1', NMG_SDLC_REVIEW_ASSIGNMENT: assignmentPath,
-      NMG_SDLC_REVIEW_RECEIPT: receiptPath } });
-    await handlers.get('session_start')();
-    const receiptBytes = fs.readFileSync(receiptPath);
-    expect(inspectReviewReceipts(assignmentPath, receiptPath).reasonCode).toBe('review_scope_unproven');
-    fs.writeFileSync(path.join(candidate, 'scripts/sdlc-execute.mjs'), `
-      import { inspectReviewReceipts } from '../src/sdlc-review-isolation.mjs';
-      const inspection = inspectReviewReceipts(${JSON.stringify(assignmentPath)}, ${JSON.stringify(receiptPath)});
-      console.log(JSON.stringify({ controller: import.meta.url, cwd: process.cwd(),
-        pluginRoot: process.env.NMG_SDLC_PLUGIN_ROOT, inspection }));
-      process.exit(inspection.valid ? 0 : 1);
-    `);
-    const provider = createSmokeProvider({
-      env: { ...process.env, ...VALID_ENV,
-        NMG_SDLC_PLUGIN_ROOT: candidate,
-        PATH: `${path.join(fixture.root, 'bin')}${path.delimiter}${process.env.PATH}` },
-      mkdtempSync: () => fixture.work,
-      recoveryStore: memoryRecoveryStore(),
-      resolveOuterScope: () => TEST_SCOPE,
-    });
-    const outcome = await provider({ projectRoot: fixture.root, config: { issues: [7] }, identity: {} });
-    const execution = outcome.evidence.find(item => item.summary === 'sdlc-execute run #7');
-    expect(JSON.parse(execution.stdout)).toMatchObject({
-      controller: pathToFileURL(fs.realpathSync(path.join(candidate, 'scripts/sdlc-execute.mjs'))).href,
-      cwd: fs.realpathSync(fixture.work), pluginRoot: candidate,
-      inspection: { valid: true, contaminated: false },
-    });
-    expect(fs.readFileSync(receiptPath)).toEqual(receiptBytes);
-    expect(outcome.summary).toContain('missing invocation delivery proof');
-  });
 
   it('registers the required production env-backed smoke queue', () => {
     const manifest = JSON.parse(fs.readFileSync(
@@ -802,7 +482,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     ]);
   });
 
-  it('validates the propagated recovery token against the exact nested run layout', () => {
+  it('validates the propagated token from the outer invocation without reading nested run state', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-smoke-owner-'));
     commandFixtures.push({ root, marker: path.join(root, 'absent-marker') });
     fs.mkdirSync(path.join(root, '.omp/sdlc'), { recursive: true });
@@ -831,67 +511,37 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     const request = { projectRoot: root };
 
     expect(validNestedOwnership(store, `${key}.${secret}`, request, [7])).toMatchObject({
-      nestedRunId: 'nested-run',
+      nestedRunId: key,
     });
-    expect(store.read(key)).toMatchObject({ nestedRunId: 'nested-run' });
+    expect(store.read(key)).toMatchObject({ nestedRunId: key });
     expect(validNestedOwnership(store, `${key}.${'d'.repeat(64)}`, request, [7])).toBeNull();
     expect(validNestedOwnership(store, `${key}.${secret}`, request, [8])).toBeNull();
   });
 
-  it('uses only an identity-matched recovery session handoff when the root deliver handoff failed', () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-smoke-session-'));
+  it('accepts only the invocation-bound pre-merge receipt for retained delivery', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-smoke-receipt-'));
     commandFixtures.push({ root, marker: path.join(root, 'absent-marker') });
-    const sessions = path.join(root, '.omp/sdlc/sessions');
-    const writeSession = (token, recoveryOwnerId, status) => {
-      const directory = path.join(sessions, token, 'handoffs');
-      fs.mkdirSync(directory, { recursive: true });
-      fs.writeFileSync(path.join(sessions, token, 'recovery-owner.json'), JSON.stringify({
-        projectRoot: fs.realpathSync(root),
-        issue: 7,
-        step: 'deliver',
-        branch: '7-fixture',
-        recoveryOwnerId,
-      }));
-      fs.writeFileSync(path.join(directory, '7-deliver.json'), JSON.stringify({
-        schemaVersion: 1,
-        issue: 7,
-        step: 'deliver',
-        status,
-        intervention: status !== 'passed',
-        summary: status,
-        artifacts: ['https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull/7'],
-        next: null,
-        reasonCode: status === 'passed' ? null : 'automatic_review_unactionable',
-      }));
-    };
-    fs.mkdirSync(path.join(root, '.omp/sdlc/handoffs'), { recursive: true });
-    fs.writeFileSync(path.join(root, '.omp/sdlc/handoffs/7-deliver.json'), JSON.stringify({
-      schemaVersion: 1,
-      issue: 7,
-      step: 'deliver',
-      status: 'failed',
-      intervention: true,
-      summary: 'automatic review cannot be changed safely',
-      artifacts: [],
-      next: null,
-      reasonCode: 'automatic_review_unactionable',
-    }));
-    writeSession('matched', 'nested-run', 'passed');
-    writeSession('decoy', 'other-run', 'passed');
+    const receipt = path.join(root, '.omp/sdlc/smoke-deliveries/7.json');
+    fs.mkdirSync(path.dirname(receipt), { recursive: true });
     const expected = {
-      issue: 7,
-      runId: 'nested-run',
-      pullRequest: 7,
-      headSha: '7'.repeat(40),
+      issue: 7, invocationId: TEST_SCOPE.recoveryKey, pullRequest: 7, headSha: '7'.repeat(40),
     };
-
-    expect(inspectRecoveredDeliveryHandoff(fs.readFileSync, root, expected, { required: true })).toBe(true);
-    writeSession('duplicate-match', 'nested-run', 'failed');
-    expect(inspectRecoveredDeliveryHandoff(fs.readFileSync, root, expected, { required: true })).toBe(false);
-    fs.rmSync(path.join(sessions, 'duplicate-match'), { recursive: true, force: true });
-    const matched = path.join(sessions, 'matched/handoffs/7-deliver.json');
-    fs.writeFileSync(matched, fs.readFileSync(matched, 'utf8').replace('"passed"', '"failed"'));
-    expect(inspectRecoveredDeliveryHandoff(fs.readFileSync, root, expected, { required: true })).toBe(false);
+    const writeProof = (changes = {}) => fs.writeFileSync(receipt, JSON.stringify({
+      schemaVersion: 1, ...expected, recordedBeforeMerge: true, ...changes,
+    }));
+    writeProof();
+    expect(inspectRecoveredDeliveryHandoff(fs.readFileSync, root, expected)).toBe(true);
+    for (const changes of [
+      { invocationId: 'a'.repeat(64) },
+      { pullRequest: 8 },
+      { headSha: '8'.repeat(40) },
+      { recordedBeforeMerge: false },
+    ]) {
+      writeProof(changes);
+      expect(inspectRecoveredDeliveryHandoff(fs.readFileSync, root, expected)).toBe(false);
+    }
+    fs.rmSync(receipt);
+    expect(inspectRecoveredDeliveryHandoff(fs.readFileSync, root, expected)).toBe(false);
   });
 
   it('fails closed when Herdr context or GitHub auth is missing', async () => {
@@ -1021,88 +671,33 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect(rendered).not.toContain('issue create');
     expect(rendered).not.toContain('sdlc-status');
   });
-  it('rejects a fabricated proof runId against a still-present nested run', async () => {
-    const fixture = harness({ config: { issues: [7] }, runPresence: 'valid' });
+  it('rejects a runId-only receipt even when a nested run file exists', async () => {
+    const fixture = harness({ config: { issues: [7] } });
     const baseRead = fixture.readFileSync.getMockImplementation();
-    fixture.readFileSync.mockImplementation((file) => {
-      if (String(file).includes('/smoke-deliveries/')) {
-        return JSON.stringify({
-          schemaVersion: 1,
-          issue: 7,
-          runId: 'fabricated-run',
-          pullRequest: 7,
-          headSha: fixture.deliveryHead(7),
-          recordedBeforeMerge: true,
-        });
-      }
-      return baseRead(file);
+    fixture.readFileSync.mockImplementation((file) => String(file).includes('/smoke-deliveries/')
+      ? JSON.stringify({
+        schemaVersion: 1, issue: 7, runId: 'fabricated-run', pullRequest: 7,
+        headSha: fixture.deliveryHead(7), recordedBeforeMerge: true,
+      })
+      : baseRead(file));
+    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
+      status: 'failed',
+      summary: 'nmg-sdlc-smoke issue #7 missing invocation delivery proof',
     });
+  });
 
+  it('rejects a receipt from another invocation despite matching issue, PR and head', async () => {
+    const fixture = harness({ config: { issues: [7] } });
+    const baseRead = fixture.readFileSync.getMockImplementation();
+    fixture.readFileSync.mockImplementation((file) => String(file).includes('/smoke-deliveries/')
+      ? JSON.stringify({
+        schemaVersion: 1, issue: 7, invocationId: 'a'.repeat(64), pullRequest: 7,
+        headSha: fixture.deliveryHead(7), recordedBeforeMerge: true,
+      })
+      : baseRead(file));
     await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
       status: 'failed',
       summary: 'nmg-sdlc-smoke completed invocation run identity mismatch',
-    });
-  });
-
-  it.each([
-    ['absent after cleanup', () => { throw Object.assign(new Error('missing'), { code: 'ENOENT' }); }, 'passed'],
-    ['present malformed', () => '{}', 'failed'],
-  ])('handles nested run.json %s without trusting stale proof identity', async (_case, runFile, expectedStatus) => {
-    const fixture = harness({
-      config: { issues: [7] },
-      readFile: (file) => {
-        const text = String(file);
-        if (text.endsWith('/.omp/sdlc/run.json')) return runFile();
-        const issue = Number(text.match(/\/smoke-deliveries\/(\d+)\.json$/)?.[1]);
-        return JSON.stringify({
-          schemaVersion: 1,
-          issue,
-          runId: 'nested-run',
-          pullRequest: issue,
-          headSha: fixture.deliveryHead(issue),
-          recordedBeforeMerge: true,
-        });
-      },
-    });
-
-    expect((await fixture.provider(fixture.request)).status).toBe(expectedStatus);
-  });
-
-  it.each([
-    ['missing delivery', (run) => { delete run.delivery; }],
-    ['malformed delivery', (run) => { run.delivery = { issue: 7, pullRequest: 0, expectedHead: 'bad' }; }],
-  ])('rejects a present nested run with %s instead of falling back to proof files', async (_case, mutate) => {
-    const fixture = harness({
-      config: { issues: [7] },
-      readFile: (file) => {
-        const text = String(file);
-        if (text.endsWith('/.omp/sdlc/run.json')) {
-          const run = {
-            schemaVersion: 1,
-            projectRoot: '/tmp/nmg-sdlc-smoke-fixture',
-            runId: 'nested-run',
-            issues: [7],
-            currentIssue: 7,
-            currentStep: 'deliver',
-            delivery: { issue: 7, pullRequest: 7, expectedHead: fixture.deliveryHead(7) },
-          };
-          mutate(run);
-          return JSON.stringify(run);
-        }
-        return JSON.stringify({
-          schemaVersion: 1,
-          issue: 7,
-          runId: 'nested-run',
-          pullRequest: 7,
-          headSha: fixture.deliveryHead(7),
-          recordedBeforeMerge: true,
-        });
-      },
-    });
-
-    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
-      status: 'failed',
-      summary: 'nmg-sdlc-smoke completed invocation run identity invalid',
     });
   });
 
@@ -1116,7 +711,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     const outcome = await fixture.provider(fixture.request);
 
     expect(outcome.status).toBe('failed');
-    expect(outcome.summary).toContain('completed invocation run identity invalid');
+    expect(outcome.summary).toContain('missing invocation delivery proof');
     expect(retained(outcome)).toBe(true);
     expect(fixture.rmSync).not.toHaveBeenCalled();
   });
@@ -1144,8 +739,8 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
       validationId: 'repository.nmg-sdlc-smoke',
       validationConfig: { issues: [7, 9] },
       accepted: [
-        { issue: 7, runId: 'nested-run', pullRequest: 7, headSha: fixture.deliveryHead(7) },
-        { issue: 9, runId: 'nested-run', pullRequest: 9, headSha: fixture.deliveryHead(9) },
+        { issue: 7, invocationId: fixture.scope.recoveryKey, pullRequest: 7, headSha: fixture.deliveryHead(7) },
+        { issue: 9, invocationId: fixture.scope.recoveryKey, pullRequest: 9, headSha: fixture.deliveryHead(9) },
       ],
     });
   });
@@ -1285,444 +880,6 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect(fixture.calls.filter((call) => call.program === 'gh' && call.args[0] === 'api')).toHaveLength(remoteProofCalls);
   });
 
-  it('upgrades the real #379/#109 pre-store failure layout and reconciles the retained invocation', async () => {
-    const fixture = legacyBootstrapFixture();
-    expect(fs.existsSync(path.join(
-      fixture.cloneRoot,
-      '.omp/sdlc/smoke-deliveries/109.json',
-    ))).toBe(false);
-
-    const outcome = await fixture.provider(fixture.request);
-
-    expect(outcome.status).toBe('passed');
-    expect(fixture.calls.some((call) => call.program === process.execPath)).toBe(false);
-    expect(fixture.states.get(fixture.scope.recoveryKey)).toMatchObject({
-      phase: 'terminal',
-      executeStatus: 1,
-      nestedRunId: '85bad261-c3e2-4895-a2f9-a52a28a4decd',
-      expected: [{
-        issue: 109,
-        runId: '85bad261-c3e2-4895-a2f9-a52a28a4decd',
-        pullRequest: 112,
-        headSha: '23f5f71'.padEnd(40, '0'),
-      }],
-      accepted: [{
-        issue: 109,
-        runId: '85bad261-c3e2-4895-a2f9-a52a28a4decd',
-        pullRequest: 112,
-        headSha: '044365a'.padEnd(40, '0'),
-      }],
-      bootstrap: {
-        kind: 'legacy-verification-failure',
-        issue: 379,
-        deliveryProofRequired: false,
-      },
-    });
-    expect(fs.existsSync(fixture.cloneRoot)).toBe(false);
-  });
-
-  it('rejects legacy recovery when only otherwise-valid Markdown verification remains', async () => {
-    const fixture = legacyBootstrapFixture((_artifact, { cloneRoot }) => {
-      fs.rmSync(path.join(cloneRoot, '.omp/sdlc/verification/109.json'));
-      const specPath = 'specs/109-fixture';
-      const directory = path.join(cloneRoot, specPath);
-      fs.mkdirSync(directory, { recursive: true });
-      const scope = {
-        issueNumber: 109,
-        specPath,
-        status: 'scoped',
-        delivery: {
-          acceptanceCriteria: [],
-          functionalRequirements: [],
-          tasks: [],
-          scenarios: [],
-        },
-        regression: {
-          acceptanceCriteria: [],
-          functionalRequirements: [],
-          scenarios: [],
-        },
-      };
-      fs.writeFileSync(
-        path.join(directory, 'verification-report.md'),
-        `# Verification Report\n\n### Implementation Status: Pass\n\n<!-- nmg-sdlc-issue-scope: ${JSON.stringify(scope)} -->\n`,
-      );
-    });
-    const recovered = {
-      issue: 109,
-      runId: '85bad261-c3e2-4895-a2f9-a52a28a4decd',
-      pullRequest: 112,
-      headSha: '044365a'.padEnd(40, '0'),
-    };
-    const immutable = { ...recovered, headSha: '23f5f71'.padEnd(40, '0') };
-    expect(inspectRecoveredVerificationEvidence(
-      fs.readFileSync,
-      fixture.cloneRoot,
-      recovered,
-      immutable,
-    )).toBe(true);
-    expect(inspectRecoveredVerificationEvidence(
-      fs.readFileSync,
-      fixture.cloneRoot,
-      recovered,
-      immutable,
-      { jsonOnly: true },
-    )).toBe(false);
-
-    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
-      status: 'failed',
-      summary: 'nmg-sdlc-smoke execute exited 1',
-    });
-    expect(fixture.states.get(fixture.scope.recoveryKey)).toMatchObject({ phase: 'failed' });
-    expect(fixture.calls.some((call) => call.program === process.execPath)).toBe(false);
-    expect(fs.existsSync(fixture.cloneRoot)).toBe(true);
-  });
-
-  it.each([
-    ['duplicate retained clones', (artifact) => {
-      artifact.results[0].result.evidence.push({
-        ...artifact.results[0].result.evidence.at(-1),
-      });
-    }],
-    ['incomplete baseline', (artifact) => {
-      artifact.results[0].result.evidence = artifact.results[0].result.evidence
-        .filter((item) => item.summary !== 'gh issue closing PR baseline 109');
-    }],
-    ['ambiguous execute evidence', (artifact) => {
-      artifact.results[0].result.evidence.push({
-        ...artifact.results[0].result.evidence.find((item) => item.summary === 'sdlc-execute run #109'),
-      });
-    }],
-    ['nonterminal failure', (artifact) => {
-      artifact.results[0].result.status = 'incomplete';
-    }],
-    ['unproved nested delivery', (_artifact, { cloneRoot }) => {
-      fs.rmSync(path.join(cloneRoot, '.omp/sdlc/handoffs/109-deliver.json'));
-    }],
-    ['mismatched config', (artifact) => {
-      artifact.results[0].request.config = { issues: [110] };
-    }],
-    ['tampered outer identity', (artifact) => {
-      artifact.identity.specHash = 'sha256:tampered';
-    }],
-  ])('rejects legacy bootstrap with %s without launching a replacement', async (_name, mutate) => {
-    const fixture = legacyBootstrapFixture(mutate);
-    expect(inspectLegacySmokeFailure(fs.readFileSync, {
-      request: fixture.request,
-      scope: fixture.scope,
-      issues: [109],
-      pluginRoot: SOURCE_ROOT,
-    }).presence).toBe('invalid');
-
-    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
-      status: 'failed',
-      summary: 'nmg-sdlc-smoke legacy recovery evidence invalid',
-    });
-    expect(fixture.states.size).toBe(0);
-    expect(fixture.calls.some((call) => call.program === process.execPath)).toBe(false);
-    expect(fixture.calls.some((call) => call.program === 'git' && call.args[0] === 'clone')).toBe(false);
-  });
-
-  it.each([
-    ['changed head', '109', (request) => { request.identity.headSha = 'c'.repeat(40); }],
-    ['changed spec', '109', (request) => { request.identity.specHash = 'sha256:new-spec'; }],
-    ['changed steering', '109', (request) => { request.identity.steeringHash = 'sha256:new-steering'; }],
-    ['changed config identity', '109', (request) => { request.identity.validationConfigHash = 'sha256:new-config'; }],
-    ['changed head and queue', '135', (request) => { request.identity.headSha = 'c'.repeat(40); }],
-    ['changed queue', '135', () => {}],
-  ])('preserves historical evidence and starts a fresh clone for %s', async (_name, queue, change) => {
-    const fixture = legacyBootstrapFixture(undefined, queue, true);
-    change(fixture.request);
-    const artifactPath = path.join(fixture.scope.projectRoot, '.omp/sdlc/verification/379.json');
-    const before = fs.readFileSync(artifactPath);
-
-    const outcome = await fixture.provider(fixture.request);
-
-    expect(outcome).toMatchObject({ status: 'incomplete', summary: 'nmg-sdlc-smoke execute launch_failed' });
-    expect(fixture.calls.filter((call) => call.program === 'git' && call.args[0] === 'clone')).toHaveLength(1);
-    expect(fixture.calls.filter((call) => call.program === 'gh' && call.args[0] === 'api')
-      .map((call) => call.args.find((arg) => arg.startsWith('number=')))).toEqual([`number=${queue}`]);
-    expect(fixture.calls.filter((call) => call.program === process.execPath)
-      .map((call) => call.args.at(-1))).toEqual([`#${queue}`]);
-    expect(fixture.states.get(fixture.scope.recoveryKey)).toMatchObject({
-      issues: [Number(queue)],
-      phase: 'incomplete',
-    });
-    expect(fs.readFileSync(artifactPath)).toEqual(before);
-    expect(fs.existsSync(fixture.cloneRoot)).toBe(true);
-  });
-
-  it('keeps repeated prelaunch failures historical only after a new exact head', async () => {
-    const fixture = legacyBootstrapFixture((artifact) => {
-      artifact.results[0].request.verification = {
-        runId: 'verification-old-head',
-        issue: 379,
-        specPath: 'specs/379-fix',
-      };
-      artifact.results[0].result.summary = 'nmg-sdlc-smoke legacy recovery evidence invalid';
-      artifact.results[0].result.evidence = [];
-    }, '138', true);
-    const artifactPath = path.join(fixture.scope.projectRoot, '.omp/sdlc/verification/379.json');
-    const inspect = () => inspectLegacySmokeFailure(fs.readFileSync, {
-      request: fixture.request,
-      scope: fixture.scope,
-      issues: [138],
-      pluginRoot: SOURCE_ROOT,
-    }).presence;
-    expect(inspect()).toBe('invalid');
-    fixture.request.identity.headSha = 'c'.repeat(40);
-    expect(inspect()).toBe('absent');
-
-    const second = JSON.parse(fs.readFileSync(artifactPath, 'utf8'));
-    second.identity.headSha = fixture.request.identity.headSha;
-    second.results[0].request.identity.headSha = fixture.request.identity.headSha;
-    second.results[0].request.verification.runId = 'verification-second-head';
-    second.results[0].result.identity.headSha = fixture.request.identity.headSha;
-    fs.writeFileSync(artifactPath, JSON.stringify(second));
-    const before = fs.readFileSync(artifactPath);
-    expect(inspect()).toBe('invalid');
-
-    fixture.request.identity.headSha = 'd'.repeat(40);
-    expect(inspect()).toBe('absent');
-    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
-      status: 'incomplete',
-      summary: 'nmg-sdlc-smoke execute launch_failed',
-    });
-    expect(fixture.calls.filter((call) => call.program === 'git' && call.args[0] === 'clone')).toHaveLength(1);
-    expect(fixture.calls.filter((call) => call.program === process.execPath)
-      .map((call) => call.args.at(-1))).toEqual(['#138']);
-    expect(fs.readFileSync(artifactPath)).toEqual(before);
-  });
-
-  it.each([
-    ['current head', false, 379, 'specs/379-fix'],
-    ['foreign issue', true, 380, 'specs/379-fix'],
-    ['foreign spec', true, 379, 'specs/380-fix'],
-    ['ambiguous clone evidence', true, 379, 'specs/379-fix'],
-    ['ambiguous worker evidence', true, 379, 'specs/379-fix'],
-  ])('rejects %s pre-dispatch verification without replacement', async (label, changedHead, issue, specPath) => {
-    const fixture = legacyBootstrapFixture((artifact) => {
-      artifact.results[0].request.verification = {
-        runId: 'verification-old-head',
-        issue,
-        specPath,
-      };
-      artifact.results[0].result.summary = 'nmg-sdlc-smoke legacy recovery evidence invalid';
-      artifact.results[0].result.evidence = [];
-      if (label === 'ambiguous clone evidence') artifact.results[0].result.evidence.push({
-        kind: 'command', summary: 'git clone --single-branch https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git',
-        artifact: '/tmp/unproven-clone',
-      });
-      if (label === 'ambiguous worker evidence') artifact.results[0].result.evidence.push({
-        kind: 'command', summary: 'sdlc-execute run #138', artifact: '/tmp/unproven-clone',
-      });
-    }, '135', true);
-    if (changedHead) fixture.request.identity.headSha = 'c'.repeat(40);
-    expect(inspectLegacySmokeFailure(fs.readFileSync, {
-      request: fixture.request,
-      scope: fixture.scope,
-      issues: [135],
-      pluginRoot: SOURCE_ROOT,
-    }).presence).toBe('invalid');
-    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
-      status: 'failed',
-      summary: 'nmg-sdlc-smoke legacy recovery evidence invalid',
-    });
-    expect(fixture.calls.some((call) => call.program === 'git' && call.args[0] === 'clone')).toBe(false);
-  });
-
-  it('keeps ambiguous old provider results fail-closed even across a changed identity', async () => {
-    const fixture = legacyBootstrapFixture((artifact) => {
-      artifact.results.push(structuredClone(artifact.results[0]));
-    });
-    fixture.request.identity.headSha = 'c'.repeat(40);
-
-    expect(inspectLegacySmokeFailure(fs.readFileSync, {
-      request: fixture.request,
-      scope: fixture.scope,
-      issues: [109],
-      pluginRoot: SOURCE_ROOT,
-    }).presence).toBe('invalid');
-    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
-      status: 'failed',
-      summary: 'nmg-sdlc-smoke legacy recovery evidence invalid',
-    });
-    expect(fixture.calls.some((call) => call.program === 'git' && call.args[0] === 'clone')).toBe(false);
-  });
-
-  it('fails first, then accepts only the same retained invocation after exact recovery', async () => {
-    const proofAvailable = { value: false };
-    const fixture = harness({
-      config: { issues: [7] },
-      proofAvailable,
-      override: (program) => (
-        program === process.execPath ? result(1, '', { stderr: 'controller reported a recovered stop' }) : null
-      ),
-    });
-
-    const initial = await fixture.provider(fixture.request);
-    expect(initial).toMatchObject({
-      status: 'failed',
-      summary: 'nmg-sdlc-smoke execute exited 1',
-    });
-    fixture.request.identity = {
-      ...fixture.request.identity,
-      treeState: 'dirty',
-      dirtyDiffHash: 'sha256:failed-report',
-    };
-    expect(retained(initial)).toBe(true);
-    proofAvailable.value = true;
-    expect(fixture.calls.filter((call) => call.program === process.execPath)).toHaveLength(1);
-
-    const recovered = await fixture.provider(fixture.request);
-    expect(recovered.status).toBe('passed');
-    expect(recovered.evidence.filter((item) => item.kind === 'github')).toHaveLength(1);
-    expect(fixture.calls.filter((call) => call.program === process.execPath)).toHaveLength(1);
-    expect(fixture.mkdtempSync).toHaveBeenCalledTimes(1);
-    expect(fixture.rmSync).toHaveBeenCalledWith('/tmp/nmg-sdlc-smoke-fixture', { recursive: true, force: true });
-    const terminal = await fixture.provider(fixture.request);
-    expect(terminal.status).toBe('passed');
-    expect(fixture.calls.filter((call) => call.program === process.execPath)).toHaveLength(1);
-    expect(fixture.mkdtempSync).toHaveBeenCalledTimes(1);
-    expect(fixture.rmSync).toHaveBeenCalledTimes(1);
-  });
-
-  it.each([
-    ['ancestor', 0, 'passed'],
-    ['non-ancestor', 1, 'failed'],
-  ])('requires the original expected head to be an %s of the recovered final head', async (_case, ancestryStatus, expectedStatus) => {
-    const expectedHead = '23f5f71'.padEnd(40, '0');
-    const finalHead = '044365a'.padEnd(40, '0');
-    const proofAvailable = { value: false };
-    const fixture = harness({
-      config: { issues: [7] },
-      proofAvailable,
-      override: (program, args, _options, calls) => {
-        if (program === process.execPath) return result(1);
-        if (program === 'git' && args[0] === 'merge-base'
-          && args[2] === expectedHead && args[3] === finalHead) return result(ancestryStatus);
-        if (program === 'gh' && args[0] === 'api'
-          && calls.some((call) => call.program === process.execPath)) {
-          return result(0, JSON.stringify({
-            data: { repository: { issue: {
-              state: 'CLOSED',
-              url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/7',
-              closedByPullRequestsReferences: {
-                nodes: [{
-                  number: 7,
-                  state: 'MERGED',
-                  url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull/7',
-                  headRefOid: finalHead,
-                }],
-                pageInfo: { hasNextPage: false },
-              },
-            } } },
-          }));
-        }
-        return null;
-      },
-      readRecoveryRecord: (_read, _work, runId) => ({
-        issue: 7,
-        runId,
-        pullRequest: 7,
-        headSha: finalHead,
-      }),
-      readFile: (file, { configured, deliveryHead }) => {
-        const text = String(file);
-        if (text.endsWith('/.omp/sdlc/run.json')) {
-          return JSON.stringify({
-            schemaVersion: 1,
-            projectRoot: '/tmp/nmg-sdlc-smoke-fixture',
-            runId: 'nested-run',
-            issues: configured,
-            currentIssue: 7,
-            currentStep: 'deliver',
-            delivery: { issue: 7, pullRequest: 7, expectedHead },
-          });
-        }
-        const issue = Number(text.match(/\/smoke-deliveries\/(\d+)\.json$/)?.[1]);
-        return JSON.stringify({
-          schemaVersion: 1,
-          issue,
-          runId: 'nested-run',
-          pullRequest: issue,
-          headSha: text.includes('/smoke-deliveries/') ? finalHead : deliveryHead(issue),
-          recordedBeforeMerge: true,
-        });
-      },
-    });
-    expect((await fixture.provider(fixture.request)).status).toBe('failed');
-    proofAvailable.value = true;
-
-    expect((await fixture.provider(fixture.request)).status).toBe(expectedStatus);
-    expect(fixture.calls).toContainEqual(expect.objectContaining({
-      program: 'git',
-      args: ['merge-base', '--is-ancestor', expectedHead, finalHead],
-    }));
-    expect(fixture.calls.filter((call) => call.program === process.execPath)).toHaveLength(1);
-  });
-
-  it.each([
-    ['nested run', (state) => { state.nestedRunId = 'other-run'; }],
-    ['expected PR', (state) => { state.expected[0].pullRequest = 99; }],
-    ['original baseline', (state) => { state.baselines = []; }],
-    ['validation id', (state) => { state.validationId = 'other.validation'; }],
-    ['validation config', (state) => { state.validationConfig = { issues: [99] }; }],
-  ])('rejects recovered %s tampering without launching a replacement', async (_name, mutate) => {
-    const proofAvailable = { value: false };
-    const fixture = harness({
-      config: { issues: [7] },
-      override: (program) => program === process.execPath ? result(1) : null,
-      proofAvailable,
-    });
-    expect((await fixture.provider(fixture.request)).status).toBe('failed');
-    mutate(fixture.states.get(fixture.scope.recoveryKey));
-    proofAvailable.value = true;
-
-    expect((await fixture.provider(fixture.request)).status).toBe('failed');
-    expect(fixture.calls.filter((call) => call.program === process.execPath)).toHaveLength(1);
-    expect(fixture.mkdtempSync).toHaveBeenCalledTimes(1);
-  });
-
-  it('rejects a newly configured issue for the same outer run without replacement', async () => {
-    const proofAvailable = { value: false };
-    const fixture = harness({
-      config: { issues: [7] },
-      override: (program) => program === process.execPath ? result(1) : null,
-      proofAvailable,
-    });
-    expect((await fixture.provider(fixture.request)).status).toBe('failed');
-    fixture.request.config = { issues: [8] };
-
-    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
-      status: 'failed',
-      summary: 'nmg-sdlc-smoke recovery identity mismatch',
-    });
-    expect(fixture.calls.filter((call) => call.program === process.execPath)).toHaveLength(1);
-    expect(fixture.mkdtempSync).toHaveBeenCalledTimes(1);
-  });
-
-  it('accepts exact recovery despite the original automatic-review deliver failure handoff', async () => {
-    const proofAvailable = { value: false };
-    const verifyHandoff = jest.fn((_read, _work, _expected, step) => step === 'verify');
-    const fixture = harness({
-      config: { issues: [7] },
-      override: (program) => program === process.execPath ? result(1) : null,
-      verifyOptionalHandoff: verifyHandoff,
-      proofAvailable,
-    });
-    expect((await fixture.provider(fixture.request)).status).toBe('failed');
-    proofAvailable.value = true;
-
-    expect((await fixture.provider(fixture.request)).status).toBe('passed');
-    expect(verifyHandoff).toHaveBeenCalledTimes(1);
-    expect(verifyHandoff).toHaveBeenCalledWith(
-      fixture.readFileSync,
-      '/tmp/nmg-sdlc-smoke-fixture',
-      expect.objectContaining({ issue: 7, runId: 'nested-run' }),
-      'verify',
-    );
-  });
 
   it('continues a nonzero execute through exact same-invocation remote proof', async () => {
     const fixture = harness({
@@ -1740,7 +897,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect(fixture.calls.filter((call) => call.program === process.execPath)).toHaveLength(1);
   });
 
-  it('accepts exact multi-issue nonzero proof when run.json names only the current delivery', async () => {
+  it('accepts exact multi-issue nonzero proof without a nested run ledger', async () => {
     const fixture = harness({
       config: { issues: [7, 9] },
       runPresence: 'valid',
@@ -1751,6 +908,64 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect(outcome.status).toBe('passed');
     expect(outcome.evidence.filter((item) => item.kind === 'github')).toHaveLength(2);
     expect(fixture.calls.filter((call) => call.program === process.execPath)).toHaveLength(1);
+  });
+
+  it('reuses a retained invocation receipt after remote merge without relaunching the queue', async () => {
+    let merged = false;
+    const fixture = harness({
+      config: { issues: [7] },
+      override: (program, args, _options, calls) => {
+        if (program === process.execPath) return result(1);
+        if (program === 'gh' && args[0] === 'api'
+          && !merged && calls.some((call) => call.program === process.execPath)) {
+          return result(0, JSON.stringify({ data: { repository: { issue: {
+            state: 'OPEN',
+            url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/7',
+            closedByPullRequestsReferences: { nodes: [], pageInfo: { hasNextPage: false } },
+          } } } }));
+        }
+        return null;
+      },
+    });
+    const initial = await fixture.provider(fixture.request);
+    expect(initial.status).toBe('failed');
+    expect(initial.summary).toContain('not CLOSED');
+    merged = true;
+    const recovered = await fixture.provider(fixture.request);
+    expect(recovered.status).toBe('passed');
+    expect(recovered.evidence).toContainEqual(expect.objectContaining({
+      kind: 'github',
+      summary: expect.stringContaining('MERGED'),
+    }));
+    expect(fixture.calls.filter((call) => call.program === process.execPath)).toHaveLength(1);
+    expect(fixture.mkdtempSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('relaunches a receipt-less failure only after the plugin candidate changes', async () => {
+    const candidate = { value: '1'.repeat(40) };
+    let launches = 0;
+    const fixture = harness({
+      config: { issues: [7] },
+      candidate,
+      readFile: () => { throw Object.assign(new Error('missing receipt'), { code: 'ENOENT' }); },
+      override: (program) => {
+        if (program === process.execPath) {
+          launches += 1;
+          return result(1, '', { stderr: 'pane_layout_unavailable' });
+        }
+        return null;
+      },
+    });
+    expect(await fixture.provider(fixture.request)).toMatchObject({ status: 'failed' });
+    expect(await fixture.provider(fixture.request)).toMatchObject({ status: 'failed' });
+    expect(launches).toBe(1);
+    candidate.value = '2'.repeat(40);
+    expect(await fixture.provider(fixture.request)).toMatchObject({ status: 'failed' });
+    expect(launches).toBe(2);
+    expect(fixture.states.get(fixture.scope.recoveryKey)).toMatchObject({ candidateTree: '2'.repeat(40) });
+    fixture.request.identity = { ...fixture.request.identity, steeringHash: 'sha256:changed-provider' };
+    expect(await fixture.provider(fixture.request)).toMatchObject({ status: 'failed' });
+    expect(launches).toBe(3);
   });
 
   it('retries only cleanup after terminal proof was persisted', async () => {
@@ -1842,6 +1057,28 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect(retained(outcome)).toBe(true);
     expect(fixture.rmSync).not.toHaveBeenCalled();
     expect(fixture.calls.some((call) => call.args.includes('linked:issue-7'))).toBe(false);
+  });
+
+  it('accepts an open baseline PR only when this invocation merges its receipted exact head', async () => {
+    const fixture = harness({ config: { issues: [7] }, override: (program, args, _options, calls) => {
+      if (program !== 'gh' || args[0] !== 'api') return null;
+      const merged = calls.some((call) => call.program === process.execPath);
+      return result(0, JSON.stringify({ data: { repository: { issue: {
+        state: merged ? 'CLOSED' : 'OPEN',
+        url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/7',
+        closedByPullRequestsReferences: { nodes: [{
+          number: 7,
+          state: merged ? 'MERGED' : 'OPEN',
+          url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull/7',
+          headRefOid: fixture.deliveryHead(7),
+        }], pageInfo: { hasNextPage: false } },
+      } } } }));
+    } });
+    const outcome = await fixture.provider(fixture.request);
+    expect(outcome.status).toBe('passed');
+    expect(fixture.states.get(fixture.scope.recoveryKey).baselines).toEqual([
+      expect.objectContaining({ issue: 7, pullRequests: [] }),
+    ]);
   });
 
   it('retains failed proof and never invokes a smoke-project toolchain', async () => {

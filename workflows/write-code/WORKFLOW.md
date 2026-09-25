@@ -1,6 +1,6 @@
 ---
 name: write-code
-description: "Load specs/{N}-{slug}/ only. Execute tasks.md in declared order. Resolve and read skill://skill-creator before skill-bundled edits. No plan-mode approval, no gates. Use from /sdlc-execute for approved spec."
+description: "Load specs/{N}-{slug}/ only. Execute tasks.md in declared order. Map every Approved Acceptance bullet before editing. Resolve and read skill://skill-creator before skill-bundled edits. Use from /sdlc-execute for approved spec. Handoff next verify."
 ---
 
 # Write Code
@@ -28,8 +28,6 @@ Direct implementation of approved spec tasks for #N. No user questions. No plan 
      Extract lines matching ^\*\*Issue\*\*:\s*#?N$   and ^\*\*Status\*\*:\s*Approved$
    If any required file missing the exact match or Status != Approved: write failed handoff reasonCode:"spec_not_approved" intervention:true step:"implement"
 
-
-
 5. Use the injected `project.tech` and `project.structure` prompt snippets as the steering conventions. Do not read removed `steering/tech.md` or `steering/structure.md` authorities.
 
 If spec resolution fails any check, produce the failed handoff and stop before any edit.
@@ -37,10 +35,10 @@ If spec resolution fails any check, produce the failed handoff and stop before a
 Before implementation edits, reports, or commits, run the native read-only owner-bound scope probe:
 
 ```bash
-node "<plugin-root>/scripts/sdlc-safe-recoveries.mjs" probe --issue N --step implement --spec specs/N-SLUG --controller-run-id R
+node <plugin-root>/scripts/sdlc-safe-recoveries.mjs probe --issue N --step implement --spec specs/N-SLUG --controller-run-id R
 ```
 
-Use the exact controller run id from the worker header; it is required for this probe. Require `NMG_SDLC_PUBLICATION` with `passed:true` and `scope.mutationPolicy:"outcome"`. The helper validates the exact singular Approved spec, actual Git branch, active run identity/state, and unique matching incomplete recovery owner without acquiring the controller lock or writing run, handoff, recovery, spec, product, or `.pi-glla` state. `scope.allowedPaths` contains optional task `File(s)` hints; it is not mutation authority or a ceiling. Mutate any repository-relative path needed to satisfy Acceptance when `publicationPathDenied(path, { spec, readOnlyPaths: scope.readOnlyPaths })` is false. Never edit a `scope.readOnlyPaths` entry, another spec path, `.omp/`, or any path rejected by the publication-path validator. The current spec's `verification-report.md` is the only writable `specs/` exception. Treat `binding.discrepancies` as visible evidence; never repair or silently trust a stale checkpoint branch. The historical statement “A clean subjectless bind establishes the approved owner/path scope before edits” is false: `probe` establishes read-only binding evidence, while a subjectless implement `bind` is rejected before scope inspection. Any owner/scope failure stops before edits with an intervention handoff.
+Use the exact controller run id from the worker header; it is required for this probe. Require `NMG_SDLC_PUBLICATION` with `passed:true` and `scope.mutationPolicy:"outcome"`. The helper validates the exact singular Approved spec, actual Git branch, active run identity/state, and unique matching incomplete recovery owner without acquiring the controller lock or writing run, handoff, recovery, spec, product, or `.pi-glla` state. `scope.allowedPaths` contains optional task `File(s)` hints; it is not mutation authority or a ceiling. Mutate any repository-relative path needed to satisfy Acceptance when `publicationPathDenied(path, { spec, readOnlyPaths: scope.readOnlyPaths })` is false. Never edit a `scope.readOnlyPaths` entry, another spec path, `.omp/`, or any path rejected by the publication-path validator. The current spec's `verification-report.md` is the only writable `specs/` exception.
 
 ## Execute Tasks in Order
 
@@ -67,16 +65,13 @@ If a File(s) hint is incomplete or absent, continue from Acceptance and reposito
 ## Repair and Reverify
 
 1. Read the complete active requirements, design, tasks, and scenarios plus bounded relevant repository contracts and existing implementations. In a fresh `rN-implement` session, also consume the captured failure evidence and inspect preserved partial changes; retain the original `implement` step and handoff path.
-   When the worker prompt contains `This is not a fresh implement and not a remediation retry`, perform its required investigation mapping before any edit: classify every `tasks.md` acceptance bullet as already satisfied, remaining authorized work, or a still-blocked prerequisite, and skip every already satisfied task. Preserve `step:"implement"` and the implement handoff path.
+   Map every `tasks.md` (and requirements) Acceptance bullet as already satisfied, remaining authorized work, or a still-blocked prerequisite before any edit. Skip every already satisfied task. Preserve `step:"implement"` and the implement handoff path. Completed work must not be reset or re-published. Preserve authorized partial changes.
 2. Distinguish engineering work from unavailable authority. Missing internal code or an unspecified implementation detail is work to resolve within approved outcomes, not a reason to demand external implementation policy. Choose a conservative implementation supported by repository evidence and approved constraints; record the rationale and any necessary in-scope clarification in the active design.
 3. Implement the repair and rerun the failing check plus the narrow checks covering affected behavior. If another repairable defect appears, repeat investigation, repair, and reverification under the same contract. Never weaken acceptance criteria, fabricate provider/calibration facts or verification evidence, or invent approval to make a check pass.
 4. If repairable work remains for a fresh session, preserve useful partial changes and write `status:"failed"`, `intervention:false`, `reasonCode:"implementation_failed"`, `next:null`, `step:"implement"`. In `summary`, identify the remaining defect, attempted repairs, check commands/results, and next repair; list exact evidence and changed paths in `artifacts`. The existing controller owns fresh-session remediation; do not add a retry subsystem or attempt cap.
 5. Escalate with `intervention:true` only when available tools and authorized repairs cannot resolve a genuine prerequisite: missing approved scope, required credentials or external evidence, conflicting safety authority, or publication failure. Name the exact missing prerequisite and attempted resolutions, not merely “missing policy” or “missing code”. Do not publish partial work as success.
 
-Repair does not waive task completion, simplification, verification, or the commit/push/clean-tree/upstream-equality gates below. A failed handoff never advances to review1.
-On an owner-bound pre-publication recovery, the synchronized reconciliation commits are already upstream and are not an implementation publication. Preserve authorized dirty work; investigate completed acceptance bullets before editing, then use the same scope probe, subject bind, exact observed-path staging, single commit, ordinary push, reconciliation and handoff gates below. Never recommit the reconciliation merge, force-push it, reset dirty work, or treat a recovery dispatch as permission to skip publication proof.
-
-
+Repair does not waive task completion, simplification, verification, or the commit/push/clean-tree/upstream-equality gates below. A failed handoff never advances to verify without satisfying commit/push/clean/upstream gates.
 
 ## Pre-Publication Simplification
 
@@ -86,11 +81,11 @@ If this worker prompt includes the appended `# Simplify` workflow, execute that 
 
 Complete this boundary before writing a passed handoff:
 
-1. Choose the exact implementation commit subject before staging. It must use `feat:`, `fix:`, `docs:`, or `chore:` (optionally with a conventional scope/breaking marker), describe the change, and contain the concrete requested issue identifier (for issue {{issue}}, `#{{issue}}`; `#N` denotes this issue-number form). Never run the obsolete subjectless command `node "<plugin-root>/scripts/sdlc-safe-recoveries.mjs" bind --issue N --step implement --spec specs/N-SLUG [--controller-run-id R]`; implement `bind` rejects it with `publication_subject_unproven` before lease or scope inspection. Run `node "<plugin-root>/scripts/sdlc-safe-recoveries.mjs" bind --issue N --step implement --spec specs/N-SLUG [--controller-run-id R] --subject "<exact planned subject>"` after tasks and simplification to revalidate identity, outcome policy, denied paths, and the subject. Invoke the helper with a program-and-argument array; never interpolate the subject into shell source. Require `NMG_SDLC_PUBLICATION` with `passed:true`; treat returned `scope.allowedPaths` only as task hints. Failure stops before any staging, commit, or push.
+1. Choose the exact implementation commit subject before staging. It must use `feat:`, `fix:`, `docs:`, or `chore:` (optionally with a conventional scope/breaking marker), describe the change, and contain the concrete requested issue identifier (for issue {{issue}}, `#{{issue}}`; `#N` denotes this issue-number form). Never run the obsolete subjectless command `node <plugin-root>/scripts/sdlc-safe-recoveries.mjs bind --issue N --step implement --spec specs/N-SLUG [--controller-run-id R]`; implement `bind` rejects it with `publication_subject_unproven` before lease or scope inspection. Run `node <plugin-root>/scripts/sdlc-safe-recoveries.mjs bind --issue N --step implement --spec specs/N-SLUG [--controller-run-id R] --subject "<exact planned subject>"` after tasks and simplification to revalidate identity, outcome policy, denied paths, and the subject. Invoke the helper with a program-and-argument array; never interpolate the subject into shell source. Require `NMG_SDLC_PUBLICATION` with `passed:true`; treat returned `scope.allowedPaths` only as task hints. Failure stops before any staging, commit, or push.
 2. When approved non-runtime changes exist, stage the exact observed non-runtime dirty path set after the outcome-policy deny check passes, verify the staged diff is non-empty, and commit once using the exact machine-checked subject from step 1. Use literal Git pathspecs and avoid restaging already-staged deleted rename sources. Read the current branch and upstream: the branch must start with `N-`; run `git push -u origin HEAD` only for this newly created commit with no upstream, otherwise `git push`. This normal first publication does not consume a recovery allowance. Preserve a failed push's commit and proceed to outcome reconciliation below; never repeat a manual push.
 3. If the non-runtime worktree was already clean, do not commit or push directly. Do not rename, amend, or create a commit to satisfy the check.
-4. Read the exact existing stage subject with `git log -1 --format=%s HEAD`. It must equal the subject machine-checked in step 1 whenever this invocation created the commit. For clean existing publication and every first-push outcome, run `node "<plugin-root>/scripts/sdlc-safe-recoveries.mjs" reconcile --issue N --step implement --spec specs/N-SLUG --subject "<exact stage subject>" [--controller-run-id R]`. Use an argument-array process invocation; never interpolate the subject into shell source. Require `NMG_SDLC_PUBLICATION` with `passed:true`. The helper derives the observed commit path set, rejects denied paths or a mismatch, records that observed set as publication evidence, acknowledges only exact upstream HEAD with the expected stage subject, or consumes one `stage_publication` record before pushing a known clean-ahead commit without a duplicate commit or push.
-5. Any unresolved staging, commit, branch, upstream, owner, or publication-proof failure writes the implement handoff with `status:"failed"`, `intervention:true`, `reasonCode:"implementation_failed"`, `next:null`, then stops. Never start review1 from unpublished or uncommitted implementation; never replenish `#369` or `#372` recovery state.
+4. Read the exact existing stage subject with `git log -1 --format=%s HEAD`. It must equal the subject machine-checked in step 1 whenever this invocation created the commit. For clean existing publication and every first-push outcome, run `node <plugin-root>/scripts/sdlc-safe-recoveries.mjs reconcile --issue N --step implement --spec specs/N-SLUG --subject "<exact stage subject>" [--controller-run-id R]`. Use an argument-array process invocation; never interpolate the subject into shell source. Require `NMG_SDLC_PUBLICATION` with `passed:true`. The helper derives the observed commit path set, rejects denied paths or a mismatch, records that observed set as publication evidence, acknowledges only exact upstream HEAD with the expected stage subject, or consumes one `stage_publication` record before pushing a known clean-ahead commit without a duplicate commit or push.
+5. Any unresolved staging, commit, branch, upstream, owner, or publication-proof failure writes the implement handoff with `status:"failed"`, `intervention:true`, `reasonCode:"implementation_failed"`, `next:null`, then stops. Never start verify from unpublished or uncommitted implementation.
 
 ## Write Handoff
 
@@ -104,7 +99,7 @@ Write `.omp/sdlc/handoffs/N-implement.json` :
   "intervention": false,
   "summary": "All tasks from tasks.md executed for #N",
   "artifacts": [ list of created/modified paths ],
-  "next": "review1",
+  "next": "verify",
   "reasonCode": null
 }
 
@@ -115,7 +110,7 @@ Summary output:
 Implementation complete for issue #N.
 Tasks completed.
 Files: ...
-Next: execute review1
+Next: execute verify
 
 ## Failure Modes (always produce handoff before stop)
 

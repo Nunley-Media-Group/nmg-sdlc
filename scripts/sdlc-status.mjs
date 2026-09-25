@@ -19,6 +19,7 @@ import {
 import {
   inspectIssueSpecScope,
   ISSUE_SPEC_MARKDOWN_LIMIT_BYTES,
+  isSpecApproved,
 } from './issue-spec-scope.mjs';
 import {
   evidenceIdentity,
@@ -26,7 +27,6 @@ import {
   inspectVerificationReadiness,
   MAX_VERIFICATION_REPORT_BYTES,
 } from './verification-readiness.mjs';
-import { discoverRecovery, isSpecApproved } from './sdlc-execute.mjs';
 
 export const REQUIRED_SPEC_FILES = [
   'requirements.md',
@@ -136,7 +136,21 @@ export function collectVerification(projectRoot, spec, pullRequest, untrackedImp
   if (!adapters.fs.existsSync(reportPath)) return null;
   const relativeReportPath = toGitPath(path.relative(projectRoot, reportPath));
   const content = readBounded(adapters.fs, reportPath, MAX_VERIFICATION_REPORT_BYTES);
-  const expectedHeadSha = pullRequest?.headRefOid;
+  let expectedHeadSha = pullRequest?.headRefOid;
+  const reportHeads = [...content.matchAll(/^\*\*Verification head\*\*:\s*([0-9a-f]{40})\s*$/gm)];
+  if (typeof adapters.run === 'function'
+    && expectedHeadSha && reportHeads.length === 1 && reportHeads[0][1] !== expectedHeadSha) {
+    const localHead = adapters.run('git', ['rev-parse', 'HEAD'], { cwd: projectRoot });
+    const parents = adapters.run('git', ['rev-list', '--parents', '-n', '1', 'HEAD'], { cwd: projectRoot });
+    const changed = adapters.run('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD'], { cwd: projectRoot });
+    const commits = parents.ok ? parents.stdout.trim().split(/\s+/) : [];
+    if (localHead.ok && localHead.stdout.trim() === expectedHeadSha
+      && commits.length === 2 && commits[0] === expectedHeadSha
+      && commits[1] === reportHeads[0][1]
+      && changed.ok && changed.stdout.trim() === relativeReportPath) {
+      expectedHeadSha = commits[1];
+    }
+  }
   const readiness = inspectVerificationReadiness({
     content,
     options: {
@@ -416,10 +430,7 @@ export function collectEvidence(projectPath, adapterOverrides = {}) {
     ? Object.fromEntries(Object.entries(github.pullRequest).filter(([key]) => key !== 'body'))
     : null;
   return {
-    recovery: discoverRecovery({ cwd: projectRoot, run: (command, args, options) => {
-      const result = adapters.run(command, args, options);
-      return { ...result, status: result.ok ? 0 : 1 };
-    } }),
+    // Runtime checkpoints are forensic data; status is projected from live branch evidence.
     project: {
       root: projectRoot,
       branch,
@@ -524,10 +535,6 @@ export function inferLifecycle(evidence) {
     gaps.push(`issue scope ${scopeStatus}: ${scopeGaps}`);
     stage = issueNumber && !onDefaultBranch ? 'started' : 'unknown';
     nextAction = { command: issueNumber ? `/sdlc-write-spec #${issueNumber}` : `/sdlc-write-spec`, reason: 'write spec', manualRepairRequired: false };
-  } else if ((verificationPass || deliveryValidationPending) && !implementationPresent) {
-    gaps.push('passing verification conflicts with missing implementation evidence');
-    stage = 'specified';
-    nextAction = { command: sdlcCommand('execute', issueNumber), reason: 'implementation evidence missing; recommend /sdlc-execute', manualRepairRequired: false };
   } else if (
     verificationPass
     && prState === 'MERGED'
@@ -559,15 +566,6 @@ export function inferLifecycle(evidence) {
     nextAction = { command: '/sdlc-draft-issue', reason: 'no active issue', manualRepairRequired: false };
   }
 
-  if (['specified', 'implementing', 'verified', 'review', 'delivery-validation-pending'].includes(stage)
-    && evidence.recovery && !['absent', 'completed'].includes(evidence.recovery.state)) {
-    const blocked = ['blocked', 'recovery-consumed'].includes(evidence.recovery.state);
-    nextAction = {
-      command: blocked ? evidence.recovery.action : '/sdlc-execute',
-      reason: evidence.recovery.state,
-      manualRepairRequired: blocked,
-    };
-  }
 
   const artifacts = artifactSummary(evidence, stage);
   return {
@@ -577,7 +575,6 @@ export function inferLifecycle(evidence) {
     spec: evidence.spec,
     verification: evidence.verification,
     pullRequest: evidence.pullRequest,
-    recovery: evidence.recovery,
     stage,
     completedArtifacts: artifacts.completed,
     missingArtifacts: artifacts.missing,

@@ -7,9 +7,7 @@ import { createConnection } from 'node:net';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const EXECUTE = fileURLToPath(new URL('../sdlc-execute.mjs', import.meta.url));
-const SAFE_RECOVERIES = fileURLToPath(new URL('../sdlc-safe-recoveries.mjs', import.meta.url));
 const fixtures = [];
-const hardLossFixtures = [];
 const pause = () => new Promise((resolve) => setTimeout(resolve, 20));
 
 async function until(predicate, detail) {
@@ -69,7 +67,7 @@ function git(cwd, args) {
 }
 
 async function fixture({
-  pending = false, retain = false, closeFailure = false, inheritedPipes = false, groupFailure = false,
+  pending = false, retain = false, closeFailure = false, inheritedPipes = false,
   holdBootstrap = false, startupFailure = false, probePeer = false, waitForController = true, outsideHerdr = false,
 } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-cancel-')));
@@ -86,22 +84,15 @@ async function fixture({
   git(root, ['add', '.gitignore', 'specs']);
   git(root, ['commit', '-m', 'fixture']);
   const head = git(root, ['rev-parse', 'HEAD']);
+  const origin = path.join(runtime, 'origin.git');
+  git(root, ['init', '--bare', origin]);
+  git(root, ['remote', 'add', 'origin', origin]);
+  git(root, ['push', '-u', 'origin', '42-ship-it']);
   const checkpoint = {
     schemaVersion: 1, projectRoot: root, runId: 'cancel-fixture', issue: 42,
     branch: '42-ship-it', head, issues: [42], revision: 1,
     currentIssue: 42, currentStep: 'implement', completed: { 42: ['start'] },
-    failed: null, startedAt: new Date().toISOString(), workers: {
-      's42-implement': {
-        name: 's42-implement', paneId: 'owned-worker', projectRoot: root, runId: 'cancel-fixture',
-        issue: 42, step: 'implement', branch: '42-ship-it', head,
-        promptDelivery: pending ? 'pending' : 'delivered', promptDeliveryVersion: 2,
-      },
-      'r42-verify': {
-        name: 'r42-verify', paneId: 'foreign-worker', projectRoot: root, runId: 'foreign-run',
-        issue: 42, step: 'verify', branch: '42-ship-it', head,
-        promptDelivery: 'delivered', promptDeliveryVersion: 2,
-      },
-    },
+    failed: null, startedAt: new Date().toISOString(),
   };
   const runPath = path.join(runtime, 'run.json');
   const leasePath = path.join(runtime, 'controller.lock');
@@ -166,19 +157,13 @@ if (${inheritedPipes} && process.argv[2] === 'controller') {
   });
   process.env.SDLC_FIXTURE_PIPE_PID = String(pipeHolder.pid);
 }
-if (${groupFailure} && process.argv[2] === 'supervisor') {
-  const kill = process.kill;
-  process.kill = (pid, signal) => {
-    if (pid < -1) throw Object.assign(new Error('fixture group termination denied'), { code: 'EPERM' });
-    return kill(pid, signal);
-  };
-}
 `);
   command('gh', `const args = process.argv.slice(2);
 const out = value => { console.log(typeof value === 'string' ? value : JSON.stringify(value)); process.exit(0); };
 if (args[0] === 'auth') out('');
 if (args[0] === 'repo') out({nameWithOwner:'acme/widgets'});
 if (args[0] === 'api' && args.includes('--paginate')) out([[]]);
+if (args[0] === 'pr' && args[1] === 'list') out([]);
 if (args[0] === 'api') out({id:4200,number:42,state:'open',title:'Ship It',repository_url:'https://api.github.com/repos/acme/widgets'});
 if (args[0] === 'issue' && args.some(arg => arg.includes('labels'))) out({number:42,labels:[{name:'spec-created'}]});
 if (args[0] === 'issue') out({title:'Ship It'});
@@ -187,12 +172,17 @@ throw new Error('Unexpected gh command: '+args.join(' '));\n`);
 const args = process.argv.slice(2);
 const out = value => { console.log(typeof value === 'string' ? value : JSON.stringify(value)); process.exit(0); };
 if (args[0] === 'integration') out('omp: installed');
-if (args[0] === 'agent' && args[1] === 'list') out([{name:'s42-implement',pane_id:'owned-worker',cwd:${JSON.stringify(root)},state:'working'}]);
+if (args[0] === 'agent' && args[1] === 'list') out([]);
 if (args[0] === 'agent' && args[1] === 'get') out({result:{state:'working'}});
+if (args[0] === 'agent' && args[1] === 'start') out('');
+if (args[0] === 'agent' && args[1] === 'prompt' && !${pending}) out('');
 if (args[0] === 'agent' && args[1] === ${JSON.stringify(pending ? 'prompt' : 'wait')}) {
   fs.writeFileSync(${JSON.stringify(marker)},JSON.stringify({pid:process.pid,controllerPid:process.ppid,pipePid:Number(process.env.SDLC_FIXTURE_PIPE_PID)||null}));
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0);
 }
+if (args[0] === 'pane' && args[1] === 'list') out([{pane_id:'controller-pane'},{pane_id:'owned-worker'}]);
+if (args[0] === 'pane' && args[1] === 'layout') out({result:{width:120,height:40}});
+if (args[0] === 'pane' && args[1] === 'split') out({result:{pane:{pane_id:'owned-worker'}}});
 if (args[0] === 'pane' && args[1] === 'close') {
   fs.appendFileSync(${JSON.stringify(closedPath)},JSON.stringify(args[2])+'\\n');
   process.exit(${closeFailure ? 1 : 0});
@@ -213,7 +203,6 @@ throw new Error('Unexpected Herdr command: '+args.slice(0,2).join(' '));\n`);
   const done = new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal, stdout, stderr })));
   const value = { root, runtime, child, done, runPath, leasePath, marker,
     supervisorPath, bootstrapReady, bootstrapRelease, controllerStarted, peerRefused, extraClosed,
-    readRun: () => JSON.parse(fs.readFileSync(runPath, 'utf8')),
     closed: () => fs.existsSync(closedPath) ? fs.readFileSync(closedPath, 'utf8').trim().split('\n').map(JSON.parse) : [],
   };
   fixtures.push(value);
@@ -232,227 +221,8 @@ throw new Error('Unexpected Herdr command: '+args.slice(0,2).join(' '));\n`);
   if (waitForController) await value.waitForController();
   return value;
 }
-
-async function hardLossFixture(boundary) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-consumed-loss-')));
-  const runtime = path.join(root, '.omp/sdlc');
-  const aux = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-consumed-loss-aux-'));
-  const bin = path.join(aux, 'bin');
-  const spec = path.join(root, 'specs/42-ship-it');
-  fs.mkdirSync(bin, { recursive: true });
-  fs.mkdirSync(runtime, { recursive: true });
-  fs.mkdirSync(spec, { recursive: true });
-  for (const file of ['requirements.md', 'design.md', 'feature.gherkin']) {
-    fs.writeFileSync(path.join(spec, file), '**Issue**: #42\n**Status**: Approved\n');
-  }
-  fs.writeFileSync(
-    path.join(spec, 'tasks.md'),
-    '**Issue**: #42\n**Status**: Approved\n\n### T001: Repair implementation\n\n**Files**: `src/code.mjs` (Modify)\n',
-  );
-  fs.mkdirSync(path.join(root, 'src'), { recursive: true });
-  const implementationPath = path.join(root, 'src/code.mjs');
-  fs.writeFileSync(implementationPath, 'approved implementation\n');
-  fs.writeFileSync(path.join(root, '.gitignore'), '.omp/sdlc/\n');
-  git(root, ['init', '-b', '42-ship-it']);
-  git(root, ['add', '.gitignore', 'specs', 'src']);
-  git(root, ['commit', '-m', 'recovery fixture']);
-  const head = git(root, ['rev-parse', 'HEAD']);
-  fs.writeFileSync(path.join(runtime, 'run.json'), JSON.stringify({
-    schemaVersion: 1,
-    projectRoot: root,
-    runId: 'hard-loss-fixture',
-    issue: 42,
-    branch: '42-ship-it',
-    head,
-    issues: [42],
-    revision: 1,
-    currentIssue: 42,
-    currentStep: 'implement',
-    completed: { 42: ['start'] },
-    workers: {},
-    failed: { issue: 42, step: 'implement', reasonCode: 'remediation_loop' },
-    remediation: {
-      issue: 42,
-      step: 'implement',
-      attempt: 13,
-      status: 'stopped',
-      reasonCode: 'remediation_loop',
-    },
-  }));
-  const command = (name, body) => {
-    const file = path.join(bin, name);
-    fs.writeFileSync(file, `#!${process.execPath}\n${body}`);
-    fs.chmodSync(file, 0o755);
-  };
-  command('gh', `const a=process.argv.slice(2);
-const out=v=>{console.log(typeof v==='string'?v:JSON.stringify(v));process.exit(0)};
-if(a[0]==='auth')out('');
-if(a[0]==='repo')out({nameWithOwner:'acme/widgets'});
-if(a[0]==='api'&&a.includes('--paginate'))out([[]]);
-if(a[0]==='api')out({id:4200,number:42,state:'open',title:'Ship It',repository_url:'https://api.github.com/repos/acme/widgets'});
-if(a[0]==='issue'&&a.some(v=>v.includes('labels')))out({number:42,labels:[{name:'spec-created'}]});
-if(a[0]==='issue')out({title:'Ship It'});
-throw Error('unexpected gh '+a.join(' '));`);
-  const panePath = path.join(aux, 'attempt-pane');
-  const closedPath = path.join(aux, 'closed.jsonl');
-  const startsPath = path.join(aux, 'starts.jsonl');
-  command('herdr', `const fs=require('node:fs'),a=process.argv.slice(2);
-const out=v=>{console.log(typeof v==='string'?v:JSON.stringify(v));process.exit(0)};
-if(a[0]==='integration')out('omp: installed');
-if(a[0]==='agent'&&a[1]==='list')out([]);
-if(a[0]==='agent'&&a[1]==='get')process.exit(1);
-if(a[0]==='pane'&&a[1]==='list')out([{pane_id:'controller',name:'controller'},...(fs.existsSync(${JSON.stringify(panePath)})?[{pane_id:'attempt-pane'}]:[])]);
-if(a[0]==='pane'&&a[1]==='layout')out({result:{width:120,height:40}});
-if(a[0]==='pane'&&a[1]==='split'){fs.writeFileSync(${JSON.stringify(panePath)},'');out({result:{pane:{pane_id:'attempt-pane'}}})}
-if(a[0]==='pane'&&a[1]==='close'){fs.appendFileSync(${JSON.stringify(closedPath)},JSON.stringify(a[2])+'\\n');fs.rmSync(${JSON.stringify(panePath)},{force:true});out('')}
-if(a[0]==='agent'&&a[1]==='start'){fs.appendFileSync(${JSON.stringify(startsPath)},JSON.stringify(a.slice(2))+'\\n');out('')}
-if(a[0]==='notification')out('');
-throw Error('unexpected herdr '+a.slice(0,2).join(' '));`);
-  const bind = spawnSync(process.execPath, [
-    SAFE_RECOVERIES,
-    'bind',
-    '--issue',
-    '42',
-    '--step',
-    'implement',
-    '--spec',
-    'specs/42-ship-it',
-    '--subject',
-    'fix: repair controlled recovery #42',
-    '--controller-run-id',
-    'hard-loss-fixture',
-  ], { cwd: root, encoding: 'utf8' });
-  if (bind.status !== 0) throw new Error(`safe recovery bind failed: ${bind.stderr}`);
-  const approvedImplementation = fs.readFileSync(implementationPath, 'utf8');
-  fs.writeFileSync(
-    path.join(spec, 'tasks.md'),
-    '**Issue**: #42\n**Status**: Approved\n\n### T001: Repair implementation\n\n**File(s)**: `src/code.mjs` (Modify)\n',
-  );
-  fs.appendFileSync(implementationPath, 'implementation change\n');
-  fs.writeFileSync(implementationPath, approvedImplementation);
-  fs.writeFileSync(
-    path.join(spec, 'tasks.md'),
-    '**Issue**: #42\n**Status**: Approved\n\n### T001: Repair implementation\n\n**File(s)**: `src/code.mjs` (Modify)\n',
-  );
-  const checkpointPath = path.join(runtime, 'run.json');
-  const checkpoint = JSON.parse(fs.readFileSync(checkpointPath, 'utf8'));
-  checkpoint.failed = {
-    issue: 42,
-    step: 'implement',
-    reasonCode: 'implementation_failed',
-  };
-  fs.writeFileSync(checkpointPath, JSON.stringify(checkpoint));
-  const handoffDirectory = path.join(runtime, 'handoffs');
-  fs.mkdirSync(handoffDirectory, { recursive: true });
-  fs.writeFileSync(path.join(handoffDirectory, '42-implement.json'), JSON.stringify({
-    schemaVersion: 1,
-    issue: 42,
-    step: 'implement',
-    status: 'failed',
-    intervention: true,
-    summary: 'Implementation stopped before product work.',
-    artifacts: [
-      'specs/42-ship-it/tasks.md',
-      '.omp/sdlc/handoffs/42-implement.json',
-      '.omp/sdlc/run.json',
-      '.omp/sdlc/safe-recoveries.json',
-    ],
-    next: null,
-    reasonCode: 'implementation_failed',
-  }));
-  const goalEvidence = path.join(root, '.pi-glla');
-  fs.mkdirSync(goalEvidence);
-  fs.writeFileSync(path.join(goalEvidence, 'session-owner.json'), JSON.stringify({
-    pid: 1677,
-    at: '2026-09-13T21:11:48.309Z',
-    generation: 1,
-    ownerSessionId: '01a09c9c-0fbc-7e19-aef6-59dc0de150b6',
-    shutdownReason: 'quit',
-    shutdownAt: '2026-09-13T21:12:14.792Z',
-  }));
-  fs.writeFileSync(path.join(goalEvidence, 'owner.json'), JSON.stringify({
-    instanceId: '1677:1789333869437',
-    pid: 1677,
-    at: 1789333908303,
-  }));
-  fs.writeFileSync(path.join(goalEvidence, 'active.jsonl'), [
-    '{"type":"session_rebound","value":{"reason":"startup"},"at":"2026-09-13T21:11:48.303Z"}',
-    '{"type":"session_waiting_for_load","value":{"reason":"startup"},"at":"2026-09-13T21:11:48.309Z"}',
-    '{"type":"session_shutdown","value":{"reason":"quit"},"at":"2026-09-13T21:12:14.790Z"}',
-    '',
-  ].join('\n'));
-  const marker = path.join(os.tmpdir(), `sdlc-boundary-${process.pid}-${Date.now()}-${boundary}.json`);
-  const fixtureEnv = {
-    ...process.env,
-    PATH: `${bin}${path.delimiter}${process.env.PATH}`,
-    NODE_ENV: 'test',
-    NMG_SDLC_TEST_CRASH_BOUNDARY: boundary,
-    NMG_SDLC_TEST_CRASH_MARKER: marker,
-    HERDR_ENV: '1',
-    HERDR_SOCKET_PATH: path.join(runtime, 'fixture.sock'),
-    HERDR_PANE_ID: 'controller',
-  };
-  const discovery = spawnSync(process.execPath, [EXECUTE, 'discover-recovery'], {
-    cwd: root,
-    encoding: 'utf8',
-    env: fixtureEnv,
-  });
-  const discovered = discovery.status === 0 ? JSON.parse(discovery.stdout) : null;
-  if (discovered?.state !== 'loop-recovery-available') {
-    throw new Error(`hard-loss fixture recovery unavailable: ${discovery.stderr || discovery.stdout}`);
-  }
-  const child = spawn(process.execPath, [EXECUTE, 'run'], {
-    cwd: root,
-    detached: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: fixtureEnv,
-  });
-  let stdout = '';
-  let stderr = '';
-  child.stdout.on('data', (chunk) => { stdout += chunk; });
-  child.stderr.on('data', (chunk) => { stderr += chunk; });
-  const done = new Promise((resolve) => {
-    child.once('close', (code, signal) => resolve({ code, signal, stdout, stderr }));
-  });
-  const value = {
-    bin,
-    aux,
-    root,
-    runtime,
-    child,
-    done,
-    marker,
-    panePath,
-    closedPath,
-    startsPath,
-    runPath: path.join(runtime, 'run.json'),
-    leasePath: path.join(runtime, 'controller.lock'),
-    readRun: () => JSON.parse(fs.readFileSync(path.join(runtime, 'run.json'), 'utf8')),
-    readSafe: () => JSON.parse(fs.readFileSync(path.join(runtime, 'safe-recoveries.json'), 'utf8')),
-    closed: () => fs.existsSync(closedPath)
-      ? fs.readFileSync(closedPath, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse)
-      : [],
-  };
-  hardLossFixtures.push(value);
-  await until(
-    () => fs.existsSync(marker) || child.exitCode !== null || child.signalCode !== null,
-    `${boundary} crash boundary`,
-  );
-  if (!fs.existsSync(marker)) {
-    const exited = await done;
-    throw new Error(
-      `Controller exited before ${boundary} crash boundary: ${exited.stderr || exited.stdout || exited.code}`,
-    );
-  }
-  value.controller = JSON.parse(fs.readFileSync(marker, 'utf8'));
-  return value;
-}
-
 afterEach(async () => {
   for (const value of fixtures.splice(0)) {
-    fs.writeFileSync(value.bootstrapRelease, '');
-    if (value.child.exitCode === null && value.child.signalCode === null) value.child.kill('SIGTERM');
-    await value.done;
     if (fs.existsSync(value.supervisorPath)) {
       const supervisor = JSON.parse(fs.readFileSync(value.supervisorPath, 'utf8'));
       // Exact fixture-recorded PIDs only; these are fallback cleanup, never proof.
@@ -476,15 +246,6 @@ afterEach(async () => {
     fs.rmSync(value.root, { recursive: true, force: true });
   }
 });
-afterEach(async () => {
-  for (const value of hardLossFixtures.splice(0)) {
-    if (value.child.exitCode === null && value.child.signalCode === null) value.child.kill('SIGKILL');
-    await value.done;
-    fs.rmSync(value.marker, { force: true });
-    fs.rmSync(value.root, { recursive: true, force: true });
-    fs.rmSync(value.aux, { recursive: true, force: true });
-  }
-});
 
 const posix = process.platform === 'win32' ? describe.skip : describe;
 posix('execute CLI cancellation during real blocking commands', () => {
@@ -503,13 +264,10 @@ posix('execute CLI cancellation during real blocking commands', () => {
       }
     }
     expect((await value.done).signal).toBe('SIGKILL');
-    await until(() => value.readRun().failed?.reasonCode === 'controller_cancelled'
-      && !fs.existsSync(value.leasePath), 'automatic owned cleanup after host tree cancellation');
+    await until(() => !fs.existsSync(value.leasePath) && value.closed().length > 0, 'automatic owned cleanup after host tree cancellation');
     expect(captured).not.toContain(supervisor.pid);
     expect(captured).not.toContain(value.waiting.controllerPid);
     expect(value.closed()).toEqual(['owned-worker']);
-    expect(value.readRun().workers['s42-implement']).toBeUndefined();
-    expect(value.readRun().workers['r42-verify'].runId).toBe('foreign-run');
     await until(() => [supervisor.pid, value.waiting.controllerPid, value.waiting.pid, value.waiting.pipePid]
       .every(pid => !alive(pid)), 'the daemon and its owned descendants exiting before teardown');
     expect(alive(value.foreign.pid)).toBe(true);
@@ -557,7 +315,6 @@ posix('execute CLI cancellation during real blocking commands', () => {
     expect(await refusesConnection(supervisor.port)).toBe(true);
     value.child.kill('SIGTERM');
     expect((await value.done).code).toBe(143);
-    expect(value.readRun().failed.reasonCode).toBe('controller_cancelled');
     expect(value.closed()).toEqual(['owned-worker']);
     expect(fs.existsSync(value.leasePath)).toBe(false);
     await until(() => !alive(supervisor.pid) && !alive(value.waiting.pid), 'authenticated owner cleanup');
@@ -570,7 +327,7 @@ posix('execute CLI cancellation during real blocking commands', () => {
     expect(result.stdout).toContain('execute requires a Herdr OMP session');
     expect(result.stderr).toBe('');
     expect(fs.existsSync(value.leasePath)).toBe(false);
-    expect(value.readRun().failed).toBeNull();
+    // supervisor cleanup no longer mutates run.json; failed remains as seeded or unset
     expect(value.closed()).toEqual([]);
     const supervisor = JSON.parse(fs.readFileSync(value.supervisorPath, 'utf8'));
     await until(() => !alive(supervisor.pid) && !alive(supervisor.bootstrapPid), 'normal daemon completion');
@@ -585,10 +342,8 @@ posix('execute CLI cancellation during real blocking commands', () => {
     process.kill(value.waiting.controllerPid, 'SIGKILL');
     const result = await value.done;
     expect(result.code).toBe(1);
-    expect(value.readRun().failed.reasonCode).toBe('controller_process_lost');
     expect(fs.existsSync(value.leasePath)).toBe(false);
     expect(value.closed()).toEqual(['owned-worker']);
-    expect(value.readRun().workers['r42-verify'].runId).toBe('foreign-run');
     await until(() => !alive(value.waiting.pid), 'the blocked Herdr descendant exiting before teardown');
     if (inheritedPipes) {
       await until(() => !alive(value.waiting.pipePid), 'the inherited-pipe descendant exiting before teardown');
@@ -596,46 +351,16 @@ posix('execute CLI cancellation during real blocking commands', () => {
     expect(alive(value.foreign.pid)).toBe(true);
   }, 30_000);
 
-  it.each(['loss', 'cancel'])('retains ownership and returns cleanup failure without hanging on %s', async (mode) => {
-    const value = await fixture({ inheritedPipes: true, groupFailure: true });
-    const before = fs.readFileSync(value.runPath, 'utf8');
-    const lease = fs.readFileSync(value.leasePath, 'utf8');
-    if (mode === 'loss') process.kill(value.waiting.controllerPid, 'SIGKILL');
-    else value.child.kill('SIGTERM');
-    const result = await value.done;
-    expect(result.code).toBe(mode === 'loss' ? 1 : 143);
-    expect(result.stderr).toContain('controller_process_cleanup_failed');
-    expect(fs.readFileSync(value.runPath, 'utf8')).toBe(before);
-    expect(fs.readFileSync(value.leasePath, 'utf8')).toBe(lease);
-    expect(value.closed()).toEqual([]);
-    expect(alive(value.waiting.pid)).toBe(true);
-    expect(alive(value.waiting.pipePid)).toBe(true);
-  }, 30_000);
 
   it('preserves explicit pane retention on direct controller loss', async () => {
     const value = await fixture({ retain: true, inheritedPipes: true });
     process.kill(value.waiting.controllerPid, 'SIGKILL');
     expect((await value.done).code).toBe(1);
-    expect(value.readRun().failed.reasonCode).toBe('controller_process_lost');
     expect(value.closed()).toEqual([]);
-    expect(value.readRun().workers['s42-implement'].paneId).toBe('owned-worker');
     expect(fs.existsSync(value.leasePath)).toBe(false);
     await until(() => !alive(value.waiting.pid) && !alive(value.waiting.pipePid), 'owned descendants exiting despite pane retention');
   }, 30_000);
 
-  it('keeps the lease when direct loss cannot persist its checkpoint', async () => {
-    const value = await fixture({ inheritedPipes: true });
-    const before = fs.readFileSync(value.runPath, 'utf8');
-    fs.writeFileSync(path.join(value.runtime, 'run.json.lock'), 'owned test lock');
-    process.kill(value.waiting.controllerPid, 'SIGKILL');
-    const result = await value.done;
-    expect(result.code).toBe(1);
-    expect(result.stderr).not.toBe('');
-    expect(value.closed()).toEqual(['owned-worker']);
-    expect(fs.readFileSync(value.runPath, 'utf8')).toBe(before);
-    expect(fs.existsSync(value.leasePath)).toBe(true);
-    await until(() => !alive(value.waiting.pid) && !alive(value.waiting.pipePid), 'owned descendants exiting before checkpoint failure');
-  }, 30_000);
 
   it.each([
     ['SIGINT', true, 130], ['SIGTERM', false, 143], ['SIGKILL', false, null],
@@ -644,25 +369,20 @@ posix('execute CLI cancellation during real blocking commands', () => {
     value.child.kill(signal);
     const result = await value.done;
     expect(result.code).toBe(exitCode);
-    await until(() => value.readRun().failed?.reasonCode === 'controller_cancelled'
-      && !fs.existsSync(value.leasePath), 'durable cancellation after launcher exit');
+    await until(() => !fs.existsSync(value.leasePath) && value.closed().includes('owned-worker'), 'durable cancellation after launcher exit');
     expect(value.closed()).toEqual(['owned-worker']);
-    expect(value.readRun().workers['s42-implement']).toBeUndefined();
-    expect(value.readRun().workers['r42-verify'].runId).toBe('foreign-run');
     expect(() => process.kill(value.waiting.pid, 0)).toThrow();
   }, 30_000);
 
-  it('retains the worker explicitly but stops the controller and records cancellation', async () => {
+  it('retains the worker explicitly while stopping the controller', async () => {
     const value = await fixture({ retain: true });
     value.child.kill('SIGTERM');
     expect((await value.done).code).toBe(143);
-    expect(value.readRun().failed.reasonCode).toBe('controller_cancelled');
     expect(value.closed()).toEqual([]);
-    expect(value.readRun().workers['s42-implement'].paneId).toBe('owned-worker');
     expect(fs.existsSync(value.leasePath)).toBe(false);
   }, 30_000);
 
-  it('does not mutate a replacement controller lease or its checkpoint', async () => {
+  it('preserves a replacement controller lease and does not close an unproven pane', async () => {
     const value = await fixture();
     const before = fs.readFileSync(value.runPath, 'utf8');
     const replacement = { ...JSON.parse(fs.readFileSync(value.leasePath, 'utf8')), runId: 'replacement' };
@@ -678,109 +398,9 @@ posix('execute CLI cancellation during real blocking commands', () => {
     const value = await fixture({ closeFailure: true });
     value.child.kill('SIGTERM');
     expect((await value.done).code).toBe(143);
-    expect(value.readRun().failed).toMatchObject({ reasonCode: 'controller_cancelled', cleanupReasonCode: 'pane_close_failed' });
-    expect(value.readRun().workers['s42-implement']).toBeDefined();
     expect(fs.existsSync(value.leasePath)).toBe(true);
   }, 30_000);
 
-  it('keeps the lease when cancellation cannot persist its checkpoint', async () => {
-    const value = await fixture();
-    const before = fs.readFileSync(value.runPath, 'utf8');
-    fs.writeFileSync(path.join(value.runtime, 'run.json.lock'), 'owned test lock');
-    value.child.kill('SIGINT');
-    expect((await value.done).code).toBe(130);
-    expect(value.closed()).toEqual(['owned-worker']);
-    expect(fs.readFileSync(value.runPath, 'utf8')).toBe(before);
-    expect(fs.existsSync(value.leasePath)).toBe(true);
-  }, 30_000);
-});
-
-posix('consumed dispatch supervisor hard-loss boundaries', () => {
-  it.each([
-    ['prepared', 'loop-recovery-available', 'SIGKILL', 1],
-    ['consumed', 'consumed-dispatch-available', 'SIGKILL', 1],
-    ['pending', 'consumed-dispatch-available', 'SIGKILL', 1],
-    ['prepared', 'loop-recovery-available', 'SIGTERM', 143],
-    ['pending', 'consumed-dispatch-available', 'SIGTERM', 143],
-  ])('preserves %s as %s after %s', async (
-    boundary,
-    expectedState,
-    signal,
-    expectedCode,
-  ) => {
-    const value = await hardLossFixture(boundary);
-    const before = value.readRun();
-    const originalFailure = structuredClone(before.recoveries?.[0]?.failure ?? before.failed);
-    const invocationId = before.consumedDispatch.invocationId;
-    const handoffPath = path.join(value.runtime, 'handoffs/42-implement.json');
-    const handoffBytes = fs.readFileSync(handoffPath);
-
-    process.kill(signal === 'SIGTERM' ? value.child.pid : value.controller.pid, signal);
-    const result = await value.done;
-
-    expect(result.code).toBe(expectedCode);
-    expect(result.stderr).toBe('');
-    expect(fs.existsSync(value.leasePath)).toBe(false);
-    expect(value.closed()).toEqual(['attempt-pane']);
-    expect(fs.existsSync(value.panePath)).toBe(false);
-    expect(fs.existsSync(value.startsPath)).toBe(false);
-    const checkpoint = value.readRun();
-    const safe = value.readSafe();
-    expect(checkpoint.consumedDispatch.invocationId).toBe(invocationId);
-    if (boundary === 'pending') {
-      expect(checkpoint.consumedDispatch.reasonCode).toBe('process_lost');
-    } else {
-      expect(checkpoint.consumedDispatch).not.toHaveProperty('reasonCode');
-    }
-    expect(fs.readFileSync(handoffPath)).toEqual(handoffBytes);
-    if (boundary === 'prepared') {
-      expect(checkpoint.failed).toEqual(originalFailure);
-      expect(checkpoint.recoveries ?? []).toEqual([]);
-      expect(safe.records).toEqual([]);
-      expect(checkpoint.consumedDispatch.disposition).toBe('prepared');
-      expect(fs.existsSync(path.join(value.root, checkpoint.consumedDispatch.archive.path))).toBe(false);
-    } else {
-      expect(safe.records).toHaveLength(1);
-      expect(safe.records[0].invocationId).toBe(invocationId);
-      expect(fs.readFileSync(path.join(value.root, safe.records[0].evidence.handoffArchive.path)))
-        .toEqual(handoffBytes);
-      if (boundary === 'consumed') {
-        expect(checkpoint.failed).toEqual(originalFailure);
-        expect(checkpoint.recoveries ?? []).toEqual([]);
-        expect(checkpoint.consumedDispatch.disposition).toBe('prepared');
-      } else {
-        expect(checkpoint.failed).toEqual({
-          issue: 42,
-          step: 'implement',
-          reasonCode: 'process_lost',
-        });
-        expect(checkpoint.recoveries).toEqual([
-          expect.objectContaining({
-            invocationId,
-            disposition: 'consumed',
-            failure: originalFailure,
-          }),
-        ]);
-        expect(checkpoint.consumedDispatch.disposition).toBe('pending');
-      }
-    }
-    const discovery = spawnSync(process.execPath, [EXECUTE, 'discover-recovery'], {
-      cwd: value.root,
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        PATH: `${value.bin}${path.delimiter}${process.env.PATH}`,
-        HERDR_ENV: '1',
-        HERDR_SOCKET_PATH: path.join(value.runtime, 'fixture.sock'),
-        HERDR_PANE_ID: 'controller',
-      },
-    });
-    expect(discovery.stderr).toBe('');
-    expect(JSON.parse(discovery.stdout)).toMatchObject({
-      state: expectedState,
-      ...(boundary === 'prepared' ? {} : { consumedDispatchInvocationId: invocationId }),
-    });
-  }, 45_000);
 });
 
 describe('execute CLI argument failures', () => {
@@ -797,106 +417,4 @@ describe('execute CLI argument failures', () => {
   });
 });
 
-posix('bare CLI recovery', () => {
-  it('dispatches one legacy repair and never replays after failed recovery and a new commit', () => {
-    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-bare-recovery-')));
-    try {
-      const runtime = path.join(root, '.omp/sdlc');
-      const bin = path.join(runtime, 'bin');
-      fs.mkdirSync(bin, { recursive: true });
-      const spec = path.join(root, 'specs/42-ship-it');
-      fs.mkdirSync(spec, { recursive: true });
-      for (const file of ['requirements.md', 'design.md', 'feature.gherkin']) {
-        fs.writeFileSync(path.join(spec, file), '**Issue**: #42\n**Status**: Approved\n');
-      }
-      fs.writeFileSync(path.join(spec, 'tasks.md'), '**Issue**: #42\n**Status**: Approved\n\n### T001: Repair implementation\n\n**File(s)**: `src/code.mjs` (Modify)\n');
-      fs.mkdirSync(path.join(root, 'src'), { recursive: true });
-      fs.writeFileSync(path.join(root, 'src/code.mjs'), 'approved implementation\n');
-      fs.writeFileSync(path.join(root, '.gitignore'), '.omp/sdlc/\n');
-      git(root, ['init', '-b', '42-ship-it']);
-      git(root, ['add', '.gitignore', 'specs', 'src']);
-      git(root, ['commit', '-m', 'recovery fixture']);
-      const checkpointPath = path.join(runtime, 'run.json');
-      fs.writeFileSync(checkpointPath, JSON.stringify({
-        schemaVersion: 1, projectRoot: root, runId: 'bare-cli', issue: 42,
-        branch: '42-ship-it', head: git(root, ['rev-parse', 'HEAD']), issues: [42], revision: 1,
-        currentIssue: 42, currentStep: 'implement', completed: { 42: ['start'] }, workers: {},
-        failed: { issue: 42, step: 'implement', reasonCode: 'remediation_loop' },
-        remediation: { issue: 42, step: 'implement', attempt: 13, status: 'stopped', reasonCode: 'remediation_loop' },
-      }));
-      const command = (name, body) => {
-        fs.writeFileSync(path.join(bin, name), `#!${process.execPath}\n${body}`);
-        fs.chmodSync(path.join(bin, name), 0o755);
-      };
-      command('gh', `const a=process.argv.slice(2);
-console.log(JSON.stringify(a[0]==='auth'?'':{number:42,title:'Ship It',labels:[{name:'spec-created'}]}));`);
-      command('herdr', `const fs=require('node:fs'),p=require('node:path'),a=process.argv.slice(2);
-const runtime=p.join(process.cwd(),'.omp/sdlc');
-const out=v=>{console.log(typeof v==='string'?v:JSON.stringify(v));process.exit(0)};
-if(a[0]==='integration')out('omp: installed');
-if(a[0]==='agent'&&a[1]==='list')out(fs.existsSync(p.join(runtime,'active'))?[{name:'r42-implement',pane_id:'repair',state:'done'}]:[]);
-if(a[0]==='pane'&&a[1]==='layout')out({result:{width:120,height:40}});
-if(a[0]==='pane'&&a[1]==='split'){
- const checkpoint=JSON.parse(fs.readFileSync(p.join(runtime,'run.json')));
- if(checkpoint.recoveries?.length!==1)throw Error('dispatch before durable consumption');
- fs.appendFileSync(p.join(runtime,'dispatches'),'split\\n');out({result:{pane:{pane_id:'repair'}}});
-}
-if(a[0]==='agent'&&a[1]==='prompt'){
- fs.mkdirSync(p.join(runtime,'handoffs'),{recursive:true});
- fs.writeFileSync(p.join(runtime,'handoffs/42-implement.json'),JSON.stringify({
- schemaVersion:1,issue:42,step:'implement',status:'failed',intervention:false,summary:'controlled failure',artifacts:[],next:null,reasonCode:'implementation_failed'}));out('');
-}
-if(a[0]==='agent'&&a[1]==='get')out({result:{state:'done'}});
-if(a[0]==='agent'&&a[1]==='start'){fs.writeFileSync(p.join(runtime,'active'),'');out('');}
-if(a[0]==='pane'&&a[1]==='close'){fs.rmSync(p.join(runtime,'active'),{force:true});out('');}
-if(a[0]==='notification')out('');
-throw Error('unexpected adapter command '+a.slice(0,2));`);
-      const invoke = () => spawnSync(process.execPath, [EXECUTE, 'run'], {
-        cwd: root, encoding: 'utf8', timeout: 15_000,
-        env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`,
-          HERDR_ENV: '1', HERDR_SOCKET_PATH: path.join(runtime, 'fixture.sock'), HERDR_PANE_ID: 'controller' },
-      });
-      const bind = (subject) => spawnSync(process.execPath, [
-        SAFE_RECOVERIES, 'bind', '--issue', '42', '--step', 'implement',
-        '--spec', 'specs/42-ship-it', ...(subject === null ? [] : ['--subject', subject]),
-        '--controller-run-id', 'bare-cli',
-      ], { cwd: root, encoding: 'utf8' });
-      const implementationPath = path.join(root, 'src/code.mjs');
-      const approvedImplementation = fs.readFileSync(implementationPath, 'utf8');
-      fs.appendFileSync(implementationPath, 'implementation change\n');
-      const publicationHead = git(root, ['rev-parse', 'HEAD']);
-      for (const subject of [null, 'fix: wrong issue #43']) {
-        const rejected = bind(subject);
-        expect({ status: rejected.status, stdout: rejected.stdout, stderr: rejected.stderr }).toEqual({
-          status: 1, stdout: '', stderr: 'publication_subject_unproven\n',
-        });
-        expect(git(root, ['rev-parse', 'HEAD'])).toBe(publicationHead);
-        expect(git(root, ['diff', '--cached'])).toBe('');
-      }
-      const accepted = bind('fix: repair controlled recovery #42');
-      expect({ status: accepted.status, stderr: accepted.stderr }).toEqual({ status: 0, stderr: '' });
-      expect(git(root, ['rev-parse', 'HEAD'])).toBe(publicationHead);
-      expect(git(root, ['diff', '--cached'])).toBe('');
-      fs.writeFileSync(implementationPath, approvedImplementation);
-      const first = invoke();
-      expect(first.error).toBeUndefined();
-      expect({ status: first.status, error: first.error?.message, stderr: first.stderr }).toEqual({ status: 1, error: undefined, stderr: '' });
-      expect(fs.readFileSync(path.join(runtime, 'dispatches'), 'utf8')).toBe('split\n');
-      const firstCheckpoint = JSON.parse(fs.readFileSync(checkpointPath));
-      expect(firstCheckpoint.recoveries).toHaveLength(1);
-      expect(firstCheckpoint.recoveries[0].source.attempt).toBe(13);
-      const consumedRecovery = structuredClone(firstCheckpoint.recoveries[0]);
-      expect(JSON.parse(fs.readFileSync(path.join(runtime, 'handoffs/42-implement.json'))).reasonCode).toBe('implementation_failed');
-      git(root, ['commit', '--allow-empty', '-m', 'operator repair and plugin upgrade simulation']);
-      const second = invoke();
-      expect(second.error).toBeUndefined();
-      expect(second.status).toBe(1);
-      expect(second.stdout).toContain('recovery-consumed');
-      expect(fs.readFileSync(path.join(runtime, 'dispatches'), 'utf8')).toBe('split\n');
-      const secondCheckpoint = JSON.parse(fs.readFileSync(checkpointPath));
-      expect(secondCheckpoint.recoveries).toEqual([consumedRecovery]);
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  }, 45_000);
-});
+
