@@ -10,6 +10,10 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Fixed
+
+- Reverify published repairs after failed or mixed-local Incomplete reports with owner-bound head-pair receipts; carry immutable findings back through implementation and both reviews, and continue any remediable stage on distinct authorized evidence instead of a fixed total attempt count. Legacy recovery requires a server-observed repair push, read-only metadata inspection does not execute extensions, and every Pass finalization—including standalone—requires exact source-head registered results, invocation-bound provider evidence and a current acceptance report (#433).
+
 ## [3.24.9] - 2026-09-24
 
 ### Fixed

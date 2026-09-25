@@ -26,6 +26,8 @@ import {
   remAgentName,
   isRemediableFailedHandoff,
   remediationPrompt,
+  verificationRemediationProgress,
+  stageRemediationProgress,
   exclusiveResumePrompt,
   writeRun,
   cleanupCompletedRun,
@@ -41,6 +43,7 @@ import {
   releaseControllerLease,
 } from '../sdlc-controller-lease.mjs';
 import { startIssue } from '../start-issue.mjs';
+import { inspectIssueSpecScope } from '../issue-spec-scope.mjs';
 import {
   consumeSafeRecovery,
   expectedExecuteHandoffSlots,
@@ -758,7 +761,8 @@ describe('sdlc-execute helpers (SCN001–SCN007)', () => {
         /node "([^"\r\n]+[\\/]scripts[\\/][A-Za-z0-9._-]+\.mjs)"/g,
       )].map((match) => match[1]);
       expect(operands.length).toBeGreaterThan(0);
-      expect(operands.every((operand) => operand.startsWith(path.join(REPOSITORY_ROOT, 'scripts'))))
+      expect(operands.every((operand) => operand.startsWith(path.join(REPOSITORY_ROOT, 'scripts'))
+        || (step === 'verify' && operand.startsWith('${NMG_SDLC_PLUGIN_ROOT}/scripts'))))
         .toBe(true);
       expect(prompt).toContain(`nmg-sdlc ${step} worker for #42.`);
       expect(prompt).toContain(`.omp/sdlc/handoffs/42-${step}.json`);
@@ -3612,6 +3616,14 @@ describe('runExecute controller', () => {
         effectiveStatus: 'incomplete',
       }],
     })}\n`);
+    const scope = inspectIssueSpecScope({
+      projectRoot: fixture.cwd, issueNumber: 42, specPath: 'specs/42-ship-it',
+    });
+    fs.writeFileSync(path.join(fixture.cwd, 'specs/42-ship-it/verification-report.md'),
+      `# Verification\n## Implementation Status: **Incomplete**\n\n<!-- nmg-sdlc-issue-scope: ${JSON.stringify({
+        issueNumber: 42, specPath: 'specs/42-ship-it', status: scope.status,
+        delivery: scope.delivery, regression: scope.regression,
+      })} -->\n`);
     let consumedRecovery;
     const prompt = fixture.herdr.agentPrompt;
     fixture.herdr.agentPrompt = (input) => {
@@ -6956,7 +6968,7 @@ describe('runExecute controller', () => {
     expect(fixture.splits[VALID_STEPS.indexOf('verify')]).toEqual({
       direction: 'right',
       cwd: fixture.cwd,
-      environment: { NMG_SDLC_SMOKE_ISSUES: queue },
+      environment: { NMG_SDLC_PLUGIN_ROOT: REPOSITORY_ROOT, NMG_SDLC_SMOKE_ISSUES: queue },
     });
     expect(fixture.splits.filter((split) => split.environment?.NMG_SDLC_SMOKE_ISSUES)).toHaveLength(1);
   });
@@ -6981,7 +6993,7 @@ describe('runExecute controller', () => {
     expect(fixture.splits[VALID_STEPS.indexOf('verify')]).toEqual({
       direction: 'right',
       cwd: fixture.cwd,
-      environment: { NMG_SDLC_SMOKE_OWNED: '1', NMG_SDLC_SMOKE_RECOVERY: token },
+      environment: { NMG_SDLC_PLUGIN_ROOT: REPOSITORY_ROOT, NMG_SDLC_SMOKE_OWNED: '1', NMG_SDLC_SMOKE_RECOVERY: token },
     });
     expect(fixture.splits[VALID_STEPS.indexOf('deliver')]).toEqual({
       direction: 'right',
@@ -7100,7 +7112,7 @@ describe('runExecute controller', () => {
     expect(fixture.splits[VALID_STEPS.indexOf('verify')]).toEqual({
       direction: 'right',
       cwd: fixture.cwd,
-      environment: { NMG_SDLC_SMOKE_ISSUES: queue },
+      environment: { NMG_SDLC_PLUGIN_ROOT: REPOSITORY_ROOT, NMG_SDLC_SMOKE_ISSUES: queue },
     });
     expect(fixture.splits.filter((split) => split.environment?.NMG_SDLC_SMOKE_ISSUES)).toHaveLength(1);
   });
@@ -7223,12 +7235,12 @@ describe('runExecute controller', () => {
       {
         direction: 'right',
         cwd: fixture.cwd,
-        environment: { NMG_SDLC_SMOKE_ISSUES: queue },
+        environment: { NMG_SDLC_PLUGIN_ROOT: REPOSITORY_ROOT, NMG_SDLC_SMOKE_ISSUES: queue },
       },
       {
         direction: 'right',
         cwd: fixture.cwd,
-        environment: { NMG_SDLC_SMOKE_ISSUES: queue },
+        environment: { NMG_SDLC_PLUGIN_ROOT: REPOSITORY_ROOT, NMG_SDLC_SMOKE_ISSUES: queue },
       },
     ]);
     expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(false);
@@ -7257,9 +7269,9 @@ describe('runExecute controller', () => {
       { name: 'r42-verify', paneId: 'pane-9', kind: 'omp' },
     ]);
     expect(fixture.splits.slice(6, 9).map(({ environment }) => environment)).toEqual([
-      { NMG_SDLC_SMOKE_ISSUES: queue },
-      { NMG_SDLC_SMOKE_ISSUES: queue },
-      { NMG_SDLC_SMOKE_ISSUES: queue },
+      { NMG_SDLC_PLUGIN_ROOT: REPOSITORY_ROOT, NMG_SDLC_SMOKE_ISSUES: queue },
+      { NMG_SDLC_PLUGIN_ROOT: REPOSITORY_ROOT, NMG_SDLC_SMOKE_ISSUES: queue },
+      { NMG_SDLC_PLUGIN_ROOT: REPOSITORY_ROOT, NMG_SDLC_SMOKE_ISSUES: queue },
     ]);
     expect(fixture.events.indexOf('close:pane-8')).toBeLessThan(
       fixture.events.lastIndexOf('start:r42-verify'),
@@ -7343,6 +7355,451 @@ describe('runExecute controller', () => {
     expect(persisted.remediation).toMatchObject({ issue: 42, step: 'verify', status: 'stopped' });
     expect(persisted.failed).toMatchObject({ issue: 42, step: 'verify' });
   });
+  it('continues verified remediation beyond two distinct progressful approaches but rejects repetition', () => {
+    const first = {
+      headSha: 'a'.repeat(40), artifactHead: 'a'.repeat(40), artifactDigest: 'first-gate',
+    };
+    const second = {
+      headSha: 'b'.repeat(40), artifactHead: 'b'.repeat(40), artifactDigest: 'second-gate',
+    };
+    const third = {
+      headSha: 'c'.repeat(40), artifactHead: 'c'.repeat(40), artifactDigest: 'third-gate',
+    };
+    expect(verificationRemediationProgress(first, second, ['src/fix.ts'])).toBe(true);
+    expect(verificationRemediationProgress(second, third, ['tests/fix.test.ts'])).toBe(true);
+    expect(verificationRemediationProgress(second, { ...third, artifactDigest: second.artifactDigest }, ['src/fix.ts']))
+      .toBe(false);
+    expect(verificationRemediationProgress(second, third, ['README.md'])).toBe(false);
+    expect(verificationRemediationProgress(
+      { ...second, artifactHead: first.headSha },
+      { ...second, artifactDigest: 'fresh-gate' }, [],
+    )).toBe(true);
+    expect(verificationRemediationProgress(second, { ...second, artifactDigest: 'fresh-gate' }, [])).toBe(false);
+  });
+
+  it.each(['implement', 'fix1', 'fix2', 'review1', 'review2', 'deliver'])(
+    'uses distinct authorized %s evidence rather than a fixed attempt count', (step) => {
+      const old = { headSha: 'a'.repeat(40), artifactDigest: 'prior' };
+      const published = { headSha: 'b'.repeat(40), artifactDigest: 'new' };
+      expect(stageRemediationProgress(step, old, published, ['src/repair.py'])).toBe(true);
+      expect(stageRemediationProgress(step, old, { ...published, artifactDigest: old.artifactDigest }, ['src/repair.py']))
+        .toBe(false);
+      expect(stageRemediationProgress(step, old, published, ['README.md'])).toBe(false);
+      expect(stageRemediationProgress(step, old, { ...old, artifactDigest: 'new' }, []))
+        .toBe(['review1', 'review2', 'deliver'].includes(step));
+    },
+  );
+
+  it.each(['implement', 'fix1', 'fix2', 'deliver'])(
+    'continues %s beyond two genuinely published repairs', (target) => {
+      let head = 'a'.repeat(40);
+      let failures = 0;
+      let fixture;
+      fixture = makeControllerFixture({
+        remediableFailedStep: target,
+        remFailures: 3,
+        handoffContent: (handoff, { step, isRem }) => {
+          if (step === target && handoff.status === 'failed') {
+            failures += 1;
+            if (isRem) head = String.fromCharCode(97 + failures).repeat(40);
+            const artifact = path.join(fixture.cwd, `artifacts/${step}.txt`);
+            fs.mkdirSync(path.dirname(artifact), { recursive: true });
+            fs.writeFileSync(artifact, `measured attempt ${failures}\n`);
+          }
+          return JSON.stringify(handoff);
+        },
+      });
+      const originalRun = fixture.run;
+      fixture.run = (command, args, options) => {
+        if (command === 'git' && args[0] === 'rev-parse'
+          && ['HEAD', '@{u}', 'HEAD^{tree}'].includes(args[1])) {
+          return { status: 0, stdout: `${head}\n` };
+        }
+        if (command === 'git' && args[0] === 'merge-base' && args[1] === '--is-ancestor') {
+          return { status: 0, stdout: '' };
+        }
+        if (command === 'gh' && args[0] === 'pr' && args[1] === 'view') {
+          return { status: 0, stdout: JSON.stringify({
+            state: 'MERGED', headRefName: '42-ship-it', headRefOid: head,
+            mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED',
+            statusCheckRollup: [{ name: 'contract', conclusion: 'SUCCESS' }],
+          }) };
+        }
+        return originalRun(command, args, options);
+      };
+      const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+      expect(result.status).toBe(0);
+      expect(fixture.starts.filter(({ name }) => name === `r42-${target}`)).toHaveLength(4);
+    },
+  );
+
+  it('consumes new published implement evidence after an older recovery was spent', () => {
+    let fixture;
+    let head = 'b'.repeat(40);
+    let failures = 0;
+    fixture = makeControllerFixture({
+      remediableFailedStep: 'implement', remFailures: 3,
+      handoffContent: (handoff, { step }) => {
+        if (step === 'implement' && handoff.status === 'failed') {
+          failures += 1;
+          if (failures === 4) head = 'c'.repeat(40);
+          const artifact = path.join(fixture.cwd, 'artifacts/implement.txt');
+          fs.mkdirSync(path.dirname(artifact), { recursive: true });
+          fs.writeFileSync(artifact, failures === 4 ? 'another measured failure\n' : 'new failing gate\n');
+        }
+        return JSON.stringify(handoff);
+      },
+    });
+    expect(runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr }).status).toBe(1);
+    const checkpointPath = path.join(fixture.cwd, '.omp/sdlc/run.json');
+    const checkpoint = JSON.parse(fs.readFileSync(checkpointPath, 'utf8'));
+    expect(checkpoint).toMatchObject({ currentStep: 'implement', remediation: { status: 'stopped' } });
+    const artifactHash = createHash('sha256')
+      .update(fs.readFileSync(path.join(fixture.cwd, 'artifacts/implement.txt'))).digest('hex');
+    const digest = createHash('sha256').update(JSON.stringify([
+      head, ['artifacts/implement.txt', artifactHash],
+    ])).digest('hex');
+    checkpoint.head = head;
+    checkpoint.remediation.status = 'active';
+    checkpoint.remediation.completedAttempts = 0;
+    Object.assign(checkpoint.remediation.history.at(-1), {
+      headSha: head, artifactDigest: digest, changedPaths: ['src/repair.mjs'], progress: true,
+    });
+    checkpoint.recoveries = [{
+      runId: checkpoint.runId, issue: 42, step: 'implement',
+      invocationId: 'old-consumed-recovery', consumedAt: '2026-09-24T00:00:00Z',
+      source: { class: 'remediation_loop' }, disposition: 'consumed',
+    }];
+    fs.writeFileSync(checkpointPath, JSON.stringify(checkpoint));
+    fs.writeFileSync(path.join(fixture.cwd, '.omp/sdlc/safe-recoveries.json'), JSON.stringify({
+      schemaVersion: 1, revision: 1,
+      owners: [{ ownerId: checkpoint.runId, projectRoot: fs.realpathSync(fixture.cwd),
+        issue: 42, branch: '42-ship-it', step: 'implement', status: 'incomplete' }],
+      records: [],
+    }));
+    const priorRun = fixture.run;
+    fixture.run = (command, args, options) => {
+      if (command === 'git' && args[0] === 'rev-parse'
+        && ['HEAD', '@{u}', 'HEAD^{tree}'].includes(args[1])) {
+        return { status: 0, stdout: `${head}\n` };
+      }
+      return priorRun(command, args, options);
+    };
+    expect(discoverRecovery({ cwd: fixture.cwd, run: fixture.run, herdr: fixture.herdr }))
+      .toMatchObject({ state: 'loop-recovery-available',
+        recoveryClass: `progressful_stage_continue:implement:${head}:${digest}` });
+    const result = runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result.status).toBe(0);
+    const ledger = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/safe-recoveries.json')));
+    expect(ledger.records.filter((entry) =>
+      entry.class === `progressful_stage_continue:implement:${'b'.repeat(40)}:${digest}`)).toHaveLength(1);
+    expect(ledger.records.filter((entry) =>
+      entry.class.startsWith(`progressful_stage_continue:implement:${'c'.repeat(40)}:`))).toHaveLength(1);
+    expect(fixture.starts.filter(({ name }) => name === 'r42-implement')).toHaveLength(4);
+  });
+
+
+  it.each([
+    ['new gate failures', true, 0, 4],
+    ['only revised prose', false, 1, 2],
+  ])('classifies repeated verify repair with %s', (_case, progress, expectedStatus, workers) => {
+    let head = 'a'.repeat(40);
+    let failures = 0;
+    let fixture;
+    fixture = makeControllerFixture({
+      remediableFailedStep: 'verify',
+      remFailures: 3,
+      handoffContent: (handoff, { step, isRem }) => {
+        if (step === 'verify' && handoff.status === 'failed') {
+          failures += 1;
+          if (isRem && progress) head = String.fromCharCode(97 + failures).repeat(40);
+          const artifact = path.join(fixture.cwd, '.omp/sdlc/verification/42.json');
+          const report = path.join(fixture.cwd, 'specs/42-ship-it/verification-report.md');
+          fs.mkdirSync(path.dirname(artifact), { recursive: true });
+          fs.writeFileSync(artifact, JSON.stringify({
+            schemaVersion: 1, issue: 42, identity: { headSha: head },
+            coverage: { complete: true },
+            ceiling: 'Fail',
+            results: [{ id: 'required', provider: 'builtin.command',
+              required: true, applicable: true, effectiveStatus: 'failed',
+              result: {
+                summary: progress ? 'command exited 1' : `reworded failure ${failures}`,
+                evidence: [{ stdout: `FAIL tests/check.py\nExpected: 1\nReceived: ${progress ? failures : 2}`, stderr: '' }],
+              } }],
+          }));
+          fs.writeFileSync(report, `# Verification\n| AC1 | Fail |\nNote: attempt ${failures}\n`);
+        }
+        return JSON.stringify(handoff);
+      },
+    });
+    const originalRun = fixture.run;
+    fixture.run = (command, args, options) => {
+      if (command === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { status: 0, stdout: `${head}\n`, stderr: '' };
+      }
+      if (command === 'git' && args[0] === 'merge-base' && args[1] === '--is-ancestor') {
+        return { status: 0, stdout: '', stderr: '' };
+      }
+      return originalRun(command, args, options);
+    };
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result.status).toBe(expectedStatus);
+    expect(fixture.starts.filter(({ name }) => name === 'r42-verify')).toHaveLength(workers);
+    expect(fs.existsSync(path.join(fixture.cwd, '.omp/sdlc/run.json'))).toBe(!progress);
+  });
+
+  it('feeds a failed verify report back through implement and both reviews', () => {
+    let verifies = 0;
+    let fixture;
+    fixture = makeControllerFixture({
+      handoffContent: (handoff, { step, isRem }) => {
+        if (step !== 'verify' || isRem || verifies++ !== 0) return JSON.stringify(handoff);
+        const head = 'a'.repeat(40);
+        const reportPath = 'specs/42-ship-it/verification-report.md';
+        const artifactPath = '.omp/sdlc/verification/42.json';
+        fs.mkdirSync(path.dirname(path.join(fixture.cwd, artifactPath)), { recursive: true });
+        fs.writeFileSync(path.join(fixture.cwd, reportPath),
+          `# Verification\n## Implementation Status: **Fail**\n**Verification head**: ${head}\n`);
+        fs.writeFileSync(path.join(fixture.cwd, artifactPath), JSON.stringify({
+          schemaVersion: 1, issue: 42, identity: { headSha: head },
+          ceiling: 'Fail', coverage: { complete: true, missing: [], duplicate: [], unknown: [] },
+          results: [{ id: 'required', provider: 'builtin.command',
+            required: true, applicable: true, effectiveStatus: 'failed' }],
+        }));
+        return JSON.stringify({
+          ...handoff, status: 'failed', intervention: false,
+          reasonCode: 'verification_not_ready', next: 'implement',
+          verificationHead: head, artifacts: [reportPath, artifactPath],
+        });
+      },
+    });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result.status).toBe(0);
+    expect(fixture.starts.filter(({ name }) => name === 's42-implement')).toHaveLength(2);
+    expect(fixture.prompts.filter(({ name }) => name === 's42-implement')[1].prompt)
+      .toContain('The end goal remains every Approved acceptance criterion');
+    const archive = path.join(fixture.cwd, '.omp/sdlc/history/verification-feedback');
+    expect(fs.readdirSync(archive).filter((name) => name.endsWith('.artifact.json'))).toHaveLength(1);
+  });
+
+  it.each(['Fail', 'Incomplete'])('resumes a stopped %s verify rewind without redispatching its gate', (status) => {
+    const fixture = makeControllerFixture({ agentStartStatuses: [1, 1] });
+    const issue = 42, head = 'b'.repeat(40);
+    const spec = 'specs/42-ship-it';
+    const reportPath = `${spec}/verification-report.md`;
+    const artifactPath = '.omp/sdlc/verification/42.json';
+    const scope = inspectIssueSpecScope({ projectRoot: fixture.cwd, issueNumber: issue, specPath: spec });
+    seedRun(fixture.cwd, {
+      head, currentStep: 'verify', workers: {},
+      completed: { 42: VALID_STEPS.slice(0, VALID_STEPS.indexOf('verify')) },
+      failed: { issue, step: 'verify', reasonCode: 'remediation_loop' },
+      remediation: { issue, step: 'verify', status: 'stopped',
+        reasonCode: 'remediation_loop', attempt: 2, completedAttempts: 2, history: [] },
+      recoveries: [{ runId: 'test-run-id', issue, step: 'verify',
+        invocationId: 'old-recovery', consumedAt: '2026-09-24T00:00:00Z',
+        source: { class: 'changed_head_verify_dispatch' }, disposition: 'consumed' }],
+    });
+    fs.mkdirSync(path.dirname(path.join(fixture.cwd, artifactPath)), { recursive: true });
+    fs.writeFileSync(path.join(fixture.cwd, reportPath),
+      `# Verification\n## Implementation Status: **${status}**\n${status === 'Fail' ? `**Verification head**: ${head}\n` : ''}<!-- nmg-sdlc-issue-scope: ${JSON.stringify({
+        issueNumber: issue, specPath: spec, status: scope.status,
+        delivery: scope.delivery, regression: scope.regression,
+      })} -->\n`);
+    fs.writeFileSync(path.join(fixture.cwd, artifactPath), JSON.stringify({
+      schemaVersion: 1, issue, identity: { headSha: head }, ceiling: status,
+      coverage: { complete: true, missing: [], duplicate: [], unknown: [] },
+      results: [{ id: 'api-tests', provider: 'builtin.command',
+        required: true, applicable: true, effectiveStatus: 'failed' },
+      ...(status === 'Incomplete' ? [{ id: 'external', provider: 'project.external',
+        required: true, applicable: true, effectiveStatus: 'incomplete' }] : [])],
+    }));
+    fs.writeFileSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-verify.json'), JSON.stringify({
+      schemaVersion: 1, issue, step: 'verify', status: 'failed', intervention: false,
+      summary: 'new measured implementation failure', reasonCode: 'verification_not_ready',
+      next: 'implement', ...(status === 'Fail' ? { verificationHead: head } : {}),
+      artifacts: [reportPath, artifactPath],
+    }));
+    const originalRun = fixture.run;
+    fixture.run = (command, args, options) => command === 'git'
+      && args[0] === 'rev-parse' && args[1] === 'HEAD'
+      ? { status: 0, stdout: `${head}\n` } : originalRun(command, args, options);
+    expect(discoverRecovery({ cwd: fixture.cwd, run: fixture.run, herdr: fixture.herdr }))
+      .toMatchObject({ state: 'loop-recovery-available', recoveryClass: 'verification_rewind_resume' });
+    expect(runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr }).status).toBe(1);
+    const checkpoint = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json')));
+    expect(checkpoint).toMatchObject({ currentStep: 'implement', completed: { 42: ['start'] },
+      verificationFeedback: { issue: 42, history: [expect.objectContaining({ head })] } });
+    expect(fixture.starts.filter(({ name }) => name === 'r42-verify')).toHaveLength(0);
+    const archivedReport = path.join(fixture.cwd, checkpoint.verificationFeedback.history[0].report);
+    const originalReport = fs.readFileSync(archivedReport);
+    fs.chmodSync(archivedReport, 0o644);
+    fs.writeFileSync(archivedReport, 'tampered verification');
+    expect(() => workerPrompt({ step: 'implement', issue, cwd: fixture.cwd }))
+      .toThrow('verification_feedback_unproven');
+    fs.writeFileSync(archivedReport, originalReport);
+    fs.chmodSync(archivedReport, 0o444);
+    expect(workerPrompt({ step: 'implement', issue, cwd: fixture.cwd }))
+      .toContain('Prior verification findings');
+    const nextHead = 'c'.repeat(40);
+    const resumed = {
+      ...checkpoint,
+      revision: checkpoint.revision + 1,
+      currentStep: 'verify',
+      completed: { 42: VALID_STEPS.slice(0, VALID_STEPS.indexOf('verify')) },
+      failed: null,
+      remediation: null,
+      workers: {},
+    };
+    fs.writeFileSync(path.join(fixture.cwd, '.omp/sdlc/run.json'), JSON.stringify(resumed));
+    fs.writeFileSync(path.join(fixture.cwd, '.omp/sdlc/safe-recoveries.json'), JSON.stringify({
+      schemaVersion: 1, revision: 1,
+      owners: [{ ownerId: 'test-run-id', projectRoot: fs.realpathSync(fixture.cwd),
+        issue, branch: '42-ship-it', step: 'verify', status: 'incomplete' }],
+      records: [],
+    }));
+    const priorRun = fixture.run;
+    fixture.run = (command, args, options) => {
+      if (command === process.execPath && args[0].endsWith('sdlc-recover-verification.mjs')
+        && args.includes('--probe')) {
+        const digest = (relativePath) => `sha256:${createHash('sha256')
+          .update(fs.readFileSync(path.join(fixture.cwd, relativePath))).digest('hex')}`;
+        return { status: 0, stdout: JSON.stringify({
+          recover: false, eligible: true, kind: 'changed_head_failed_report',
+          oldHead: head, newHead: nextHead,
+          reportDigest: digest(reportPath), artifactDigest: digest(artifactPath),
+        }) };
+      }
+      if (command === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { status: 0, stdout: `${nextHead}\n` };
+      }
+      return priorRun(command, args, options);
+    };
+    fixture.herdr.agentStart = () => ({ status: 1, stderr: 'worker unavailable' });
+    expect(discoverRecovery({ cwd: fixture.cwd, run: fixture.run, herdr: fixture.herdr }))
+      .toMatchObject({ state: 'loop-recovery-available',
+        recoveryClass: `changed_head_verify_dispatch:${head}:${nextHead}` });
+    expect(runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr }).status).toBe(1);
+    const safe = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/safe-recoveries.json')));
+    expect(safe.records.filter((entry) =>
+      entry.class === `changed_head_verify_dispatch:${head}:${nextHead}`)).toHaveLength(1);
+  });
+
+
+  it('rewinds a remediation worker failure through implementation instead of retrying verify', () => {
+    let verifies = 0;
+    let fixture;
+    fixture = makeControllerFixture({
+      remediableFailedStep: 'verify',
+      handoffContent: (handoff, { step, isRem }) => {
+        if (step !== 'verify') return JSON.stringify(handoff);
+        if (!isRem && verifies++ > 0) {
+          return JSON.stringify({ ...handoff, status: 'passed', intervention: false,
+            reasonCode: null, next: 'next', artifacts: [] });
+        }
+        if (!isRem) return JSON.stringify(handoff);
+        const head = 'a'.repeat(40);
+        const reportPath = 'specs/42-ship-it/verification-report.md';
+        const artifactPath = '.omp/sdlc/verification/42.json';
+        fs.mkdirSync(path.dirname(path.join(fixture.cwd, artifactPath)), { recursive: true });
+        fs.writeFileSync(path.join(fixture.cwd, reportPath),
+          `# Verification\n## Implementation Status: **Fail**\n**Verification head**: ${head}\n`);
+        fs.writeFileSync(path.join(fixture.cwd, artifactPath), JSON.stringify({
+          schemaVersion: 1, issue: 42, identity: { headSha: head },
+          ceiling: 'Fail', coverage: { complete: true, missing: [], duplicate: [], unknown: [] },
+          results: [{ id: 'required', provider: 'builtin.command',
+            required: true, applicable: true, effectiveStatus: 'failed' }],
+        }));
+        return JSON.stringify({ ...handoff, status: 'failed', intervention: false,
+          reasonCode: 'verification_not_ready', next: 'implement',
+          verificationHead: head, artifacts: [reportPath, artifactPath] });
+      },
+    });
+    const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });
+    expect(result.status).toBe(0);
+    expect(fixture.starts.filter(({ name }) => name === 'r42-verify')).toHaveLength(1);
+    expect(fixture.starts.filter(({ name }) => name === 's42-implement')).toHaveLength(2);
+  });
+
+
+  it('admits a distinct repaired-head verify dispatch after consumed loop without replaying it', () => {
+    const fixture = makeControllerFixture({ agentStartStatuses: [1] });
+    const issue = 42;
+    const oldHead = 'a'.repeat(40);
+    const newHead = 'b'.repeat(40);
+    const spec = 'specs/42-ship-it';
+    const reportPath = `${spec}/verification-report.md`;
+    const artifactPath = '.omp/sdlc/verification/42.json';
+    const scope = inspectIssueSpecScope({ projectRoot: fixture.cwd, issueNumber: issue, specPath: spec });
+    const projection = {
+      issueNumber: issue, specPath: spec, status: scope.status,
+      delivery: scope.delivery, regression: scope.regression,
+    };
+    seedRun(fixture.cwd, {
+      head: oldHead, currentStep: 'verify', workers: {},
+      completed: { 42: VALID_STEPS.slice(0, VALID_STEPS.indexOf('verify')) },
+      failed: { issue, step: 'verify', reasonCode: 'remediation_loop' },
+      remediation: { issue, step: 'verify', status: 'stopped',
+        reasonCode: 'remediation_loop', attempt: 3, completedAttempts: 3, history: [] },
+      recoveries: [{ runId: 'test-run-id', issue, step: 'verify',
+        invocationId: 'previous-recovery', consumedAt: '2026-09-24T00:00:00Z',
+        source: { class: 'remediation_loop' }, disposition: 'consumed' }],
+    });
+    fs.mkdirSync(path.dirname(path.join(fixture.cwd, artifactPath)), { recursive: true });
+    fs.writeFileSync(path.join(fixture.cwd, reportPath),
+      `# Verification\n## Implementation Status: **Fail**\n\n**Verification head**: ${oldHead}\n\n<!-- nmg-sdlc-issue-scope: ${JSON.stringify(projection)} -->\n\n## Remaining Issues\n- src/change.mjs: failing assertion\n`);
+    fs.writeFileSync(path.join(fixture.cwd, artifactPath), JSON.stringify({
+      schemaVersion: 1, issue, identity: { headSha: oldHead }, ceiling: 'Fail',
+      coverage: { complete: true, missing: [], duplicate: [], unknown: [] },
+      results: [{ id: 'api-tests', provider: 'builtin.command',
+        required: true, applicable: true, effectiveStatus: 'failed' }],
+    }));
+    fs.writeFileSync(path.join(fixture.cwd, '.omp/sdlc/handoffs/42-verify.json'), JSON.stringify({
+      schemaVersion: 1, issue, step: 'verify', status: 'failed', intervention: false,
+      summary: 'implementation_non_pass',
+      artifacts: [reportPath, artifactPath], next: null, reasonCode: 'verification_not_ready',
+    }));
+    fs.writeFileSync(path.join(fixture.cwd, '.omp/sdlc/safe-recoveries.json'), JSON.stringify({
+      schemaVersion: 1, revision: 1,
+      owners: [{ ownerId: 'test-run-id', projectRoot: fs.realpathSync(fixture.cwd),
+        issue, branch: '42-ship-it', step: 'verify', status: 'incomplete' }],
+      records: [],
+    }));
+    const originalRun = fixture.run;
+    fixture.run = (command, args, options) => {
+      if (command === process.execPath && args[0].endsWith('sdlc-recover-verification.mjs')
+        && args.includes('--probe')) {
+        const digest = (relativePath) => `sha256:${createHash('sha256')
+          .update(fs.readFileSync(path.join(fixture.cwd, relativePath))).digest('hex')}`;
+        return { status: 0, stdout: JSON.stringify({
+          recover: false, eligible: true, kind: 'changed_head_failed_report',
+          oldHead, newHead,
+          reportDigest: digest(reportPath), artifactDigest: digest(artifactPath),
+        }) };
+      }
+      if (command === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { status: 0, stdout: `${newHead}\n` };
+      }
+      if (command === 'git' && args[0] === 'rev-list') return { status: 0, stdout: '0 0\n' };
+      if (command === 'git' && args[0] === 'merge-base' && args[1] === '--is-ancestor') {
+        return { status: 0, stdout: '' };
+      }
+      return originalRun(command, args, options);
+    };
+    const preview = discoverRecovery({ cwd: fixture.cwd, run: fixture.run, herdr: fixture.herdr });
+    expect(preview).toMatchObject({
+      state: 'loop-recovery-available', issue, step: 'verify',
+      recoveryClass: `changed_head_verify_dispatch:${oldHead}:${newHead}`,
+    });
+    expect(runExecute({ args: '', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr }).status).toBe(1);
+    const ledger = JSON.parse(fs.readFileSync(path.join(fixture.cwd, '.omp/sdlc/safe-recoveries.json')));
+    expect(ledger.records.filter((entry) =>
+      entry.class === `changed_head_verify_dispatch:${oldHead}:${newHead}`)).toHaveLength(1);
+    expect(discoverRecovery({ cwd: fixture.cwd, run: fixture.run, herdr: fixture.herdr }).state)
+      .not.toBe('loop-recovery-available');
+  });
+
+
+
   it.each(REMEDIABLE_STEPS.filter((step) => !step.startsWith('review')))('SCN010 stops after two failed remediation completions for step %s with remediation_loop and no third worker', (step) => {
     const fixture = makeControllerFixture({ remediableFailedStep: step, remFailures: 2 });
     const result = runExecute({ args: '#42', cwd: fixture.cwd, env, run: fixture.run, herdr: fixture.herdr });

@@ -36,6 +36,7 @@ import { tmpdir } from 'node:os';
 import { inspectReviewReceipts } from '../src/sdlc-review-isolation.mjs';
 import {
   consumeSafeRecovery,
+  getChangedHeadVerificationRecord,
   inspectPublicationScope,
   getSafeRecoveryRecord,
   hasSafeRecoveryRecord,
@@ -62,7 +63,8 @@ import {
 import { packageRoot } from '../src/sdlc-workflows.mjs';
 import { issueHasSpecCreatedLabel, SPEC_CREATED_LABEL } from './spec-created-label.mjs';
 import { isCliEntry, materializeControllerPaths } from './plugin-controller-path.mjs';
-import { inspectVerificationArtifactRepair } from './verification-readiness.mjs';
+import { inspectVerificationArtifactRepair, inspectVerificationReadiness } from './verification-readiness.mjs';
+import { inspectIssueSpecScope } from './issue-spec-scope.mjs';
 import {
   isAuthorizedOmpSdlcUntrackTransition,
   untrackOmpSdlcRuntime,
@@ -109,6 +111,7 @@ const STEP_PANE_ENV_KEYS = Object.freeze({
 
 function stepPaneEnvironment(step, env, controllerRunId) {
   const environment = {};
+  if (step === 'verify') environment.NMG_SDLC_PLUGIN_ROOT = packageRoot;
   if (['fix1', 'fix2'].includes(step) && controllerRunId) {
     environment.NMG_SDLC_CONTROLLER_RUN_ID = controllerRunId;
   }
@@ -600,6 +603,8 @@ const REPAIRED_PUBLICATION_RECOVERY = 'repaired_publication_intervention';
 const EXCLUSIVE_IMPLEMENT_RESUME = 'exclusive_implement_resume';
 const CLOSED_WORKER_RESUME = 'closed_worker_resume';
 const ACTIONABLE_VERIFICATION_RESUME = 'actionable_verification_resume';
+const VERIFICATION_REWIND_RESUME = 'verification_rewind_resume';
+const PROGRESSFUL_STAGE_CONTINUE = 'progressful_stage_continue';
 const ISSUE_UNREADABLE_START_RESUME = 'issue_unreadable_start_resume';
 const BRANCH_CHECKOUT_FAILED_START_RESUME = 'branch_checkout_failed_start_resume';
 const PREPUBLICATION_IMPLEMENT_RESUME = 'prepublication_implement_resume';
@@ -711,6 +716,249 @@ function inspectActionableVerificationArtifact(root, issue, head) {
     };
   }
 }
+function verificationEvidenceSnapshot(artifactBytes, reportBytes, headSha) {
+  const artifact = JSON.parse(artifactBytes.toString('utf8'));
+  if (!/^[0-9a-f]{40}$/i.test(artifact.identity?.headSha ?? '')
+    || artifact.coverage?.complete !== true || !Array.isArray(artifact.results)) return null;
+  return {
+    headSha,
+    artifactHead: artifact.identity.headSha,
+    reportDigest: createHash('sha256').update(reportBytes).digest('hex'),
+    artifactDigest: createHash('sha256').update(artifactBytes).digest('hex'),
+  };
+}
+
+function verificationFailureSnapshot({ cwd, issue, run }) {
+  const current = run('git', ['rev-parse', 'HEAD'], { cwd });
+  const headSha = commandSucceeded(current) ? String(current.stdout).trim() : '';
+  if (!/^[0-9a-f]{40}$/i.test(headSha)) return null;
+  try {
+    const artifactBytes = readBoundedNoFollowFile(
+      cwd, `${RUN_DIR}/verification/${issue}.json`,
+      MAX_VERIFICATION_ARTIFACT_BYTES, 'verification_artifact_invalid',
+    ).bytes;
+    const artifact = JSON.parse(artifactBytes.toString('utf8'));
+    const specDir = resolveSpecDir(cwd, issue);
+    if (!specDir || artifact.issue !== issue) return null;
+    const reportPath = `${relative(cwd, specDir).split('\\').join('/')}/verification-report.md`;
+    const reportBytes = readBoundedNoFollowFile(cwd, reportPath, MAX_HANDOFF_BYTES, 'verification_report_invalid').bytes;
+    return verificationEvidenceSnapshot(artifactBytes, reportBytes, headSha);
+  } catch {
+    return null;
+  }
+}
+
+function stageFailureSnapshot({ cwd, issue, step, handoff, run }) {
+  if (step === 'verify') return verificationFailureSnapshot({ cwd, issue, run });
+  try {
+    const current = run('git', ['rev-parse', 'HEAD'], { cwd });
+    const upstream = run('git', ['rev-parse', '@{u}'], { cwd });
+    const tree = run('git', ['rev-parse', 'HEAD^{tree}'], { cwd });
+    if (![current, upstream, tree].every(commandSucceeded)
+      || String(current.stdout).trim() !== String(upstream.stdout).trim()) return null;
+    const headSha = String(current.stdout).trim();
+    if (!/^[0-9a-f]{40}$/i.test(headSha) || !/^[0-9a-f]{40}$/i.test(String(tree.stdout).trim())) return null;
+    const evidence = [String(tree.stdout).trim()];
+    for (const relativePath of handoff.artifacts) {
+      evidence.push([relativePath, createHash('sha256').update(readBoundedNoFollowFile(
+        cwd, relativePath, MAX_VERIFICATION_ARTIFACT_BYTES, 'stage_artifact_invalid',
+      ).bytes).digest('hex')]);
+    }
+    if (step === 'deliver') {
+      const viewed = run('gh', ['pr', 'view', '--json',
+        'headRefOid,mergeStateStatus,reviewDecision,statusCheckRollup'], { cwd });
+      if (commandSucceeded(viewed)) {
+        const pr = JSON.parse(viewed.stdout);
+        if (pr.headRefOid !== headSha) return null;
+        evidence.push({
+          mergeStateStatus: pr.mergeStateStatus, reviewDecision: pr.reviewDecision,
+          checks: pr.statusCheckRollup?.map((check) => ({
+            name: check.name ?? check.context, conclusion: check.conclusion ?? check.state,
+          })),
+        });
+      }
+    }
+    return {
+      headSha,
+      artifactDigest: createHash('sha256').update(JSON.stringify(evidence)).digest('hex'),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function stageRemediationProgress(step, previous, current, changedPaths = []) {
+  if (step === 'verify') return verificationRemediationProgress(previous, current, changedPaths);
+  if (!previous?.artifactDigest || !current?.artifactDigest
+    || previous.artifactDigest === current.artifactDigest) return false;
+  if (previous.headSha !== current.headSha) {
+    return changedPaths.some((path) => !path.startsWith('specs/')
+      && !['README.md', 'CHANGELOG.md', 'VERSION'].includes(path));
+  }
+  return ['review1', 'review2', 'deliver'].includes(step);
+}
+
+export function verificationRemediationProgress(previous, current, changedPaths = []) {
+  if (!previous?.artifactDigest || !current?.artifactDigest
+    || previous.artifactDigest === current.artifactDigest) return false;
+  const publishedChange = previous.headSha !== current.headSha
+    && current.artifactHead === current.headSha
+    && changedPaths.some((path) => !path.startsWith('specs/')
+      && !['README.md', 'CHANGELOG.md', 'VERSION'].includes(path));
+  const newMeasurement = previous.headSha === current.headSha
+    && previous.artifactHead !== current.artifactHead
+    && current.artifactHead === current.headSha;
+  return publishedChange || newMeasurement;
+}
+
+function inspectProgressfulStageResume({ cwd, checkpoint, checkout, handoff, run }) {
+  const issue = checkpoint?.currentIssue;
+  const step = checkpoint?.currentStep;
+  const latest = checkpoint?.remediation?.history?.at(-1);
+  if (!Number.isSafeInteger(issue) || !REMEDIABLE_STEPS.includes(step)
+    || checkpoint.remediation?.issue !== issue || checkpoint.remediation.step !== step
+    || latest?.progress !== true || latest.headSha !== checkout?.head
+    || handoff?.issue !== issue || handoff.step !== step || handoff.status !== 'failed'
+    || handoff.intervention !== false) return null;
+  const current = stageFailureSnapshot({ cwd, issue, step, handoff, run });
+  if (!current || current.headSha !== latest.headSha
+    || current.artifactDigest !== latest.artifactDigest) return null;
+  try {
+    const className = `${PROGRESSFUL_STAGE_CONTINUE}:${step}:${current.headSha}:${current.artifactDigest}`;
+    if (getSafeRecoveryRecord({ cwd, ownerId: checkpoint.runId, issue, step, class: className })) return null;
+    const handoffPath = ['review1', 'review2'].includes(step)
+      ? resolveReviewArtifacts({ cwd, issue, step }).handoffPath
+      : `${HANDOFF_DIR}/${issue}-${step}.json`;
+    return {
+      class: className, issue, step, revision: checkpoint.revision,
+      head: current.headSha, artifactDigest: current.artifactDigest,
+      handoffDigest: readStrictHandoffSnapshot(cwd, handoffPath, issue, step).digest,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function verificationHeadMarkers(content) {
+  return [...String(content).matchAll(/^\*\*Verification head\*\*:\s*([0-9a-f]{40})\s*$/gm)]
+    .map((match) => match[1]);
+}
+
+function inspectChangedHeadVerifyDispatch({ cwd, checkpoint, checkout, handoff, run }) {
+  const issue = checkpoint?.currentIssue;
+  const feedback = checkpoint?.verificationFeedback?.issue === issue
+    ? checkpoint.verificationFeedback.history?.at(-1) : null;
+  const afterRewind = feedback && !checkpoint.remediation && !checkpoint.failed
+    && checkpoint.completed?.[String(issue)]?.join(',') === VALID_STEPS.slice(0, VALID_STEPS.indexOf('verify')).join(',')
+    && handoff?.next === 'implement'
+    && (!handoff.verificationHead || handoff.verificationHead === feedback.head);
+  if (checkpoint?.currentStep !== 'verify' || !Number.isSafeInteger(issue)
+    || (checkpoint.remediation?.reasonCode !== 'remediation_loop' && !afterRewind)
+    || handoff?.status !== 'failed' || handoff.intervention !== false
+    || handoff.reasonCode !== 'verification_not_ready') return null;
+  const specDir = resolveSpecDir(cwd, issue);
+  if (!specDir) return null;
+  const specPath = relative(cwd, specDir).split('\\').join('/');
+  const reportPath = `${specPath}/verification-report.md`;
+  const artifactPath = `${RUN_DIR}/verification/${issue}.json`;
+  try {
+    const checked = run(process.execPath, [
+      join(packageRoot, 'scripts/sdlc-recover-verification.mjs'),
+      '--issue', String(issue), '--spec', specPath,
+      '--controller-run-id', checkpoint.runId, '--probe',
+    ], { cwd });
+    if (!commandSucceeded(checked)) return null;
+    const proof = JSON.parse(checked.stdout);
+    if (proof?.eligible !== true || proof.recover !== false
+      || proof.kind !== 'changed_head_failed_report'
+      || !/^[0-9a-f]{40}$/i.test(proof.oldHead ?? '')
+      || proof.newHead !== checkout.head
+      || !/^sha256:[0-9a-f]{64}$/.test(proof.reportDigest ?? '')
+      || !/^sha256:[0-9a-f]{64}$/.test(proof.artifactDigest ?? '')) return null;
+    const reportBytes = readBoundedNoFollowFile(cwd, reportPath, MAX_HANDOFF_BYTES, 'verification_report_invalid').bytes;
+    const artifactBytes = readBoundedNoFollowFile(cwd, artifactPath, MAX_VERIFICATION_ARTIFACT_BYTES, 'verification_artifact_invalid').bytes;
+    if (`sha256:${createHash('sha256').update(reportBytes).digest('hex')}` !== proof.reportDigest
+      || `sha256:${createHash('sha256').update(artifactBytes).digest('hex')}` !== proof.artifactDigest) return null;
+    if (afterRewind) {
+      const prefix = `${RUN_DIR}/history/verification-feedback/${issue}-${feedback.head}-${feedback.artifactDigest}`;
+      if (feedback.report !== `${prefix}.report.md`
+        || feedback.artifact !== `${prefix}.artifact.json`) return null;
+      if (proof.oldHead !== feedback.head
+        || proof.reportDigest !== `sha256:${feedback.reportDigest}`
+        || proof.artifactDigest !== `sha256:${feedback.artifactDigest}`
+        || !readBoundedNoFollowFile(cwd, feedback.report, MAX_HANDOFF_BYTES, 'verification_feedback_unproven').bytes.equals(reportBytes)
+        || !readBoundedNoFollowFile(cwd, feedback.artifact, MAX_VERIFICATION_ARTIFACT_BYTES, 'verification_feedback_unproven').bytes.equals(artifactBytes)) return null;
+    }
+    const className = `changed_head_verify_dispatch:${proof.oldHead}:${checkout.head}`;
+    if (getSafeRecoveryRecord({ cwd, ownerId: checkpoint.runId, issue, step: 'verify', class: className })
+      || getSafeRecoveryRecord({
+        cwd, ownerId: checkpoint.runId, issue, step: 'verify',
+        class: `changed_head_verification_recheck:${proof.oldHead}:${checkout.head}`,
+      })) return null;
+    return {
+      class: className, revision: checkpoint.revision,
+      oldHead: proof.oldHead, head: checkout.head, afterRewind: !!afterRewind,
+      reportDigest: proof.reportDigest, artifactDigest: proof.artifactDigest,
+      handoffDigest: readStrictHandoffSnapshot(cwd, `${HANDOFF_DIR}/${issue}-verify.json`, issue, 'verify').digest,
+    };
+  } catch {
+    return null;
+  }
+}
+
+
+function inspectPendingVerificationRewind({ cwd, checkpoint, checkout, handoff }) {
+  const issue = checkpoint?.currentIssue;
+  if (!Number.isSafeInteger(issue) || checkpoint.currentStep !== 'verify'
+    || !isActionableVerificationRewind(issue, 'verify', handoff)
+    || (handoff.verificationHead && handoff.verificationHead !== checkout?.head)
+    || !remediationCompletedSteps({
+      issue, step: 'verify', completed: checkpoint.completed?.[String(issue)], handoff,
+    })) return null;
+  const specDir = resolveSpecDir(cwd, issue);
+  if (!specDir) return null;
+  const specPath = relative(cwd, specDir).split('\\').join('/');
+  const reportPath = `${specPath}/verification-report.md`;
+  const artifactPath = `${RUN_DIR}/verification/${issue}.json`;
+  try {
+    const reportBytes = readBoundedNoFollowFile(cwd, reportPath, MAX_HANDOFF_BYTES, 'verification_report_invalid').bytes;
+    const artifactBytes = readBoundedNoFollowFile(cwd, artifactPath, MAX_VERIFICATION_ARTIFACT_BYTES, 'verification_artifact_invalid').bytes;
+    const markers = verificationHeadMarkers(reportBytes.toString('utf8'));
+    const scope = inspectIssueSpecScope({ projectRoot: cwd, issueNumber: issue, specPath });
+    const readiness = inspectVerificationReadiness({
+      content: reportBytes.toString('utf8'),
+      options: { expectedIssueNumber: issue, expectedSpecPath: specPath, expectedScope: scope },
+    });
+    const artifact = JSON.parse(artifactBytes.toString('utf8'));
+    const valid = inspectVerificationArtifactRepair(artifact, {
+      expectedIssueNumber: issue, expectedHeadSha: checkout.head,
+    });
+    const localFailure = ['fail', 'partial'].includes(readiness.implementationStatus)
+      && artifact.ceiling !== 'Incomplete'
+      && !artifact.results.some((result) => result.required && result.applicable
+        && (result.effectiveStatus === 'skipped'
+          || (result.provider !== 'builtin.command' && result.effectiveStatus !== 'passed')));
+    const mixedLocalFailure = readiness.implementationStatus === 'incomplete'
+      && artifact.ceiling === 'Incomplete' && valid.status === 'repairable'
+      && valid.failedLocal.length > 0 && valid.incomplete.length > 0;
+    const validMarker = (markers.length === 1 && markers[0] === checkout.head)
+      || (markers.length === 0
+        && isMarkerlessMixedFeedback(cwd, issue, checkout.head, reportBytes, artifact, checkpoint.runId));
+    if (!validMarker || !['scoped', 'implicit_single_issue'].includes(scope.status)
+      || readiness.status !== 'blocked' || readiness.reasonCode !== 'implementation_non_pass'
+      || readiness.gaps?.length !== 0 || valid.status === 'unverifiable'
+      || (!localFailure && !mixedLocalFailure)) return null;
+    return {
+      class: VERIFICATION_REWIND_RESUME, revision: checkpoint.revision, head: checkout.head,
+      reportDigest: createHash('sha256').update(reportBytes).digest('hex'),
+      artifactDigest: createHash('sha256').update(artifactBytes).digest('hex'),
+      handoffDigest: readStrictHandoffSnapshot(cwd, `${HANDOFF_DIR}/${issue}-verify.json`, issue, 'verify').digest,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function inspectActionableVerificationResume({ cwd, checkpoint, checkout, run }) {
   if (!checkpoint || checkpoint.currentStep !== 'verify'
     || !checkout || !checkout.branch.startsWith(`${checkpoint.currentIssue}-`)) return null;
@@ -824,6 +1072,80 @@ function archiveFailedHandoff(root, proof) {
   }
   return { path: archivePath, digest: proof.handoffDigest };
 }
+
+function isMarkerlessMixedFeedback(root, issue, headSha, reportBytes, artifact, ownerId) {
+  if (!ownerId || artifact?.ceiling !== 'Incomplete') return false;
+  const specDir = resolveSpecDir(root, issue);
+  if (!specDir) return false;
+  const specPath = relative(root, specDir).split('\\').join('/');
+  try {
+    try {
+      if (getChangedHeadVerificationRecord({ cwd: root, ownerId, issue, headSha })) return false;
+    } catch (error) {
+      const checkpoint = readRun(root);
+      if (error?.reasonCode !== 'recovery_owner_missing'
+        || checkpoint?.runId !== ownerId || checkpoint.currentIssue !== issue
+        || checkpoint.currentStep !== 'verify') return false;
+    }
+    const scope = inspectIssueSpecScope({ projectRoot: root, issueNumber: issue, specPath });
+    const readiness = inspectVerificationReadiness({
+      content: reportBytes.toString('utf8'),
+      options: { expectedIssueNumber: issue, expectedSpecPath: specPath, expectedScope: scope },
+    });
+    const repair = inspectVerificationArtifactRepair(artifact, {
+      expectedIssueNumber: issue, expectedHeadSha: headSha,
+    });
+    return ['scoped', 'implicit_single_issue'].includes(scope.status)
+      && readiness.status === 'blocked' && readiness.reasonCode === 'implementation_non_pass'
+      && readiness.implementationStatus === 'incomplete' && readiness.gaps?.length === 0
+      && repair.status === 'repairable' && repair.failedLocal.length > 0
+      && repair.incomplete.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function archiveVerificationFeedback(root, issue, headSha, ownerId) {
+  if (!/^[0-9a-f]{40}$/i.test(headSha ?? '')) throw new Error('verification_feedback_unproven');
+  const specDir = resolveSpecDir(root, issue);
+  if (!specDir) throw new Error('verification_feedback_unproven');
+  const reportPath = `${relative(root, specDir).split('\\').join('/')}/verification-report.md`;
+  const artifactPath = `${RUN_DIR}/verification/${issue}.json`;
+  const reportBytes = readBoundedNoFollowFile(root, reportPath, MAX_HANDOFF_BYTES, 'verification_feedback_unproven').bytes;
+  const artifactBytes = readBoundedNoFollowFile(root, artifactPath, MAX_VERIFICATION_ARTIFACT_BYTES, 'verification_feedback_unproven').bytes;
+  const artifact = JSON.parse(artifactBytes.toString('utf8'));
+  const markers = verificationHeadMarkers(reportBytes.toString('utf8'));
+  if (artifact.issue !== issue || artifact.identity?.headSha !== headSha
+    || !((markers.length === 1 && markers[0] === headSha)
+      || (markers.length === 0
+        && isMarkerlessMixedFeedback(root, issue, headSha, reportBytes, artifact, ownerId)))) {
+    throw new Error('verification_feedback_unproven');
+  }
+  const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
+  const archiveDir = `${RUN_DIR}/history/verification-feedback`;
+  ensureControllerHistoryDirectory(root, archiveDir);
+  const prefix = `${archiveDir}/${issue}-${headSha}-${digest(artifactBytes)}`;
+  const evidence = [
+    { path: `${prefix}.report.md`, bytes: reportBytes, max: MAX_HANDOFF_BYTES },
+    { path: `${prefix}.artifact.json`, bytes: artifactBytes, max: MAX_VERIFICATION_ARTIFACT_BYTES },
+  ];
+  for (const item of evidence) {
+    try {
+      writeFileSync(join(root, item.path), item.bytes, { flag: 'wx', mode: 0o444 });
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw new Error('verification_feedback_unproven');
+    }
+    if (!readBoundedNoFollowFile(root, item.path, item.max, 'verification_feedback_unproven').bytes.equals(item.bytes)) {
+      throw new Error('verification_feedback_unproven');
+    }
+  }
+  return {
+    head: headSha,
+    report: evidence[0].path, reportDigest: digest(reportBytes),
+    artifact: evidence[1].path, artifactDigest: digest(artifactBytes),
+  };
+}
+
 
 
 
@@ -2702,6 +3024,20 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
     }
     const currentWorkerPresent = ownership.present.some((worker) =>
       worker.issue === data.currentIssue && worker.step === data.currentStep);
+    const pendingRewind = data.currentStep === 'verify'
+      && !currentWorkerPresent && checkout.branch === linked
+      ? inspectPendingVerificationRewind({ cwd, checkpoint: data, checkout, handoff })
+      : null;
+    const changedHeadVerify = data.currentStep === 'verify'
+      && !pendingRewind && !currentWorkerPresent && checkout.branch === linked
+      && handoff?.status === 'failed' && handoff.intervention === false
+      ? inspectChangedHeadVerifyDispatch({ cwd, checkpoint: data, checkout, handoff, run })
+      : null;
+    const progressfulStage = (recovery || exhausted) && !pendingRewind && !changedHeadVerify
+      && !currentWorkerPresent && checkout.branch === linked
+      && handoff?.status === 'failed' && handoff.intervention === false
+      ? inspectProgressfulStageResume({ cwd, checkpoint: data, checkout, handoff, run })
+      : null;
     let unreadableStart = null;
     if (!recovery && data.currentStep === 'start'
       && data.failed?.reasonCode === 'issue_unreadable') {
@@ -2763,11 +3099,12 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
       return blocked('retained_worker_mismatch');
     }
     const state = consumedDispatch ? 'consumed-dispatch-available'
-      : recovery ? 'recovery-consumed'
-        : exhausted || repairedPublication || exclusiveResume || prepublicationResume
-          || unreadableStart || branchCheckoutStart || closedWorkerResume || actionableVerificationResume
-          ? 'loop-recovery-available'
-          : 'resumable';
+      : pendingRewind || changedHeadVerify || progressfulStage ? 'loop-recovery-available'
+        : recovery ? 'recovery-consumed'
+          : exhausted || repairedPublication || exclusiveResume || prepublicationResume
+            || unreadableStart || branchCheckoutStart || closedWorkerResume || actionableVerificationResume
+            ? 'loop-recovery-available'
+            : 'resumable';
     return {
       state, issues: data.issues, runId: data.runId,
       branch: unreadableStart?.branch ?? branchCheckoutStart?.branch ?? linked,
@@ -2835,6 +3172,15 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
           reasonCode: data.failed.reasonCode,
           handoffReasonCode: handoffResult.reasonCode,
         },
+      } : pendingRewind ? {
+        recoveryClass: pendingRewind.class,
+        recoveryEvidence: pendingRewind,
+      } : changedHeadVerify ? {
+        recoveryClass: changedHeadVerify.class,
+        recoveryEvidence: changedHeadVerify,
+      } : progressfulStage ? {
+        recoveryClass: progressfulStage.class,
+        recoveryEvidence: progressfulStage,
       } : actionableVerificationResume ? {
         recoveryClass: ACTIONABLE_VERIFICATION_RESUME,
         recoveryEvidence: {
@@ -2861,9 +3207,15 @@ export function discoverRecovery({ cwd = process.cwd(), run = defaultRun, herdr 
       } : {}),
       action: consumedDispatch
         ? 'Run /sdlc-execute with no parameters to resume this exact consumed dispatch.'
-        : recovery
-          ? 'Inspect the consumed recovery evidence; repair the blocker and supply a validated passed handoff. Do not repeat unchanged execution.'
-          : 'Run /sdlc-execute with no parameters to resume this exact queue.',
+        : pendingRewind
+          ? 'Run /sdlc-execute with no parameters to resume the verified implementation rewind.'
+          : changedHeadVerify
+            ? 'Run /sdlc-execute with no parameters to consume this distinct changed-head verify evidence.'
+          : progressfulStage
+            ? 'Run /sdlc-execute with no parameters to consume this distinct stage evidence.'
+            : recovery
+              ? 'Inspect the consumed recovery evidence; repair the blocker and supply a validated passed handoff. Do not repeat unchanged execution.'
+              : 'Run /sdlc-execute with no parameters to resume this exact queue.',
     };
   } catch {
     return blocked('checkpoint_unreadable');
@@ -3464,7 +3816,31 @@ export function workerPrompt({ step, issue, skill, cwd, controllerRunId } = {}) 
     },
   });
   if (cwd) writePromptProvenance(cwd, provenance);
-  return materializeControllerPaths(text, packageRoot).trimEnd();
+  const prompt = materializeControllerPaths(text, packageRoot).trimEnd();
+  const feedback = step === 'implement' && cwd ? readRun(cwd)?.verificationFeedback : null;
+  if (feedback?.issue !== issue) return prompt;
+  const previous = (feedback.history ?? []).slice(-8).map((entry) => {
+    const archiveDir = `${RUN_DIR}/history/verification-feedback`;
+    const prefix = `${archiveDir}/${issue}-${entry.head}-${entry.artifactDigest}`;
+    if (!/^[0-9a-f]{40}$/.test(entry.head)
+      || !/^[0-9a-f]{64}$/.test(entry.reportDigest)
+      || !/^[0-9a-f]{64}$/.test(entry.artifactDigest)
+      || entry.report !== `${prefix}.report.md`
+      || entry.artifact !== `${prefix}.artifact.json`) {
+      throw new Error('verification_feedback_unproven');
+    }
+    for (const [relativePath, expected, max] of [
+      [entry.report, entry.reportDigest, MAX_HANDOFF_BYTES],
+      [entry.artifact, entry.artifactDigest, MAX_VERIFICATION_ARTIFACT_BYTES],
+    ]) {
+      const bytes = readBoundedNoFollowFile(cwd, relativePath, max, 'verification_feedback_unproven').bytes;
+      if (createHash('sha256').update(bytes).digest('hex') !== expected) {
+        throw new Error('verification_feedback_unproven');
+      }
+    }
+    return `- head ${entry.head}: report ${entry.report} (${entry.reportDigest}); gate ${entry.artifact} (${entry.artifactDigest})`;
+  }).join('\n');
+  return `${prompt}\n\n# Prior verification findings\nRead the immutable report and registered gate evidence below before editing. Explain why the prior approach failed and choose a different testable repair. The end goal remains every Approved acceptance criterion, functional requirement, and BDD scenario passing after fresh reviews and registered validation.\n${previous}`;
 }
 
 export function remAgentName(issue, step) {
@@ -3503,6 +3879,7 @@ export function remediationPrompt({
       reasonCode: remediation.reasonCode,
       summary: remediation.summary,
       artifacts: remediation.artifacts,
+      history: remediation.history,
       closedName: remediation.closedWorker?.name,
       closedPaneId: remediation.closedWorker?.paneId,
     };
@@ -3511,6 +3888,11 @@ export function remediationPrompt({
   const artifacts = Array.isArray(resolvedEvidence.artifacts) && resolvedEvidence.artifacts.length > 0
     ? resolvedEvidence.artifacts.map((artifact) => `- ${artifact}`).join('\n')
     : '- (none)';
+  const priorAttempts = Array.isArray(resolvedEvidence.history)
+    ? resolvedEvidence.history.slice(-8).map((entry) =>
+      `- attempt ${entry.attempt}, head ${entry.headSha ?? 'unproven'}, report ${entry.reportDigest ?? 'unproven'}, gate ${entry.artifactDigest ?? 'unproven'}, prior archive ${entry.archive ?? '(none)'}, progress ${entry.progress === true}, paths ${(entry.changedPaths ?? []).join(', ') || '(none)'}, reason ${entry.reasonCode}: ${String(entry.summary ?? '').replace(/\s+/g, ' ').slice(0, 180)}`)
+      .join('\n')
+    : '';
   const header = [
     `You are remediating issue #${issue} step ${failedStep} (attempt ${resolvedEvidence.attempt}).`,
     resolvedEvidence.closedName && resolvedEvidence.closedPaneId
@@ -3520,6 +3902,8 @@ export function remediationPrompt({
     `summary: ${resolvedEvidence.summary}`,
     'artifacts:',
     artifacts,
+    ...(priorAttempts ? ['prior attempts (read the checkpoint and artifacts for full evidence):', priorAttempts,
+      'Explain why the previous approach failed and what different, measurable change this attempt makes. Repeating the same source and failure evidence is not progress.'] : []),
     '',
     `Diagnose that failure. Fix the defect. Update the approved issue spec only when observable behavior changes. Commit and push through the existing execute gates for this step. Then rerun the same failed step contract below and write .omp/sdlc/handoffs/${issue}-${failedStep}.json with issue ${issue} and step ${failedStep}. Never write a rem step identity. Never call ask.`,
   ].join('\n');
@@ -5364,6 +5748,128 @@ export function runExecute({
         delete runState.remediation;
         persistRunStateWithHeadCas(runState, cwd, checkpointHead);
         recoveryDispatch = `${issue}:${step}`;
+      } else if (repairedRecoveryClass === VERIFICATION_REWIND_RESUME) {
+        if (step !== 'verify') throw new Error('safe_recovery_unproven');
+        const checkout = currentCheckout(cwd, run);
+        if (!checkout || checkout.branch !== recoveryBranch) throw new Error('checkpoint_branch_mismatch');
+        const { handoff } = readExpectedHandoff(
+          join(cwd, HANDOFF_DIR, `${issue}-verify.json`), issue, 'verify',
+        );
+        const proof = inspectPendingVerificationRewind({
+          cwd, checkpoint: runState, checkout, handoff,
+        });
+        if (!proof || JSON.stringify(proof) !== JSON.stringify(recoveryEvidence)
+          || proof.revision !== runState.revision) throw new Error('safe_recovery_unproven');
+        const ownership = inspectRecoveryWorkers(runState, herdrApi);
+        if (ownership.present.some((worker) => worker.issue === issue && worker.step === step)) {
+          throw new Error('retained_worker_mismatch');
+        }
+        const ownerId = resolveRecoveryOwner({
+          cwd, issue, step: 'verify', controllerRunId: runState.runId, run,
+        });
+        if (ownerId !== runState.runId) throw new Error('recovery_owner_ambiguous');
+        const feedback = archiveVerificationFeedback(cwd, issue, proof.head, runState.runId);
+        const rewind = remediationCompletedSteps({
+          issue, step, completed: runState.completed[String(issue)], handoff,
+        });
+        if (!rewind) throw new Error('safe_recovery_unproven');
+        runState.verificationFeedback = {
+          issue,
+          history: [
+            ...(runState.verificationFeedback?.issue === issue
+              ? runState.verificationFeedback.history ?? [] : []),
+            feedback,
+          ],
+        };
+        runState.completed[String(issue)] = rewind;
+        runState.currentStep = nextStep(rewind);
+        runState.head = checkout.head;
+        runState.failed = null;
+        runState.remediation = null;
+        runState.repairRewound ||= {};
+        runState.repairRewound[String(issue)] = ['review1', 'review2']
+          .filter((review) => !rewind.includes(review));
+        persistRunStateWithHeadCas(runState, cwd, checkpointHead);
+      } else if (typeof repairedRecoveryClass === 'string'
+        && repairedRecoveryClass.startsWith('changed_head_verify_dispatch:')) {
+        if (step !== 'verify') throw new Error('safe_recovery_unproven');
+        const checkout = currentCheckout(cwd, run);
+        if (!checkout || checkout.branch !== recoveryBranch) throw new Error('checkpoint_branch_mismatch');
+        const { handoff } = readExpectedHandoff(
+          join(cwd, HANDOFF_DIR, `${issue}-verify.json`), issue, 'verify',
+        );
+        const proof = inspectChangedHeadVerifyDispatch({
+          cwd, checkpoint: runState, checkout, handoff, run,
+        });
+        if (!proof || proof.class !== repairedRecoveryClass
+          || JSON.stringify(proof) !== JSON.stringify(recoveryEvidence)
+          || proof.revision !== runState.revision) throw new Error('safe_recovery_unproven');
+        const ownership = inspectRecoveryWorkers(runState, herdrApi);
+        if (ownership.present.some((worker) => worker.issue === issue && worker.step === step)) {
+          throw new Error('retained_worker_mismatch');
+        }
+        const consumed = consumeSafeRecoveryFn({
+          cwd, ownerId: runState.runId, issue, step, class: proof.class, evidence: proof,
+        });
+        if (!consumed.consumed) throw new Error('recovery_consumed');
+        runState.recoveries ||= [];
+        runState.recoveries.push({
+          runId: runState.runId, issue, step,
+          invocationId: consumed.record.invocationId,
+          consumedAt: consumed.record.consumedAt,
+          source: proof,
+          failure: structuredClone(runState.failed),
+          disposition: 'consumed',
+        });
+        runState.head = proof.head;
+        runState.failed = null;
+        runState.remediation ||= {
+          issue, step, attempt: 1, completedAttempts: 0, status: 'active',
+          reasonCode: 'verification_not_ready',
+          summary: 'Reverify the published implementation and completed reviews at the new head',
+          artifacts: [`${RUN_DIR}/verification/${issue}.json`],
+          closedWorker: null, remWorker: null, history: [],
+        };
+        runState.remediation.status = 'active';
+        runState.remediation.reasonCode = 'verification_not_ready';
+        runState.remediation.completedAttempts = 0;
+        persistRunStateWithHeadCas(runState, cwd, checkpointHead);
+        recoveryDispatch = `${issue}:${step}`;
+      } else if (typeof repairedRecoveryClass === 'string'
+        && repairedRecoveryClass.startsWith(`${PROGRESSFUL_STAGE_CONTINUE}:`)) {
+        const checkout = currentCheckout(cwd, run);
+        if (!checkout || checkout.branch !== recoveryBranch) throw new Error('checkpoint_branch_mismatch');
+        const handoffPath = ['review1', 'review2'].includes(step)
+          ? resolveReviewArtifacts({ cwd, issue, step }).handoffPath
+          : `${HANDOFF_DIR}/${issue}-${step}.json`;
+        const { handoff } = readExpectedHandoff(join(cwd, handoffPath), issue, step);
+        const proof = inspectProgressfulStageResume({
+          cwd, checkpoint: runState, checkout, handoff, run,
+        });
+        if (!proof || proof.class !== repairedRecoveryClass
+          || JSON.stringify(proof) !== JSON.stringify(recoveryEvidence)
+          || proof.revision !== runState.revision) throw new Error('safe_recovery_unproven');
+        const ownership = inspectRecoveryWorkers(runState, herdrApi);
+        if (ownership.present.some((worker) => worker.issue === issue && worker.step === step)) {
+          throw new Error('retained_worker_mismatch');
+        }
+        const consumed = consumeSafeRecoveryFn({
+          cwd, ownerId: runState.runId, issue, step, class: proof.class, evidence: proof,
+        });
+        if (!consumed.consumed) throw new Error('recovery_consumed');
+        runState.recoveries ||= [];
+        runState.recoveries.push({
+          runId: runState.runId, issue, step,
+          invocationId: consumed.record.invocationId,
+          consumedAt: consumed.record.consumedAt,
+          source: proof, failure: structuredClone(runState.failed), disposition: 'consumed',
+        });
+        runState.head = proof.head;
+        runState.failed = null;
+        runState.remediation.status = 'active';
+        runState.remediation.completedAttempts = 0;
+        persistRunStateWithHeadCas(runState, cwd, checkpointHead);
+        recoveryDispatch = `${issue}:${step}`;
       } else if (repairedRecoveryClass === ACTIONABLE_VERIFICATION_RESUME) {
         if (step !== 'verify'
           || runState.recoveries?.some((entry) =>
@@ -5911,19 +6417,41 @@ export function runExecute({
     const prior = runState.remediation?.issue === issue && runState.remediation?.step === step
       ? runState.remediation
       : null;
-    const completedAttempts = completedRemediations(prior)
+    const previousFailure = prior?.history?.at(-1);
+    let snapshot = stageFailureSnapshot({ cwd, issue, step, handoff, run });
+    if (step === 'verify' && snapshot) {
+      try {
+        const recheck = getChangedHeadVerificationRecord({
+          cwd, ownerId: runState.runId, issue, headSha: snapshot.artifactHead,
+        });
+        if (recheck) snapshot = { ...snapshot, archive: recheck.evidence?.archive ?? null };
+      } catch {
+        snapshot = { ...snapshot, archive: null };
+      }
+    }
+    let changedPaths = [];
+    if (snapshot && previousFailure?.headSha
+      && previousFailure.headSha !== snapshot.headSha) {
+      const changed = run('git', ['diff', '--name-only', '-z',
+        `${previousFailure.headSha}..${snapshot.headSha}`], { cwd });
+      if (commandSucceeded(changed)) changedPaths = String(changed.stdout).split('\0').filter(Boolean);
+    }
+    const progress = stageRemediationProgress(step, previousFailure, snapshot, changedPaths);
+    const completedAttempts = progress ? 0 : completedRemediations(prior)
       + (agentName === remAgentName(issue, step) ? 1 : 0);
-    const attempt = completedAttempts >= 2 ? prior.attempt : completedAttempts + 1;
+    const attempt = (prior?.attempt ?? 0) + 1;
     const artifacts = Array.isArray(handoff.artifacts) ? handoff.artifacts : [];
     const history = [
       ...(Array.isArray(prior?.history) ? prior.history : []),
       {
         attempt,
         reasonCode: handoff.reasonCode,
+        summary: handoff.summary,
         artifacts,
         closedName: agentName,
         closedPaneId: paneId,
         at: new Date().toISOString(),
+        ...(snapshot ? { ...snapshot, changedPaths, progress } : {}),
       },
     ];
     runState.failed = { issue, step, reasonCode: handoff.reasonCode };
@@ -5940,7 +6468,13 @@ export function runExecute({
       remWorker: null,
       history,
     };
-    persistRunState(runState, cwd);
+    if (progress && snapshot.headSha !== runState.head) {
+      const previousHead = runState.head;
+      runState.head = snapshot.headSha;
+      persistRunStateWithHeadCas(runState, cwd, previousHead);
+    } else {
+      persistRunState(runState, cwd);
+    }
     return true;
   }
 
@@ -5951,9 +6485,92 @@ export function runExecute({
       reasonCode: remediation.reasonCode,
       summary: remediation.summary,
       artifacts: remediation.artifacts,
+      history: remediation.history,
       closedName: remediation.closedWorker?.name,
       closedPaneId: remediation.closedWorker?.paneId,
     };
+  }
+
+  function rewindFailedVerification({ issue, step, handoff, agentName, paneId }) {
+    if (!isActionableVerificationRewind(issue, step, handoff)) return null;
+    const rewind = remediationCompletedSteps({
+      issue, step, completed: runState.completed[String(issue)], handoff,
+    });
+    if (!rewind) return null;
+    let feedback;
+    try {
+      const checkout = currentCheckout(cwd, run);
+      const verificationHead = handoff.verificationHead ?? verificationFailureSnapshot({ cwd, issue, run })?.headSha;
+      if (!checkout || checkout.branch !== runState.branch
+        || checkout.head !== verificationHead) throw new Error('verification_feedback_unproven');
+      const ownerId = resolveRecoveryOwner({
+        cwd, issue, step: 'verify', controllerRunId: runState.runId, run,
+      });
+      if (ownerId !== runState.runId) throw new Error('recovery_owner_ambiguous');
+      feedback = archiveVerificationFeedback(cwd, issue, verificationHead, runState.runId);
+    } catch {
+      return { result: stop({
+        issue, step, paneId, agentName, reasonCode: 'verification_feedback_unproven',
+        runState, cwd, herdr: herdrApi, output,
+      }) };
+    }
+    if (createdPanes.has(paneId) && !closePane(herdrApi, paneId)) {
+      return { result: stop({
+        issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
+        runState, cwd, herdr: herdrApi, output,
+      }) };
+    }
+    delete runState.workers[agentName];
+    if (feedback) {
+      runState.verificationFeedback = {
+        issue, history: [
+          ...(runState.verificationFeedback?.issue === issue
+            ? runState.verificationFeedback.history ?? [] : []),
+          feedback,
+        ],
+      };
+    }
+    runState.completed[String(issue)] = rewind;
+    runState.currentStep = nextStep(rewind);
+    runState.failed = null;
+    runState.remediation = null;
+    runState.repairRewound ||= {};
+    runState.repairRewound[String(issue)] = ['review1', 'review2']
+      .filter((review) => !rewind.includes(review));
+    persistRunState(runState, cwd);
+    return { passed: true, step: runState.currentStep };
+  }
+
+  function consumeProgressfulStageContinuation(issue, step) {
+    const handoffPath = ['review1', 'review2'].includes(step)
+      ? resolveReviewArtifacts({ cwd, issue, step }).handoffPath
+      : `${HANDOFF_DIR}/${issue}-${step}.json`;
+    try {
+      const { handoff } = readExpectedHandoff(join(cwd, handoffPath), issue, step);
+      const checkout = currentCheckout(cwd, run);
+      const proof = inspectProgressfulStageResume({
+        cwd, checkpoint: runState, checkout, handoff, run,
+      });
+      if (!proof) return false;
+      const consumed = consumeSafeRecoveryFn({
+        cwd, ownerId: runState.runId, issue, step, class: proof.class, evidence: proof,
+      });
+      if (!consumed.consumed) return false;
+      runState.recoveries ||= [];
+      runState.recoveries.push({
+        runId: runState.runId, issue, step,
+        invocationId: consumed.record.invocationId,
+        consumedAt: consumed.record.consumedAt,
+        source: proof, failure: structuredClone(runState.failed), disposition: 'consumed',
+      });
+      const priorHead = runState.head;
+      runState.head = proof.head;
+      persistRunStateWithHeadCas(runState, cwd, priorHead);
+      recoveryDispatch = `${issue}:${step}`;
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   function runRemediationLoop({ issue, step, liveAgent = null }) {
@@ -5962,7 +6579,8 @@ export function runExecute({
     const recovery = runState.recoveries?.find((entry) =>
       entry.runId === runState.runId && entry.issue === issue && entry.step === step);
     while (true) {
-      if (!remLive && (recovery || completedRemediations() >= 2) && recoveryDispatch !== `${issue}:${step}`) {
+      if (!remLive && recoveryDispatch !== `${issue}:${step}`
+        && (completedRemediations() >= 2 || (recovery && !consumeProgressfulStageContinuation(issue, step)))) {
         return stopRemediationLoop(issue, step);
       }
       const agentName = remAgentName(issue, step);
@@ -6245,9 +6863,12 @@ export function runExecute({
       const { handoff } = handoffResult;
       const revalidation = routeMergeabilityReverification({ issue, step, handoff, agentName, paneId });
       if (revalidation) return revalidation;
+      const rewind = rewindFailedVerification({ issue, step, handoff, agentName, paneId });
+      if (rewind) return rewind;
       if (isRemediableFailedHandoff({ step, state, handoff })) {
         persistRemediationFailure({ issue, step, state, handoff, agentName, paneId });
-        if (recovery || completedRemediations() >= 2) return stopRemediationLoop(issue, step);
+        if (completedRemediations() >= 2
+          || (recovery && !consumeProgressfulStageContinuation(issue, step))) return stopRemediationLoop(issue, step);
         if (!closePane(herdrApi, paneId)) {
           return stop({
             issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
@@ -7146,31 +7767,10 @@ export function runExecute({
         });
       }
       const { handoff } = handoffResult;
-      const rewind = isActionableVerificationRewind(issue, step, handoff)
-        ? remediationCompletedSteps({
-          issue,
-          step,
-          completed: runState.completed[String(issue)],
-          handoff,
-        })
-        : null;
+      const rewind = rewindFailedVerification({ issue, step, handoff, agentName, paneId });
       if (rewind) {
-        if (createdPanes.has(paneId) && !closePane(herdrApi, paneId)) {
-          return stop({
-            issue, step, paneId, agentName, reasonCode: 'pane_close_failed',
-            runState, cwd, herdr: herdrApi, output,
-          });
-        }
-        delete runState.workers[agentName];
-        runState.completed[String(issue)] = rewind;
-        step = nextStep(rewind);
-        runState.currentStep = step;
-        runState.failed = null;
-        runState.remediation = null;
-        runState.repairRewound ||= {};
-        runState.repairRewound[String(issue)] = ['review1', 'review2']
-          .filter((review) => !rewind.includes(review));
-        persistRunState(runState, cwd);
+        if (rewind.result) return rewind.result;
+        step = rewind.step;
         continue;
       }
       if (isRemediableFailedHandoff({ step, state, handoff })

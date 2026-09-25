@@ -15,30 +15,45 @@ Observed PennyScan #204: old artifact/report at `3883f89d7539d55c51ffa858ce6a78a
 ## Acceptance Criteria
 
 ### AC1: Exact changed-head repair enables one fresh verification
-Given a bounded owner-bound Fail or Partial report and canonical artifact for head A, and a published implementation repair on a distinct clean head B for the same issue, branch, singular Approved spec and controller
+Given a bounded owner-bound Fail or Partial report and canonical artifact for head A, or an Incomplete report with a registered local command failure plus incomplete external evidence, and a published implementation repair on a distinct clean head B for the same issue, branch, singular Approved spec and controller
 When a verify worker resumes under that owner
 Then it archives the original report and gate artifact with exact digests, consumes one authorized changed-head recheck, and runs the manifest-registered gate at B rather than finalizing A.
 
 ### AC2: Passing new evidence advances only through normal finalization
 Given complete passing required validations at B and acceptance review for the repaired source
 When the verify workflow replaces the report and finalizes it
-Then the passed handoff and canonical artifact bind B and the ordinary controller may advance to delivery; no old result grants authority.
+Then the passed handoff and canonical artifact bind B, with every required validation's registered identity, applicability, invocation and provider evidence checked before publication; the same gate is required for standalone Pass, while a known report-only publication may reconcile against its unchanged source parent. The ordinary controller may advance to delivery; no old result grants authority.
 
 ### AC3: Unchanged or ambiguous evidence fails closed
-Given head A is unchanged, the report or artifact is unsafe, the spec/config/owner/branch differs, the tree is dirty, a worker or lease conflicts, or the recheck was already consumed without new authority
+Given head A is unchanged, the report or artifact is unsafe, the spec/config/owner/branch differs, a required result is missing, forged or falsely inapplicable, the tree is dirty, a worker or lease conflicts, the same A-to-B recheck was already consumed, or legacy report publication lacks a server-observed push chronology
 When recovery is requested
-Then no new validation, report overwrite, handoff forgery, or worker replay occurs and the exact reason is retained.
+Then no duplicate validation, report overwrite, handoff forgery, or worker replay occurs and the exact reason is retained.
 
-### AC4: Non-passing new evidence remains explicit
-Given a fresh registered gate at B fails or is incomplete
-When its result is inspected
-Then historical A evidence remains archived, B failure remains explicit, and no passing report or delivery handoff is manufactured. External-only same-head Incomplete recovery retains its existing one-use rules.
+### AC4: New non-passing evidence stays actionable only with progress
+Given a fresh registered gate at B fails, including a mixed local failure with an incomplete external provider
+When acceptance review records the exact new head, remaining failures and earlier attempted approaches in a truthful B report
+Then historical A evidence remains archived, B failure remains explicit, and a non-passing handoff may authorize another distinct issue-owned repair, but never delivery.
+Given a further repair publishes head C with materially changed project paths and distinct failure evidence
+When the controller compares the checkpointed heads, paths, report and gate outcomes
+Then it may continue without an arbitrary total attempt cutoff; unchanged/repeated work stops without replay.
+External-only Incomplete or ambiguous evidence remains intervention-bearing. A mixed local failure can return to implementation, but incomplete external evidence never authorizes passing or delivery. External-only same-head Incomplete recovery retains its separate one-use rules.
 
 ### AC5: Deterministic regression and live proof
 Given the isolated #204 Fail-to-repair transition and unsafe variants
 When focused and registered plugin validations run on the final clean head
 Then the before-fix loop reproduces, the changed-head path produces new exact-head evidence, unsafe cases remain blocked, and the registered live smoke records invocation-bound merge and closure.
 
+### AC6: Evidence-driven recovery is stage-general, not a retry counter
+Given any remediable stage has a failed handoff and checkpointed attempts
+When the next LLM worker receives the spec, prior approaches, failure artifacts, and exact stage authority
+Then it diagnoses the prior failure and proposes a different testable repair; the controller records exact inputs, output digests, head and side effects before dispatch.
+Given a new, stage-authorized project change or gate result is proven after that repair
+When the controller repeats its actual stage gate
+Then progressful work may continue without an arbitrary total-attempt limit, including beyond two attempts.
+Given the same inputs and outputs, an already consumed side effect, ambiguous ownership or missing external approval
+When recovery is considered
+Then it stops with the exact blocker rather than replaying or inferring success.
+
 ## Scope
 
-Own only verification recovery classification, its verify-code workflow/finalizer integration where necessary, bounded immutable evidence archive, targeted tests, README/changelog/version mirrors. No changes to the PennyScan #204 checkpoint, no weakened provider gate, no auto-retry of an unchanged or consumed dispatch, and no nmg-sdlc workflow on the plugin repository.
+Own verification recovery classification, verify-code workflow/finalizer, the stage-general evidence-driven remediation controller and its stage-specific authorization tests, bounded immutable evidence archives, README/changelog/version mirrors. No changes to PennyScan #204 checkpoint, no weakened provider gate, no automatic replay of an unchanged or consumed dispatch, and no nmg-sdlc workflow on the plugin repository.

@@ -728,6 +728,31 @@ export function getSafeRecoveryRecord({
   return records.length === 1 ? structuredClone(records[0]) : null;
 }
 
+export function listChangedHeadVerificationRecords({
+  cwd = process.cwd(), ownerId, issue,
+} = {}) {
+  const issueNumber = Number(issue);
+  if (typeof ownerId !== 'string' || !ownerId || !Number.isSafeInteger(issueNumber)
+    || issueNumber <= 0) throw safeError('invalid_recovery_params');
+  const root = realpathSync(cwd);
+  const safe = readSafeRecoveries(root);
+  const owners = safe?.owners.filter((owner) => owner.ownerId === ownerId
+    && owner.projectRoot === root && owner.issue === issueNumber
+    && owner.step === 'verify' && owner.status === 'incomplete') ?? [];
+  if (owners.length !== 1) throw safeError(owners.length ? 'recovery_owner_ambiguous' : 'recovery_owner_missing');
+  return structuredClone(safe.records.filter((entry) =>
+    entry.class.startsWith('changed_head_verification_recheck:')
+    && entry.runId === ownerId && entry.issue === issueNumber && entry.step === 'verify'));
+}
+
+export function getChangedHeadVerificationRecord(options = {}) {
+  if (!/^[0-9a-f]{40}$/i.test(options.headSha ?? '')) throw safeError('invalid_recovery_params');
+  const records = listChangedHeadVerificationRecords(options)
+    .filter((entry) => entry.evidence?.newHead === options.headSha);
+  if (records.length > 1) throw safeError('recovery_record_ambiguous');
+  return records[0] ?? null;
+}
+
 export function consumeSafeRecovery({
   cwd = process.cwd(),
   ownerId,
