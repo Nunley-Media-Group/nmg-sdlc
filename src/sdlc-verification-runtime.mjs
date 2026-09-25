@@ -38,7 +38,7 @@ function porcelainPaths(output) {
   }
   return paths;
 }
-function changedPaths(projectRoot, baseRef) {
+export function changedPaths(projectRoot, baseRef) {
   const committed = git(projectRoot, ["diff", "--name-only", `${baseRef}...HEAD`]).stdout.split(/\r?\n/);
   const dirty = porcelainPaths(git(projectRoot, ["status", "--porcelain=v1", "-z"]).stdout);
   return [...new Set([...committed, ...dirty].filter(Boolean).map((path) => path.split("\\").join("/")))].sort();
@@ -310,7 +310,7 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
       results.push({ id: validation.id, provider: validation.provider, required: validation.required, applicable: true, effectiveStatus: result.status, request, result });
     }
     const coverage = validationResultCoverage(runtime.validations, results);
-    const artifact = { schemaVersion: 1, issue: Number(issue), generatedAt: new Date().toISOString(), identity: setupIdentity(root, specDir, runtime), ceiling: verificationCeiling(results, coverage), changedPaths: paths, coverage, results };
+    const artifact = { schemaVersion: 1, issue: Number(issue), generatedAt: new Date().toISOString(), identity: setupIdentity(root, specDir, runtime), baseRef, ceiling: verificationCeiling(results, coverage), changedPaths: paths, coverage, results };
     writeVerificationArtifact(root, issue, artifact);
     return artifact;
   } catch (error) {

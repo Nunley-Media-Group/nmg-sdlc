@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   inspectVerificationArtifactRepair,
@@ -12,6 +13,8 @@ import { isSpecApproved, resolveSpecDir } from './sdlc-execute.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
 import { enterControllerLease, releaseControllerLease } from './sdlc-controller-lease.mjs';
 import { assertInitialStagePublication, getChangedHeadVerificationRecord, resolveRecoveryOwner, reconcileStagePublication } from './sdlc-safe-recoveries.mjs';
+import { canonicalJson, resolveSteeringPath } from '../src/sdlc-steering-runtime.mjs';
+import { changedPaths, evaluateCondition, validationResultCoverage } from '../src/sdlc-verification-runtime.mjs';
 
 const USAGE = 'Usage: node scripts/sdlc-finalize-verification.mjs --issue N --spec specs/N-SLUG [--controller-run-id ID]';
 
@@ -35,6 +38,87 @@ function porcelainPaths(output) {
   return paths.filter((path) => !path.startsWith('.omp/'));
 }
 
+function matchesRegisteredResults(root, artifact, { issue, specPath, gateHead, activeRun, reportPath, run }) {
+  try {
+    const manifestPath = resolveSteeringPath(root, 'steering/manifest.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    if (manifest.schemaVersion !== 1 || manifest.runtimeVersion !== '1'
+      || !Array.isArray(manifest.validations)
+      || !['modules', 'snippets', 'extensions'].every((key) => Array.isArray(manifest[key]))
+      || !Array.isArray(artifact.results)) return false;
+    const sourcePaths = [manifestPath, ...['modules', 'snippets', 'extensions']
+      .flatMap((kind) => manifest[kind].map(({ path }) => resolveSteeringPath(root, path, kind)))];
+    const steeringHash = `sha256:${createHash('sha256')
+      .update(sourcePaths.map((file) => `${relative(root, file)}\0${readFileSync(file)}`).join('\0'))
+      .digest('hex')}`;
+    if (artifact.identity?.steeringHash !== steeringHash) return false;
+    const specFiles = ['design.md', 'feature.gherkin', 'requirements.md', 'tasks.md'];
+    const specHash = `sha256:${createHash('sha256')
+      .update(specFiles.map((name) =>
+        `${name}\0${readFileSync(join(root, specPath, name))}`).join('\0')).digest('hex')}`;
+    if (artifact.identity.specHash !== specHash) return false;
+    const paths = Array.isArray(artifact.changedPaths) ? artifact.changedPaths : [];
+    if (manifest.validations.some((validation) => validation.when?.kind === 'changed_paths')) {
+      const defaultBranch = run('gh', ['repo', 'view', '--json', 'defaultBranchRef',
+        '--jq', '.defaultBranchRef.name'], { cwd: root });
+      if (!commandSucceeded(defaultBranch)
+        || artifact.baseRef !== String(defaultBranch.stdout).trim()) return false;
+      const current = changedPaths(root, artifact.baseRef).filter((path) => path !== reportPath);
+      const recorded = paths.filter((path) => path !== reportPath);
+      if (JSON.stringify(current) !== JSON.stringify(recorded)) return false;
+    }
+    const coverage = validationResultCoverage(manifest.validations, artifact.results);
+    if (!coverage.complete || artifact.coverage?.complete !== true
+      || artifact.coverage.declared !== coverage.declared
+      || artifact.coverage.recorded !== coverage.recorded
+      || !['missing', 'duplicate', 'unknown'].every((key) =>
+        JSON.stringify(artifact.coverage[key]) === JSON.stringify(coverage[key]))) return false;
+    return manifest.validations.every((declaration, index) => {
+      const result = artifact.results[index];
+      const applicable = evaluateCondition(declaration.when, { projectRoot: root, paths });
+      if (result?.id !== declaration.id || result.provider !== declaration.provider
+        || result.required !== declaration.required || result.applicable !== applicable) return false;
+      if (!applicable) return result.effectiveStatus === 'skipped'
+        && result.result === null && !Object.hasOwn(result, 'request');
+      if (!declaration.required) return true;
+      const request = result.request;
+      const proof = result.result;
+      const expectedRunId = activeRun?.runId ?? `verification-${createHash('sha256')
+        .update(`${realpathSync(root)}\0${issue}\0${specPath}\0${gateHead}`).digest('hex')}`;
+      const { timeoutMs: _legacyTimeoutMs, ...registered } = declaration;
+      const validationHash = `sha256:${createHash('sha256')
+        .update(canonicalJson(registered)).digest('hex')}`;
+      return request?.schemaVersion === 1 && request.validationId === declaration.id
+        && request.projectRoot === realpathSync(root)
+        && canonicalJson(request.config) === canonicalJson(declaration.config)
+        && request.identity?.headSha === gateHead
+        && request.identity.steeringHash === steeringHash
+        && request.identity.specHash === specHash
+        && request.identity.validationConfigHash === validationHash
+        && request.verification?.runId === expectedRunId
+        && request.verification.issue === issue
+        && request.verification.specPath === specPath
+        && proof?.schemaVersion === 1 && proof.status === 'passed'
+        && proof.status === result.effectiveStatus
+        && typeof proof.summary === 'string' && proof.summary.length > 0
+        && Array.isArray(proof.evidence) && proof.evidence.length > 0
+        && canonicalJson(proof.identity) === canonicalJson(request.identity);
+    });
+  } catch {
+    return false;
+  }
+}
+
+function reportOnlyPublicationHead(root, reportPath, run) {
+  const parents = run('git', ['rev-list', '--parents', '-n', '1', 'HEAD'], { cwd: root });
+  const paths = run('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD'], { cwd: root });
+  if (!commandSucceeded(parents) || !commandSucceeded(paths)) return null;
+  const commits = String(parents.stdout).trim().split(/\s+/);
+  const changed = String(paths.stdout).trim().split(/\r?\n/).filter(Boolean);
+  return commits.length === 2 && /^[0-9a-f]{40}$/.test(commits[1])
+    && changed.length === 1 && changed[0] === reportPath ? commits[1] : null;
+}
+
 function handoff(issue, status, summary, reportPath, reasonCode = null, options = {}) {
   const passed = status === 'passed';
   return {
@@ -47,6 +131,7 @@ function handoff(issue, status, summary, reportPath, reasonCode = null, options 
     artifacts: options.artifacts ?? (passed ? [reportPath] : []),
     next: passed ? 'deliver' : options.next ?? null,
     reasonCode,
+    ...(options.verificationHead ? { verificationHead: options.verificationHead } : {}),
   };
 }
 
@@ -55,18 +140,69 @@ function finalizeVerificationUnlocked({
   spec,
   cwd = process.cwd(),
   run = defaultRun,
-  fs = { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync },
+  fs = { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync },
   controllerRunId,
+  explicitControllerRunId = false,
   sessionToken,
 } = {}) {
   const issueNumber = Number(issue);
   const specPath = String(spec ?? '').split('\\').join('/').replace(/\/$/, '');
   const reportPath = `${specPath}/verification-report.md`;
   const handoffPath = `.omp/sdlc/handoffs/${issueNumber}-verify.json`;
+  const root = resolve(cwd);
+  const absoluteHandoff = resolve(root, handoffPath);
+  if (!(absoluteHandoff.startsWith(`${root}${sep}`)) || relative(root, absoluteHandoff).split(sep).join('/') !== handoffPath) {
+    return { status: 2, stdout: '', stderr: `${USAGE}\n`, handoff: null, handoffPath: null };
+  }
+  const ensureSafeHandoffStorage = () => {
+    let current = root;
+    for (const segment of ['.omp', 'sdlc', 'handoffs']) {
+      current = join(current, segment);
+      if (fs.existsSync(current)) {
+        const st = fs.lstatSync(current);
+        if (st.isSymbolicLink() || !st.isDirectory()) {
+          return false;
+        }
+      }
+    }
+    return true;
+  };
   const writeHandoff = (value) => {
-    const absolute = join(cwd, handoffPath);
-    if (!fs.existsSync(dirname(absolute))) fs.mkdirSync(dirname(absolute), { recursive: true });
-    fs.writeFileSync(absolute, `${JSON.stringify(value, null, 2)}\n`);
+    const absolute = absoluteHandoff;
+    const parent = dirname(absolute);
+    if (!ensureSafeHandoffStorage()) {
+      return { status: 1, stdout: '', stderr: 'handoff_path_unsafe\n', handoff: null, handoffPath };
+    }
+    if (fs.existsSync(absolute)) {
+      const st = fs.lstatSync(absolute);
+      if (st.isSymbolicLink() || !st.isFile()) {
+        return { status: 1, stdout: '', stderr: 'handoff_target_unsafe\n', handoff: null, handoffPath };
+      }
+    }
+    if (!fs.existsSync(parent)) {
+      let cur = root;
+      for (const segment of ['.omp', 'sdlc', 'handoffs']) {
+        cur = join(cur, segment);
+        if (!fs.existsSync(cur)) {
+          fs.mkdirSync(cur);
+          const ns = fs.lstatSync(cur);
+          if (ns.isSymbolicLink() || !ns.isDirectory()) {
+            return { status: 1, stdout: '', stderr: 'handoff_path_unsafe\n', handoff: null, handoffPath };
+          }
+        }
+      }
+    }
+    // atomic no-follow: tmp write + rename replaces directory entry without following any symlink target
+    const tmp = `${absolute}.tmp.${randomUUID()}`;
+    fs.writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    fs.renameSync(tmp, absolute);
+    try {
+      const post = fs.lstatSync(absolute);
+      if (post.isSymbolicLink() || !post.isFile()) {
+        fs.unlinkSync(absolute);
+        return { status: 1, stdout: '', stderr: 'handoff_target_unsafe\n', handoff: null, handoffPath };
+      }
+    } catch {}
     return { status: value.status === 'passed' ? 0 : 1, stdout: `NMG_SDLC_HANDOFF: ${handoffPath}\n`, stderr: '', handoff: value, handoffPath };
   };
   const fail = (reasonCode, summary, options) => writeHandoff(handoff(issueNumber, 'failed', summary, reportPath, reasonCode, options));
@@ -75,13 +211,44 @@ function finalizeVerificationUnlocked({
     || !new RegExp(`^specs/${issueNumber}-[^/]+$`).test(specPath)) {
     return { status: 2, stdout: '', stderr: `${USAGE}\n`, handoff: null, handoffPath: null };
   }
+  if (!ensureSafeHandoffStorage()) {
+    return { status: 1, stdout: '', stderr: 'handoff_path_unsafe\n', handoff: null, handoffPath };
+  }
+  if (fs.existsSync(absoluteHandoff)) {
+    try {
+      const st = fs.lstatSync(absoluteHandoff);
+      if (st.isSymbolicLink() || !st.isFile()) {
+        return { status: 1, stdout: '', stderr: 'handoff_target_unsafe\n', handoff: null, handoffPath };
+      }
+    } catch {}
+  }
+  let activeRun = null;
+  const runPath = join(root, '.omp/sdlc/run.json');
+  try {
+    const runStat = fs.existsSync(runPath) ? fs.lstatSync(runPath) : null;
+    if (runStat) {
+      if (!runStat.isFile() || runStat.isSymbolicLink()) throw new Error('unsafe_run');
+      activeRun = JSON.parse(fs.readFileSync(runPath, 'utf8'));
+      if (activeRun.schemaVersion !== 1 || activeRun.projectRoot !== fs.realpathSync(root)
+        || activeRun.currentIssue !== issueNumber || activeRun.currentStep !== 'verify') {
+        throw new Error('foreign_run');
+      }
+    }
+  } catch {
+    return { status: 1, stdout: '', stderr: 'recovery_owner_ambiguous\n', handoff: null, handoffPath };
+  }
+  if (explicitControllerRunId && (!activeRun || activeRun.runId !== controllerRunId)) {
+    return { status: 1, stdout: '', stderr: 'recovery_owner_ambiguous\n', handoff: null, handoffPath };
+  }
   let ownerId;
   try {
     ownerId = resolveRecoveryOwner({ cwd, issue: issueNumber, step: 'verify', controllerRunId, sessionToken, run });
   } catch (error) {
     return fail(error.reasonCode ?? 'recovery_owner_unreadable', `Verification owner unavailable for #${issueNumber}: ${error.message}`);
   }
-  const root = resolve(cwd);
+  if (activeRun && ownerId !== activeRun.runId) {
+    return { status: 1, stdout: '', stderr: 'recovery_owner_ambiguous\n', handoff: null, handoffPath };
+  }
   const absoluteReport = resolve(root, reportPath);
   if (!(absoluteReport.startsWith(`${root}${sep}`)) || relative(root, absoluteReport).split(sep).join('/') !== reportPath
     || !fs.existsSync(absoluteReport)) return fail('verification_report_invalid', `Verification report missing for #${issueNumber}`);
@@ -143,10 +310,17 @@ function finalizeVerificationUnlocked({
   } catch {
     return fail('verification_recheck_invalid', `Changed-head recheck owner is unavailable for #${issueNumber}`);
   }
+  const mixedLocalFailure = readiness.status === 'blocked'
+    && readiness.reasonCode === 'implementation_non_pass'
+    && readiness.implementationStatus === 'incomplete'
+    && artifactRepair.status === 'repairable'
+    && artifactRepair.failedLocal.length > 0;
   if (changedHeadRecheck) {
-    const reportHead = fs.readFileSync(absoluteReport, 'utf8')
-      .match(/^\*\*Verification head\*\*:\s*([0-9a-f]{40})\s*$/m)?.[1];
+    const markers = [...fs.readFileSync(absoluteReport, 'utf8')
+      .matchAll(/^\*\*Verification head\*\*:\s*([0-9a-f]{40})\s*$/gm)];
+    const reportHead = markers.length === 1 ? markers[0][1] : null;
     if (changedHeadRecheck.evidence?.newHead !== headSha
+      || !Array.isArray(readiness.gaps) || readiness.gaps.length > 0
       || artifactRepair.status === 'unverifiable'
       || (['pass', 'pr_evidence_pending', 'pr_evidence_satisfied'].includes(readiness.status)
         && (freshArtifact?.ceiling !== null
@@ -154,22 +328,27 @@ function finalizeVerificationUnlocked({
             && result.effectiveStatus !== 'passed')))) {
       return fail('verification_recheck_invalid', `Changed-head verification evidence is inconsistent for #${issueNumber}`);
     }
-    if (reportHead !== headSha) {
+    if (reportHead !== headSha || markers.length !== 1) {
       return fail('verification_recheck_not_ready', `Changed-head verification report is stale for #${issueNumber}`, {
         intervention: true, artifacts: [reportPath, artifactRelative],
       });
     }
-    if (readiness.implementationStatus === 'incomplete') {
+    const externalBlocker = freshArtifact.ceiling === 'Incomplete'
+      || freshArtifact.results.some((result) => result.required && result.applicable
+        && (result.effectiveStatus === 'skipped'
+          || (result.provider !== 'builtin.command' && result.effectiveStatus !== 'passed')));
+    if (externalBlocker && !mixedLocalFailure) {
+      return fail('verification_recheck_not_ready', `Changed-head required provider evidence blocks #${issueNumber}`, {
+        intervention: true, artifacts: [reportPath, artifactRelative],
+      });
+    }
+    if (readiness.implementationStatus === 'incomplete' && !mixedLocalFailure) {
       return fail('verification_recheck_not_ready', `Changed-head verification is incomplete for #${issueNumber}`, {
         intervention: true, artifacts: [reportPath, artifactRelative],
       });
     }
   }
   if (!['pass', 'pr_evidence_pending', 'pr_evidence_satisfied'].includes(readiness.status)) {
-    const mixedLocalFailure = readiness.status === 'blocked'
-      && readiness.reasonCode === 'implementation_non_pass'
-      && readiness.implementationStatus === 'incomplete'
-      && artifactRepair.status === 'repairable';
     const remediableReport = readiness.status === 'unverifiable'
       || (readiness.status === 'blocked'
         && readiness.reasonCode === 'implementation_non_pass'
@@ -185,11 +364,37 @@ function finalizeVerificationUnlocked({
       remediableReport
         ? {
           intervention: false,
-          artifacts: mixedLocalFailure ? [reportPath, artifactRelative] : [reportPath],
-          ...(mixedLocalFailure ? { next: 'implement' } : {}),
+          artifacts: changedHeadRecheck || mixedLocalFailure ? [reportPath, artifactRelative] : [reportPath],
+          ...(mixedLocalFailure || changedHeadRecheck ? { verificationHead: headSha } : {}),
+          ...(mixedLocalFailure || changedHeadRecheck ? { next: 'implement' } : {}),
         }
         : undefined,
     );
+  }
+
+  // No Pass publication, standalone or execute-owned, without the current registered gate.
+  if (['pass', 'pr_evidence_pending', 'pr_evidence_satisfied'].includes(readiness.status)) {
+    const markers = [...fs.readFileSync(absoluteReport, 'utf8')
+      .matchAll(/^\*\*Verification head\*\*:\s*([0-9a-f]{40})\s*$/gm)];
+    const gateHead = freshArtifact?.identity?.headSha;
+    const reportOnlyParent = gateHead !== headSha
+      ? reportOnlyPublicationHead(root, reportPath, run) : null;
+    const gateRepair = gateHead === reportOnlyParent
+      ? inspectVerificationArtifactRepair(freshArtifact, {
+        expectedIssueNumber: issueNumber, expectedHeadSha: gateHead,
+      }) : artifactRepair;
+    const isCompletePassingExactHead =
+      markers.length === 1 && markers[0][1] === gateHead &&
+      (gateHead === headSha || gateHead === reportOnlyParent) &&
+      gateRepair.status !== 'unverifiable' &&
+      freshArtifact.ceiling === null &&
+      matchesRegisteredResults(root, freshArtifact, {
+        issue: issueNumber, specPath, gateHead, activeRun, reportPath, run,
+      }) &&
+      !freshArtifact.results.some((result) => result && result.required && result.applicable && result.effectiveStatus !== 'passed');
+    if (!isCompletePassingExactHead) {
+      return fail('verification_recheck_invalid', `Passing report requires complete passing exact-source-head registered artifact for #${issueNumber}`);
+    }
   }
 
   const branch = run('git', ['branch', '--show-current'], { cwd });
@@ -282,7 +487,9 @@ export function finalizeVerification(options = {}) {
   }
   try {
     const controllerRunId = leaseContext.owned ? leaseContext.lease.record.runId : leaseContext.lease.runId;
-    return finalizeVerificationUnlocked({ ...options, controllerRunId });
+    return finalizeVerificationUnlocked({
+      ...options, controllerRunId, explicitControllerRunId: options.controllerRunId != null,
+    });
   } finally {
     for (const [signal, handler] of signalHandlers) processApi.removeListener(signal, handler);
     if (leaseContext?.owned) releaseControllerLease(leaseContext.lease);

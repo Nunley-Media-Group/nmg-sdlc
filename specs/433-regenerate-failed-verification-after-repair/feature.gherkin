@@ -56,7 +56,49 @@ Feature: Reverify a repaired implementation without replaying failed evidence
     And repeated unchanged evidence or an already consumed A-to-B pair still stops
 
   @regression
+  Scenario: Mixed local failure carries immutable feedback without accepting external incompleteness
+    Given a verification report at B is Incomplete because a required command failed and external evidence is incomplete
+    When the controller rewinds implementation after preserving the B report and gate artifact
+    Then a distinct published C may authorize a registered recheck of the local repair
+    But the incomplete external result cannot authorize a passed handoff or delivery
+
+  @regression
+  Scenario: A passing artifact cannot omit or downgrade a registered required result
+    Given the active controller has a manifest with two required validations
+    When a passing artifact omits one result or marks its failure optional
+    Then finalization refuses the report without publishing it or passing verification
+
+  @regression
+  Scenario: Standalone Pass still requires a current registered gate
+    Given a standalone verification report says Pass without a canonical gate artifact
+    When the finalizer evaluates publication
+    Then it refuses a passed handoff and does not publish the report
+
+  @regression
   Scenario: Prior same-head external-only incomplete recovery remains independent
     Given an external-only Incomplete artifact remains at its original head
     When its existing one-use prerequisite recheck is requested
     Then its current exact-head and external-only gates remain unchanged
+
+  @regression
+  Scenario Outline: Distinct evidence can advance any remediable stage
+    Given the controller has checkpointed two failed <stage> attempts with their exact evidence
+    And the next LLM worker inspects the spec, prior failures and attempted repairs
+    When it publishes a distinct <proof> under the same issue owner and normal stage gate
+    Then the controller may authorize another <stage> attempt without a fixed total count
+    And the worker must explain why its next approach differs
+
+    Examples:
+      | stage     | proof                         |
+      | implement | synchronized source commit    |
+      | review1   | newly verified review result  |
+      | fix2      | synchronized source commit    |
+      | verify    | exact-head registered gate    |
+      | deliver   | exact-head PR check evidence  |
+
+  @regression
+  Scenario: The same stage evidence cannot authorize another dispatch
+    Given a stopped remediation has no new issue-owned head, artifact or gate result
+    When the controller considers another attempt
+    Then it retains the checkpoint and consumed side effects unchanged
+    And it reports the precise no-progress blocker

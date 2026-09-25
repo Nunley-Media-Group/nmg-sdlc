@@ -96,7 +96,7 @@ function validateConfig(validation) {
   }
 }
 
-export async function loadSteeringRuntime(projectRoot, { manifestPath = "steering/manifest.json" } = {}) {
+export async function loadSteeringRuntime(projectRoot, { manifestPath = "steering/manifest.json", metadataOnly = false } = {}) {
   const root = resolve(projectRoot);
   const absoluteManifest = resolve(root, manifestPath);
   if (!existsSync(absoluteManifest)) fail("steering_manifest_missing");
@@ -126,7 +126,11 @@ export async function loadSteeringRuntime(projectRoot, { manifestPath = "steerin
     addId("module", record.id);
     const modulePath = resolveSteeringPath(root, record.path, "modules");
     let descriptor;
-    try { descriptor = (await import(`${pathToFileURL(modulePath).href}?sha=${hash(readFileSync(modulePath)).slice(7)}`)).default; } catch { fail("steering_module_invalid"); }
+    if (metadataOnly) {
+      descriptor = Object.freeze({ schemaVersion: 1, id: record.id, role: record.role });
+    } else {
+      try { descriptor = (await import(`${pathToFileURL(modulePath).href}?sha=${hash(readFileSync(modulePath)).slice(7)}`)).default; } catch { fail("steering_module_invalid"); }
+    }
     if (!Object.isFrozen(descriptor) || canonicalJson(descriptor) !== canonicalJson({ schemaVersion: 1, id: record.id, role: record.role })) fail("steering_module_invalid");
     modules.set(record.id, descriptor);
   }
@@ -149,16 +153,22 @@ export async function loadSteeringRuntime(projectRoot, { manifestPath = "steerin
     addId("extension", record.id);
     if (!Array.isArray(record.providers) || !record.providers.length) fail("steering_extension_invalid");
     const extensionPath = resolveSteeringPath(root, record.path, "extensions");
-    let extension;
-    try { extension = (await import(`${pathToFileURL(extensionPath).href}?sha=${hash(readFileSync(extensionPath)).slice(7)}`)).extension; } catch { fail("steering_extension_invalid"); }
-    if (!extension || !Object.isFrozen(extension) || extension.schemaVersion !== 1 || extension.id !== record.id || !extension.providers || Object.keys(extension.providers).sort().join("\0") !== [...record.providers].sort().join("\0")) fail("steering_extension_invalid");
+    const declaredProviders = new Set();
     for (const providerId of record.providers) {
       validateId(providerId);
-      if (providers.has(providerId)) fail("steering_duplicate_id");
-      if (typeof extension.providers[providerId] !== "function") fail("steering_extension_invalid");
-      providers.set(providerId, { kind: "extension", handler: extension.providers[providerId] });
+      if (declaredProviders.has(providerId) || providers.has(providerId)) fail("steering_duplicate_id");
+      declaredProviders.add(providerId);
     }
-    extensions.push(extension);
+    let extension;
+    if (!metadataOnly) {
+      try { extension = (await import(`${pathToFileURL(extensionPath).href}?sha=${hash(readFileSync(extensionPath)).slice(7)}`)).extension; } catch { fail("steering_extension_invalid"); }
+      if (!extension || !Object.isFrozen(extension) || extension.schemaVersion !== 1 || extension.id !== record.id || !extension.providers || Object.keys(extension.providers).sort().join("\0") !== [...record.providers].sort().join("\0")) fail("steering_extension_invalid");
+    }
+    for (const providerId of record.providers) {
+      if (!metadataOnly && typeof extension.providers[providerId] !== "function") fail("steering_extension_invalid");
+      providers.set(providerId, { kind: "extension", handler: metadataOnly ? null : extension.providers[providerId] });
+    }
+    extensions.push(metadataOnly ? Object.freeze({ id: record.id, providers: record.providers }) : extension);
   }
 
   const validations = [];
