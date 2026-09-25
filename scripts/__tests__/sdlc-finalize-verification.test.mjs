@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -7,9 +8,10 @@ import path from 'node:path';
 
 import { finalizeVerification } from '../sdlc-finalize-verification.mjs';
 import { inspectIssueSpecScope } from '../issue-spec-scope.mjs';
-import { isRemediableFailedHandoff, validateHandoff } from '../sdlc-execute.mjs';
+import { isRemediableFailedHandoff, remediationCompletedSteps, validateHandoff } from '../sdlc-execute.mjs';
 import { acquireControllerLease, releaseControllerLease } from '../sdlc-controller-lease.mjs';
-import { resolveRecoveryOwner } from '../sdlc-safe-recoveries.mjs';
+import { canonicalJson } from '../../src/sdlc-steering-runtime.mjs';
+import { consumeSafeRecovery, resolveRecoveryOwner } from '../sdlc-safe-recoveries.mjs';
 
 const roots = [];
 const SPEC = 'specs/42-feature';
@@ -50,7 +52,7 @@ function fixture(implementationStatus = 'Pass', { createOwner = true } = {}) {
   fs.writeFileSync(path.join(root, SPEC, 'tasks.md'), `${header}### T001: Publish verified evidence\n\n**File(s)**: \`${REPORT}\`\n`);
   fs.writeFileSync(path.join(root, SPEC, 'feature.gherkin'), `${header}Feature: Verification\n  Scenario: Publish current evidence\n    Given verification passed\n    When the report is finalized\n    Then the current evidence is published\n`);
   fs.writeFileSync(path.join(root, REPORT), '# Pending verification\n');
-  fs.writeFileSync(path.join(root, '.gitignore'), '.omp/\n');
+  fs.writeFileSync(path.join(root, '.gitignore'), '.omp/\nsteering/\n');
   git('add', '.');
   git('commit', '-m', 'chore: initialize publication fixture');
   git('remote', 'add', 'origin', remote);
@@ -58,6 +60,10 @@ function fixture(implementationStatus = 'Pass', { createOwner = true } = {}) {
   // Ownership predates report generation and every partial publication.
   const ownerId = createOwner ? resolveRecoveryOwner({ cwd: root, issue: 42, step: 'verify' }) : null;
   fs.writeFileSync(path.join(root, REPORT), report(root, implementationStatus));
+  if (implementationStatus === 'Pass') {
+    writeVerificationArtifact({ root, git }, []);
+    fs.appendFileSync(path.join(root, REPORT), `\n**Verification head**: ${git('rev-parse', 'HEAD')}\n`);
+  }
   const calls = [];
   const leaseIds = [];
   const run = (command, args, options) => {
@@ -81,15 +87,61 @@ function writeVerificationArtifact(f, results, overrides = {}) {
     : required.some(({ effectiveStatus }) => effectiveStatus !== 'passed')
       ? 'Fail'
       : null;
+  const manifest = {
+    schemaVersion: 1, runtimeVersion: '1', managedFiles: [],
+    modules: [], snippets: [], extensions: [],
+    validations: results.map(({ id, provider, required, when }) => ({
+      id, provider, required, when: when ?? { kind: 'always' }, config: {},
+    })),
+  };
+  const steering = path.join(f.root, 'steering');
+  fs.mkdirSync(steering, { recursive: true });
+  const manifestPath = path.join(steering, 'manifest.json');
+  const manifestBytes = JSON.stringify(manifest);
+  fs.writeFileSync(manifestPath, manifestBytes);
+  const steeringHash = `sha256:${createHash('sha256')
+    .update(`steering/manifest.json\0${manifestBytes}`).digest('hex')}`;
   const target = path.join(f.root, '.omp/sdlc/verification/42.json');
+  const head = f.git('rev-parse', 'HEAD');
+  const specHash = `sha256:${createHash('sha256').update(
+    ['design.md', 'feature.gherkin', 'requirements.md', 'tasks.md']
+      .map((name) => `${name}\0${fs.readFileSync(path.join(f.root, SPEC, name))}`).join('\0'),
+  ).digest('hex')}`;
+  const runPath = path.join(f.root, '.omp/sdlc/run.json');
+  const runId = fs.existsSync(runPath) ? JSON.parse(fs.readFileSync(runPath)).runId
+    : `verification-${createHash('sha256')
+      .update(`${fs.realpathSync(f.root)}\0${42}\0${SPEC}\0${head}`).digest('hex')}`;
+  const registeredResults = results.map((result, index) => {
+    const validation = manifest.validations[index];
+    const validationConfigHash = `sha256:${createHash('sha256')
+      .update(canonicalJson(validation)).digest('hex')}`;
+    const identity = { headSha: head, steeringHash, specHash, validationConfigHash };
+    if (!result.applicable) return { ...result, result: null };
+    return {
+      ...result,
+      request: {
+        schemaVersion: 1, validationId: result.id, projectRoot: fs.realpathSync(f.root),
+        config: validation.config, identity,
+        verification: { runId, issue: 42, specPath: SPEC },
+      },
+      result: {
+        schemaVersion: 1, status: result.effectiveStatus, identity,
+        summary: result.effectiveStatus === 'passed' ? 'command exited 0' : 'provider failed',
+        evidence: [{ kind: 'command', summary: 'registered fixture gate' }],
+      },
+    };
+  });
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, `${JSON.stringify({
     schemaVersion: 1,
     issue: 42,
-    identity: { headSha: f.git('rev-parse', 'HEAD') },
+    identity: { headSha: head, steeringHash, specHash },
+    baseRef: 'main',
+    changedPaths: [],
     ceiling,
-    coverage: { complete: true, missing: [], duplicate: [], unknown: [] },
-    results,
+    coverage: { declared: results.length, recorded: results.length,
+      complete: true, missing: [], duplicate: [], unknown: [] },
+    results: registeredResults,
     ...overrides,
   })}\n`);
   return target;
@@ -107,6 +159,15 @@ describe('verification finalization controller', () => {
     expect(f.git('diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD')).toBe(REPORT);
     expect(fs.existsSync(path.join(f.root, '.omp/sdlc/run.json'))).toBe(false);
   });
+  it('rejects standalone Pass when the registered gate artifact is absent', () => {
+    const f = fixture();
+    fs.rmSync(path.join(f.root, '.omp/sdlc/verification/42.json'));
+    expect(f.finalize()).toMatchObject({
+      status: 1, handoff: { status: 'failed', reasonCode: 'verification_recheck_invalid' },
+    });
+    expect(mutations(f.calls)).toEqual([]);
+  });
+
 
   it.each([
     ['a newly required AC', (root) => fs.appendFileSync(path.join(root, SPEC, 'requirements.md'), '\n### AC2: Verify publication head\n')],
@@ -153,6 +214,82 @@ describe('verification finalization controller', () => {
     expect(f.state().records).toEqual([]);
   });
 
+  it('stops a consumed changed-head recheck when its new gate fails', () => {
+    const f = fixture('Fail');
+    const head = f.git('rev-parse', 'HEAD');
+    consumeSafeRecovery({
+      cwd: f.root, ownerId: f.ownerId, issue: 42, step: 'verify',
+      class: `changed_head_verification_recheck:${'a'.repeat(40)}:${head}`, evidence: { newHead: head },
+    });
+    writeVerificationArtifact(f, [{
+      id: 'repository.api-tests', provider: 'builtin.command',
+      required: true, applicable: true, effectiveStatus: 'failed',
+    }]);
+    const outcome = f.finalize();
+    expect(outcome).toMatchObject({
+      status: 1,
+      handoff: { intervention: true, reasonCode: 'verification_recheck_not_ready', next: null },
+    });
+    expect(mutations(f.calls)).toEqual([]);
+  });
+
+  it('publishes a passing replacement report only with passing changed-head gate evidence', () => {
+    const f = fixture('Fail');
+    consumeSafeRecovery({
+      cwd: f.root, ownerId: f.ownerId, issue: 42, step: 'verify',
+      class: `changed_head_verification_recheck:${'a'.repeat(40)}:${f.git('rev-parse', 'HEAD')}`, evidence: { newHead: f.git('rev-parse', 'HEAD') },
+    });
+    writeVerificationArtifact(f, [{
+      id: 'repository.api-tests', provider: 'builtin.command',
+      required: true, applicable: true, effectiveStatus: 'passed',
+    }]);
+    expect(f.finalize().handoff).toMatchObject({ intervention: true, reasonCode: 'verification_recheck_not_ready' });
+    fs.writeFileSync(path.join(f.root, REPORT), `${report(f.root, 'Pass')}\n**Verification head**: ${f.git('rev-parse', 'HEAD')}\n`);
+    expect(f.finalize()).toMatchObject({ status: 0, handoff: { status: 'passed', next: 'deliver' } });
+  });
+
+  it('retains a truthful new-head failure as remediable without delivering', () => {
+    const f = fixture('Fail');
+    const head = f.git('rev-parse', 'HEAD');
+    consumeSafeRecovery({
+      cwd: f.root, ownerId: f.ownerId, issue: 42, step: 'verify',
+      class: `changed_head_verification_recheck:${'a'.repeat(40)}:${head}`, evidence: { newHead: head },
+    });
+    writeVerificationArtifact(f, [{
+      id: 'repository.api-tests', provider: 'builtin.command',
+      required: true, applicable: true, effectiveStatus: 'failed',
+    }]);
+    fs.writeFileSync(path.join(f.root, REPORT), `${report(f.root, 'Fail')}\n**Verification head**: ${head}\n`);
+    const outcome = f.finalize();
+    expect(outcome).toMatchObject({
+      status: 1, handoff: { intervention: false, reasonCode: 'verification_not_ready', next: 'implement', verificationHead: head },
+    });
+    expect(remediationCompletedSteps({
+      issue: 42, step: 'verify',
+      completed: ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2'],
+      handoff: outcome.handoff,
+    })).toEqual(['start']);
+  });
+
+  it.each(['incomplete', 'failed'])('does not turn a %s project-provider gate into implementation authority', (status) => {
+    const f = fixture('Partial');
+    const head = f.git('rev-parse', 'HEAD');
+    consumeSafeRecovery({
+      cwd: f.root, ownerId: f.ownerId, issue: 42, step: 'verify',
+      class: `changed_head_verification_recheck:${'a'.repeat(40)}:${head}`,
+      evidence: { newHead: head },
+    });
+    writeVerificationArtifact(f, [{
+      id: 'repository.provider', provider: 'project.external',
+      required: true, applicable: true, effectiveStatus: status,
+    }]);
+    fs.writeFileSync(path.join(f.root, REPORT), `${report(f.root, 'Partial')}\n**Verification head**: ${head}\n`);
+    expect(f.finalize()).toMatchObject({
+      status: 1,
+      handoff: { intervention: true, reasonCode: 'verification_recheck_not_ready', next: null },
+    });
+  });
+
   it('rewinds mixed Incomplete evidence to implementation for trusted local failures', () => {
     const f = fixture('Incomplete');
     writeVerificationArtifact(f, [
@@ -189,6 +326,29 @@ describe('verification finalization controller', () => {
     expect(mutations(f.calls)).toEqual([]);
   });
 
+  it('retains local repair feedback after a changed-head mixed gate', () => {
+    const f = fixture('Incomplete');
+    const head = f.git('rev-parse', 'HEAD');
+    consumeSafeRecovery({
+      cwd: f.root, ownerId: f.ownerId, issue: 42, step: 'verify',
+      class: `changed_head_verification_recheck:${'a'.repeat(40)}:${head}`,
+      evidence: { newHead: head },
+    });
+    writeVerificationArtifact(f, [
+      { id: 'repository.api-tests', provider: 'builtin.command',
+        required: true, applicable: true, effectiveStatus: 'failed' },
+      { id: 'repository.robot-integration', provider: 'project.robot-integration',
+        required: true, applicable: true, effectiveStatus: 'incomplete' },
+    ]);
+    fs.appendFileSync(path.join(f.root, REPORT), `\n**Verification head**: ${head}\n`);
+    expect(f.finalize()).toMatchObject({
+      status: 1,
+      handoff: { status: 'failed', intervention: false,
+        reasonCode: 'verification_not_ready', next: 'implement', verificationHead: head },
+    });
+    expect(mutations(f.calls)).toEqual([]);
+  });
+
   it.each([
     ['incomplete-only', [{
       id: 'repository.robot-integration', provider: 'project.robot-integration',
@@ -221,7 +381,9 @@ describe('verification finalization controller', () => {
     expect(outcome).toMatchObject({ status: 1, handoff: { intervention: false, next: null } });
     expect(isRemediableFailedHandoff({ step: 'verify', state: 'idle', handoff: outcome.handoff })).toBe(true);
     expect(mutations(f.calls)).toEqual([]);
-    fs.writeFileSync(path.join(f.root, REPORT), report(f.root));
+    writeVerificationArtifact(f, []);
+    fs.writeFileSync(path.join(f.root, REPORT),
+      `${report(f.root)}\n**Verification head**: ${f.git('rev-parse', 'HEAD')}\n`);
     expect(f.finalize()).toMatchObject({ status: 0, handoff: { status: 'passed' } });
   });
 
@@ -240,7 +402,9 @@ describe('verification finalization controller', () => {
     try {
       expect(f.finalize()).toMatchObject({ status: 1, stderr: 'controller_lease_held\n', handoff: null });
       expect(f.calls).toEqual([]);
-      expect(f.finalize({ controllerRunId: 'execute-run' }).status).toBe(0);
+      expect(f.finalize({ controllerRunId: 'execute-run' })).toMatchObject({
+        status: 1, stderr: 'recovery_owner_ambiguous\n', handoff: null,
+      });
     } finally { releaseControllerLease(lease); }
   });
 
@@ -254,6 +418,10 @@ describe('verification finalization controller', () => {
       issues: [42], currentIssue: 42, currentStep: 'verify',
       remediation: { completedAttempts: 2 }, recoveries: [],
     }));
+    writeVerificationArtifact(f, [{
+      id: 'repository.api-tests', provider: 'builtin.command',
+      required: true, applicable: true, effectiveStatus: 'passed',
+    }]);
     const checkpoint = fs.readFileSync(runPath);
     const lease = mode === 'joined' ? acquireControllerLease({ projectRoot: f.root, runId }) : null;
     try {
@@ -267,6 +435,109 @@ describe('verification finalization controller', () => {
       else expect(fs.existsSync(lockPath)).toBe(false);
     } finally { if (lease) releaseControllerLease(lease); }
   });
+  it('accepts a complete zero-declaration gate under an active controller', () => {
+    const f = fixture('Pass', { createOwner: false });
+    const runId = 'execute-no-registered-gates';
+    const runPath = path.join(f.root, '.omp/sdlc/run.json');
+    fs.mkdirSync(path.dirname(runPath), { recursive: true });
+    fs.writeFileSync(runPath, JSON.stringify({
+      schemaVersion: 1, runId, projectRoot: fs.realpathSync(f.root),
+      issues: [42], currentIssue: 42, currentStep: 'verify',
+    }));
+    writeVerificationArtifact(f, []);
+    expect(f.finalize({ controllerRunId: runId })).toMatchObject({
+      status: 0, handoff: { status: 'passed' },
+    });
+  });
+
+  it.each(['omitted', 'optional', 'bare pass', 'wrong invocation', 'stale report'])('rejects %s required verification evidence under an active controller', (defect) => {
+    const f = fixture('Pass', { createOwner: false });
+    const runId = 'execute-exact-gate';
+    const runPath = path.join(f.root, '.omp/sdlc/run.json');
+    fs.mkdirSync(path.dirname(runPath), { recursive: true });
+    fs.writeFileSync(runPath, JSON.stringify({
+      schemaVersion: 1, runId, projectRoot: fs.realpathSync(f.root),
+      issues: [42], currentIssue: 42, currentStep: 'verify',
+    }));
+    const target = writeVerificationArtifact(f, [
+      { id: 'required.one', provider: 'builtin.command', required: true,
+        applicable: true, effectiveStatus: 'passed' },
+      { id: 'required.two', provider: 'builtin.command', required: true,
+        applicable: true, effectiveStatus: 'passed' },
+    ]);
+    if (defect === 'stale report') {
+      const reportPath = path.join(f.root, REPORT);
+      fs.writeFileSync(reportPath, fs.readFileSync(reportPath, 'utf8')
+        .replace(f.git('rev-parse', 'HEAD'), 'a'.repeat(40)));
+    }
+    if (defect !== 'stale report') {
+      const artifact = JSON.parse(fs.readFileSync(target));
+      if (defect === 'omitted') {
+        artifact.results.pop();
+        artifact.coverage.recorded = 1;
+      } else if (defect === 'optional') {
+        artifact.results[1].required = false;
+        artifact.results[1].effectiveStatus = 'failed';
+      } else if (defect === 'bare pass') {
+        delete artifact.results[1].request;
+        delete artifact.results[1].result;
+      } else {
+        artifact.results[1].request.verification.runId = 'foreign-run';
+      }
+      fs.writeFileSync(target, JSON.stringify(artifact));
+    }
+    expect(f.finalize({ controllerRunId: runId })).toMatchObject({
+      status: 1, handoff: { status: 'failed', reasonCode: 'verification_recheck_invalid' },
+    });
+    expect(mutations(f.calls)).toEqual([]);
+  });
+  it('rejects a required path-exists validation falsely marked inapplicable', () => {
+    const f = fixture('Pass');
+    const target = writeVerificationArtifact(f, [{
+      id: 'required.path', provider: 'builtin.command', required: true,
+      when: { kind: 'path_exists', path: SPEC },
+      applicable: false, effectiveStatus: 'skipped',
+    }]);
+    const artifact = JSON.parse(fs.readFileSync(target));
+    artifact.ceiling = null;
+    fs.writeFileSync(target, JSON.stringify(artifact));
+    expect(f.finalize()).toMatchObject({
+      status: 1, handoff: { status: 'failed', reasonCode: 'verification_recheck_invalid' },
+    });
+    expect(mutations(f.calls)).toEqual([]);
+  });
+  it.each([
+    ['falsified source change', true, 1],
+    ['truly inapplicable', false, 0],
+  ])('checks changed-path applicability for %s', (_label, sourceChanged, expectedStatus) => {
+    const f = fixture('Pass');
+    f.git('branch', 'main');
+    if (sourceChanged) {
+      fs.mkdirSync(path.join(f.root, 'src'));
+      fs.writeFileSync(path.join(f.root, 'src/change.py'), 'changed = True\n');
+      f.git('add', 'src/change.py');
+      f.git('commit', '-m', 'fix: changed project source');
+    }
+    fs.writeFileSync(path.join(f.root, REPORT),
+      `${report(f.root)}\n**Verification head**: ${f.git('rev-parse', 'HEAD')}\n`);
+    writeVerificationArtifact(f, [{
+      id: 'required.paths', provider: 'builtin.command', required: true,
+      when: { kind: 'changed_paths', include: ['src/**'] },
+      applicable: false, effectiveStatus: 'skipped',
+    }], { changedPaths: [] });
+    const run = (command, args, options) => command === 'gh' && args[0] === 'repo'
+      ? { status: 0, stdout: 'main\n' } : f.run(command, args, options);
+    const outcome = f.finalize({ run });
+    expect(outcome).toMatchObject({
+      status: expectedStatus,
+      handoff: { status: expectedStatus ? 'failed' : 'passed',
+        ...(expectedStatus ? { reasonCode: 'verification_recheck_invalid' } : {}) },
+    });
+    if (sourceChanged) expect(mutations(f.calls)).toEqual([]);
+  });
+
+
+
 
   it.each([['SIGINT', 130], ['SIGTERM', 143]])('releases its owned lease on %s', (signal, exitCode) => {
     const f = fixture();
@@ -361,6 +632,75 @@ describe('verification finalization controller', () => {
   it('stops clean publication without an upstream instead of inventing one', () => {
     const f = fixture(); f.commitReport(); f.git('branch', '--unset-upstream');
     expect(f.finalize().handoff.reasonCode).toBe('verification_publish_failed');
+    expect(mutations(f.calls)).toEqual([]);
+  });
+
+  it('rejects foreign --controller-run-id relative to active run.json/owner before handoff or publication', () => {
+    const f = fixture('Pass', { createOwner: false });
+    const runId = 'execute-original';
+    const foreign = 'foreign-run-xyz';
+    const runPath = path.join(f.root, '.omp/sdlc/run.json');
+    fs.mkdirSync(path.dirname(runPath), { recursive: true });
+    fs.writeFileSync(runPath, JSON.stringify({
+      schemaVersion: 1, runId, projectRoot: fs.realpathSync(f.root),
+      issues: [42], currentIssue: 42, currentStep: 'verify',
+      remediation: { completedAttempts: 2 }, recoveries: [],
+    }));
+    const checkpoint = fs.readFileSync(runPath);
+    const outcome = f.finalize({ controllerRunId: foreign });
+    expect(outcome).toMatchObject({ status: 1, stderr: 'recovery_owner_ambiguous\n', handoff: null });
+    expect(mutations(f.calls)).toEqual([]);
+    expect(fs.readFileSync(runPath)).toEqual(checkpoint);
+    expect(fs.existsSync(path.join(f.root, '.omp/sdlc/handoffs/42-verify.json'))).toBe(false);
+  });
+
+  it('fails closed on symlinked/nonregular handoff target or parent with no outside overwrite', () => {
+    const f = fixture();
+    const handoffs = path.join(f.root, '.omp/sdlc/handoffs');
+    fs.mkdirSync(handoffs, { recursive: true });
+    const outside = path.join(f.root, 'outside-handoff.json');
+    fs.writeFileSync(outside, '{"foreign":true}\n');
+    const target = path.join(handoffs, '42-verify.json');
+    fs.symlinkSync(outside, target);
+    const outcome = f.finalize();
+    expect(outcome.status).toBe(1);
+    expect(outcome.handoff).toBeNull();
+    expect(outcome.stderr).toMatch(/handoff_target_unsafe/);
+    expect(fs.readFileSync(outside, 'utf8')).toBe('{"foreign":true}\n'); // no overwrite
+    expect(mutations(f.calls)).toEqual([]);
+  });
+
+  it('keeps provider ceiling as intervention under active controller or recheck history', () => {
+    const f = fixture('Pass');
+    const head = f.git('rev-parse', 'HEAD');
+    consumeSafeRecovery({
+      cwd: f.root, ownerId: f.ownerId, issue: 42, step: 'verify',
+      class: `changed_head_verification_recheck:${'c'.repeat(40)}:${head}`, evidence: { newHead: head },
+    });
+    writeVerificationArtifact(f, [{
+      id: 'policy.check', provider: 'project.external',
+      required: true, applicable: true, effectiveStatus: 'passed',
+    }], { ceiling: 'Fail' });
+    const outcome = f.finalize();
+    expect(outcome).toMatchObject({ status: 1, handoff: { intervention: true, reasonCode: 'verification_recheck_invalid' } });
+    expect(mutations(f.calls)).toEqual([]);
+  });
+
+  it('rejects Pass at C with stale B artifact when owner has prior changed-head recheck history', () => {
+    const f = fixture('Fail');
+    const bHead = 'b'.repeat(40);
+    const cHead = f.git('rev-parse', 'HEAD');
+    consumeSafeRecovery({
+      cwd: f.root, ownerId: f.ownerId, issue: 42, step: 'verify',
+      class: `changed_head_verification_recheck:${'a'.repeat(40)}:${bHead}`, evidence: { newHead: bHead },
+    });
+    writeVerificationArtifact(f, [{
+      id: 'repository.api-tests', provider: 'builtin.command',
+      required: true, applicable: true, effectiveStatus: 'passed',
+    }], { identity: { headSha: bHead } });
+    fs.writeFileSync(path.join(f.root, REPORT), `${report(f.root, 'Pass')}\n**Verification head**: ${cHead}\n`);
+    const outcome = f.finalize();
+    expect(outcome).toMatchObject({ status: 1, handoff: { intervention: true, reasonCode: 'verification_recheck_invalid' } });
     expect(mutations(f.calls)).toEqual([]);
   });
 });

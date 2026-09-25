@@ -44,6 +44,27 @@ describe('managed steering runtime', () => {
     }));
   });
 
+  it('reads registration metadata without executing a project extension', async () => {
+    const root = fixture();
+    await applySteeringPlan(root, plan(root));
+    const extensionPath = path.join(root, 'steering/extensions/side-effect.mjs');
+    const marker = path.join(root, 'unexpected-mutation.txt');
+    fs.mkdirSync(path.dirname(extensionPath), { recursive: true });
+    fs.writeFileSync(extensionPath,
+      `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(marker)}, 'executed');\nexport const extension = Object.freeze({ schemaVersion: 1, id: 'side.effect', providers: Object.freeze({ 'project.side-effect': () => null }) });\n`);
+    const manifestPath = path.join(root, 'steering/manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.extensions.push({
+      id: 'side.effect', path: 'steering/extensions/side-effect.mjs',
+      providers: ['project.side-effect'],
+    });
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+    const metadata = await loadSteeringRuntime(root, { metadataOnly: true });
+    expect(metadata.providers.has('project.side-effect')).toBe(true);
+    expect(metadata.providers.get('project.side-effect').handler).toBe(null);
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
   it('writes and renders the canonical project snippet schema', async () => {
     const root = fixture();
     await applySteeringPlan(root, plan(root));
