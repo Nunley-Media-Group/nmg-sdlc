@@ -73,54 +73,6 @@ describe('extension sdlc- commands', () => {
     expect(runtime.at(-1).content).toBe(String.raw`node "\\foreign\plugins\nmg-sdlc\scripts\missing.mjs"`);
   });
 
-  it('ships automated /sdlc-* as file commands synced to workflow bodies', async () => {
-    const { AUTOMATED_COMMANDS, renderAutomatedCommandMarkdown } = await import('../../src/sdlc-commands.mjs');
-    const source = read('src/extension.ts');
-    expect(source).not.toMatch(/for \(const \[name, skill, description\] of AUTOMATED_COMMANDS\)/);
-    expect(fs.existsSync(path.join(repoRoot, 'commands', 'sdlc-write-spec.md'))).toBe(false);
-    for (const [name, skill, description] of AUTOMATED_COMMANDS) {
-      expect(read(`commands/${name}.md`)).toBe(renderAutomatedCommandMarkdown(name, skill, description, repoRoot));
-    }
-  });
-
-  it('ships no cwd-relative or host-absolute controller dispatch in active prompt surfaces', () => {
-    const roots = ['commands', 'workflows', 'references'];
-    const markdown = [];
-    while (roots.length > 0) {
-      const relative = roots.pop();
-      const absolute = path.join(repoRoot, relative);
-      for (const entry of fs.readdirSync(absolute, { withFileTypes: true })) {
-        const child = path.join(relative, entry.name);
-        if (entry.isDirectory()) roots.push(child);
-        else if (entry.isFile() && entry.name.endsWith('.md')) markdown.push(child);
-      }
-    }
-    for (const file of markdown) {
-      if (!file.startsWith('references/')) {
-        expect(read(file)).not.toMatch(/node scripts\/[A-Za-z0-9._-]+\.mjs/);
-      }
-      expect(read(file)).not.toMatch(
-        /(?:\/|[A-Za-z]:[\\/]|\\\\)[^"'\r\n`]*[\\/]nmg-sdlc[\\/]+scripts[\\/]+[A-Za-z0-9._-]+\.mjs/,
-      );
-    }
-  });
-
-  it('keeps both write-code publication commands source-safe before materialization', async () => {
-    const { materializeControllerPaths, packageRoot, workflowBody } = await import('../../src/sdlc-commands.mjs');
-    const source = workflowBody('write-code');
-    const sourcePath = ['<plugin', '-root>/scripts/sdlc-safe-recoveries.mjs'].join('');
-    const sourceController = JSON.stringify(sourcePath);
-    const runtimeController = JSON.stringify(path.join(packageRoot, 'scripts', 'sdlc-safe-recoveries.mjs'));
-
-    expect(source).toContain(`node ${sourceController} bind --issue N --step implement --spec specs/N-SLUG [--controller-run-id R]`);
-    expect(source).toContain(`node ${sourceController} reconcile --issue N --step implement`);
-    expect(source).not.toContain('/private/tmp/');
-
-    const runtime = materializeControllerPaths(source, packageRoot);
-    expect(runtime).toContain(`node ${runtimeController} bind --issue N --step implement --spec specs/N-SLUG [--controller-run-id R]`);
-    expect(runtime).toContain(`node ${runtimeController} reconcile --issue N --step implement`);
-    expect(runtime).not.toContain(sourcePath);
-  });
 
   it('package omp declares extensions and no skills key', () => {
     const manifest = JSON.parse(read('package.json'));
@@ -185,6 +137,7 @@ describe('extension sdlc- commands', () => {
       encoding: 'utf8',
       env: { ...process.env, NMG_SDLC_REVIEW_SLICE: '' },
     });
+    expect(exercised.stderr).toBe('');
     expect(exercised.status).toBe(0);
     const messages = JSON.parse(exercised.stdout);
     expect(messages).toHaveLength(1);

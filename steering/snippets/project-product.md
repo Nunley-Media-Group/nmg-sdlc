@@ -63,7 +63,7 @@ It is not a Codex plugin. Users invoke `/sdlc-draft-issue`, `/sdlc-write-spec`, 
 
 When developing nmg-sdlc, use `Nunley-Media-Group/nmg-sdlc-smoke` to prove a named plugin behavior end to end. It is not permission to repair the smoke application's independent backlog. Smoke-project changes are authorized only as necessary test fixtures or means to verify an nmg-sdlc change.
 
-Classify failures before repair. Fix plugin defects in the plugin; preserve and report unrelated smoke findings without expanding scope. Stop unchanged/no-progress experiments rather than repeating them or creating replacement issues to chase a green gate. Follow the technical steering's evidence-based attempt limits inside workers and across fresh remediation sessions. Completion requires real invocation-bound delivery evidence, never an edited success marker or weakened acceptance criterion.
+Classify failures before repair. Fix plugin defects in the plugin; preserve and report unrelated smoke findings without expanding scope. Stop unchanged/no-progress experiments rather than repeating them or creating replacement issues to chase a green gate. Completion requires real invocation-bound delivery evidence, never an edited success marker or weakened acceptance criterion.
 
 ---
 
@@ -91,9 +91,7 @@ Classify failures before repair. Fix plugin defects in the plugin; preserve and 
 - Approved specs for one issue (`/sdlc-write-spec #N`)
 - Automated delivery through Herdr (`/sdlc-execute [#N …]`)
 - Linked branch and status management (`start-issue` worker)
-- Spec-driven implementation followed by two host reviews against `main` with dedicated fix panes (`write-code`, `review-main`, `apply-review`)
-- Verification and architecture review (`verify-code`)
-- Live smoke against `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke` on every verify
+- Spec-driven implementation followed by inline verification review (acceptance/task/architecture/BDD) and full-green gate (`write-code`, `verify-code`); live smoke against nmg-sdlc-smoke mandatory on every verify
 - Terminal versioned PR delivery, exact-head merge, and issue closure (`open-pr`)
 - Review-thread cleanup (`address-pr-comments`)
 - Safe project adoption and managed assets (`/sdlc-onboard-project`, `/sdlc-upgrade-project`)
@@ -168,13 +166,13 @@ write-spec         → approved specs/{N}-{slug}/
 execute            → Herdr worker pipeline to exact-head merge
 start-issue        → linked branch and In Progress status
 write-code         → implementation covering approved tasks
-review-main        → persist the execute-driven host /review result against main
-apply-review       → apply one review artifact, committing and pushing only when changed
-verify-code        → acceptance/evidence report
+verify-code        → acceptance/task/architecture/BDD review + full-green evidence report (smoke mandatory)
 open-pr            → exact-head PR delivery, merge, and issue closure
 address-pr-comments→ focused review-loop utility or failed intervention handoff
 status             → read-only lifecycle report; recommend execute or write-spec
 ```
+```
+Each skill's postconditions must continue to satisfy its downstream consumer's preconditions.
 
 Each skill's postconditions must continue to satisfy its downstream consumer's preconditions.
 

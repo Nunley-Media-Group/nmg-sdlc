@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-18T06:23:56.178Z",
+  "generated_at": "2026-09-25T06:04:28.810Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -138,9 +138,9 @@
       "destination": "agents/spec-implementer.md:13"
     },
     {
-      "id": "f6dbf1ac049c",
+      "id": "cb14c0b5de39",
       "source_before": "agents/spec-implementer.md:14",
-      "normalized": "write .omp/sdlc/handoffs/<n>-implement.json.",
+      "normalized": "write .omp/sdlc/handoffs/<n>-implement.json with \"next\": \"verify\".",
       "destination": "agents/spec-implementer.md:14"
     },
     {
@@ -261,274 +261,268 @@
       "destination": "references/execute-implementable-requirements.md:11"
     },
     {
-      "id": "d59c0e3d70f4",
+      "id": "63e1072c6cc6",
       "source_before": "references/execute-implementable-requirements.md:12",
-      "normalized": "implement/fix authority. write-code executes every ### t<number>: in tasks.md in",
+      "normalized": "implement authority. write-code maps every approved acceptance criterion and ###",
       "destination": "references/execute-implementable-requirements.md:12"
     },
     {
-      "id": "b101c707b022",
+      "id": "370d1d9d56b6",
       "source_before": "references/execute-implementable-requirements.md:13",
-      "normalized": "review/fix authority. execute runs two isolated read-only reviews against the de",
+      "normalized": "verification authority. verify maps every active ac, fr, task, and gherkin scena",
       "destination": "references/execute-implementable-requirements.md:13"
     },
     {
-      "id": "370d1d9d56b6",
+      "id": "9c28b0bea7d8",
       "source_before": "references/execute-implementable-requirements.md:14",
-      "normalized": "verification authority. verify maps every active ac, fr, task, and gherkin scena",
+      "normalized": "delivery authority. prepare version artifacts on the issue branch before final v",
       "destination": "references/execute-implementable-requirements.md:14"
     },
     {
-      "id": "2c9ba8a8f618",
+      "id": "1f9b7d34243a",
       "source_before": "references/execute-implementable-requirements.md:15",
-      "normalized": "delivery authority. deliver can synchronize version, changelog.md, and safe stee",
+      "normalized": "repair boundary. workers repair code/test defects and infer conservative non-mat",
       "destination": "references/execute-implementable-requirements.md:15"
     },
     {
-      "id": "1f9b7d34243a",
-      "source_before": "references/execute-implementable-requirements.md:16",
-      "normalized": "repair boundary. workers repair code/test defects and infer conservative non-mat",
-      "destination": "references/execute-implementable-requirements.md:16"
-    },
-    {
       "id": "41d91a98a8d2",
-      "source_before": "references/execute-implementable-requirements.md:20",
+      "source_before": "references/execute-implementable-requirements.md:19",
       "normalized": "for every candidate sentence, apply these steps in order:",
-      "destination": "references/execute-implementable-requirements.md:20"
+      "destination": "references/execute-implementable-requirements.md:19"
     },
     {
       "id": "9cc20e798415",
-      "source_before": "references/execute-implementable-requirements.md:22",
+      "source_before": "references/execute-implementable-requirements.md:21",
       "normalized": "normalize it to the software behavior or repository task it would require.",
-      "destination": "references/execute-implementable-requirements.md:22"
+      "destination": "references/execute-implementable-requirements.md:21"
     },
     {
       "id": "67fc70edaa76",
-      "source_before": "references/execute-implementable-requirements.md:23",
+      "source_before": "references/execute-implementable-requirements.md:22",
       "normalized": "identify the execute stage that owns both implementation and proof.",
+      "destination": "references/execute-implementable-requirements.md:22"
+    },
+    {
+      "id": "c9dd0621dc73",
+      "source_before": "references/execute-implementable-requirements.md:23",
+      "normalized": "require every mutation target to fit implement outcome authority or the owning s",
       "destination": "references/execute-implementable-requirements.md:23"
     },
     {
-      "id": "d38f57f17edd",
+      "id": "99fbe5656497",
       "source_before": "references/execute-implementable-requirements.md:24",
-      "normalized": "require every mutation target to fit implement/fix outcome authority or the owni",
+      "normalized": "require an observable local, registered-provider, or allowlisted pr-only success",
       "destination": "references/execute-implementable-requirements.md:24"
     },
     {
-      "id": "99fbe5656497",
+      "id": "f181e4e65b93",
       "source_before": "references/execute-implementable-requirements.md:25",
-      "normalized": "require an observable local, registered-provider, or allowlisted pr-only success",
+      "normalized": "reject it when success inherently depends on external human judgment, acquiring ",
       "destination": "references/execute-implementable-requirements.md:25"
     },
     {
-      "id": "f181e4e65b93",
+      "id": "6876d0b23a1d",
       "source_before": "references/execute-implementable-requirements.md:26",
-      "normalized": "reject it when success inherently depends on external human judgment, acquiring ",
+      "normalized": "strip excluded motivation, citation, proof, sign-off, operation, or rationale te",
       "destination": "references/execute-implementable-requirements.md:26"
     },
     {
-      "id": "6876d0b23a1d",
-      "source_before": "references/execute-implementable-requirements.md:27",
-      "normalized": "strip excluded motivation, citation, proof, sign-off, operation, or rationale te",
-      "destination": "references/execute-implementable-requirements.md:27"
-    },
-    {
       "id": "21b2268c3299",
-      "source_before": "references/execute-implementable-requirements.md:29",
+      "source_before": "references/execute-implementable-requirements.md:28",
       "normalized": "if no execute stage owns both realization and proof, omit the statement.",
-      "destination": "references/execute-implementable-requirements.md:29"
+      "destination": "references/execute-implementable-requirements.md:28"
     },
     {
       "id": "16f44c026ec9",
-      "source_before": "references/execute-implementable-requirements.md:31",
+      "source_before": "references/execute-implementable-requirements.md:30",
       "normalized": "before synthesis, create a transient execute feasibility table in each issue ent",
-      "destination": "references/execute-implementable-requirements.md:31"
+      "destination": "references/execute-implementable-requirements.md:30"
     },
     {
       "id": "b60f16814d94",
-      "source_before": "references/execute-implementable-requirements.md:33",
+      "source_before": "references/execute-implementable-requirements.md:32",
       "normalized": "| item | behavior or task | owning stage | mutation/artifact | evidence kind and",
-      "destination": "references/execute-implementable-requirements.md:33"
+      "destination": "references/execute-implementable-requirements.md:32"
     },
     {
       "id": "bb740fbdbaeb",
-      "source_before": "references/execute-implementable-requirements.md:36",
+      "source_before": "references/execute-implementable-requirements.md:35",
       "normalized": "cover every proposed ac, fr, task, and scenario. disposition is exactly retain, ",
-      "destination": "references/execute-implementable-requirements.md:36"
+      "destination": "references/execute-implementable-requirements.md:35"
     },
     {
       "id": "8576ab14298e",
-      "source_before": "references/execute-implementable-requirements.md:38",
+      "source_before": "references/execute-implementable-requirements.md:37",
       "normalized": "after synthesis, audit the complete generated payload, not selected sections. dr",
-      "destination": "references/execute-implementable-requirements.md:38"
+      "destination": "references/execute-implementable-requirements.md:37"
     },
     {
       "id": "c94af30d433f",
-      "source_before": "references/execute-implementable-requirements.md:42",
+      "source_before": "references/execute-implementable-requirements.md:41",
       "normalized": "the final audit must establish all of these facts:",
-      "destination": "references/execute-implementable-requirements.md:42"
+      "destination": "references/execute-implementable-requirements.md:41"
     },
     {
       "id": "6cce400c348c",
-      "source_before": "references/execute-implementable-requirements.md:44",
+      "source_before": "references/execute-implementable-requirements.md:43",
       "normalized": "every ac, fr, task, and scenario has exactly one feasibility row.",
-      "destination": "references/execute-implementable-requirements.md:44"
+      "destination": "references/execute-implementable-requirements.md:43"
     },
     {
       "id": "7c636a830841",
-      "source_before": "references/execute-implementable-requirements.md:45",
+      "source_before": "references/execute-implementable-requirements.md:44",
       "normalized": "every retained or rewritten item names its owning realization/proof stage, permi",
-      "destination": "references/execute-implementable-requirements.md:45"
+      "destination": "references/execute-implementable-requirements.md:44"
     },
     {
       "id": "fc3bf0fd6056",
-      "source_before": "references/execute-implementable-requirements.md:46",
+      "source_before": "references/execute-implementable-requirements.md:45",
       "normalized": "start and delivery actions such as labels, branches, project status, spec public",
-      "destination": "references/execute-implementable-requirements.md:46"
+      "destination": "references/execute-implementable-requirements.md:45"
     },
     {
       "id": "d2e29363fecb",
-      "source_before": "references/execute-implementable-requirements.md:47",
+      "source_before": "references/execute-implementable-requirements.md:46",
       "normalized": "no excluded content appears in background, current state, root cause, environmen",
-      "destination": "references/execute-implementable-requirements.md:47"
+      "destination": "references/execute-implementable-requirements.md:46"
     },
     {
       "id": "a34b9590de90",
-      "source_before": "references/execute-implementable-requirements.md:48",
+      "source_before": "references/execute-implementable-requirements.md:47",
       "normalized": "steering may resolve actual paths, interfaces, validation identities, and projec",
-      "destination": "references/execute-implementable-requirements.md:48"
+      "destination": "references/execute-implementable-requirements.md:47"
     },
     {
       "id": "ee5336d9adb9",
-      "source_before": "references/execute-implementable-requirements.md:52",
+      "source_before": "references/execute-implementable-requirements.md:51",
       "normalized": "retain concrete software behavior when repository implementation and observable ",
-      "destination": "references/execute-implementable-requirements.md:52"
+      "destination": "references/execute-implementable-requirements.md:51"
     },
     {
       "id": "f739e89ec976",
-      "source_before": "references/execute-implementable-requirements.md:54",
+      "source_before": "references/execute-implementable-requirements.md:53",
       "normalized": "implement a 30-day deletion state transition and boundary tests;",
-      "destination": "references/execute-implementable-requirements.md:54"
+      "destination": "references/execute-implementable-requirements.md:53"
     },
     {
       "id": "49d28d25e8e4",
-      "source_before": "references/execute-implementable-requirements.md:55",
+      "source_before": "references/execute-implementable-requirements.md:54",
       "normalized": "return 403 when stored authorization data denies access;",
-      "destination": "references/execute-implementable-requirements.md:55"
+      "destination": "references/execute-implementable-requirements.md:54"
     },
     {
       "id": "a7a976d8574f",
-      "source_before": "references/execute-implementable-requirements.md:56",
+      "source_before": "references/execute-implementable-requirements.md:55",
       "normalized": "add and test a schema migration and rollback;",
-      "destination": "references/execute-implementable-requirements.md:56"
+      "destination": "references/execute-implementable-requirements.md:55"
     },
     {
       "id": "1552a8757cb1",
-      "source_before": "references/execute-implementable-requirements.md:57",
+      "source_before": "references/execute-implementable-requirements.md:56",
       "normalized": "emit an audit-log record;",
-      "destination": "references/execute-implementable-requirements.md:57"
+      "destination": "references/execute-implementable-requirements.md:56"
     },
     {
       "id": "f4f7b4ade2a4",
-      "source_before": "references/execute-implementable-requirements.md:58",
+      "source_before": "references/execute-implementable-requirements.md:57",
       "normalized": "meet a concrete latency threshold under a repository benchmark; and",
-      "destination": "references/execute-implementable-requirements.md:58"
+      "destination": "references/execute-implementable-requirements.md:57"
     },
     {
       "id": "08b507d4201d",
-      "source_before": "references/execute-implementable-requirements.md:59",
+      "source_before": "references/execute-implementable-requirements.md:58",
       "normalized": "update checked-in repository configuration or infrastructure-as-code whose behav",
-      "destination": "references/execute-implementable-requirements.md:59"
+      "destination": "references/execute-implementable-requirements.md:58"
     },
     {
       "id": "aa6a18cde6ba",
-      "source_before": "references/execute-implementable-requirements.md:61",
+      "source_before": "references/execute-implementable-requirements.md:60",
       "normalized": "narrow mixed input before retaining it:",
-      "destination": "references/execute-implementable-requirements.md:61"
+      "destination": "references/execute-implementable-requirements.md:60"
     },
     {
       "id": "fb1048a1da05",
-      "source_before": "references/execute-implementable-requirements.md:63",
+      "source_before": "references/execute-implementable-requirements.md:62",
       "normalized": "“comply with privacy law by deleting data after 30 days and obtain counsel appro",
-      "destination": "references/execute-implementable-requirements.md:63"
+      "destination": "references/execute-implementable-requirements.md:62"
     },
     {
       "id": "020dc29b2390",
-      "source_before": "references/execute-implementable-requirements.md:64",
+      "source_before": "references/execute-implementable-requirements.md:63",
       "normalized": "“deploy infrastructure” becomes checked-in, testable infrastructure configuratio",
-      "destination": "references/execute-implementable-requirements.md:64"
+      "destination": "references/execute-implementable-requirements.md:63"
     },
     {
       "id": "90dee96136ed",
-      "source_before": "references/execute-implementable-requirements.md:66",
+      "source_before": "references/execute-implementable-requirements.md:65",
       "normalized": "omit legal or regulatory compliance declarations; contract, license, intellectua",
-      "destination": "references/execute-implementable-requirements.md:66"
+      "destination": "references/execute-implementable-requirements.md:65"
     },
     {
       "id": "1bbfe9c3df9f",
-      "source_before": "references/execute-implementable-requirements.md:68",
+      "source_before": "references/execute-implementable-requirements.md:67",
       "normalized": "for mixed statements, preserve the concrete software behavior and testable const",
-      "destination": "references/execute-implementable-requirements.md:68"
+      "destination": "references/execute-implementable-requirements.md:67"
     },
     {
       "id": "06032ce39914",
-      "source_before": "references/execute-implementable-requirements.md:72",
+      "source_before": "references/execute-implementable-requirements.md:71",
       "normalized": "if draft-issue filtering leaves no eligible requirement, print exactly:",
-      "destination": "references/execute-implementable-requirements.md:72"
+      "destination": "references/execute-implementable-requirements.md:71"
     },
     {
       "id": "13ab0801eeb8",
-      "source_before": "references/execute-implementable-requirements.md:74",
+      "source_before": "references/execute-implementable-requirements.md:73",
       "normalized": "no software requirements executable by /sdlc-execute remain after excluding non-",
-      "destination": "references/execute-implementable-requirements.md:74"
+      "destination": "references/execute-implementable-requirements.md:73"
     },
     {
       "id": "00738f537b34",
-      "source_before": "references/execute-implementable-requirements.md:76",
+      "source_before": "references/execute-implementable-requirements.md:75",
       "normalized": "stop before writing a plan, calling xd://propose, or mutating github.",
-      "destination": "references/execute-implementable-requirements.md:76"
+      "destination": "references/execute-implementable-requirements.md:75"
     },
     {
       "id": "995f72332353",
-      "source_before": "references/execute-implementable-requirements.md:78",
+      "source_before": "references/execute-implementable-requirements.md:77",
       "normalized": "if write-spec filtering leaves no eligible requirement, substitute the selected ",
-      "destination": "references/execute-implementable-requirements.md:78"
+      "destination": "references/execute-implementable-requirements.md:77"
     },
     {
       "id": "a20198cbc32d",
-      "source_before": "references/execute-implementable-requirements.md:80",
+      "source_before": "references/execute-implementable-requirements.md:79",
       "normalized": "issue #n has no software requirements executable by /sdlc-execute after excludin",
-      "destination": "references/execute-implementable-requirements.md:80"
+      "destination": "references/execute-implementable-requirements.md:79"
     },
     {
       "id": "0936fd166f8f",
-      "source_before": "references/execute-implementable-requirements.md:82",
+      "source_before": "references/execute-implementable-requirements.md:81",
       "normalized": "stop before writing a plan, preparing a branch, writing spec files, committing, ",
-      "destination": "references/execute-implementable-requirements.md:82"
+      "destination": "references/execute-implementable-requirements.md:81"
     },
     {
       "id": "72d376a76717",
-      "source_before": "references/execute-implementable-requirements.md:84",
+      "source_before": "references/execute-implementable-requirements.md:83",
       "normalized": "if a material choice remains after write-spec's three-ask budget, substitute the",
-      "destination": "references/execute-implementable-requirements.md:84"
+      "destination": "references/execute-implementable-requirements.md:83"
     },
     {
       "id": "a097593ec757",
-      "source_before": "references/execute-implementable-requirements.md:86",
+      "source_before": "references/execute-implementable-requirements.md:85",
       "normalized": "issue #n has unresolved decisions required for /sdlc-execute: <comma-separated d",
-      "destination": "references/execute-implementable-requirements.md:86"
+      "destination": "references/execute-implementable-requirements.md:85"
     },
     {
       "id": "7b3770888226",
-      "source_before": "references/execute-implementable-requirements.md:88",
+      "source_before": "references/execute-implementable-requirements.md:87",
       "normalized": "stop before plan creation, proposal, or mutation. never emit open questions into",
-      "destination": "references/execute-implementable-requirements.md:88"
+      "destination": "references/execute-implementable-requirements.md:87"
     },
     {
       "id": "b0d64b657281",
-      "source_before": "references/execute-implementable-requirements.md:90",
+      "source_before": "references/execute-implementable-requirements.md:89",
       "normalized": "source anchors that maintain this contract but are never generated content: scri",
-      "destination": "references/execute-implementable-requirements.md:90"
+      "destination": "references/execute-implementable-requirements.md:89"
     },
     {
       "id": "6dcdc72889bb",

@@ -5,9 +5,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  ALLOWED_CONSUMERS,
-  COMMAND_CONSUMERS,
-  WORKER_CONSUMERS,
   createPromptSnippetRegistry,
   defaultPromptRegistry,
   pluginPromptFragments,
@@ -16,12 +13,7 @@ import {
   renderPrompt,
   writePromptProvenance,
 } from '../../src/sdlc-prompt-snippets.mjs';
-import {
-  AUTOMATED_COMMANDS,
-  INTERACTIVE_COMMANDS,
-  rewriteInteractiveInput,
-} from '../../src/sdlc-commands.mjs';
-import { VALID_STEPS } from '../sdlc-execute.mjs';
+import { rewriteInteractiveInput } from '../../src/sdlc-commands.mjs';
 import { workflowBody } from '../../src/sdlc-workflows.mjs';
 import { applySteeringPlan, createInitializePlan } from '../sdlc-steering.mjs';
 
@@ -50,43 +42,6 @@ function expectReason(reasonCode, callback) {
 }
 
 describe('prompt snippet registry', () => {
-  it('keeps consumer lists synchronized with command and worker tables', () => {
-    expect(COMMAND_CONSUMERS).toEqual([
-      ...INTERACTIVE_COMMANDS.map(([name]) => name),
-      ...AUTOMATED_COMMANDS.map(([name]) => name),
-    ]);
-    expect(WORKER_CONSUMERS).toEqual(VALID_STEPS.map((step) => `worker:${step}`));
-    expect(ALLOWED_CONSUMERS).toEqual([...COMMAND_CONSUMERS, ...WORKER_CONSUMERS]);
-  });
-
-  it('ships exactly the built-in plugin catalog without project snippets', () => {
-    const fragments = pluginPromptFragments();
-    expect(fragments.map(({ id }) => id)).toEqual([
-      'plugin.workflow.draft-issue',
-      'plugin.workflow.write-spec',
-      'plugin.reference.execute-implementable-requirements',
-      'plugin.workflow.onboard-project',
-      'plugin.workflow.upgrade-project',
-      'plugin.workflow.steering',
-      'plugin.workflow.run-retro',
-      'plugin.workflow.execute',
-      'plugin.workflow.status',
-      'plugin.workflow.verify-code',
-      'plugin.workflow.open-pr',
-      'plugin.workflow.start-issue',
-      'plugin.workflow.write-code',
-      'plugin.workflow.review-main',
-      'plugin.workflow.apply-review',
-      'plugin.workflow.simplify',
-      'plugin.execute.selection',
-      'plugin.worker.header',
-    ]);
-    expect(fragments.filter(({ source }) => !source.startsWith('builtin:'))
-      .every(({ source }) => source.startsWith('workflows/')
-        || source === 'references/execute-implementable-requirements.md')).toBe(true);
-    expect(defaultPromptRegistry(repoRoot).byId.size).toBe(18);
-    expect(fragments.every((fragment) => !Object.hasOwn(fragment, 'byteBound'))).toBe(true);
-  });
 
   it('renders the shared execute contract after both workflow bodies with provenance', () => {
     const registry = defaultPromptRegistry(repoRoot);

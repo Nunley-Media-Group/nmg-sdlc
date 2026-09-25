@@ -611,8 +611,9 @@ export function runCli(argv, streams = {}) {
       },
     });
     stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-    if (['pass', 'pr_evidence_pending', 'pr_evidence_satisfied'].includes(result.status)) return 0;
-    return result.status === 'blocked' ? 1 : 2;
+    if (result.status === 'pass' || result.status === 'pr_evidence_satisfied') return 0;
+    if (result.status === 'pr_evidence_pending' || result.status === 'blocked') return 1;
+    return 2;
   } catch (error) {
     stderr.write(`Verification readiness unavailable: ${error.message}\n`);
     return 2;

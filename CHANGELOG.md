@@ -10,9 +10,13 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
-### Fixed
+## [3.25.0] - 2026-09-25
 
-- Reverify published repairs after failed or mixed-local Incomplete reports with owner-bound head-pair receipts; carry immutable findings back through implementation and both reviews, and continue any remediable stage on distinct authorized evidence instead of a fixed total attempt count. Legacy recovery requires a server-observed repair push, read-only metadata inspection does not execute extensions, and every Pass finalization—including standalone—requires exact source-head registered results, invocation-bound provider evidence and a current acceptance report (#433).
+### Changed
+
+- Bump the plugin minor version to 3.25.0. `/sdlc-execute` resumes from the current issue branch and live Git/GitHub evidence through start (when needed), implement, verify, and deliver; obsolete host-review stages and checkpoint/one-use recovery authority are removed.
+- Require a complete passing registered steering gate at the exact source head before PR ready or merge. PR-only checks use a controlled draft and a final Pass report; required local failures defer the smoke provider without treating it as passed.
+- Reconcile exact-head publication and merged/closed outcomes without replaying a push or merge. The required smoke gate binds its pre-merge receipt to the outer invocation and verifies a new merged PR and closed issue.
 
 ## [3.24.9] - 2026-09-24
 

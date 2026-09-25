@@ -75,50 +75,28 @@ describe('sdlc-status v3 recommendations', () => {
     expect(status.nextAction.command).toBe('/sdlc-execute #42');
   });
 
-  it('recommends bare recovery instead of starting a new queue, and refuses consumed recovery retries', () => {
-    const evidence = baseEvidence({ project: { implementationPaths: ['src/fix.mjs'] } });
-    evidence.recovery = { state: 'loop-recovery-available', action: 'Resume the existing queue.' };
-    expect(inferLifecycle(evidence).nextAction.command).toBe('/sdlc-execute');
-    evidence.recovery = {
-      state: 'recovery-consumed', reasonCode: 'remediation_loop',
-      cleanupReasonCode: 'pane_close_failed',
-      action: 'Inspect recorded recovery evidence and repair the blocker; do not retry unchanged execution.',
-    };
-    const consumed = inferLifecycle(evidence);
-    expect(consumed.nextAction.manualRepairRequired).toBe(true);
-    expect(consumed.nextAction.command).not.toContain('/sdlc-execute');
-    expect(renderText(consumed)).toContain('pane_close_failed');
-    evidence.recovery = { state: 'blocked', reasonCode: 'checkpoint_branch_mismatch', action: 'Resolve the checkpoint branch mismatch.' };
-    expect(inferLifecycle(evidence).nextAction.manualRepairRequired).toBe(true);
-    // also covers resumable bare
-    evidence.recovery = { state: 'resumable', action: 'Run /sdlc-execute with no parameters.' };
-    expect(inferLifecycle(evidence).nextAction.command).toBe('/sdlc-execute');
-    expect(inferLifecycle(evidence).nextAction.reason).toBe('resumable');
+  it('treats completed implementation as ready for delivery even when no base-relative diff remains', () => {
+    const status = inferLifecycle(baseEvidence({
+      verification: { status: 'pass', current: true },
+      pullRequest: { state: 'OPEN', isDraft: true },
+    }));
+    expect(status.stage).toBe('verified');
+    expect(status.nextAction.command).toBe('/sdlc-open-pr #42');
+    expect(status.gaps).not.toContain('passing verification conflicts with missing implementation evidence');
   });
 
-  it.each(['missing-issue', 'blocked-dependency', 'unknown-dependency', 'scope-repair', 'complete'])(
-    'preserves lifecycle precedence over leftover recovery for %s',
-    (boundary) => {
-      const evidence = baseEvidence({ project: { implementationPaths: ['src/fix.mjs'] } });
-      if (boundary === 'missing-issue') evidence.issue = null;
-      if (boundary.endsWith('-dependency')) {
-        evidence.issue.dependency = {
-          status: boundary.split('-')[0], reasonCode: 'dependency_unreadable',
-        };
-      }
-      if (boundary === 'scope-repair') evidence.spec.scope = { status: 'repair_required' };
-      if (boundary === 'complete') {
-        evidence.issue.state = 'CLOSED';
-        evidence.verification = { status: 'pass', current: true };
-        evidence.pullRequest = { state: 'MERGED' };
-      }
-      const expected = inferLifecycle(evidence).nextAction;
-      for (const state of ['resumable', 'loop-recovery-available', 'recovery-consumed', 'blocked']) {
-        evidence.recovery = { state, action: 'Repair checkpoint ownership.' };
-        expect(inferLifecycle(evidence).nextAction).toEqual(expected);
-      }
-    },
-  );
+  it('reports completion from merged PR and closed issue regardless of old runtime markers', () => {
+    const evidence = baseEvidence({
+      issue: { state: 'CLOSED' },
+      verification: { status: 'pass', current: true },
+      pullRequest: { state: 'MERGED' },
+    });
+    evidence.recovery = { state: 'blocked', reasonCode: 'old_checkpoint' };
+    const status = inferLifecycle(evidence);
+    expect(status.stage).toBe('complete');
+    expect(status.nextAction.manualRepairRequired).toBe(false);
+    expect(status.recovery).toBeUndefined();
+  });
 
   it('recommends verify-code after implementation starts', () => {
     const status = inferLifecycle(baseEvidence({
@@ -157,7 +135,7 @@ describe('sdlc-status v3 recommendations', () => {
     expect(status.nextAction.command).toBe('/sdlc-open-pr #42');
   });
 
-  it('fails closed for unavailable issue evidence, conflicting verification, and completed delivery', () => {
+  it('fails closed for unavailable issue evidence and recognizes completed delivery', () => {
     const unavailable = baseEvidence();
     unavailable.issue = null;
     expect(inferLifecycle(unavailable)).toMatchObject({
@@ -165,12 +143,6 @@ describe('sdlc-status v3 recommendations', () => {
       nextAction: { reason: 'issue_evidence_unavailable', manualRepairRequired: true },
     });
 
-    expect(inferLifecycle(baseEvidence({
-      verification: { status: 'pass', current: true },
-    }))).toMatchObject({
-      stage: 'specified',
-      nextAction: { command: '/sdlc-execute #42' },
-    });
 
     expect(inferLifecycle(baseEvidence({
       project: { branch: '42-example', dirty: false, implementationPaths: ['src/foo.ts'], baseRelativeCommits: [] },
@@ -432,6 +404,34 @@ describe('sdlc-status v3 recommendations', () => {
       expect(untracked.gaps).toContain(
         'untracked implementation paths invalidate verification: src/untracked.mjs',
       );
+
+      const git = (...args) => {
+        const outcome = spawnSync('git', args, { cwd: project, encoding: 'utf8' });
+        expect(outcome.status).toBe(0);
+        return outcome.stdout.trim();
+      };
+      git('init', '-b', '42-example');
+      git('config', 'user.name', 'Status Test');
+      git('config', 'user.email', 'status@example.test');
+      fs.rmSync(reportPath);
+      fs.writeFileSync(path.join(project, 'source.txt'), 'source implementation\n');
+      git('add', 'source.txt');
+      git('commit', '-m', 'feat: implement #42');
+      const sourceHead = git('rev-parse', 'HEAD');
+      fs.writeFileSync(reportPath, `${report(readiness(sourceHead))}\n**Verification head**: ${sourceHead}\n`);
+      git('add', reportPath);
+      git('commit', '-m', 'docs: record verification for #42');
+      const reportHead = git('rev-parse', 'HEAD');
+      const actual = collectVerification(project, spec, { number: 9, headRefOid: reportHead }, [], {
+        fs,
+        run: (binary, args, options) => {
+          const result = spawnSync(binary, args, { encoding: 'utf8', ...options });
+          return { ...result, ok: result.status === 0 };
+        },
+      }, []);
+      expect(actual).toMatchObject({
+        status: 'pass', current: true, readinessStatus: 'pr_evidence_satisfied',
+      });
     } finally {
       fs.rmSync(project, { recursive: true, force: true });
     }

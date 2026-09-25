@@ -88,7 +88,7 @@ describe('controller lease', () => {
     expect(fs.existsSync(controllerLeasePath(root))).toBe(false);
   });
 
-  test('reclaims an unchanged same-run lease only after pid and pane absence', () => {
+  test('reclaims a dead lease from a previous invocation only after pid and pane absence', () => {
     const root = makeRoot();
     const lease = acquireControllerLease({
       projectRoot: root,
@@ -101,7 +101,7 @@ describe('controller lease', () => {
 
     expect(reclaimStaleControllerLease({
       projectRoot: root,
-      runId: 'run-42',
+      runId: 'new-invocation',
       processApi: {
         kill: (pid, signal) => {
           signals.push([pid, signal]);
@@ -224,10 +224,7 @@ describe('controller lease', () => {
     expect(fs.readFileSync(lease.path, 'utf8')).toBe(lease.serialized);
   });
 
-  test.each([
-    ['foreign run', (record) => ({ ...record, runId: 'other-run' })],
-    ['malformed JSON', () => '{'],
-  ])('preserves %s lease bytes', (_name, replacement) => {
+  test('preserves malformed lease bytes when no ownership can be proven', () => {
     const root = makeRoot();
     const lease = acquireControllerLease({
       projectRoot: root,
@@ -236,7 +233,7 @@ describe('controller lease', () => {
       pid: 42,
     });
     fs.closeSync(lease.fd);
-    const value = replacement(lease.record);
+    const value = '{';
     const bytes = typeof value === 'string' ? value : `${JSON.stringify(value, null, 2)}\n`;
     fs.writeFileSync(lease.path, bytes);
 

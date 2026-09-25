@@ -1,0 +1,36 @@
+**Issue**: #436
+**Date**: 2026-09-25
+**Status**: Approved
+**Author**: NMG
+
+Feature: Branch-first execute and full-green delivery
+
+  @SCN001
+  Scenario: Resume from the issue branch despite stale runtime files
+    Given an issue branch with an approved spec and stale run and ledger files
+    When execute runs
+    Then it selects the branch issue and verifies or implements from live evidence
+
+  @SCN002
+  Scenario: Repair distinct failures without an attempt ceiling
+    Given repeated distinct failed verifications
+    When each repair changes the source
+    Then execute reverifies the new head and continues until green
+
+  @SCN003
+  Scenario: Deliver only after full-green registered verification
+    Given registered steering validations including smoke
+    When delivery runs
+    Then merge happens only at the exact passing head and the issue closes
+
+  @SCN004
+  Scenario: Bind smoke proof to the invocation
+    Given a nested smoke delivery
+    When its PR merges
+    Then the pre-merge receipt carries the outer invocation id
+
+  @SCN005
+  Scenario: Cancel only owned panes
+    Given a cancelled controller with foreign panes present
+    When the supervisor cleans up
+    Then only invocation-owned panes close

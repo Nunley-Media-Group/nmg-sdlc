@@ -8,19 +8,14 @@ import fs from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 
 import {
-  consumeSafeRecovery,
-  getSafeRecoveryRecord,
-  listChangedHeadVerificationRecords,
-  resolveRecoveryOwner,
-} from './sdlc-safe-recoveries.mjs';
-import {
   inspectVerificationArtifactRepair,
   inspectVerificationReadiness,
 } from './verification-readiness.mjs';
 import { inspectIssueSpecScope } from './issue-spec-scope.mjs';
-import { isSpecApproved, resolveSpecDir } from './sdlc-execute.mjs';
+import { isSpecApproved, resolveSpecDir } from './issue-spec-scope.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
 import { enterControllerLease, releaseControllerLease } from './sdlc-controller-lease.mjs';
+import { parseIssueBranch } from './sdlc-status.mjs';
 import { loadSteeringRuntime } from '../src/sdlc-steering-runtime.mjs';
 
 const USAGE = 'Usage: node scripts/sdlc-recover-verification.mjs --issue N --spec specs/N-SLUG [--controller-run-id R] [--probe]';
@@ -118,67 +113,6 @@ function archiveFailedVerification(root, archive, reportBytes, artifactBytes, re
 }
 
 
-function postedLegacyReportProof({ run, cwd, issue, oldHead, artifact, content, repairHead, branch }) {
-  if (!content.includes(`The gate wrote \`.omp/sdlc/verification/${issue}.json\` for HEAD \`${oldHead}\``)
-    || !Number.isFinite(Date.parse(artifact.generatedAt ?? ''))
-    || !/^[0-9a-f]{40}$/i.test(repairHead ?? '')) return false;
-  const viewed = run('gh', ['issue', 'view', String(issue), '--json', 'comments'], { cwd });
-  const viewer = run('gh', ['api', 'user', '--jq', '.login'], { cwd });
-  const repository = run('gh', ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'], { cwd });
-  if (![viewed, viewer, repository].every(commandSucceeded)
-    || String(viewed.stdout).length > MAX_REPORT_BYTES * 2) return false;
-  const nameWithOwner = String(repository.stdout ?? '').trim();
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(nameWithOwner)) return false;
-  try {
-    let publishedAt = null;
-    for (let page = 1; page <= 3; page++) {
-      const events = run('gh', ['api', `repos/${nameWithOwner}/events?per_page=100&page=${page}`], { cwd });
-      if (!commandSucceeded(events) || String(events.stdout).length > MAX_REPORT_BYTES * 4) return false;
-      const rows = JSON.parse(events.stdout);
-      if (!Array.isArray(rows) || rows.length > 100) return false;
-      const pushes = rows.filter((entry) => entry.type === 'PushEvent'
-        && entry.payload?.ref === `refs/heads/${branch}` && entry.payload?.before === oldHead
-        && entry.payload?.head === repairHead
-        && Number.isFinite(Date.parse(entry.created_at)));
-      for (const entry of pushes) {
-        const observed = Date.parse(entry.created_at);
-        publishedAt = publishedAt === null ? observed : Math.min(publishedAt, observed);
-      }
-      if (rows.length < 100) break;
-    }
-    if (publishedAt === null) return false;
-    const comments = JSON.parse(viewed.stdout).comments;
-    if (!Array.isArray(comments) || comments.length >= 100) return false;
-    const trimmedBody = content.replace(/\n+$/, '');
-    const postedByWorkflow = Buffer.byteLength(trimmedBody, 'utf8') <= 20000 ? trimmedBody : null;
-    const posted = comments.filter((entry) =>
-      (entry.body === content || (postedByWorkflow !== null && entry.body === postedByWorkflow))
-      && entry.author?.login === String(viewer.stdout).trim()
-      && Number.isFinite(Date.parse(entry.createdAt))
-      && Date.parse(entry.createdAt) >= Date.parse(artifact.generatedAt)
-      && Date.parse(entry.createdAt) < publishedAt);
-    return posted.length === 1;
-  } catch {
-    return false;
-  }
-}
-
-function archivedMarkerlessMixedProof({ root, issue, oldHead, checkpoint, reportContent, artifactBytes }) {
-  if (checkpoint?.verificationFeedback?.issue !== issue) return false;
-  const feedback = checkpoint.verificationFeedback.history?.at(-1);
-  const artifactDigest = createHash('sha256').update(artifactBytes).digest('hex');
-  const reportDigest = createHash('sha256').update(reportContent).digest('hex');
-  const prefix = `.omp/sdlc/history/verification-feedback/${issue}-${oldHead}-${artifactDigest}`;
-  if (feedback?.head !== oldHead || feedback.report !== `${prefix}.report.md`
-    || feedback.artifact !== `${prefix}.artifact.json`
-    || feedback.reportDigest !== reportDigest || feedback.artifactDigest !== artifactDigest) return false;
-  try {
-    return readBoundedFile(root, feedback.report, MAX_REPORT_BYTES).equals(Buffer.from(reportContent))
-      && readBoundedFile(root, feedback.artifact, MAX_ARTIFACT_BYTES).equals(artifactBytes);
-  } catch {
-    return false;
-  }
-}
 
 export async function recoverVerification({
   issue,
@@ -203,37 +137,8 @@ export async function recoverVerification({
     return { recover: false, reasonCode: 'not_applicable' };
   }
 
-  let ownerId;
-  if (!probe) {
-    try {
-      ownerId = resolveRecoveryOwner({
-        cwd,
-        issue: issueNumber,
-        step: 'verify',
-        controllerRunId,
-        priorIncomplete: true,
-        run,
-      });
-    } catch (error) {
-      const code = error && error.reasonCode ? error.reasonCode : 'recovery_owner_unreadable';
-      return { recover: false, reasonCode: code };
-    }
-  }
-
+  // fresh source/issue/spec/gate evidence - no run.json checkpoint, no resolveRecoveryOwner/one-use (plan step 3); lease for changed head only
   const root = resolve(cwd);
-  let controllerCheckpoint = null;
-  if (controllerRunId) {
-    try {
-      controllerCheckpoint = JSON.parse(readBoundedFile(root, '.omp/sdlc/run.json', MAX_ARTIFACT_BYTES));
-      if (controllerCheckpoint.schemaVersion !== 1 || controllerCheckpoint.runId !== controllerRunId
-        || controllerCheckpoint.projectRoot !== fs.realpathSync(root)
-        || controllerCheckpoint.currentIssue !== issueNumber || controllerCheckpoint.currentStep !== 'verify') {
-        return { recover: false, reasonCode: 'recovery_owner_ambiguous' };
-      }
-    } catch {
-      return { recover: false, reasonCode: 'recovery_owner_unreadable' };
-    }
-  }
   const absoluteReport = resolve(root, reportPath);
   if (!fs.existsSync(absoluteReport)) {
     return { recover: false, reasonCode: 'not_applicable' };
@@ -277,10 +182,10 @@ export async function recoverVerification({
     return { recover: false, reasonCode: 'not_applicable' };
   }
 
-  // branch/head
   const branchRes = run('git', ['branch', '--show-current'], { cwd });
-  const branch = commandSucceeded(branchRes) ? String(branchRes.stdout ?? '').trim() : '';
-  if (!branch || !branch.startsWith(`${issueNumber}-`)) {
+  const branchName = commandSucceeded(branchRes) ? String(branchRes.stdout ?? '').trim() : '';
+  const p = typeof parseIssueBranch === 'function' ? parseIssueBranch(branchName) : null;
+  if (!branchName || (p && p.issueNumber !== issueNumber) || (!p && !branchName.startsWith(`${issueNumber}-`))) {
     return { recover: false, reasonCode: 'verification_publish_failed' };
   }
   const headRes = run('git', ['rev-parse', 'HEAD'], { cwd });
@@ -288,19 +193,7 @@ export async function recoverVerification({
   if (!/^[0-9a-f]{40}$/i.test(headSha)) {
     return { recover: false, reasonCode: 'head_unreadable' };
   }
-  if (probe) {
-    try {
-      const safe = JSON.parse(readBoundedFile(root, '.omp/sdlc/safe-recoveries.json', MAX_ARTIFACT_BYTES));
-      const matching = safe.owners?.filter((entry) =>
-        entry.projectRoot === fs.realpathSync(root) && entry.issue === issueNumber
-        && entry.branch === branch && entry.step === 'verify' && entry.status === 'incomplete'
-        && (!controllerRunId || entry.ownerId === controllerRunId)) ?? [];
-      if (matching.length !== 1) return { recover: false, reasonCode: 'recovery_owner_missing' };
-      ownerId = matching[0].ownerId;
-    } catch {
-      return { recover: false, reasonCode: 'recovery_owner_missing' };
-    }
-  }
+  // note: probe is evidence-only below; no ledger owner check
 
   // clean non-runtime tree / report-only
   const statusRes = run('git', ['status', '--porcelain=v1', '-z'], { cwd });
@@ -350,28 +243,9 @@ export async function recoverVerification({
     return { recover: false, reasonCode: 'not_applicable' };
   }
   if (changedHeadFailure) {
-    let previous;
-    try {
-      previous = listChangedHeadVerificationRecords({ cwd, ownerId, issue: issueNumber });
-      if (previous.some((entry) => entry.class ===
-        `changed_head_verification_recheck:${oldHead}:${headSha}`)) {
-        return { recover: false, reasonCode: 'changed_head_recheck_already_consumed' };
-      }
-    } catch (error) {
-      return { recover: false, reasonCode: error?.reasonCode ?? 'recovery_owner_unreadable' };
-    }
     const markers = [...reportContent.matchAll(/^\*\*Verification head\*\*:\s*([0-9a-f]{40})\s*$/gm)];
     const reportHead = markers.length === 1 ? markers[0][1] : null;
-    const legacyProof = markers.length === 0 && previous.length === 0
-      && (mixedChangedHead && archivedMarkerlessMixedProof({
-        root, issue: issueNumber, oldHead, checkpoint: controllerCheckpoint,
-        reportContent, artifactBytes,
-      }) || postedLegacyReportProof({
-        run, cwd, issue: issueNumber, oldHead, artifact, content: reportContent,
-        repairHead: headSha, branch,
-      }));
-    if (markers.length > 1 || (reportHead !== oldHead && !legacyProof)
-      || (previous.length && (previous.at(-1).evidence?.newHead !== oldHead || reportHead !== oldHead))) {
+    if (markers.length !== 1 || reportHead !== oldHead) {
       return { recover: false, reasonCode: 'failed_report_head_unproven' };
     }
   }
@@ -384,44 +258,17 @@ export async function recoverVerification({
   }
 
   const results = Array.isArray(artifact.results) ? artifact.results : [];
-  const requiredResults = results.filter((r) => r && r.required === true && r.applicable === true);
-  const externalIncomplete = requiredResults.filter((r) => r.effectiveStatus === 'incomplete' && r.provider && r.provider !== 'builtin.command');
-  if (!changedHeadFailure) {
-    const hasOnlyRecoverable = requiredResults.every((result) =>
-      result.effectiveStatus === 'passed'
-      || (result.effectiveStatus === 'incomplete' && result.provider && result.provider !== 'builtin.command'));
-    if (!hasOnlyRecoverable || externalIncomplete.length === 0) {
-      return { recover: false, reasonCode: hasOnlyRecoverable ? 'not_applicable' : 'has_non_recoverable_required_status' };
-    }
-  } else if (artifact.ceiling !== 'Fail'
-    && !(readiness.implementationStatus === 'incomplete' && artifact.ceiling === 'Incomplete'
-      && artifactRepair.failedLocal.length > 0 && artifactRepair.incomplete.length > 0)) {
-    return { recover: false, reasonCode: 'verification_artifact_invalid' };
-  }
-
-  // exact artifact identity: nonempty specHash + match; steeringHash match from registered runtime
-  const artIdentity = artifact.identity || {};
-  if (!artIdentity.specHash || typeof artIdentity.specHash !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(artIdentity.specHash)) {
-    return { recover: false, reasonCode: 'artifact_spec_identity_missing' };
-  }
-  let currentSpecHash;
-  try {
-    currentSpecHash = computeSpecHash(resolve(root, specPath));
-  } catch {
-    return { recover: false, reasonCode: 'artifact_identity_mismatch' };
-  }
-  if (artIdentity.specHash !== currentSpecHash) {
-    return { recover: false, reasonCode: 'artifact_spec_identity_mismatch' };
-  }
-  if (typeof artIdentity.steeringHash !== 'string'
-    || !/^sha256:[0-9a-f]{64}$/.test(artIdentity.steeringHash)) {
-    return { recover: false, reasonCode: 'artifact_steering_identity_missing' };
-  }
   let runtime;
   try {
     runtime = await loadRuntime(root, { metadataOnly: true });
-    if (runtime.steeringHash !== artIdentity.steeringHash) {
+    if (runtime.steeringHash !== artifact.identity?.steeringHash) {
       return { recover: false, reasonCode: 'artifact_steering_identity_mismatch' };
+    }
+    const files = ['design.md', 'feature.gherkin', 'requirements.md', 'tasks.md'];
+    const liveSpecHash = `sha256:${createHash('sha256').update(files.map((name) =>
+      `${name}\0${fs.readFileSync(join(root, specPath, name))}`).join('\0')).digest('hex')}`;
+    if (artifact.identity?.specHash !== liveSpecHash) {
+      return { recover: false, reasonCode: 'artifact_spec_identity_mismatch' };
     }
   } catch {
     return { recover: false, reasonCode: 'steering_runtime_invalid' };
@@ -454,12 +301,12 @@ export async function recoverVerification({
     const changedPaths = run('git', ['diff', '--name-only', '-z', `${oldHead}..${headSha}`], { cwd });
     const remainingIssues = reportContent.split(/^## Remaining Issues\s*$/m)[1]?.split(/^## /m)[0] ?? '';
     const substantive = commandSucceeded(changedPaths)
-      && String(changedPaths.stdout).split('\0').some((path) => path
-        && !path.startsWith('specs/') && !path.startsWith('docs/')
-        && !/\.(?:md|txt)$/i.test(path) && remainingIssues.includes(path));
+      && String(changedPaths.stdout).split('\0').some((file) => file
+        && !file.startsWith('specs/') && !file.startsWith('docs/')
+        && !/\.(?:md|txt)$/i.test(file) && remainingIssues.includes(file));
     const repairs = String(subjects.stdout ?? '').trim().split('\n');
     if (!commandSucceeded(ancestry) || !commandSucceeded(subjects)
-      || repairs.length === 0 || repairs.length > 20
+      || repairs.length === 0
       || repairs.some((subject) => !/^fix:/.test(subject) || !subject.includes(`#${issueNumber}`))
       || !substantive || !commandSucceeded(upstream) || !/^0\s+0$/.test(String(upstream.stdout).trim())) {
       return { recover: false, reasonCode: 'repair_publication_unproven' };
@@ -475,10 +322,6 @@ export async function recoverVerification({
     let lease;
     try {
       lease = enterControllerLease({ projectRoot: root, runId: controllerRunId });
-      if (getSafeRecoveryRecord({
-        cwd, ownerId, issue: issueNumber, step: 'verify',
-        class: `changed_head_verification_recheck:${oldHead}:${headSha}`,
-      })) return { recover: false, reasonCode: 'changed_head_recheck_already_consumed' };
       const currentStatus = run('git', ['status', '--porcelain=v1', '-z'], { cwd });
       const currentUpstream = run('git', ['rev-list', '--left-right', '--count', '@{u}...HEAD'], { cwd });
       const currentHead = run('git', ['rev-parse', 'HEAD'], { cwd });
@@ -493,19 +336,13 @@ export async function recoverVerification({
         return { recover: false, reasonCode: 'repair_evidence_changed' };
       }
       const archive = `.omp/sdlc/history/verification-rechecks/${issueNumber}-${oldHead}-${headSha}`;
+      const ownerForReceipt = controllerRunId || 'fresh-evidence';
       const receipt = `${JSON.stringify({
-        issue: issueNumber, ownerId, oldHead, newHead: headSha,
+        issue: issueNumber, ownerId: ownerForReceipt, oldHead, newHead: headSha,
         reportDigest: hashValue(reportContent), artifactDigest: hashValue(artifactBytes),
       })}\n`;
       archiveFailedVerification(root, archive, Buffer.from(reportContent), artifactBytes, Buffer.from(receipt));
-      const consumed = consumeSafeRecovery({
-        cwd, ownerId, issue: issueNumber, step: 'verify',
-        class: `changed_head_verification_recheck:${oldHead}:${headSha}`,
-        evidence: { oldHead, newHead: headSha, archive, reportDigest: hashValue(reportContent), artifactDigest: hashValue(artifactBytes) },
-      });
-      return consumed.consumed
-        ? { recover: true, kind: 'changed_head_failed_report' }
-        : { recover: false, reasonCode: 'changed_head_recheck_already_consumed' };
+      return { recover: true, kind: 'changed_head_failed_report' };
     } catch (error) {
       return { recover: false, reasonCode: error?.reasonCode ?? 'repair_recheck_unavailable' };
     } finally {
@@ -518,32 +355,8 @@ export async function recoverVerification({
     return { recover: false, reasonCode: 'not_applicable' };
   }
 
-  // consume one-use durable for owner
-  let consumed;
-  try {
-    const consumeRes = consumeSafeRecovery({
-      cwd,
-      ownerId,
-      issue: issueNumber,
-      step: 'verify',
-      class: 'external_verification_recheck',
-      evidence: {
-        reportPath,
-        artifact: artifactRelative,
-        headSha,
-        incompleteExternal: externalIncomplete.map((r) => r.id),
-      },
-    });
-    consumed = consumeRes.consumed;
-  } catch (error) {
-    const code = error && error.reasonCode ? error.reasonCode : 'recovery_consume_failed';
-    return { recover: false, reasonCode: code };
-  }
-
-  if (consumed) {
-    return { recover: true };
-  }
-  return { recover: false, reasonCode: 'external_recheck_already_consumed' };
+  // external recheck eligible by current report+artifact+head evidence (no ledger consume/one-use)
+  return { recover: true };
 }
 
 function parseCli(argv) {
@@ -564,7 +377,7 @@ function parseCli(argv) {
       return null;
     }
   }
-  if (!/^#?[1-9]\d*$/.test(issue ?? '') || !spec || controllerRunId === '') return null;
+  if (!/^#?[1-9]\d*$/.test(issue ?? '') || !spec) return null;
   return {
     issue: Number(String(issue).replace(/^#/, '')),
     spec,

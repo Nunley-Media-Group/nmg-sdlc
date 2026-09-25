@@ -96,7 +96,7 @@ export function reclaimStaleControllerLease({
   } catch {
     throw leaseError();
   }
-  if (!validLease(record, canonicalRoot) || !runId || record.runId !== runId) {
+  if (!validLease(record, canonicalRoot) || !runId) {
     throw leaseError();
   }
 

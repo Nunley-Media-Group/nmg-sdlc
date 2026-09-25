@@ -34,10 +34,6 @@ export const COMMAND_CONSUMERS = Object.freeze([
 export const WORKER_CONSUMERS = Object.freeze([
   "worker:start",
   "worker:implement",
-  "worker:review1",
-  "worker:fix1",
-  "worker:review2",
-  "worker:fix2",
   "worker:verify",
   "worker:deliver",
 ]);
@@ -222,8 +218,6 @@ const CATALOG = [
   ["plugin.workflow.open-pr", "workflows/open-pr/WORKFLOW.md", ["sdlc-open-pr", "worker:deliver"], "body", 100],
   ["plugin.workflow.start-issue", "workflows/start-issue/WORKFLOW.md", ["worker:start"], "body", 100],
   ["plugin.workflow.write-code", "workflows/write-code/WORKFLOW.md", ["worker:implement"], "body", 100],
-  ["plugin.workflow.review-main", "workflows/review-main/WORKFLOW.md", ["worker:review1", "worker:review2"], "body", 100],
-  ["plugin.workflow.apply-review", "workflows/apply-review/WORKFLOW.md", ["worker:fix1", "worker:fix2"], "body", 100],
   ["plugin.workflow.simplify", "workflows/simplify/WORKFLOW.md", ["worker:implement"], "extra", 200],
   ["plugin.execute.selection", "workflows/execute/references/selection.md", ["sdlc-execute"], "extra", 200],
 ].map(([id, source, consumers, slot, order]) => Object.freeze({

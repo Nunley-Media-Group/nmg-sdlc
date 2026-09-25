@@ -1,37 +1,18 @@
 #!/usr/bin/env node
 
 /**
- * nmg-sdlc safe recoveries for #374.
- * Durable one-use owners and class records for bounded automatic recovery.
- * CAS protected like run.json; no run.json creation or modification.
- * Standalone reuses owner across fresh leases/sessions; one consume per class+owner+issue+step.
+ * Approved publication scope and exact-commit remote reconciliation.
+ * Runtime checkpoint and historical recovery files never grant or veto work.
  */
 
 import { spawnSync } from 'node:child_process';
 import { isCliEntry } from './plugin-controller-path.mjs';
 import { enterControllerLease, releaseControllerLease } from './sdlc-controller-lease.mjs';
 import { inspectIssueSpecScope } from './issue-spec-scope.mjs';
-import {
-  closeSync,
-  existsSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  readdirSync,
-  realpathSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
-  lstatSync,
-} from 'node:fs';
-import { randomUUID } from 'node:crypto';
-import { isAbsolute, join, resolve } from 'node:path';
+import { parseIssueBranch } from './sdlc-status.mjs';
+import { readFileSync, realpathSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
 
-const HANDOFF_DIR = join('.omp', 'sdlc', 'handoffs');
-const REVIEWS_DIR = join('.omp', 'sdlc', 'reviews');
-
-const VALID_STEPS = ['start', 'implement', 'review1', 'fix1', 'review2', 'fix2', 'verify', 'deliver'];
-const SESSION_TOKEN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 function commandSucceeded(result) {
   return result && !result.error && result.status === 0;
@@ -45,127 +26,6 @@ function safeError(reasonCode, details = {}) {
   return Object.assign(new Error(reasonCode), { reasonCode, ...details });
 }
 
-function objectRecord(value) {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function nextExecuteStep(completedForIssue) {
-  return VALID_STEPS.find((step) => !completedForIssue.includes(step)) ?? null;
-}
-
-function validExecuteCheckpoint(runData) {
-  if (!objectRecord(runData)
-    || runData.schemaVersion !== 1
-    || typeof runData.projectRoot !== 'string' || !runData.projectRoot
-    || typeof runData.runId !== 'string' || !runData.runId
-    || !Number.isSafeInteger(runData.issue) || runData.issue <= 0
-    || typeof runData.branch !== 'string' || !runData.branch
-    || typeof runData.head !== 'string' || !/^[0-9a-f]{40}$/.test(runData.head)
-    || !Array.isArray(runData.issues) || runData.issues.length === 0
-    || !runData.issues.every((issue) => Number.isSafeInteger(issue) && issue > 0)
-    || new Set(runData.issues).size !== runData.issues.length
-    || !runData.issues.includes(runData.issue)
-    || !Number.isSafeInteger(runData.revision) || runData.revision <= 0
-    || !Number.isSafeInteger(runData.currentIssue)
-    || !runData.issues.includes(runData.currentIssue)
-    || !VALID_STEPS.includes(runData.currentStep)
-    || !objectRecord(runData.completed)
-    || !Object.entries(runData.completed).every(([issue, steps]) =>
-      runData.issues.map(String).includes(issue)
-      && Array.isArray(steps)
-      && steps.length <= VALID_STEPS.length
-      && steps.every((step, index) => step === VALID_STEPS[index]))
-    || nextExecuteStep(runData.completed[String(runData.currentIssue)] ?? []) !== runData.currentStep
-    || !(runData.failed === null || (objectRecord(runData.failed)
-      && Number.isSafeInteger(runData.failed.issue) && runData.issues.includes(runData.failed.issue)
-      && VALID_STEPS.includes(runData.failed.step)
-      && typeof runData.failed.reasonCode === 'string' && runData.failed.reasonCode.length > 0
-      && (runData.failed.cleanupReasonCode === undefined
-        || (typeof runData.failed.cleanupReasonCode === 'string'
-          && runData.failed.cleanupReasonCode.length > 0))))
-    || !objectRecord(runData.workers)) return false;
-  return Object.entries(runData.workers).every(([name, worker]) => objectRecord(worker)
-    && worker.name === name
-    && typeof worker.paneId === 'string' && worker.paneId.length > 0
-    && worker.projectRoot === runData.projectRoot
-    && worker.runId === runData.runId
-    && Number.isSafeInteger(worker.issue) && runData.issues.includes(worker.issue)
-    && VALID_STEPS.includes(worker.step)
-    && typeof worker.branch === 'string' && worker.branch.length > 0
-    && typeof worker.head === 'string' && /^[0-9a-f]{40}$/.test(worker.head)
-    && (worker.promptDelivery === undefined
-      || ['pending', 'activating', 'delivered'].includes(worker.promptDelivery))
-    && (worker.promptDeliveryVersion === undefined || worker.promptDeliveryVersion === 2));
-}
-
-function validSafeState(data) {
-  return !!data
-    && data.schemaVersion === 1
-    && Number.isSafeInteger(data.revision) && data.revision >= 0
-    && Array.isArray(data.owners)
-    && Array.isArray(data.records);
-}
-
-function validOwner(o) {
-  return o
-    && typeof o.ownerId === 'string' && o.ownerId.length > 0
-    && typeof o.projectRoot === 'string' && o.projectRoot.length > 0
-    && Number.isSafeInteger(o.issue) && o.issue > 0
-    && typeof o.branch === 'string' && o.branch.length > 0
-    && VALID_STEPS.includes(o.step)
-    && (o.plannedSubject === undefined
-      || (o.step === 'implement' && validImplementationSubject(o.plannedSubject, o.issue)))
-    && o.status === 'incomplete';
-}
-
-function validRecord(r) {
-  return r
-    && typeof r.class === 'string' && r.class.length > 0
-    && typeof r.runId === 'string' && r.runId.length > 0
-    && Number.isSafeInteger(r.issue) && r.issue > 0
-    && typeof r.step === 'string' && r.step.length > 0
-    && typeof r.invocationId === 'string' && r.invocationId.length > 0
-    && typeof r.consumedAt === 'string' && r.consumedAt.length > 0
-    && r.disposition === 'consumed'
-    && r.evidence && typeof r.evidence === 'object' && !Array.isArray(r.evidence);
-}
-
-export function expectedExecuteHandoffSlots(checkpoint, safeState) {
-  if (!validExecuteCheckpoint(checkpoint)
-    || !validSafeState(safeState)
-    || !safeState.owners.every(validOwner)) {
-    throw safeError('workflow_evidence_unproven');
-  }
-  const slots = new Set();
-  for (const issue of checkpoint.issues) {
-    for (const step of checkpoint.completed[String(issue)] ?? []) {
-      slots.add(`${issue}-${step}`);
-    }
-    if (issue === checkpoint.currentIssue) slots.add(`${issue}-${checkpoint.currentStep}`);
-  }
-  if (checkpoint.failed
-    && (checkpoint.failed.issue !== checkpoint.currentIssue
-      || checkpoint.failed.step !== checkpoint.currentStep)) {
-    throw safeError('workflow_evidence_unproven');
-  }
-  if (checkpoint.failed) slots.add(`${checkpoint.failed.issue}-${checkpoint.failed.step}`);
-
-  const historicalLastSteps = new Map();
-  for (const owner of safeState.owners) {
-    if (owner.projectRoot !== checkpoint.projectRoot
-      || checkpoint.issues.includes(owner.issue)
-      || owner.issue >= checkpoint.issue) continue;
-    const stepIndex = VALID_STEPS.indexOf(owner.step);
-    historicalLastSteps.set(
-      owner.issue,
-      Math.max(historicalLastSteps.get(owner.issue) ?? -1, stepIndex),
-    );
-  }
-  for (const [issue, lastStep] of historicalLastSteps) {
-    for (const step of VALID_STEPS.slice(0, lastStep + 1)) slots.add(`${issue}-${step}`);
-  }
-  return slots;
-}
 
 function porcelainEntries(output) {
   const text = String(output ?? '');
@@ -207,260 +67,9 @@ function hasStagedNonRuntimeEntry(output) {
   return porcelainEntries(output).some(({ status, paths }) =>
     /[MADRCUT]/.test(status[0]) && paths.some(nonRuntimePath));
 }
-function lstatIfPresent(target) {
-  try {
-    return lstatSync(target);
-  } catch (error) {
-    if (error?.code === 'ENOENT') return null;
-    throw safeError('recovery_state_unreadable');
-  }
-}
-
-function safeStorageDirectory(root, create = false) {
-  const canonicalRoot = realpathSync(root);
-  let current = canonicalRoot;
-  for (const segment of ['.omp', 'sdlc']) {
-    current = join(current, segment);
-    const stat = lstatIfPresent(current);
-    if (stat) {
-      if (stat.isSymbolicLink() || !stat.isDirectory()) {
-        throw safeError('unsafe_safe_recoveries_path');
-      }
-    } else if (create) {
-      try {
-        mkdirSync(current);
-      } catch (error) {
-        if (error?.code !== 'EEXIST') throw error;
-        const raced = lstatIfPresent(current);
-        if (!raced || raced.isSymbolicLink() || !raced.isDirectory()) {
-          throw safeError('unsafe_safe_recoveries_path');
-        }
-      }
-    } else {
-      return null;
-    }
-  }
-  return current;
-}
-
-function validateSafeRows(data) {
-  const seenOwners = new Set();
-  for (const owner of data.owners) {
-    if (!validOwner(owner)) throw safeError('invalid_safe_recoveries');
-    const key = `${owner.ownerId}\0${owner.projectRoot}\0${owner.issue}\0${owner.branch}\0${owner.step}`;
-    if (seenOwners.has(key)) throw safeError('invalid_safe_recoveries');
-    seenOwners.add(key);
-  }
-  const seenRecords = new Set();
-  for (const record of data.records) {
-    if (!validRecord(record)) throw safeError('invalid_safe_recoveries');
-    const key = `${record.class}\0${record.runId}\0${record.issue}\0${record.step}`;
-    if (seenRecords.has(key)) throw safeError('invalid_safe_recoveries');
-    seenRecords.add(key);
-  }
-  return data;
-}
-
-function readSafeRecoveries(root = process.cwd()) {
-  const canonicalRoot = realpathSync(root);
-  const d = safeStorageDirectory(canonicalRoot, false);
-  if (!d) return null;
-  const p = join(d, 'safe-recoveries.json');
-  const st = lstatIfPresent(p);
-  if (!st) return null;
-  if (st.isSymbolicLink() || !st.isFile()) throw safeError('unsafe_safe_recoveries_path');
-  try {
-    const data = JSON.parse(readFileSync(p, 'utf8'));
-    if (!validSafeState(data)) throw safeError('invalid_safe_recoveries');
-    return validateSafeRows(data);
-  } catch (error) {
-    if (error?.reasonCode) throw error;
-    throw safeError('invalid_safe_recoveries');
-  }
-}
-
-function writeSafeRecoveriesAt(safeData, root = process.cwd(), expectedRevision = 0) {
-  if (
-    !safeData
-    || safeData.schemaVersion !== 1
-    || !Number.isSafeInteger(expectedRevision)
-    || expectedRevision < 0
-    || !Number.isSafeInteger(safeData.revision)
-    || safeData.revision !== expectedRevision + 1
-    || !Array.isArray(safeData.owners)
-    || !Array.isArray(safeData.records)
-  ) {
-    throw safeError('invalid_safe_recoveries');
-  }
-  validateSafeRows(safeData);
-
-  const canonicalRoot = realpathSync(root);
-  const d = safeStorageDirectory(canonicalRoot, true);
-  const p = join(d, 'safe-recoveries.json');
-  const lockPath = `${p}.lock`;
-  const temporaryPath = `${p}.tmp`;
-
-  const assertPathSafe = (target, { file = false } = {}) => {
-    const stat = lstatIfPresent(target);
-    if (!stat) return;
-    if (stat.isSymbolicLink() || (file && !stat.isFile())) {
-      throw safeError('unsafe_safe_recoveries_path');
-    }
-  };
-  assertPathSafe(p, { file: true });
-  assertPathSafe(lockPath);
-  assertPathSafe(temporaryPath);
-
-  let lock;
-  let temporaryFd;
-  let temporaryCreated = false;
-  let renamed = false;
-  try {
-    try {
-      lock = openSync(lockPath, 'wx', 0o600);
-    } catch (error) {
-      if (error?.code === 'EEXIST') throw safeError('safe_recoveries_locked');
-      throw error;
-    }
-    assertPathSafe(lockPath);
-
-    const current = lstatIfPresent(p);
-    if (current) {
-      assertPathSafe(p, { file: true });
-      let existing;
-      try {
-        existing = JSON.parse(readFileSync(p, 'utf8'));
-      } catch {
-        throw safeError('identity_mismatch');
-      }
-      if (!validSafeState(existing)) throw safeError('invalid_safe_recoveries');
-      validateSafeRows(existing);
-      if (existing.revision !== expectedRevision) throw safeError('stale_revision');
-    } else if (expectedRevision !== 0) {
-      throw safeError('stale_revision');
-    }
-
-    try {
-      temporaryFd = openSync(temporaryPath, 'wx', 0o600);
-      temporaryCreated = true;
-    } catch (error) {
-      if (error?.code === 'EEXIST') throw safeError('safe_recoveries_locked');
-      throw error;
-    }
-    writeFileSync(temporaryFd, `${JSON.stringify(safeData, null, 2)}\n`);
-    closeSync(temporaryFd);
-    temporaryFd = undefined;
-    assertPathSafe(temporaryPath, { file: true });
-    assertPathSafe(p, { file: true });
-    renameSync(temporaryPath, p);
-    renamed = true;
-  } finally {
-    if (temporaryFd !== undefined) {
-      try {
-        closeSync(temporaryFd);
-      } catch {
-        // preserve the original persistence failure
-      }
-    }
-    if (temporaryCreated && !renamed) {
-      try {
-        const tempStat = lstatIfPresent(temporaryPath);
-        if (tempStat && !tempStat.isSymbolicLink()) unlinkSync(temporaryPath);
-      } catch {
-        // preserve the original persistence failure
-      }
-    }
-    if (lock !== undefined) {
-      try {
-        closeSync(lock);
-      } finally {
-        unlinkSync(lockPath);
-      }
-    }
-  }
-}
-function persistSafeState(state, root) {
-  const expectedRevision = Number.isSafeInteger(state.revision) ? state.revision : 0;
-  const previous = state.revision;
-  state.revision = expectedRevision + 1;
-  try {
-    writeSafeRecoveriesAt(state, root, expectedRevision);
-  } catch (error) {
-    state.revision = previous;
-    throw error;
-  }
-}
-
-function upsertOwner(safe, ownerId, projectRoot, issue, branch, step, plannedSubject) {
-  const idx = safe.owners.findIndex((o) =>
-    o.ownerId === ownerId &&
-    o.projectRoot === projectRoot &&
-    o.issue === issue &&
-    o.branch === branch &&
-    o.step === step
-  );
-  const owner = {
-    ownerId,
-    projectRoot,
-    issue,
-    branch,
-    step,
-    ...(plannedSubject === undefined ? {} : { plannedSubject }),
-    status: 'incomplete',
-  };
-  if (idx >= 0) {
-    safe.owners[idx] = owner;
-  } else {
-    safe.owners.push(owner);
-  }
-}
-
-
-function hasPriorIncompleteArtifact(cwd, issue, step, branch, projectRoot, run, priorIncomplete = false) {
-  // handoff indicates prior incomplete work
-  const handoffPath = resolve(projectRoot, HANDOFF_DIR, `${issue}-${step}.json`);
-  if (existsSync(handoffPath)) {
-    try {
-      const h = JSON.parse(readFileSync(handoffPath, 'utf8'));
-      if (!h || h.schemaVersion !== 1 || h.issue !== issue || h.step !== step
-        || h.status !== 'passed' || h.intervention === true) return true;
-    } catch {
-      return true; // malformed counts as prior
-    }
-  }
-
-  // any consumed record for the (issue,step) tuple
-  const safe = readSafeRecoveries(cwd);
-  if (safe && safe.records.some((r) => r.issue === issue && r.step === step)) {
-    return true;
-  }
-
-  // review slice artifacts (assignment/receipt/invalidation) indicate prior
-  if (step === 'review1' || step === 'review2') {
-    const directory = resolve(projectRoot, REVIEWS_DIR);
-    const prefix = `${issue}-${step}`;
-    if (existsSync(directory) && readdirSync(directory).some((name) => name.startsWith(`${prefix}.`) || name.startsWith(`${prefix}-`))) return true;
-  }
-
-  // A pre-existing unpublished stage commit cannot acquire a new owner.
-  if (['implement', 'fix1', 'fix2', 'verify', 'deliver'].includes(step)) {
-    const upstream = run('git', ['rev-parse', '--verify', '@{u}'], { cwd: projectRoot });
-    const log = run('git', ['log', '--format=%s', ...(commandSucceeded(upstream) ? ['@{u}..HEAD'] : ['-1', 'HEAD'])], { cwd: projectRoot });
-    if (!commandSucceeded(log)) return true;
-    const expected = getExpectedSubject(step, issue);
-    if (String(log.stdout ?? '').split('\n').some((subject) => expected
-      ? subject === expected
-      : /^(feat|fix|docs|chore)(\([^)]+\))?!?: /.test(subject) && new RegExp(`#${issue}(?!\\d)`).test(subject))) return true;
-  }
-
-  // An explicit prior-incomplete hint is itself fail-closed evidence.
-  return !!priorIncomplete;
-}
 
 function getExpectedSubject(step, issue) {
   if (step === 'verify') return `docs: record verification for #${issue}`;
-  if (step === 'fix1') return `fix: apply review1 findings for #${issue}`;
-  if (step === 'fix2') return `fix: apply review2 findings for #${issue}`;
   if (step === 'deliver') return `docs: record PR evidence for #${issue}`;
   // implement: caller supplies conventional subject
   return null;
@@ -473,366 +82,30 @@ function validImplementationSubject(subject, issue) {
     && /^(feat|fix|docs|chore)(\([^)]+\))?!?: [^\r\n]+$/.test(subject)
     && new RegExp(`#${issue}(?!\\d)`).test(subject);
 }
-function readSessionRecoveryOwner({ projectRoot, sessionToken, issue, step, branch }) {
-  if (!SESSION_TOKEN.test(sessionToken)) throw safeError('invalid_session_token');
-  const sessionsRoot = join(projectRoot, '.omp', 'sdlc', 'sessions');
-  const sessionsStat = lstatIfPresent(sessionsRoot);
-  if (!sessionsStat) return null;
-  if (sessionsStat.isSymbolicLink() || !sessionsStat.isDirectory()) {
-    throw safeError('unsafe_session_path');
-  }
-  const sessionDir = join(sessionsRoot, sessionToken);
-  const sessionStat = lstatIfPresent(sessionDir);
-  if (!sessionStat) return null;
-  if (sessionStat.isSymbolicLink() || !sessionStat.isDirectory()) {
-    throw safeError('unsafe_session_path');
-  }
-
-  const pointerPaths = [
-    join(sessionDir, 'recovery-owner.json'),
-    join(sessionDir, 'run.json'),
-  ];
-  const owners = [];
-  for (const pointerPath of pointerPaths) {
-    const pointerStat = lstatIfPresent(pointerPath);
-    if (!pointerStat) continue;
-    if (pointerStat.isSymbolicLink() || !pointerStat.isFile()) {
-      throw safeError('unsafe_session_path');
-    }
-    let pointer;
-    try {
-      pointer = JSON.parse(readFileSync(pointerPath, 'utf8'));
-    } catch {
-      throw safeError('recovery_owner_ambiguous');
-    }
-    if (!pointer || typeof pointer !== 'object' || Array.isArray(pointer)) {
-      throw safeError('recovery_owner_ambiguous');
-    }
-    const pointerOwner = Object.hasOwn(pointer, 'recoveryOwnerId') ? pointer.recoveryOwnerId : pointer.ownerId;
-    if (pointerOwner === undefined) continue;
-    if (typeof pointerOwner !== 'string' || !pointerOwner) {
-      throw safeError('recovery_owner_ambiguous');
-    }
-    const pointerIssue = pointer.issue ?? pointer.currentIssue;
-    const pointerStep = pointer.step ?? pointer.currentStep;
-    if (
-      pointerIssue !== issue
-      || pointerStep !== step
-      || pointer.branch !== branch
-      || (pointer.projectRoot !== undefined && pointer.projectRoot !== projectRoot)
-    ) {
-      throw safeError('recovery_owner_ambiguous');
-    }
-    owners.push(pointerOwner);
-  }
-  const unique = [...new Set(owners)];
-  if (unique.length > 1) throw safeError('recovery_owner_ambiguous');
-  return unique[0] ?? null;
-}
 
 
 export function resolveRecoveryOwner({
-  cwd = process.cwd(),
-  issue,
-  step,
-  branch: branchParam,
-  sessionToken = null,
-  controllerRunId = null,
-  priorIncomplete = false,
-  expectedSubject,
-  bindSubject = false,
-  run = defaultRun,
+  cwd = process.cwd(), issue, step, branch: expectedBranch, run = defaultRun,
 } = {}) {
-  const issueNumber = Number(issue);
-  if (!Number.isSafeInteger(issueNumber) || issueNumber <= 0 || !VALID_STEPS.includes(step)) {
+  if (!Number.isSafeInteger(Number(issue)) || Number(issue) <= 0
+    || !['implement', 'verify', 'deliver'].includes(step)) {
     throw safeError('invalid_recovery_params');
   }
-  const canonicalRoot = realpathSync(cwd);
-  if (sessionToken !== null && !SESSION_TOKEN.test(sessionToken)) {
-    throw safeError('invalid_session_token');
-  }
-  const br = run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: canonicalRoot });
-  if (!commandSucceeded(br)) throw safeError('recovery_owner_unreadable');
-  const branch = String(br.stdout ?? '').trim();
-  if (!branch || branch === 'HEAD') throw safeError('recovery_owner_unreadable');
-  if (branchParam !== undefined && branchParam !== branch) throw safeError('recovery_owner_ambiguous');
-
-  let safe = readSafeRecoveries(cwd);
-  if (!safe) {
-    safe = { schemaVersion: 1, revision: 0, owners: [], records: [] };
-  }
-
-  // A matching execute checkpoint is only a candidate owner. Existing durable
-  // tuple ownership wins over a fresh lease/run id.
-  let runOwner = null;
-  const runJsonPath = resolve(canonicalRoot, '.omp/sdlc/run.json');
-  const runJsonStat = lstatIfPresent(runJsonPath);
-  if (runJsonStat && (runJsonStat.isSymbolicLink() || !runJsonStat.isFile())) {
-    throw safeError('unsafe_recovery_owner_path');
-  }
-  if (runJsonStat && controllerRunId) {
-    let runData;
-    try {
-      runData = JSON.parse(readFileSync(runJsonPath, 'utf8'));
-    } catch {
-      throw safeError('recovery_owner_unreadable');
-    }
-    if (runData && runData.schemaVersion === 1 && runData.runId === controllerRunId) {
-      if (
-        runData.projectRoot !== canonicalRoot
-        || (Array.isArray(runData.issues) && !runData.issues.includes(issueNumber))
-        || (runData.currentIssue !== undefined && runData.currentIssue !== null && runData.currentIssue !== issueNumber)
-      ) {
-        throw safeError('recovery_owner_ambiguous');
-      }
-      runOwner = runData.runId;
-    }
-  }
-
-  const matching = safe.owners.filter((o) =>
-    o.projectRoot === canonicalRoot &&
-    o.issue === issueNumber &&
-    o.branch === branch &&
-    o.step === step &&
-    o.status === 'incomplete'
-  );
-  if (matching.length > 1) {
-    throw safeError('recovery_owner_ambiguous');
-  }
-
-  let sessionOwner = null;
-  if (sessionToken !== null) {
-    sessionOwner = readSessionRecoveryOwner({
-      projectRoot: canonicalRoot,
-      sessionToken,
-      issue: issueNumber,
-      step,
-      branch,
-    });
-  }
-
-  let ownerId = matching[0]?.ownerId ?? null;
-  if (sessionOwner && sessionOwner !== ownerId) {
-    throw safeError(ownerId ? 'recovery_owner_ambiguous' : 'recovery_owner_missing');
-  }
-
-  if (ownerId) {
-    const plannedSubject = matching[0].plannedSubject;
-    if (plannedSubject !== undefined && expectedSubject !== undefined && expectedSubject !== plannedSubject) {
-      throw safeError('publication_subject_unproven');
-    }
-    if (bindSubject && expectedSubject !== undefined && plannedSubject === undefined) {
-      upsertOwner(safe, ownerId, canonicalRoot, issueNumber, branch, step, expectedSubject);
-      persistSafeState(safe, cwd);
-    }
-    return ownerId;
-  }
-
-  if (runOwner) {
-    ownerId = runOwner;
-    upsertOwner(
-      safe, ownerId, canonicalRoot, issueNumber, branch, step,
-      bindSubject ? expectedSubject : undefined,
-    );
-    persistSafeState(safe, cwd);
-    return ownerId;
-  }
-
-  // Zero: must not invent after prior incomplete work.
-  if (hasPriorIncompleteArtifact(cwd, issueNumber, step, branch, canonicalRoot, run, priorIncomplete)) {
-    throw safeError('recovery_owner_missing');
-  }
-
-  // First genuine new owner; persist before any recovery side effect.
-  ownerId = randomUUID();
-  upsertOwner(
-    safe, ownerId, canonicalRoot, issueNumber, branch, step,
-    bindSubject ? expectedSubject : undefined,
-  );
-  persistSafeState(safe, cwd);
-  return ownerId;
-}
-
-export function assertRecoveryOwner({ cwd = process.cwd(), ownerId, issue, step, branch }) {
   const root = realpathSync(cwd);
-  const matches = readSafeRecoveries(root)?.owners.filter((owner) =>
-    owner.ownerId === ownerId && owner.projectRoot === root && owner.issue === issue
-    && owner.step === step && owner.branch === branch && owner.status === 'incomplete') ?? [];
-  if (matches.length !== 1) throw safeError(matches.length ? 'recovery_owner_ambiguous' : 'recovery_owner_missing');
-  return matches[0].ownerId;
+  const observed = run('git', ['branch', '--show-current'], { cwd: root });
+  const branch = String(observed?.stdout ?? '').trim();
+  if (!commandSucceeded(observed) || parseIssueBranch(branch)?.issueNumber !== Number(issue)
+    || (expectedBranch !== undefined && expectedBranch !== branch)) {
+    throw safeError('publication_branch_mismatch');
+  }
+  return `${Number(issue)}:${branch}:${step}`;
 }
 
-export function hasSafeRecoveryRecord({
-  cwd = process.cwd(),
-  ownerId,
-  issue,
-  step,
-  class: className,
-} = {}) {
-  const issueNumber = Number(issue);
-  if (typeof ownerId !== 'string' || !ownerId
-    || !Number.isSafeInteger(issueNumber) || issueNumber <= 0
-    || !VALID_STEPS.includes(step)
-    || typeof className !== 'string' || !className) {
-    throw safeError('invalid_recovery_params');
-  }
-  const canonicalRoot = realpathSync(cwd);
-  const safe = readSafeRecoveries(canonicalRoot);
-  const owners = safe?.owners.filter((owner) =>
-    owner.ownerId === ownerId
-    && owner.projectRoot === canonicalRoot
-    && owner.issue === issueNumber
-    && owner.step === step
-    && owner.status === 'incomplete') ?? [];
-  if (owners.length !== 1) {
-    throw safeError(owners.length ? 'recovery_owner_ambiguous' : 'recovery_owner_missing');
-  }
-  return safe.records.some((entry) =>
-    entry.class === className
-    && entry.runId === ownerId
-    && entry.issue === issueNumber
-    && entry.step === step);
-}
-
-export function getSafeRecoveryRecord({
-  cwd = process.cwd(),
-  ownerId,
-  issue,
-  step,
-  class: className,
-} = {}) {
-  const issueNumber = Number(issue);
-  if (typeof ownerId !== 'string' || !ownerId
-    || !Number.isSafeInteger(issueNumber) || issueNumber <= 0
-    || !VALID_STEPS.includes(step)
-    || typeof className !== 'string' || !className) {
-    throw safeError('invalid_recovery_params');
-  }
-  const canonicalRoot = realpathSync(cwd);
-  const safe = readSafeRecoveries(canonicalRoot);
-  const owners = safe?.owners.filter((owner) =>
-    owner.ownerId === ownerId
-    && owner.projectRoot === canonicalRoot
-    && owner.issue === issueNumber
-    && owner.step === step
-    && owner.status === 'incomplete') ?? [];
-  if (owners.length !== 1) {
-    throw safeError(owners.length ? 'recovery_owner_ambiguous' : 'recovery_owner_missing');
-  }
-  const records = safe.records.filter((entry) =>
-    entry.class === className
-    && entry.runId === ownerId
-    && entry.issue === issueNumber
-    && entry.step === step);
-  if (records.length > 1) throw safeError('recovery_record_ambiguous');
-  return records.length === 1 ? structuredClone(records[0]) : null;
-}
-
-export function listChangedHeadVerificationRecords({
-  cwd = process.cwd(), ownerId, issue,
-} = {}) {
-  const issueNumber = Number(issue);
-  if (typeof ownerId !== 'string' || !ownerId || !Number.isSafeInteger(issueNumber)
-    || issueNumber <= 0) throw safeError('invalid_recovery_params');
-  const root = realpathSync(cwd);
-  const safe = readSafeRecoveries(root);
-  const owners = safe?.owners.filter((owner) => owner.ownerId === ownerId
-    && owner.projectRoot === root && owner.issue === issueNumber
-    && owner.step === 'verify' && owner.status === 'incomplete') ?? [];
-  if (owners.length !== 1) throw safeError(owners.length ? 'recovery_owner_ambiguous' : 'recovery_owner_missing');
-  return structuredClone(safe.records.filter((entry) =>
-    entry.class.startsWith('changed_head_verification_recheck:')
-    && entry.runId === ownerId && entry.issue === issueNumber && entry.step === 'verify'));
-}
-
-export function getChangedHeadVerificationRecord(options = {}) {
-  if (!/^[0-9a-f]{40}$/i.test(options.headSha ?? '')) throw safeError('invalid_recovery_params');
-  const records = listChangedHeadVerificationRecords(options)
-    .filter((entry) => entry.evidence?.newHead === options.headSha);
-  if (records.length > 1) throw safeError('recovery_record_ambiguous');
-  return records[0] ?? null;
-}
-
-export function consumeSafeRecovery({
-  cwd = process.cwd(),
-  ownerId,
-  issue,
-  step,
-  class: className,
-  evidence = {},
-  invocationId,
-  now = () => new Date().toISOString(),
-} = {}) {
-  const issueNumber = Number(issue);
-  if (
-    !ownerId || typeof ownerId !== 'string' || ownerId.length === 0
-    || !className || typeof className !== 'string' || className.length === 0
-    || !Number.isSafeInteger(issueNumber) || issueNumber <= 0
-    || !VALID_STEPS.includes(step)
-    || (invocationId !== undefined && (typeof invocationId !== 'string' || !invocationId))
-    || !evidence || typeof evidence !== 'object' || Array.isArray(evidence)
-    || typeof now !== 'function'
-  ) {
-    throw safeError('invalid_consume_params');
-  }
-
-  let safe = readSafeRecoveries(cwd);
-  if (!safe) {
-    safe = { schemaVersion: 1, revision: 0, owners: [], records: [] };
-  }
-
-  const canonicalRoot = realpathSync(cwd);
-  const owner = safe.owners.find((o) =>
-    o.ownerId === ownerId &&
-    o.projectRoot === canonicalRoot &&
-    o.issue === issueNumber &&
-    o.step === step &&
-    o.status === 'incomplete'
-  );
-  if (!owner) {
-    throw safeError('invalid_recovery_ownership');
-  }
-
-  const existing = safe.records.find((r) =>
-    r.class === className &&
-    r.runId === ownerId &&
-    r.issue === issueNumber &&
-    r.step === step
-  );
-  if (existing) {
-    if (invocationId !== undefined && existing.invocationId !== invocationId) {
-      throw safeError('recovery_invocation_mismatch');
-    }
-    return { consumed: false, record: existing };
-  }
-
-  const record = {
-    class: className,
-    runId: ownerId,
-    issue: issueNumber,
-    step,
-    invocationId: invocationId ?? randomUUID(),
-    consumedAt: now(),
-    disposition: 'consumed',
-    evidence: { ...evidence },
-  };
-  safe.records.push(record);
-
-  try {
-    persistSafeState(safe, cwd);
-    return { consumed: true, record };
-  } catch (error) {
-    throw safeError('recovery_persistence_failed');
-  }
-}
 
 export function assertInitialStagePublication({ cwd = process.cwd(), ownerId, issue, step, run = defaultRun } = {}) {
   const branch = run('git', ['branch', '--show-current'], { cwd });
-  if (!commandSucceeded(branch) || !String(branch.stdout ?? '').trim().startsWith(`${issue}-`)) throw safeError('publication_branch_mismatch');
-  const state = readSafeRecoveries(cwd);
-  if (state?.records.some((record) => record.class === 'stage_publication'
-    && record.runId === ownerId && record.issue === Number(issue) && record.step === step)) {
-    throw safeError('stage_publication_consumed');
+  if (!commandSucceeded(branch) || parseIssueBranch(String(branch.stdout ?? '').trim())?.issueNumber !== Number(issue)) {
+    throw safeError('publication_branch_mismatch');
   }
   const upstream = run('git', ['rev-parse', '--verify', '@{u}'], { cwd });
   if (commandSucceeded(upstream)) {
@@ -847,15 +120,14 @@ export function reconcileStagePublication({
   cwd = process.cwd(), issue, step, spec, expectedSubject, allowedPaths = [], ownerId, run = defaultRun,
 } = {}) {
   const issueNumber = Number(issue);
-  const outcomePolicy = ['implement', 'fix1', 'fix2'].includes(step);
+  const outcomePolicy = step === 'implement';
   const readOnlyPaths = outcomePolicy && new RegExp(`^specs/${issueNumber}-[^/\\\\]+$`).test(spec ?? '')
     ? SPEC_INPUT_FILES.map((file) => `${spec}/${file}`)
     : [];
   const observedAllowedPaths = Array.isArray(allowedPaths) ? [...new Set(allowedPaths)].sort() : [];
   if (!Number.isSafeInteger(issueNumber) || issueNumber <= 0
-    || !['implement', 'fix1', 'fix2', 'verify', 'deliver'].includes(step)
+    || !['implement', 'verify', 'deliver'].includes(step)
     || typeof expectedSubject !== 'string' || !expectedSubject.trim()
-    || typeof ownerId !== 'string' || !ownerId
     || !Array.isArray(allowedPaths) || allowedPaths.length === 0
     || !allowedPaths.every(validPublicationPath)
     || (outcomePolicy && (!readOnlyPaths.length
@@ -864,8 +136,7 @@ export function reconcileStagePublication({
   }
   const root = realpathSync(cwd);
   const reasonCode = step === 'verify' ? 'verification_publish_failed'
-    : step === 'implement' ? 'implementation_failed'
-      : step.startsWith('fix') ? 'apply_review_failed' : 'delivery_publish_failed';
+    : step === 'implement' ? 'implementation_failed' : 'delivery_publish_failed';
   const fail = (summary) => ({ passed: false, reasonCode, summary });
   const git = (args) => {
     const result = run('git', args, { cwd: root });
@@ -874,12 +145,7 @@ export function reconcileStagePublication({
   };
   try {
     const branch = git(['branch', '--show-current']).trim();
-    if (!branch.startsWith(`${issueNumber}-`)) return fail(`Branch does not belong to #${issueNumber}`);
-    const state = readSafeRecoveries(root);
-    if (!state?.owners.some((owner) => owner.ownerId === ownerId && owner.projectRoot === root
-      && owner.issue === issueNumber && owner.step === step && owner.branch === branch)) {
-      return fail('Publication ownership is unproven');
-    }
+    if (parseIssueBranch(branch)?.issueNumber !== issueNumber) return fail(`Branch does not belong to #${issueNumber}`);
     if (porcelainPaths(git(['status', '--porcelain=v1', '-z'])).length) {
       return fail('Publication recovery requires a clean non-runtime worktree');
     }
@@ -903,13 +169,7 @@ export function reconcileStagePublication({
       return fail('Publication branch is divergent or behind');
     }
     if ((counts[1] === 0) !== (remoteHead === head)) return fail('Publication divergence contradicts exact upstream identity');
-    const prior = state.records.find((record) => record.class === 'stage_publication'
-      && record.runId === ownerId && record.issue === issueNumber && record.step === step);
-    if (prior && (prior.evidence.commitSha !== head || prior.evidence.subject !== expectedSubject
-      || JSON.stringify(prior.evidence.allowedPaths) !== JSON.stringify(observedAllowedPaths)
-      || prior.evidence.upstream !== upstream)) {
-      return fail('Consumed publication evidence no longer matches; allowance is not renewed');
-    }
+    // Live exact-head remote evidence, not an old allowance, decides whether to push.
     const commits = counts[1] === 0 ? [head] : git(['rev-list', '@{u}..HEAD']).trim().split('\n');
     if (commits.length !== (counts[1] || 1) || !commits.includes(head)) return fail('Publication commits are unreadable');
     const observedCommitPaths = new Set();
@@ -936,12 +196,6 @@ export function reconcileStagePublication({
       return fail('Publication commit exceeds approved scope');
     }
     if (counts[1] === 0 && remoteHead === head) return { passed: true, ack: true };
-    if (prior) return fail('stage_publication already consumed; no second push');
-    const consumed = consumeSafeRecovery({
-      cwd: root, ownerId, issue: issueNumber, step, class: 'stage_publication',
-      evidence: { commitSha: head, subject: expectedSubject, allowedPaths: observedAllowedPaths, upstream },
-    });
-    if (!consumed.consumed) return fail('stage_publication already consumed; no second push');
     git(['push', remote, `HEAD:${mergeRef}`]);
     git(['fetch', '--no-tags', remote, mergeRef]);
     if (git(['rev-parse', 'FETCH_HEAD']).trim() !== head
@@ -1426,7 +680,7 @@ function observePublicationPaths(run, cwd, pattern) {
 export function inspectPublicationScope({ cwd = process.cwd(), issue, spec, step, run = defaultRun } = {}) {
   const issueNumber = Number(issue);
   if (!Number.isSafeInteger(issueNumber) || issueNumber <= 0
-    || !['implement', 'fix1', 'fix2', 'verify'].includes(step)
+    || !['implement', 'verify'].includes(step)
     || !new RegExp(`^specs/${issueNumber}-[^/\\\\]+$`).test(spec ?? '')) throw safeError('spec_not_approved');
   const issueScope = inspectIssueSpecScope({ projectRoot: cwd, issueNumber, specPath: spec });
   if (!['scoped', 'implicit_single_issue'].includes(issueScope.status)) throw safeError('spec_not_approved');
@@ -1497,102 +751,38 @@ export function inspectPublicationScope({ cwd = process.cwd(), issue, spec, step
 }
 
 export function probePublicationScope({
-  cwd = process.cwd(),
-  issue,
-  spec,
-  step,
-  controllerRunId,
-  run = defaultRun,
+  cwd = process.cwd(), issue, spec, step, run = defaultRun,
 } = {}) {
   const issueNumber = Number(issue);
-  if (!Number.isSafeInteger(issueNumber) || issueNumber <= 0
-    || step !== 'implement' || typeof controllerRunId !== 'string' || !controllerRunId) {
+  if (!Number.isSafeInteger(issueNumber) || issueNumber <= 0 || step !== 'implement') {
     throw safeError('invalid_recovery_params');
   }
-  const canonicalRoot = realpathSync(cwd);
-  const branchResult = run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: canonicalRoot });
-  if (!commandSucceeded(branchResult)) throw safeError('recovery_owner_unreadable');
-  const actualBranch = String(branchResult.stdout ?? '').trim();
-  if (!actualBranch || actualBranch === 'HEAD') throw safeError('recovery_owner_unreadable');
-  if (!actualBranch.startsWith(`${issueNumber}-`)) throw safeError('publication_branch_mismatch');
-
-  const runPath = join(canonicalRoot, '.omp', 'sdlc', 'run.json');
-  const runStat = lstatIfPresent(runPath);
-  if (!runStat || runStat.isSymbolicLink() || !runStat.isFile()) throw safeError('unsafe_recovery_owner_path');
-  let runData;
-  try {
-    runData = JSON.parse(readFileSync(runPath, 'utf8'));
-  } catch {
-    throw safeError('recovery_owner_unreadable');
-  }
-  if (!validExecuteCheckpoint(runData) || runData.runId !== controllerRunId
-    || runData.projectRoot !== canonicalRoot
-    || runData.currentIssue !== issueNumber || runData.currentStep !== step) {
-    throw safeError('recovery_owner_ambiguous');
-  }
-
-  const safe = readSafeRecoveries(canonicalRoot);
-  if (!safe) throw safeError('recovery_owner_missing');
-  const tupleOwners = safe.owners.filter((owner) =>
-    owner.projectRoot === canonicalRoot
-    && owner.issue === issueNumber
-    && owner.branch === actualBranch
-    && owner.step === step
-    && owner.status === 'incomplete');
-  if (tupleOwners.length !== 1 || tupleOwners[0].ownerId !== controllerRunId) {
-    throw safeError(tupleOwners.length ? 'recovery_owner_ambiguous' : 'recovery_owner_missing');
-  }
-  const owner = tupleOwners[0];
-  const discrepancies = [];
-  if (runData.branch !== actualBranch || runData.branch !== owner.branch) {
-    discrepancies.push({
-      field: 'branch',
-      run: runData.branch,
-      actual: actualBranch,
-      owner: owner.branch,
-    });
-  }
-  const scope = inspectPublicationScope({
-    cwd: canonicalRoot,
-    issue: issueNumber,
-    spec,
-    step,
-    run,
-  });
+  const root = realpathSync(cwd);
+  const ownerId = resolveRecoveryOwner({ cwd: root, issue: issueNumber, step, run });
+  const branch = run('git', ['branch', '--show-current'], { cwd: root }).stdout.trim();
   return {
     passed: true,
-    ownerId: owner.ownerId,
-    binding: {
-      actualBranch,
-      run: {
-        runId: runData.runId,
-        projectRoot: runData.projectRoot,
-        branch: runData.branch,
-        issue: runData.issue ?? null,
-        currentIssue: runData.currentIssue,
-        currentStep: runData.currentStep,
-      },
-      recoveryOwner: { ...owner },
-      discrepancies,
-    },
-    scope,
+    ownerId,
+    binding: { actualBranch: branch },
+    scope: inspectPublicationScope({ cwd: root, issue: issueNumber, spec, step, run }),
   };
 }
 
 function runCli(argv = process.argv.slice(2)) {
   const action = argv[0];
   const options = {};
-  const keys = { '--issue': 'issue', '--step': 'step', '--spec': 'spec', '--subject': 'expectedSubject', '--controller-run-id': 'controllerRunId', '--session-token': 'sessionToken' };
+  const keys = { '--issue': 'issue', '--step': 'step', '--spec': 'spec', '--subject': 'expectedSubject', '--controller-run-id': 'controllerRunId' };
   for (let index = 1; index < argv.length; index += 2) {
     const key = keys[argv[index]];
     if (!key || Object.hasOwn(options, key) || !argv[index + 1]) return 2;
     options[key] = argv[index + 1];
   }
   if (!['probe', 'bind', 'reconcile'].includes(action) || !/^[1-9]\d*$/.test(options.issue ?? '')
-    || !['implement', 'fix1', 'fix2', 'verify'].includes(options.step)) return 2;
+    || !['implement', 'verify'].includes(options.step)) return 2;
   if (action === 'probe') {
-    const exactKeys = ['controllerRunId', 'issue', 'spec', 'step'];
-    if (options.step !== 'implement' || Object.keys(options).sort().join(',') !== exactKeys.join(',')) return 2;
+    const suppliedKeys = Object.keys(options).sort().join(',');
+    if (options.step !== 'implement'
+      || !['issue,spec,step', 'controllerRunId,issue,spec,step'].includes(suppliedKeys)) return 2;
     try {
       const outcome = probePublicationScope({ ...options, cwd: process.cwd() });
       process.stdout.write(`NMG_SDLC_PUBLICATION: ${JSON.stringify(outcome)}\n`);
@@ -1616,7 +806,7 @@ function runCli(argv = process.argv.slice(2)) {
     }
     lease = enterControllerLease({ projectRoot: cwd, runId: options.controllerRunId });
     const branch = defaultRun('git', ['branch', '--show-current'], { cwd });
-    if (!commandSucceeded(branch) || !String(branch.stdout ?? '').trim().startsWith(`${options.issue}-`)) throw safeError('publication_branch_mismatch');
+    if (!commandSucceeded(branch) || parseIssueBranch(String(branch.stdout ?? '').trim())?.issueNumber !== Number(options.issue)) throw safeError('publication_branch_mismatch');
     const scope = inspectPublicationScope({ ...options, cwd });
     const status = defaultRun('git', ['status', '--porcelain=v1', '-z'], { cwd });
     if (!commandSucceeded(status)) throw safeError('publication_scope_unproven');
@@ -1638,7 +828,7 @@ function runCli(argv = process.argv.slice(2)) {
       controllerRunId,
       bindSubject: options.step === 'implement' && action === 'bind' && suppliedSubject,
     });
-    if (observedPaths.length) assertInitialStagePublication({ ...options, cwd, ownerId });
+    if (observedPaths.length && action === 'reconcile') assertInitialStagePublication({ ...options, cwd, ownerId });
     let outcome = { passed: true, ownerId, scope };
     if (action === 'reconcile') {
       const expectedSubject = options.step === 'implement' ? options.expectedSubject : getExpectedSubject(options.step, options.issue);

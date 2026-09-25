@@ -196,15 +196,16 @@ function pullRequestIdentity(pr) {
 function recordedDelivery(readFile, work, issue) {
   try {
     const proof = JSON.parse(readFile(join(work, ".omp", "sdlc", "smoke-deliveries", `${issue}.json`), "utf8"));
+    const id = (typeof proof?.invocationId === "string" && proof.invocationId.length > 0) ? proof.invocationId : null;
+    if (!id) return null; // no legacy runId-only fallback; only invocationId
     return proof?.schemaVersion === 1
       && proof?.issue === issue
-      && typeof proof?.runId === "string" && proof.runId.length > 0
       && Number.isSafeInteger(proof?.pullRequest)
       && proof.pullRequest > 0
       && SHA.test(proof?.headSha ?? "")
       && proof?.recordedBeforeMerge === true
       ? {
-        runId: proof.runId,
+        invocationId: id,
         pullRequest: proof.pullRequest,
         headSha: proof.headSha.toLowerCase(),
       }
@@ -320,6 +321,26 @@ async function validateTerminalHeadAdvance(executeCommand, state, request, scope
   };
 }
 
+// Content-addressed plugin candidate, excluding verification output that changes after a failure.
+async function candidateTree(executeCommand, pluginRoot, env, signal) {
+  const index = join(tmpdir(), `nmg-sdlc-smoke-index-${randomBytes(12).toString("hex")}`);
+  const options = { cwd: pluginRoot, env: { ...env, GIT_INDEX_FILE: index }, signal };
+  try {
+    for (const args of [
+      ["read-tree", "HEAD"],
+      ["add", "-A", "--", ".", ":(exclude).omp", ":(exclude)specs/*/verification-report.md"],
+    ]) {
+      const result = await executeCommand("git", args, options);
+      if (result.status !== 0) return null;
+    }
+    const tree = await executeCommand("git", ["write-tree"], options);
+    const sha = String(tree.stdout ?? "").trim();
+    return tree.status === 0 && SHA.test(sha) ? sha : null;
+  } finally {
+    rmSync(index, { force: true });
+  }
+}
+
 function digest(value) {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -416,12 +437,14 @@ export function createSmokeRecoveryStore({ root = join(tmpdir(), "nmg-sdlc-smoke
   return { read, write, remove };
 }
 
+// Only already-merged PRs are prior delivery proof. An open PR may be resumed and merged by
+// this invocation, which is then bound by its own pre-merge receipt and exact head.
 function baselineState(issue, observed) {
   return {
     issue,
     state: observed.state,
     url: observed.url,
-    pullRequests: observed.pullRequests.map((pr) => ({
+    pullRequests: observed.pullRequests.filter((pr) => pr?.state === "MERGED").map((pr) => ({
       number: pr.number,
       url: pr.url,
     })),
@@ -439,20 +462,20 @@ function validBaseline(baseline, issue) {
     ));
 }
 
-function recoveryToken(key, secret) {
-  return `${key}.${secret}`;
-}
-
-function exactExpectedQueue(expected, issues, nestedRunId) {
+function exactExpectedQueue(expected, issues, invocationId) {
   return Array.isArray(expected)
     && expected.length === issues.length
     && new Set(expected.map((entry) => entry?.issue)).size === issues.length
     && issues.every((issue) => expected.some((entry) => (
       entry?.issue === issue
-      && entry.runId === nestedRunId
+      && entry.invocationId === invocationId
       && Number.isSafeInteger(entry.pullRequest) && entry.pullRequest > 0
       && SHA.test(entry.headSha ?? "")
     )));
+}
+
+function recoveryToken(key, secret) {
+  return `${key}.${secret}`;
 }
 
 export function validNestedOwnership(store, token, request, issues) {
@@ -466,92 +489,50 @@ export function validNestedOwnership(store, token, request, issues) {
     || !equal(state.issues, issues)
     || state.phase !== "running"
   ) return null;
-  const nested = readJsonFile(readFileSync, join(request.projectRoot, ".omp", "sdlc", "run.json"));
-  if (
-    nested?.schemaVersion !== 1
-    || nested.projectRoot !== realpathSync(request.projectRoot)
-    || typeof nested.runId !== "string" || !nested.runId
-    || !equal(nested.issues, issues)
-    || !issues.includes(nested.currentIssue)
-    || nested.currentStep !== "verify"
-    || (state.nestedRunId && state.nestedRunId !== nested.runId)
-  ) return null;
+  // The token digest binds nested execution to this outer invocation.
+  const invocationId = match[1];
+  if (state.nestedRunId && state.nestedRunId !== invocationId) return null;
   if (!state.nestedRunId) {
-    state.nestedRunId = nested.runId;
+    state.nestedRunId = invocationId;
     store.write(match[1], state, { replace: true });
   }
   return state;
 }
 
-function nestedRunIdentity(readFile, work, issues) {
-  let raw;
-  try {
-    raw = readFile(join(work, ".omp", "sdlc", "run.json"), "utf8");
-  } catch {
-    return { presence: "absent", runId: null, expected: [] };
-  }
-  let run;
-  try {
-    run = JSON.parse(raw);
-  } catch {
-    return { presence: "invalid", runId: null, expected: [] };
-  }
-  if (
-    run?.schemaVersion !== 1
-    || resolve(run.projectRoot) !== resolve(work)
-    || typeof run.runId !== "string" || !run.runId
-    || !equal(run.issues, issues)
-    || !issues.includes(run.currentIssue)
-    || run.currentStep !== "deliver"
-    || run.delivery?.issue !== run.currentIssue
-    || !Number.isSafeInteger(run.delivery.pullRequest) || run.delivery.pullRequest <= 0
-    || !SHA.test(run.delivery.expectedHead ?? "")
-  ) return { presence: "invalid", runId: null, expected: [] };
-  const expected = [{
-    issue: run.delivery.issue,
-    runId: run.runId,
-    pullRequest: run.delivery.pullRequest,
-    headSha: run.delivery.expectedHead.toLowerCase(),
-  }];
+function nestedRunIdentity(readFile, work, issues, invocationIdHint = null) {
+  // branch-derived nested execution: do not require or read nested .omp/sdlc/run.json or safe-recoveries.
+  // The authoritative proof of what the invocation delivered is the pre-merge smoke-deliveries/*.json receipts.
+  // Use invocationIdHint (outer recovery key digest) when provided.
+  const expected = [];
+  let derivedId = invocationIdHint;
   for (const issue of issues) {
-    if (issue === run.delivery.issue) continue;
     const proof = recordedDelivery(readFile, work, issue);
-    if (proof?.runId === run.runId) expected.push({ issue, ...proof });
+    if (proof) {
+      const pid = proof.invocationId;
+      if (!derivedId) derivedId = pid;
+      expected.push({ issue, invocationId: pid, pullRequest: proof.pullRequest, headSha: proof.headSha });
+    }
   }
-  return { presence: "valid", runId: run.runId, expected };
+  if (expected.length === 0) {
+    return { presence: "absent", invocationId: null, expected: [] };
+  }
+  return { presence: "valid", invocationId: derivedId, expected };
 }
 
-function recoveryRecord(readFile, work, runId, issue) {
-  const safe = readJsonFile(readFile, join(work, ".omp", "sdlc", "safe-recoveries.json"));
-  const matches = Array.isArray(safe?.records) ? safe.records.filter((record) => (
-    record?.class === "post_merge_observation"
-    && record?.runId === runId
-    && record?.issue === issue
-    && record?.step === "deliver"
-    && record?.disposition === "consumed"
-    && Number.isSafeInteger(record?.evidence?.pullRequest)
-    && SHA.test(record?.evidence?.headSha ?? "")
-  )) : [];
-  return matches.length === 1 ? {
-    issue,
-    runId,
-    pullRequest: matches[0].evidence.pullRequest,
-    headSha: matches[0].evidence.headSha.toLowerCase(),
-  } : null;
+function recoveryRecord(readFile, work, invocationId, issue) {
+  const proof = recordedDelivery(readFile, work, issue);
+  if (proof && proof.invocationId === invocationId) {
+    return {
+      issue,
+      invocationId,
+      pullRequest: proof.pullRequest,
+      headSha: proof.headSha,
+    };
+  }
+  return null;
 }
 
 
-function optionalPassedHandoff(readFile, work, expected, step) {
-  const path = join(work, ".omp", "sdlc", "handoffs", `${expected.issue}-${step}.json`);
-  if (!existsSync(path)) return true;
-  const handoff = readJsonFile(readFile, path);
-  return handoff?.schemaVersion === 1
-    && handoff.issue === expected.issue
-    && handoff.step === step
-    && handoff.status === "passed"
-    && handoff.intervention === false
-    && handoff.reasonCode === null;
-}
 
 export function inspectRecoveredVerificationEvidence(
   readFile,
@@ -614,48 +595,12 @@ export function inspectRecoveredVerificationEvidence(
     },
   }).status === "satisfied";
 }
-export function inspectRecoveredDeliveryHandoff(
-  readFile,
-  work,
-  expected,
-  { required = false } = {},
-) {
-  const sessionsRoot = join(work, ".omp", "sdlc", "sessions");
-  let tokens;
-  try {
-    tokens = readdirSync(sessionsRoot, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .slice(0, 101);
-  } catch {
-    return !required;
-  }
-  if (tokens.length > 100) return false;
-  const matched = [];
-  for (const token of tokens) {
-    const pointer = readJsonFile(readFile, join(sessionsRoot, token.name, "recovery-owner.json"));
-    if (
-      pointer?.projectRoot !== realpathSync(work)
-      || pointer?.recoveryOwnerId !== expected.runId
-      || pointer?.issue !== expected.issue
-      || pointer?.step !== "deliver"
-    ) continue;
-
-    matched.push(readJsonFile(
-      readFile,
-      join(sessionsRoot, token.name, "handoffs", `${expected.issue}-deliver.json`),
-    ));
-  }
-  if (matched.length === 0) return !required;
-  if (matched.length !== 1) return false;
-  const [handoff] = matched;
-  return handoff?.schemaVersion === 1
-    && handoff.issue === expected.issue
-    && handoff.step === "deliver"
-    && handoff.status === "passed"
-    && handoff.intervention === false
-    && handoff.reasonCode === null
-    && Array.isArray(handoff.artifacts)
-    && handoff.artifacts.includes(`https://github.com/${SMOKE_OWNER}/${SMOKE_NAME}/pull/${expected.pullRequest}`);
+export function inspectRecoveredDeliveryHandoff(readFile, work, expected) {
+  const proof = recordedDelivery(readFile, work, expected.issue);
+  return Boolean(proof
+    && proof.invocationId === expected.invocationId
+    && proof.pullRequest === expected.pullRequest
+    && proof.headSha === expected.headSha);
 }
 
 async function retainedCloneIdentity(executeCommand, state, env, signal) {
@@ -675,217 +620,7 @@ async function retainedCloneIdentity(executeCommand, state, env, signal) {
     : { status: "failed", summary: "nmg-sdlc-smoke retained clone identity mismatch", evidence };
 }
 
-function exactRealPath(value, expected) {
-  try {
-    return typeof value === "string" && realpathSync(value) === expected;
-  } catch {
-    return false;
-  }
-}
 
-function legacyClonePath(evidence) {
-  const retained = evidence.filter((item) => (
-    item?.kind === "artifact"
-    && item.summary === "retained smoke clone"
-  ));
-  if (retained.length !== 1) return null;
-  try {
-    const stat = lstatSync(retained[0].artifact);
-    const clone = realpathSync(retained[0].artifact);
-    const temporaryRoot = realpathSync(tmpdir());
-    if (
-      stat.isSymbolicLink()
-      || !stat.isDirectory()
-      || resolve(clone, "..") !== temporaryRoot
-      || !clone.slice(temporaryRoot.length + 1).startsWith("nmg-sdlc-smoke-")
-    ) return null;
-    return clone;
-  } catch {
-    return null;
-  }
-}
-
-export function inspectLegacySmokeFailure(readFile, { request, scope, issues, pluginRoot }) {
-  const artifactPath = join(scope.projectRoot, ".omp", "sdlc", "verification", `${scope.issue}.json`);
-  let artifact;
-  try {
-    artifact = JSON.parse(readFile(artifactPath, "utf8"));
-  } catch (error) {
-    return { presence: error?.code === "ENOENT" ? "absent" : "invalid" };
-  }
-  const candidates = Array.isArray(artifact?.results)
-    ? artifact.results.filter((entry) => entry?.id === "repository.nmg-sdlc-smoke")
-    : [];
-  if (candidates.length === 0) return { presence: "absent" };
-  if (candidates.length !== 1) return { presence: "invalid" };
-  const [candidate] = candidates;
-  const failedRequest = candidate.request;
-  const failedResult = candidate.result;
-  const resultIdentity = failedResult?.identity;
-  // Only a coherent, uniquely attributable old attempt can be non-authoritative.
-  // An ambiguous artifact or a broken current attempt must still fail closed.
-  const recordedIdentity = {
-    headSha: failedRequest?.identity?.headSha,
-    steeringHash: failedRequest?.identity?.steeringHash,
-    specHash: failedRequest?.identity?.specHash,
-  };
-  const executeCommands = Array.isArray(failedResult?.evidence)
-    ? failedResult.evidence.filter((item) => (
-      item?.kind === "command" && /^sdlc-execute run /.test(item.summary ?? "")
-    ))
-    : [];
-  const oldQueue = executeCommands.length === 1
-    ? executeCommands[0].summary.match(/^sdlc-execute run ((?:#[1-9]\d*)(?: #[1-9]\d*)*)$/)?.[1]
-      .split(" ").map((token) => Number(token.slice(1)))
-    : null;
-  const priorVerification = failedRequest?.verification;
-  const coherentVerification = priorVerification === undefined || (
-    typeof priorVerification?.runId === "string" && priorVerification.runId.length > 0
-    && priorVerification.issue === scope.issue
-    && priorVerification.specPath === scope.specPath
-  );
-  // This exact provider stop returns before cloning or writing a recovery owner.
-  // Other modern failures need their retained owner; do not infer no dispatch from a changed head.
-  const provenPrelaunch = failedResult?.summary === "nmg-sdlc-smoke legacy recovery evidence invalid"
-    && Array.isArray(failedResult.evidence) && failedResult.evidence.length === 0;
-  const attributable = artifact?.schemaVersion === 1
-    && artifact.ceiling === "Fail"
-    && artifact.coverage?.complete === true
-    && artifact.issue === scope.issue
-    && candidate.provider === "project.nmg-sdlc-smoke"
-    && candidate.required === true
-    && candidate.applicable === true
-    && candidate.effectiveStatus === "failed"
-    && failedRequest?.schemaVersion === 1
-    && failedRequest.validationId === request.validationId
-    && coherentVerification
-    && exactRealPath(failedRequest.projectRoot, scope.projectRoot)
-    && failedResult?.schemaVersion === 1
-    && failedResult.status === "failed"
-    && equal(resultIdentity, failedRequest.identity)
-    && equal(artifact.identity, recordedIdentity)
-    && SHA.test(recordedIdentity.headSha ?? "")
-    && [recordedIdentity.specHash, recordedIdentity.steeringHash,
-      failedRequest.identity?.validationConfigHash].every((value) => (
-      typeof value === "string" && /^sha256:[0-9a-f]{64}$/.test(value)
-    ));
-  if (attributable && (priorVerification === undefined || provenPrelaunch) && (
-    !equal(verificationIdentity(failedRequest.identity), verificationIdentity(request.identity))
-    || (oldQueue?.length > 0 && new Set(oldQueue).size === oldQueue.length && !equal(oldQueue, issues))
-  )) return { presence: "absent" };
-  if (
-    artifact?.schemaVersion !== 1
-    || artifact.issue !== scope.issue
-    || artifact.ceiling !== "Fail"
-    || artifact.coverage?.complete !== true
-    || candidate.provider !== "project.nmg-sdlc-smoke"
-    || candidate.required !== true
-    || candidate.applicable !== true
-    || candidate.effectiveStatus !== "failed"
-    || failedRequest?.schemaVersion !== 1
-    || failedRequest.validationId !== request.validationId
-    || failedRequest.verification !== undefined
-    || !exactRealPath(failedRequest.projectRoot, scope.projectRoot)
-    || !equal(failedRequest.config, request.config)
-    || !equal(resultIdentity, failedRequest.identity)
-    || failedResult?.schemaVersion !== 1
-    || failedResult.status !== "failed"
-    || !equal(artifact.identity, {
-      headSha: failedRequest.identity?.headSha,
-      steeringHash: failedRequest.identity?.steeringHash,
-      specHash: failedRequest.identity?.specHash,
-    })
-    || failedRequest.identity?.validationConfigHash !== request.identity?.validationConfigHash
-    || !Array.isArray(failedResult.evidence)
-  ) return { presence: "invalid" };
-
-  const statusMatch = String(failedResult.summary ?? "").match(/^nmg-sdlc-smoke execute exited ([1-9]\d*)$/);
-  const executeEvidence = failedResult.evidence.filter((item) => (
-    item?.kind === "command"
-    && item.summary === `sdlc-execute run ${issues.map((issue) => `#${issue}`).join(" ")}`
-  ));
-  const clonePath = legacyClonePath(failedResult.evidence);
-  const cloneEvidence = failedResult.evidence.filter((item) => (
-    item?.kind === "command"
-    && item.summary === `git clone --single-branch ${SMOKE_REPO}`
-  ));
-  if (
-    !statusMatch
-    || executeEvidence.length !== 1
-    || !clonePath
-    || cloneEvidence.length !== 1
-    || !exactRealPath(cloneEvidence[0].artifact, clonePath)
-    || !exactRealPath(executeEvidence[0].artifact, clonePath)
-  ) return { presence: "invalid" };
-
-  const baselines = [];
-  const baselineEvidence = failedResult.evidence.filter((item) => (
-    item?.kind === "command" && String(item.summary ?? "").startsWith("gh issue closing PR baseline ")
-  ));
-  if (baselineEvidence.length !== issues.length) return { presence: "invalid" };
-  for (const issue of issues) {
-    const matches = baselineEvidence.filter((item) => item.summary === `gh issue closing PR baseline ${issue}`);
-    const observed = matches.length === 1
-      ? closingIssue({ status: 0, stdout: matches[0].stdout })
-      : null;
-    if (
-      !observed
-      || observed.url !== `https://github.com/${SMOKE_OWNER}/${SMOKE_NAME}/issues/${issue}`
-    ) return { presence: "invalid" };
-    baselines.push(baselineState(issue, observed));
-  }
-
-  const nested = nestedRunIdentity(readFile, clonePath, issues);
-  const run = readJsonFile(readFile, join(clonePath, ".omp", "sdlc", "run.json"));
-  const rootDelivery = readJsonFile(
-    readFile,
-    join(clonePath, ".omp", "sdlc", "handoffs", `${run?.currentIssue}-deliver.json`),
-  );
-  if (
-    nested.presence !== "valid"
-    || !exactExpectedQueue(nested.expected, issues, nested.runId)
-    || !SHA.test(run?.head ?? "")
-    || run.issue !== run.currentIssue
-    || run.failed?.issue !== run.currentIssue
-    || run.failed?.step !== "deliver"
-    || run.failed?.reasonCode !== "automatic_review_unactionable"
-    || run.delivery?.status !== "expected"
-    || rootDelivery?.schemaVersion !== 1
-    || rootDelivery.issue !== run.currentIssue
-    || rootDelivery.step !== "deliver"
-    || rootDelivery.status !== "failed"
-    || rootDelivery.intervention !== true
-    || rootDelivery.reasonCode !== "automatic_review_unactionable"
-  ) return { presence: "invalid" };
-
-  return {
-    presence: "valid",
-    state: {
-      schemaVersion: 1,
-      recoveryKey: scope.recoveryKey,
-      scope,
-      outerIdentity: request.identity,
-      validationId: request.validationId,
-      pluginRoot,
-      clonePath,
-      cloneInitialHead: run.head.toLowerCase(),
-      issues,
-      baselines,
-      tokenSecret: randomBytes(32).toString("hex"),
-      phase: "failed",
-      executeStatus: Number(statusMatch[1]),
-      nestedRunId: nested.runId,
-      expected: nested.expected,
-      validationConfig: canonical(request.config),
-      bootstrap: {
-        kind: "legacy-verification-failure",
-        issue: scope.issue,
-        artifactDigest: digest(JSON.stringify(canonical(artifact))),
-        deliveryProofRequired: false,
-      },
-    },
-  };
-}
 
 export function createSmokeProvider({
   runCommand: executeCommand = runCommand,
@@ -896,7 +631,6 @@ export function createSmokeProvider({
   resolveOuterScope = resolveSmokeRecoveryScope,
   validateNestedOwnership = validNestedOwnership,
   readRecoveryRecord = recoveryRecord,
-  verifyOptionalHandoff = optionalPassedHandoff,
   verifyCurrentEvidence = inspectRecoveredVerificationEvidence,
   verifyRecoveredDelivery = inspectRecoveredDeliveryHandoff,
   verifyRetainedClone = retainedCloneIdentity,
@@ -971,10 +705,17 @@ export function createSmokeProvider({
     }
     let terminalValidationIdentity = null;
     let terminalHeadEvidence = [];
+    let supersedeFailedState = false;
+    const receiptlessFailure = () => state?.phase === "failed" && !(state.expected ?? []).length;
     if (state && (!equal(state.scope, scope) || !equal(state.issues, issues))) {
       return envelope("failed", "nmg-sdlc-smoke recovery identity mismatch", identity, [
         ...(typeof state.clonePath === "string" ? [retainedCloneEvidence(state.clonePath)] : []),
       ]);
+    }
+    if (state && !sameOuterRequest(state, request) && receiptlessFailure()) {
+      // A failed attempt without a pre-merge receipt delivered nothing; a new identity is a new experiment.
+      state = null;
+      supersedeFailedState = true;
     }
     if (state && !sameOuterRequest(state, request)) {
       if (!["terminal", "cleanup_pending"].includes(state.phase)
@@ -1006,30 +747,6 @@ export function createSmokeProvider({
       ]);
     }
 
-    if (!state) {
-      let legacy;
-      try {
-        legacy = inspectLegacySmokeFailure(readFile, {
-          request,
-          scope,
-          issues,
-          pluginRoot,
-        });
-      } catch {
-        legacy = { presence: "invalid" };
-      }
-      if (legacy.presence === "invalid") {
-        return envelope("failed", "nmg-sdlc-smoke legacy recovery evidence invalid", identity);
-      }
-      if (legacy.presence === "valid") {
-        try {
-          recoveryStore.write(scope.recoveryKey, legacy.state);
-          state = recoveryStore.read(scope.recoveryKey);
-        } catch (error) {
-          return envelope("failed", `nmg-sdlc-smoke ${error.message}`, identity);
-        }
-      }
-    }
 
     let work = state?.clonePath ?? null;
     const retain = (status, summary, evidence = []) => envelope(status, summary, identity, [
@@ -1048,17 +765,11 @@ export function createSmokeProvider({
       for (const target of expected) {
         if (!terminal) {
           const delivery = recordedDelivery(readFile, work, target.issue);
-          const legacyWithoutProof = recovered
-            && state.bootstrap?.kind === "legacy-verification-failure"
-            && state.bootstrap.issue === scope.issue
-            && /^[0-9a-f]{64}$/.test(state.bootstrap.artifactDigest ?? "")
-            && state.bootstrap.deliveryProofRequired === false;
-          if ((!delivery && !legacyWithoutProof)
-            || (delivery && (
-              delivery.runId !== target.runId
-              || delivery.pullRequest !== target.pullRequest
-              || delivery.headSha !== target.headSha
-            ))) {
+          if (!delivery
+            || delivery.invocationId !== target.invocationId
+            || delivery.pullRequest !== target.pullRequest
+            || delivery.headSha !== target.headSha
+          ) {
             return retain("failed", recovered
               ? `nmg-sdlc-smoke execute exited ${state.executeStatus}`
               : `nmg-sdlc-smoke issue #${target.issue} missing invocation delivery proof`, evidence);
@@ -1132,6 +843,7 @@ export function createSmokeProvider({
       return envelope("passed", `nmg-sdlc-smoke delivered ${issues.map((issue) => `#${issue}`).join(", ")}`, identity, evidence);
     };
 
+    let retainedEvidence = [];
     if (state) {
       if (["terminal", "cleanup_pending"].includes(state.phase)) {
         const evidence = [
@@ -1181,7 +893,19 @@ export function createSmokeProvider({
         }, state.clonePath),
         ...retained.evidence,
       ];
+      retainedEvidence = evidence;
       if (retained.status !== "passed") return retain(retained.status, retained.summary, evidence);
+      if (state.phase === "failed" && !(state.expected ?? []).length) {
+        const current = await candidateTree(executeCommand, pluginRoot, env, request.signal);
+        if (current && current !== state.candidateTree) {
+          // No pre-merge receipt exists, so a changed plugin candidate is a new experiment.
+          state = null;
+          supersedeFailedState = true;
+        }
+      }
+    }
+    if (state) {
+      const evidence = retainedEvidence;
       if (state.phase !== "failed"
         || !Number.isSafeInteger(state.executeStatus)
         || typeof state.nestedRunId !== "string" || !state.nestedRunId) {
@@ -1192,7 +916,7 @@ export function createSmokeProvider({
         const recovered = readRecoveryRecord(readFile, work, state.nestedRunId, issue);
         const immutable = state.expected.find((entry) => entry.issue === issue);
         if (!recovered || !immutable
-          || recovered.runId !== immutable.runId
+          || recovered.invocationId !== immutable.invocationId
           || recovered.issue !== immutable.issue
           || recovered.pullRequest !== immutable.pullRequest) {
           return retain("failed", `nmg-sdlc-smoke execute exited ${state.executeStatus}`, evidence);
@@ -1211,11 +935,8 @@ export function createSmokeProvider({
         if (ancestry.status !== 0) {
           return retain("failed", `nmg-sdlc-smoke execute exited ${state.executeStatus}`, evidence);
         }
-        if (!verifyOptionalHandoff(readFile, work, recovered, "verify")
-          || !verifyRecoveredDelivery(readFile, work, recovered, { required: true })
-          || !verifyCurrentEvidence(readFile, work, recovered, immutable, {
-            jsonOnly: state.bootstrap?.kind === "legacy-verification-failure",
-          })) {
+        if (!verifyRecoveredDelivery(readFile, work, recovered)
+          || !verifyCurrentEvidence(readFile, work, recovered, immutable)) {
           return retain("failed", `nmg-sdlc-smoke execute exited ${state.executeStatus}`, evidence);
         }
         expected.push(recovered);
@@ -1296,10 +1017,15 @@ export function createSmokeProvider({
         if (!baseline) {
           return retain("failed", `nmg-sdlc-smoke issue #${issue} baseline unavailable`, [cloneEvidence, ...baselineEvidence]);
         }
-        baselines.set(issue, new Set(baseline.pullRequests.map(pullRequestIdentity)));
-        persistedBaselines.push(baselineState(issue, baseline));
+        const recorded = baselineState(issue, baseline);
+        baselines.set(issue, new Set(recorded.pullRequests.map(pullRequestIdentity)));
+        persistedBaselines.push(recorded);
       }
 
+      const launchedCandidate = await candidateTree(executeCommand, pluginRoot, env, request.signal);
+      if (!launchedCandidate) {
+        return retain("incomplete", "nmg-sdlc-smoke candidate identity unavailable", [cloneEvidence, ...baselineEvidence]);
+      }
       const tokenSecret = randomBytes(32).toString("hex");
       state = {
         schemaVersion: 1,
@@ -1318,8 +1044,9 @@ export function createSmokeProvider({
         nestedRunId: null,
         expected: [],
         validationConfig: canonical(request.config),
+        candidateTree: launchedCandidate,
       };
-      recoveryStore.write(scope.recoveryKey, state);
+      recoveryStore.write(scope.recoveryKey, state, { replace: supersedeFailedState });
       const execute = await executeCommand(process.execPath, [
         controller,
         "run",
@@ -1344,12 +1071,12 @@ export function createSmokeProvider({
         return retain("incomplete", `nmg-sdlc-smoke execute ${execute.reasonCode}`, evidence);
       }
       if (execute.status !== 0) {
-        const nested = nestedRunIdentity(readFile, work, issues);
+        const nested = nestedRunIdentity(readFile, work, issues, scope.recoveryKey);
         state = {
           ...state,
           phase: "failed",
           executeStatus: execute.status,
-          nestedRunId: nested.runId,
+          nestedRunId: nested.invocationId,
           expected: nested.expected,
         };
         recoveryStore.write(scope.recoveryKey, state, { replace: true });
@@ -1359,7 +1086,7 @@ export function createSmokeProvider({
             status: 0,
             stdout: JSON.stringify({
               outerRunId: scope.runId,
-              nestedRunId: nested.runId,
+              nestedRunId: nested.invocationId,
               issues,
               expected: nested.expected,
             }),
@@ -1370,7 +1097,7 @@ export function createSmokeProvider({
           return proof ? { issue, ...proof } : null;
         });
         if (exactProof.every(Boolean)
-          && exactExpectedQueue(exactProof, issues, nested.runId)
+          && exactExpectedQueue(exactProof, issues, nested.invocationId)
           && nested.expected.every((expected) => equal(
             exactProof.find((proof) => proof.issue === expected.issue),
             expected,
@@ -1384,8 +1111,7 @@ export function createSmokeProvider({
         }
         return retain("failed", `nmg-sdlc-smoke execute exited ${execute.status}`, invocationEvidence);
       }
-
-      const completedNested = nestedRunIdentity(readFile, work, issues);
+      const completedNested = nestedRunIdentity(readFile, work, issues, scope.recoveryKey);
       const persistedRunning = recoveryStore.read(scope.recoveryKey);
       state = persistedRunning;
       if (completedNested.presence === "invalid") {
@@ -1401,13 +1127,13 @@ export function createSmokeProvider({
         }
         expected.push({ issue, ...delivery });
       }
-      const proofRunIds = [...new Set(expected.map((entry) => entry.runId))];
-      if (proofRunIds.length !== 1) {
+      const proofInvocationIds = [...new Set(expected.map((entry) => entry.invocationId))];
+      if (proofInvocationIds.length !== 1) {
         recoveryStore.write(scope.recoveryKey, { ...state, phase: "completed_unproven" }, { replace: true });
         return retain("failed", "nmg-sdlc-smoke completed invocation run identity mismatch", evidence);
       }
-      const trustedRunId = completedNested.runId ?? persistedRunning?.nestedRunId ?? proofRunIds[0];
-      if (trustedRunId !== proofRunIds[0]) {
+      const trustedInvocationId = completedNested.invocationId || persistedRunning?.nestedRunId || proofInvocationIds[0];
+      if (trustedInvocationId !== proofInvocationIds[0]) {
         recoveryStore.write(scope.recoveryKey, { ...state, phase: "completed_unproven" }, { replace: true });
         return retain("failed", "nmg-sdlc-smoke completed invocation run identity mismatch", evidence);
       }
@@ -1422,7 +1148,7 @@ export function createSmokeProvider({
         ...state,
         phase: "ready",
         executeStatus: 0,
-        nestedRunId: trustedRunId,
+        nestedRunId: trustedInvocationId,
         expected,
       };
       return verifyRemoteDelivery({ expected, baselines, evidence, recovered: false });
