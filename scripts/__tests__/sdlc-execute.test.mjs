@@ -313,6 +313,47 @@ describe('branch-first execute', () => {
     expect(f.execute('#42')).toMatchObject({ status: 0 });
     expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['start', 'verify', 'deliver']);
   });
+  it('continues an explicit queue on the default branch after the previous issue is delivered', () => {
+    const f = fixture({ branch: 'main' });
+    f.setWorker(({ step, root, passGate, state }) => {
+      if (step === 'start') {
+        git(root, 'checkout', '-b', '42-example');
+        git(root, 'push', '-u', 'origin', '42-example');
+        return { status: 'passed', next: 'implement' };
+      }
+      if (step === 'verify') { passGate(); return { status: 'passed', next: 'deliver' }; }
+      if (step === 'deliver') { state.merged = true; state.closed = true; return { status: 'passed', next: null }; }
+      throw new Error(step);
+    });
+    const response = f.execute('#42 #43');
+    // #43 reaches its own eligibility checks (the fixture's GitHub fake only knows #42).
+    expect(response.status).toBe(1);
+    expect(response.stderr).not.toContain('active_issue_conflict');
+    expect(git(f.root, 'branch', '--show-current')).toBe('main');
+    expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['start', 'verify', 'deliver']);
+  });
+
+  it('keeps a dirty delivered issue branch instead of moving to the next queued issue', () => {
+    const f = fixture({ branch: 'main' });
+    f.setWorker(({ step, root, passGate, state }) => {
+      if (step === 'start') {
+        git(root, 'checkout', '-b', '42-example');
+        git(root, 'push', '-u', 'origin', '42-example');
+        return { status: 'passed', next: 'implement' };
+      }
+      if (step === 'verify') { passGate(); return { status: 'passed', next: 'deliver' }; }
+      if (step === 'deliver') {
+        state.merged = true;
+        state.closed = true;
+        fs.writeFileSync(path.join(root, 'notes.txt'), 'uncommitted\n');
+        return { status: 'passed', next: null };
+      }
+      throw new Error(step);
+    });
+    expect(f.execute('#42 #43')).toMatchObject({ status: 1, stderr: expect.stringContaining('active_issue_conflict') });
+    expect(git(f.root, 'branch', '--show-current')).toBe('42-example');
+    expect(fs.readFileSync(path.join(f.root, 'notes.txt'), 'utf8')).toBe('uncommitted\n');
+  });
   it('does not deliver when the registered required smoke result is red despite a passed verifier handoff', () => {
     const f = fixture();
     let verifications = 0;
