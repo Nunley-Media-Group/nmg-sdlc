@@ -21,6 +21,8 @@
 | `workflows/write-spec/WORKFLOW.md` | Initial issue selection, Approval Behavior | Describes the queued follow-up |
 | `workflows/write-spec/references/publish.md` | helper result, Continue | Describes the queued follow-up |
 | `references/interactive-gates.md` | Plan-mode entry | Describes the queued follow-up |
+| `steering/extensions/nmg-sdlc-smoke.mjs` | failed-state recovery in `createSmokeProvider` | Only re-verifies a queue that fully delivered; a mid-queue stop is permanent at that head |
+| `scripts/sdlc-execute.mjs` | `runExecute` pre-loop active-branch checks | Refuse to continue a queue from the first queued issue's branch or past a delivered branch |
 
 ---
 
@@ -32,6 +34,8 @@
 
 The extension records publications for its TUI process on `tool_result` (plan approval's "Approve and execute" clears into a new session, so the list cannot be keyed by session id; each new `/sdlc-write-spec` invocation resets it) and dispatches on the first terminal `agent_end`, after post-merge remediation. It requires `hasUI`, an empty editor, and `pi.pi.CustomEditor`; captures the focused editor via `ui.setEditorComponent` returning the same instance (OMP reattaches it and rewires its submit handler); sets the editor text; and calls `submit()` once. The TUI input controller then dispatches builtin `/plan` and submits the continuation as the first plan-mode prompt. When the session is already in plan mode only the continuation is submitted.
 
+The registered smoke gate at `4634e17` delivered #170 and then stopped on a transient `dependency_unreadable` for #171. The provider's failed-state branch only re-verifies receipts for every configured issue and never re-runs execute, so the gate could not pass at that head. The provider now accepts a non-empty leading prefix of invocation-bound receipts, revalidates them as before, and runs `sdlc-execute run` for only the remainder in the retained clone with the same `NMG_SDLC_SMOKE_RECOVERY` token. It then requires consistent receipts for the whole queue before the unchanged remote proof. Execute shares a `leaveDeliveredBranch` helper between its pre-loop and per-issue checks and no longer refuses a multi-issue queue that starts on the first queued issue's branch.
+
 ### Changes
 
 | File | Change | Rationale |
@@ -39,6 +43,9 @@ The extension records publications for its TUI process on `tool_result` (plan ap
 | `src/sdlc-commands.mjs` | Return slug; add `renderWriteSpecContinuation`; share workflow rendering | One prompt-rendering path |
 | `src/extension.ts` | Record on `tool_result`; submit through the focused editor on terminal `agent_end` | Real `/plan` dispatch through public extension UI |
 | `workflows/write-spec/WORKFLOW.md`, `workflows/write-spec/references/publish.md`, `references/interactive-gates.md` | Describe post-turn editor submission and continuation entry | Keep contracts accurate |
+
+| `steering/extensions/nmg-sdlc-smoke.mjs` | Resume the undelivered remainder of a partially delivered queue | Let the registered gate finish after a mid-queue stop |
+| `scripts/sdlc-execute.mjs` | Share delivered-branch exit; allow a queue to start on its first issue's branch | Let the resumed controller continue from the retained clone |
 
 ### Blast Radius
 

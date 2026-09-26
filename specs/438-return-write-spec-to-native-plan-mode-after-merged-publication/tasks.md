@@ -14,6 +14,7 @@
 |------|-------------|--------|
 | T001 | Submit the continuation through the TUI editor | [ ] |
 | T002 | Align write-spec contracts with editor submission | [ ] |
+| T003 | Resume a partially delivered smoke queue | [ ] |
 
 ---
 
@@ -40,6 +41,17 @@
 - [ ] Publication ends the execution turn after remediation; the extension then submits the continuation into native plan mode
 - [ ] Approval Behavior and the publish reference require running `merge` verbatim as the whole bash command, with no chaining, pipe, redirection, or appended `echo`, so the extension recognizes the publication
 - [ ] The source-wording assertion pinning the queued-message mechanism is removed
+
+### T003: Resume a partially delivered smoke queue
+
+**File(s)**: `steering/extensions/nmg-sdlc-smoke.mjs`, `scripts/sdlc-execute.mjs`, `scripts/__tests__/nmg-sdlc-smoke.test.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`, `steering/snippets/project-tech.md`, `README.md`
+**Type**: Modify
+**Depends**: None
+**Acceptance**:
+- [ ] A rerun after a failed execute with receipts for #7 of queue #7 #9 runs only `run #9` in the retained clone with the same token and passes with remote proof for both
+- [ ] A failed resume keeps its receipts and stays resumable; delivered issues are never dispatched again
+- [ ] Non-prefix receipts and receipt-less unchanged-candidate failures do not dispatch
+- [ ] `run #42 #43` from #42's branch continues #42 then #43; `run #43` from a delivered #42 branch leaves it for the default branch; an undelivered or dirty foreign branch still stops with `active_issue_conflict`
 
 ---
 

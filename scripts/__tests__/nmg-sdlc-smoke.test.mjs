@@ -968,6 +968,64 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect(launches).toBe(3);
   });
 
+  function partialQueue({ resumedStatus = [0], receiptsAfterResume = [7, 9], receiptsFirst = [7] } = {}) {
+    const executions = [];
+    const fixture = harness({
+      config: { issues: [7, 9] },
+      readFile: (file, { deliveryHead }) => {
+        const issue = Number(String(file).match(/\/smoke-deliveries\/(\d+)\.json$/)?.[1]);
+        const present = executions.length > 1 ? receiptsAfterResume : receiptsFirst;
+        if (!present.includes(issue)) throw Object.assign(new Error('missing receipt'), { code: 'ENOENT' });
+        return JSON.stringify({ schemaVersion: 1, invocationId: TEST_SCOPE.recoveryKey, issue,
+          pullRequest: issue, headSha: deliveryHead(issue), recordedBeforeMerge: true });
+      },
+      override: (program, args, options) => {
+        if (program !== process.execPath) return null;
+        executions.push({ args: args.slice(1), token: options.env.NMG_SDLC_SMOKE_RECOVERY, cwd: options.cwd });
+        return executions.length === 1 ? result(1, '', { stderr: 'dependency_unreadable' })
+          : result(resumedStatus[Math.min(executions.length - 2, resumedStatus.length - 1)]);
+      },
+    });
+    return { fixture, executions };
+  }
+
+  it('resumes only the undelivered remainder of a partially delivered queue in the retained clone', async () => {
+    const { fixture, executions } = partialQueue();
+    const first = await fixture.provider(fixture.request);
+    expect(first).toMatchObject({ status: 'failed', summary: expect.stringContaining('execute exited 1') });
+    const resumed = await fixture.provider(fixture.request);
+    expect(resumed.status).toBe('passed');
+    expect(executions.map(({ args }) => args)).toEqual([['run', '#7', '#9'], ['run', '#9']]);
+    expect(executions[1].token).toBe(executions[0].token);
+    expect(executions[1].cwd).toBe(executions[0].cwd);
+    expect(fixture.mkdtempSync).toHaveBeenCalledTimes(1);
+    expect(resumed.evidence).toContainEqual(expect.objectContaining({
+      summary: 'sdlc-execute run #9 (resumed after #7)',
+    }));
+    expect(fixture.states.get(fixture.scope.recoveryKey)).toMatchObject({ phase: 'terminal' });
+  });
+
+  it('keeps a failed resume resumable with its receipts and never redispatches delivered issues', async () => {
+    const { fixture, executions } = partialQueue({ resumedStatus: [1, 0], receiptsAfterResume: [7] });
+    await fixture.provider(fixture.request);
+    const failedResume = await fixture.provider(fixture.request);
+    expect(failedResume).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke resumed execute exited 1' });
+    expect(fixture.states.get(fixture.scope.recoveryKey)).toMatchObject({
+      phase: 'failed', executeStatus: 1, expected: [expect.objectContaining({ issue: 7 })],
+    });
+    const missingProof = await fixture.provider(fixture.request);
+    expect(missingProof).toMatchObject({ status: 'failed', summary: expect.stringContaining('#9 missing invocation delivery proof') });
+    expect(executions.map(({ args }) => args)).toEqual([['run', '#7', '#9'], ['run', '#9'], ['run', '#9']]);
+  });
+
+  it('does not resume when receipts are not a leading prefix of the queue', async () => {
+    const { fixture, executions } = partialQueue({ receiptsFirst: [9] });
+    await fixture.provider(fixture.request);
+    const outcome = await fixture.provider(fixture.request);
+    expect(outcome).toMatchObject({ status: 'failed', summary: expect.stringContaining('execute exited 1') });
+    expect(executions).toHaveLength(1);
+  });
+
   it('retries only cleanup after terminal proof was persisted', async () => {
     const fixture = harness();
     fixture.rmSync

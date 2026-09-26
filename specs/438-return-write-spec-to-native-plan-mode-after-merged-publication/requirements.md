@@ -47,6 +47,22 @@
 **Then** it records or submits nothing extra and never toggles an already-active plan off
 **And** it preserves any editor draft, keeps a recorded continuation pending with a notification, and never queues an execution-mode Continue message
 
+### AC4: The registered smoke gate can finish a partially delivered queue
+
+**Given** the `repository.nmg-sdlc-smoke` provider recorded a failed execute whose invocation-bound pre-merge receipts cover a non-empty leading part of the configured queue
+**When** the same verification is rerun
+**Then** the provider revalidates the delivered receipts and runs `sdlc-execute run` for only the undelivered remainder in the retained clone under the same invocation token
+**And** it never dispatches a delivered issue again and passes only with exact-head merged pull requests and closed issues for every configured issue
+**But Given** receipts that are not a leading prefix, are inconsistent after the resume, or belong to another invocation, or a receipt-less failure with an unchanged candidate
+**Then** the provider fails closed without dispatching
+
+### AC5: Execute can resume a queue from a retained clone
+
+**Given** a retained clone on the first remaining issue's branch or on a delivered issue's branch
+**When** `sdlc-execute run #A #B ...` starts
+**Then** it continues #A from its branch or leaves the delivered branch for the repository default branch
+**And** an undelivered or dirty foreign branch still stops with `active_issue_conflict` and is preserved
+
 ## Functional Requirements
 
 | ID | Requirement | Priority |
@@ -55,11 +71,14 @@
 | FR2 | On the first terminal `agent_end` with a pending publication, submit the continuation through the focused OMP `CustomEditor`, prefixed with `/plan` only when the session is not already in plan mode. | Must |
 | FR3 | Render the continuation from the same prompt registry, controller-path materialization, and provenance path as the initial interactive rewrite. | Must |
 | FR4 | Preserve candidate filtering, canned Continue/Finished labels, per-issue proposal, Finished summary, and post-merge remediation ordering. | Must |
+| FR5 | On a rerun of a failed smoke invocation with a non-empty leading prefix of receipts, resume only the remainder in the retained clone under the same recovery token, then require receipts for the whole queue before remote proof. | Must |
+| FR6 | Let `sdlc-execute run` start from the first queued issue's branch with more queued issues, and leave a delivered foreign branch before the first queued issue using the same exact-head proof as the per-issue loop. | Must |
 
 ## Out of Scope
 
 - Changing the OMP host, calling private host mode methods, or synthesizing terminal input
 - Changing publication helper subcommands or their JSON contracts
+- Retrying transient GitHub reads inside `/sdlc-execute`
 
 ## Change History
 
@@ -67,3 +86,4 @@
 |-------|------|---------|
 | #438 | 2026-09-26 | Initial defect report |
 | #438 | 2026-09-26 | Keep published[] across plan-approval session clears (live smoke finding) |
+| #438 | 2026-09-26 | Resume a partially delivered smoke queue; let execute resume a queue from a retained clone |
