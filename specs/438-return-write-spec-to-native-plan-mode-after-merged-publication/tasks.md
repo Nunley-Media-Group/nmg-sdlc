@@ -38,6 +38,7 @@
 - [ ] Read `skill://skill-creator` before editing workflow-bundled files
 - [ ] The workflow skips Initial issue selection for a `Post-publication continuation.` prompt, retains its published list, and starts at the Continue loop
 - [ ] Publication ends the execution turn after remediation; the extension then submits the continuation into native plan mode
+- [ ] Approval Behavior and the publish reference require running `merge` verbatim as the whole bash command, with no chaining, pipe, redirection, or appended `echo`, so the extension recognizes the publication
 - [ ] The source-wording assertion pinning the queued-message mechanism is removed
 
 ---

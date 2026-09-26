@@ -4,7 +4,7 @@
 
 ## Helper contract
 
-All six subcommands print exactly one JSON object to stdout. Success exits 0 with `ok: true`. Failure exits non-zero with `ok: false`, a stable `reasonCode`, and optional `detail`, `stdout`, or `stderr`. A `merge` failure after the PR was successfully merged also returns `merged: true` and `pr`; callers must record that publication instead of retrying it. The extension validates that exact materialized merge command and JSON result, records the publication, and after the execution turn ends submits the Continue prompt into native plan mode.
+All six subcommands print exactly one JSON object to stdout. Success exits 0 with `ok: true`. Failure exits non-zero with `ok: false`, a stable `reasonCode`, and optional `detail`, `stdout`, or `stderr`. A `merge` failure after the PR was successfully merged also returns `merged: true` and `pr`; callers must record that publication instead of retrying it. The extension validates that exact materialized merge command and JSON result, so run `merge` verbatim as the whole bash command with nothing chained, piped, redirected, or echoed; it records the publication, and after the execution turn ends submits the Continue prompt into native plan mode.
 
 ```text
 node "<plugin-root>/scripts/publish-approved-spec.mjs" discover --issue N
