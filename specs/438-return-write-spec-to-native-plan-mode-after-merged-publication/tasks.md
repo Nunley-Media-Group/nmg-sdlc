@@ -26,7 +26,7 @@
 - [ ] `writeSpecPlanReentry` returns `{ issue, slug, pr }` for successful and merged-on-nonzero results and `null` for malformed, unrelated, mismatched, and pre-merge results
 - [ ] `renderWriteSpecContinuation` returns the header with every published number and `N-slug` followed by the complete materialized workflow without `$ARGUMENTS`
 - [ ] A terminal `agent_end` after a merged result submits exactly one `/plan` plus continuation through the focused editor; plan mode is recorded before the continuation prompt
-- [ ] Two publications pass both numbers; an active plan receives the continuation without `/plan`
+- [ ] Two publications pass both numbers, including across a plan-approval session clear; a new `/sdlc-write-spec` invocation starts a fresh list; an active plan receives the continuation without `/plan`
 - [ ] Nonterminal end, duplicate events, missing UI, wrong focus, non-empty draft, and submit failure produce no extra submission, preserve the draft, and retain pending with a notification
 
 ### T002: Align write-spec contracts with editor submission

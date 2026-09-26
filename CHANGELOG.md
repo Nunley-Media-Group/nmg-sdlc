@@ -18,7 +18,7 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ### Fixed
 
-- Return `/sdlc-write-spec` to native plan mode after each merged publication: the extension records the authoritative merge result and, once the execution turn ends, submits `/plan` plus the complete Continue workflow through the TUI editor instead of queuing a follow-up message that never ran `/plan`. A selected next issue gets its own plan-mode Discovery, plan, and `xd://propose`, and write-spec runs `merge` verbatim so the extension recognizes the publication (#438).
+- Return `/sdlc-write-spec` to native plan mode after each merged publication: the extension records the authoritative merge result and, once the execution turn ends, submits `/plan` plus the complete Continue workflow through the TUI editor instead of queuing a follow-up message that never ran `/plan`. A selected next issue gets its own plan-mode Discovery, plan, and `xd://propose`, write-spec runs `merge` verbatim so the extension recognizes the publication, and published[] survives the session clear of plan approval (#438).
 
 ## [3.25.1] - 2026-09-26
 

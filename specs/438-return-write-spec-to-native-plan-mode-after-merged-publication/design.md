@@ -30,7 +30,7 @@
 
 `writeSpecPlanReentry` keeps its exact materialized command and sole-JSON validation but returns `{ issue, slug, pr }`. `renderWriteSpecContinuation(root, projectRoot, published)` shares the initial rewrite's registry rendering, controller-path materialization, and provenance, prefixing a `Post-publication continuation.` header with every published number and `N-slug`.
 
-The extension records publications per `sessionManager.getSessionId()` on `tool_result` and dispatches on the first terminal `agent_end`, after post-merge remediation. It requires `hasUI`, an empty editor, and `pi.pi.CustomEditor`; captures the focused editor via `ui.setEditorComponent` returning the same instance (OMP reattaches it and rewires its submit handler); sets the editor text; and calls `submit()` once. The TUI input controller then dispatches builtin `/plan` and submits the continuation as the first plan-mode prompt. When the session is already in plan mode only the continuation is submitted.
+The extension records publications for its TUI process on `tool_result` (plan approval's "Approve and execute" clears into a new session, so the list cannot be keyed by session id; each new `/sdlc-write-spec` invocation resets it) and dispatches on the first terminal `agent_end`, after post-merge remediation. It requires `hasUI`, an empty editor, and `pi.pi.CustomEditor`; captures the focused editor via `ui.setEditorComponent` returning the same instance (OMP reattaches it and rewires its submit handler); sets the editor text; and calls `submit()` once. The TUI input controller then dispatches builtin `/plan` and submits the continuation as the first plan-mode prompt. When the session is already in plan mode only the continuation is submitted.
 
 ### Changes
 

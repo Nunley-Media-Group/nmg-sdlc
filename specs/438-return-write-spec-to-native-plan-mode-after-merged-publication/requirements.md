@@ -51,7 +51,7 @@
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR1 | Record each validated merged publication (issue and slug) per session, deduplicated by tool call and issue, without dispatching during the execution turn. | Must |
+| FR1 | Record each validated merged publication (issue and slug) for the TUI process, deduplicated by tool call and issue, without dispatching during the execution turn; keep the list across the session clear of plan approval and reset it on each new `/sdlc-write-spec` invocation. | Must |
 | FR2 | On the first terminal `agent_end` with a pending publication, submit the continuation through the focused OMP `CustomEditor`, prefixed with `/plan` only when the session is not already in plan mode. | Must |
 | FR3 | Render the continuation from the same prompt registry, controller-path materialization, and provenance path as the initial interactive rewrite. | Must |
 | FR4 | Preserve candidate filtering, canned Continue/Finished labels, per-issue proposal, Finished summary, and post-merge remediation ordering. | Must |
@@ -66,3 +66,4 @@
 | Issue | Date | Summary |
 |-------|------|---------|
 | #438 | 2026-09-26 | Initial defect report |
+| #438 | 2026-09-26 | Keep published[] across plan-approval session clears (live smoke finding) |

@@ -6,6 +6,7 @@ import {
   isInteractiveHeadless,
   materializeRuntimeMessages,
   packageRoot,
+  parseInteractiveSlash,
   renderWriteSpecContinuation,
   rewriteInteractiveInput,
   sessionModeFromEntries,
@@ -36,11 +37,10 @@ type CommandContext = {
   mode?: string;
   sessionManager?: {
     getEntries?: () => Array<{ type?: string; mode?: string }>;
-    getSessionId?: () => string;
   };
 };
 
-type WriteSpecSession = {
+type WriteSpecContinuation = {
   published: Array<{ issue: number; slug: string }>;
   pending: boolean;
 };
@@ -56,41 +56,44 @@ export default function nmgSdlc(pi: ExtensionAPI): void {
   });
   pi.setLabel("NMG SDLC");
 
+  // One write-spec run per TUI process: plan approval ("Approve and execute")
+  // clears into a new session, so published[] must outlive the session id.
+  // Each new /sdlc-write-spec invocation starts a fresh list.
+  const writeSpec: WriteSpecContinuation = { published: [], pending: false };
+  const recordedPublications = new Set<string>();
+
   pi.on("input", (event, ctx) => {
     const input = (event ?? {}) as { text?: string; source?: string };
     const session = (ctx ?? {}) as CommandContext;
-    return rewriteInteractiveInput(input.text ?? "", {
+    const rewritten = rewriteInteractiveInput(input.text ?? "", {
       source: input.source,
       sessionMode: sessionModeFromEntries(session.sessionManager?.getEntries?.()),
       headless: isInteractiveHeadless(session),
     });
+    if (rewritten && parseInteractiveSlash(input.text)?.command === "sdlc-write-spec") {
+      Object.assign(writeSpec, { published: [], pending: false });
+    }
+    return rewritten;
   });
 
   // A merged write-spec publication is recorded here; the Continue prompt is
   // submitted through the TUI editor on the next terminal agent_end so the
   // builtin /plan command runs and post-merge remediation finishes first.
-  const recordedPublications = new Set<string>();
-  const writeSpecSessions = new Map<string, WriteSpecSession>();
-
-  pi.on("tool_result", (event, ctx) => {
+  pi.on("tool_result", (event) => {
     const toolResult = (event ?? {}) as { toolCallId?: string; [key: string]: unknown };
     const result = writeSpecPlanReentry(toolResult, packageRoot);
     if (!result || typeof toolResult.toolCallId !== "string") return;
     if (recordedPublications.has(toolResult.toolCallId)) return;
     recordedPublications.add(toolResult.toolCallId);
-    const key = ((ctx ?? {}) as CommandContext).sessionManager?.getSessionId?.() ?? "";
-    const state = writeSpecSessions.get(key) ?? { published: [], pending: false };
-    writeSpecSessions.set(key, state);
-    if (state.published.some(({ issue }) => issue === result.issue)) return;
-    state.published.push({ issue: result.issue, slug: result.slug });
-    state.pending = true;
+    if (writeSpec.published.some(({ issue }) => issue === result.issue)) return;
+    writeSpec.published.push({ issue: result.issue, slug: result.slug });
+    writeSpec.pending = true;
   });
 
   pi.on("agent_end", (event, ctx) => {
     if ((event as { willContinue?: boolean } | undefined)?.willContinue === true) return;
     const session = (ctx ?? {}) as CommandContext;
-    const state = writeSpecSessions.get(session.sessionManager?.getSessionId?.() ?? "");
-    if (!state?.pending) return;
+    if (!writeSpec.pending) return;
     const ui = session.ui;
     const CustomEditor = pi.pi?.CustomEditor;
     if (
@@ -120,15 +123,15 @@ export default function nmgSdlc(pi: ExtensionAPI): void {
       ui.notify?.(PENDING_CONTINUATION_NOTICE, "warning");
       return;
     }
-    const continuation = renderWriteSpecContinuation(packageRoot, process.cwd(), state.published);
+    const continuation = renderWriteSpecContinuation(packageRoot, process.cwd(), writeSpec.published);
     const inPlan = sessionModeFromEntries(session.sessionManager?.getEntries?.()) === "plan";
-    state.pending = false;
+    writeSpec.pending = false;
     try {
       ui.setEditorText(inPlan ? continuation : `/plan\n\n${continuation}`);
       editor.submit();
     } catch {
       ui.setEditorText("");
-      state.pending = true;
+      writeSpec.pending = true;
       ui.notify?.(PENDING_CONTINUATION_NOTICE, "warning");
     }
   });
@@ -153,6 +156,7 @@ export default function nmgSdlc(pi: ExtensionAPI): void {
           sessionMode: "none",
         });
         if (!rewritten?.text) return;
+        if (name === "sdlc-write-spec") Object.assign(writeSpec, { published: [], pending: false });
         pi.sendUserMessage(rewritten.text);
       },
     });

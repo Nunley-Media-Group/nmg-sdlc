@@ -98,22 +98,26 @@ describe('extension sdlc- commands', () => {
       const { default: installExtension } = await import(${JSON.stringify(extensionUrl)});
       const helper = ${JSON.stringify(helper)};
       class CustomEditor {}
-      const handlers = new Map();
-      const pi = {
-        on(name, handler) { handlers.set(name, [...(handlers.get(name) ?? []), handler]); },
-        registerCommand() {},
-        sendUserMessage() { throw new Error('sendUserMessage must not carry the continuation'); },
-        setLabel() {},
-        pi: { CustomEditor },
-      };
-      installExtension(pi);
-      const emit = (name, event, ctx) => handlers.get(name).forEach((handler) => handler(event, ctx));
+      let sessions = 0;
+      // One extension instance models one TUI process; its hosts model sessions.
+      function extension() {
+        const handlers = new Map();
+        installExtension({
+          on(name, handler) { handlers.set(name, [...(handlers.get(name) ?? []), handler]); },
+          registerCommand() {},
+          sendUserMessage() { throw new Error('sendUserMessage must not carry the continuation'); },
+          setLabel() {},
+          pi: { CustomEditor },
+        });
+        return (name, event, ctx) => handlers.get(name).map((handler) => handler(event, ctx));
+      }
 
       // Host model: the editor submit handler dispatches builtin /plan (toggling
       // an active plan off) and submits the remainder as a prompt in the new mode.
-      function host(sessionId, { mode = 'none', draft = '', focused = 'editor', submitThrows = false, hasUI = true } = {}) {
+      function host({ mode = 'none', draft = '', focused = 'editor', submitThrows = false, hasUI = true } = {}, emit = extension()) {
         const state = { entries: mode === 'plan' ? [{ type: 'mode_change', mode: 'plan' }] : [], draft, prompts: [], notices: [] };
         const currentMode = () => state.entries.at(-1)?.mode ?? 'none';
+        const sessionId = 'session-' + (++sessions);
         const editor = new CustomEditor();
         editor.submit = () => {
           if (state.submitThrows) throw new Error('submit failed');
@@ -137,6 +141,8 @@ describe('extension sdlc- commands', () => {
           },
         };
         state.setMode = (next) => state.entries.push({ type: 'mode_change', mode: next });
+        state.emit = (name, event) => emit(name, event, state.ctx);
+        state.extension = emit;
         return state;
       }
       const merge = (issue, toolCallId, text = '{"ok":true,"merged":true,"pr":' + (issue + 1) + '}', isError = false) => ({
@@ -155,25 +161,25 @@ describe('extension sdlc- commands', () => {
       });
       const out = {};
 
-      const a = host('a');
-      emit('tool_result', merge(400, 'p400'), a.ctx);
-      emit('tool_result', merge(400, 'p400'), a.ctx);
-      emit('tool_result', merge(401, 'failed', '{"ok":false,"reasonCode":"pr_merge_failed"}', true), a.ctx);
-      emit('tool_result', merge(403, 'malformed', '{"merged":true'), a.ctx);
-      emit('tool_result', { ...merge(405, 'unrelated'), input: { command: 'printf done' } }, a.ctx);
-      emit('agent_end', { willContinue: true }, a.ctx);
+      const a = host();
+      a.emit('tool_result', merge(400, 'p400'));
+      a.emit('tool_result', merge(400, 'p400'));
+      a.emit('tool_result', merge(401, 'failed', '{"ok":false,"reasonCode":"pr_merge_failed"}', true));
+      a.emit('tool_result', merge(403, 'malformed', '{"merged":true'));
+      a.emit('tool_result', { ...merge(405, 'unrelated'), input: { command: 'printf done' } });
+      a.emit('agent_end', { willContinue: true });
       out.nonterminal = summary(a);
-      emit('agent_end', {}, a.ctx);
-      emit('agent_end', {}, a.ctx);
+      a.emit('agent_end', {});
+      a.emit('agent_end', {});
       out.first = summary(a);
       a.setMode('none');
-      emit('tool_result', merge(402, 'p402', '{"ok":false,"reasonCode":"default_checkout_failed","merged":true,"pr":403}', true), a.ctx);
-      emit('agent_end', {}, a.ctx);
+      a.emit('tool_result', merge(402, 'p402', '{"ok":false,"reasonCode":"default_checkout_failed","merged":true,"pr":403}', true));
+      a.emit('agent_end', {});
       out.second = summary(a);
 
-      const planned = host('planned', { mode: 'plan' });
-      emit('tool_result', merge(410, 'p410'), planned.ctx);
-      emit('agent_end', {}, planned.ctx);
+      const planned = host({ mode: 'plan' });
+      planned.emit('tool_result', merge(410, 'p410'));
+      planned.emit('agent_end', {});
       out.alreadyPlan = summary(planned);
 
       for (const [name, options] of [
@@ -182,16 +188,29 @@ describe('extension sdlc- commands', () => {
         ['draft', { draft: 'my draft' }],
         ['submitThrows', { submitThrows: true }],
       ]) {
-        const state = host(name, options);
-        emit('tool_result', merge(420, name), state.ctx);
-        emit('agent_end', {}, state.ctx);
+        const state = host(options);
+        state.emit('tool_result', merge(420, name));
+        state.emit('agent_end', {});
         out[name] = summary(state);
         Object.assign(state, { hasUI: true, submitThrows: false });
         if (name === 'wrongFocus') continue;
         if (name === 'draft') state.draft = '';
-        emit('agent_end', {}, state.ctx);
+        state.emit('agent_end', {});
         out[name + 'Retry'] = summary(state);
       }
+
+      // Plan approval clears into a new session of the same TUI process.
+      const before = host();
+      before.emit('tool_result', merge(430, 'p430'));
+      before.emit('agent_end', {});
+      const after = host({}, before.extension);
+      after.emit('tool_result', merge(432, 'p432'));
+      after.emit('agent_end', {});
+      out.afterClear = summary(after);
+      after.emit('input', { text: '/sdlc-write-spec 440', source: 'interactive' });
+      after.emit('tool_result', merge(440, 'p440'));
+      after.emit('agent_end', {});
+      out.afterRestart = summary(after);
       process.stdout.write(JSON.stringify(out));
     `;
     const exercised = spawnSync(process.execPath, ['--input-type=module', '--eval', fixture], {
@@ -232,5 +251,11 @@ describe('extension sdlc- commands', () => {
       expect(out[name]).toMatchObject(retried);
     }
     expect(out.submitThrowsRetry).toEqual({ ...retried, notices: 1 });
+    expect(out.afterClear.prompts).toEqual([
+      { mode: 'plan', head: head('430, 432', '430-slug-430, 432-slug-432'), workflow: true },
+    ]);
+    expect(out.afterRestart.prompts.at(-1)).toEqual(
+      { mode: 'plan', head: head('440', '440-slug-440'), workflow: true },
+    );
   });
 });
