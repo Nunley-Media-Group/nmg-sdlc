@@ -4,7 +4,7 @@
 
 ## Helper contract
 
-All six subcommands print exactly one JSON object to stdout. Success exits 0 with `ok: true`. Failure exits non-zero with `ok: false`, a stable `reasonCode`, and optional `detail`, `stdout`, or `stderr`. A `merge` failure after the PR was successfully merged also returns `merged: true` and `pr`; callers must record that publication instead of retrying it. The extension validates that exact materialized merge command and JSON result, then queues one native-plan follow-up for Continue/Finished.
+All six subcommands print exactly one JSON object to stdout. Success exits 0 with `ok: true`. Failure exits non-zero with `ok: false`, a stable `reasonCode`, and optional `detail`, `stdout`, or `stderr`. A `merge` failure after the PR was successfully merged also returns `merged: true` and `pr`; callers must record that publication instead of retrying it. The extension validates that exact materialized merge command and JSON result, so run `merge` verbatim as the whole bash command with nothing chained, piped, redirected, or echoed; it records the publication, and after the execution turn ends submits the Continue prompt into native plan mode.
 
 ```text
 node "<plugin-root>/scripts/publish-approved-spec.mjs" discover --issue N
@@ -87,9 +87,9 @@ Failures before proven merge include `spec_not_approved`, `pr_create_failed`, an
 
 ## Native-plan continuation
 
-After each merged publication and its documented remediation, stop the execution turn without calling `candidates` or `ask`. The extension delivers one follow-up beginning with `/plan` in the same TUI session.
+After each merged publication and its documented remediation, end the execution turn without calling `candidates` or `ask`. The extension then submits the post-publication continuation prompt, listing every published `N-slug`, into native plan mode in the same TUI session. It skips Initial issue selection and starts at the Continue loop.
 
-That native-plan turn passes every in-memory published number to `candidates`. Present one `ask`, 2–4 options, recommended first. This ask does not consume the per-issue interview budget.
+That plan-mode turn passes every in-memory published number to `candidates`. Present one `ask`, 2–4 options, recommended first. This ask does not consume the per-issue interview budget.
 
 - Rows returned: show at most the first three labels `#M — {title}`, then `Finished — stop writing specs`.
 - No rows: `Continue — enter another issue number`, then `Finished — stop writing specs`.

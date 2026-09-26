@@ -46,7 +46,7 @@ function writeSpecMergeCommand(command, root) {
   if (!match) return null;
   const issue = Number(match[1]);
   if (!Number.isSafeInteger(issue) || issue !== Number(match[2])) return null;
-  return { issue };
+  return { issue, slug: match[3] };
 }
 
 function soleJsonObject(content) {
@@ -90,16 +90,37 @@ export function writeSpecPlanReentry(event, root = packageRoot) {
   ) {
     return null;
   }
-  const { issue } = command;
-  const prompt = [
-    "/plan",
-    "",
-    `Continue the active /sdlc-write-spec session after publication of issue #${issue} in PR #${result.pr}.`,
-    `Append ${issue} to published[] exactly once, then run the documented Continue loop.`,
-    "If another issue is selected, perform only read-only discovery and preference interview before writing its distinct complete four-file local://spec-{N}-plan.md with the current published[] and publication rules, then call xd://propose.",
-    "Do not run default-branch or perform branch, file, commit, push, pull-request, label, or merge mutation for that issue before its distinct proposal is approved.",
-  ].join("\n");
-  return { issue, pr: result.pr, prompt };
+  const { issue, slug } = command;
+  return { issue, slug, pr: result.pr };
+}
+
+function renderInteractiveWorkflow(command, root, provenanceRoot) {
+  const pluginRoot = root ?? packageRoot;
+  const projectRoot = provenanceRoot === undefined ? process.cwd() : provenanceRoot;
+  const { text, provenance } = renderPrompt(
+    defaultPromptRegistry(pluginRoot, {
+      projectRoot,
+      pluginOnly: REPAIR_COMMANDS.has(command),
+    }),
+    { consumer: command, vars: {} },
+  );
+  if (typeof projectRoot === "string" && projectRoot.length > 0) {
+    writePromptProvenance(projectRoot, provenance);
+  }
+  return materializeControllerPaths(text, pluginRoot);
+}
+
+/**
+ * Post-publication Continue prompt: the complete write-spec workflow, entered
+ * at its Continue loop with every issue published in this session.
+ * `published` is the ordered `[{ issue, slug }]` list recorded from merged
+ * helper results.
+ */
+export function renderWriteSpecContinuation(root, projectRoot, published) {
+  const numbers = published.map(({ issue }) => issue).join(", ");
+  const names = published.map(({ issue, slug }) => `${issue}-${slug}`).join(", ");
+  const header = `Post-publication continuation. published[] = [${numbers}] (N-slug names: ${names}). Skip Initial issue selection and start ## Continue loop.`;
+  return `${header}\n\n${renderInteractiveWorkflow("sdlc-write-spec", root, projectRoot)}`;
 }
 
 
@@ -141,22 +162,7 @@ export function rewriteInteractiveInput(text, {
   if (source !== "interactive" || headless === true) return undefined;
   const parsed = parseInteractiveSlash(text);
   if (!parsed) return undefined;
-  const projectRoot = provenanceRoot === undefined ? process.cwd() : provenanceRoot;
-  const { text: prompt, provenance } = renderPrompt(
-    defaultPromptRegistry(root ?? packageRoot, {
-      projectRoot,
-      pluginOnly: REPAIR_COMMANDS.has(parsed.command),
-    }),
-    { consumer: parsed.command, vars: {} },
-  );
-  const body = withArguments(
-    materializeControllerPaths(prompt, root ?? packageRoot),
-    parsed.args,
-  );
-  const destination = provenanceRoot === undefined ? process.cwd() : provenanceRoot;
-  if (typeof destination === "string" && destination.length > 0) {
-    writePromptProvenance(destination, provenance);
-  }
+  const body = withArguments(renderInteractiveWorkflow(parsed.command, root, provenanceRoot), parsed.args);
   if (sessionMode === "plan") return { text: body };
   return { text: `/plan\n\n${body}` };
 }

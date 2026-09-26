@@ -911,11 +911,13 @@ export function createSmokeProvider({
         || typeof state.nestedRunId !== "string" || !state.nestedRunId) {
         return retain("failed", `nmg-sdlc-smoke execute exited ${state.executeStatus ?? "without recoverable identity"}`, evidence);
       }
-      const expected = [];
+      // Receipts from the failed invocation must cover a non-empty leading prefix of the queue.
+      const delivered = [];
       for (const issue of issues) {
-        const recovered = readRecoveryRecord(readFile, work, state.nestedRunId, issue);
         const immutable = state.expected.find((entry) => entry.issue === issue);
-        if (!recovered || !immutable
+        if (!immutable) break;
+        const recovered = readRecoveryRecord(readFile, work, state.nestedRunId, issue);
+        if (!recovered
           || recovered.invocationId !== immutable.invocationId
           || recovered.issue !== immutable.issue
           || recovered.pullRequest !== immutable.pullRequest) {
@@ -939,7 +941,10 @@ export function createSmokeProvider({
           || !verifyCurrentEvidence(readFile, work, recovered, immutable)) {
           return retain("failed", `nmg-sdlc-smoke execute exited ${state.executeStatus}`, evidence);
         }
-        expected.push(recovered);
+        delivered.push(recovered);
+      }
+      if (!delivered.length || delivered.length !== state.expected.length) {
+        return retain("failed", `nmg-sdlc-smoke execute exited ${state.executeStatus}`, evidence);
       }
       const baselines = new Map();
       for (const issue of issues) {
@@ -949,7 +954,68 @@ export function createSmokeProvider({
         }
         baselines.set(issue, new Set(baseline.pullRequests.map(pullRequestIdentity)));
       }
-      return verifyRemoteDelivery({ expected, baselines, evidence, recovered: true });
+      if (delivered.length === issues.length) {
+        return verifyRemoteDelivery({ expected: delivered, baselines, evidence, recovered: true });
+      }
+
+      // Resume only the undelivered remainder in the retained clone under the same invocation
+      // token; delivered issues are never dispatched again and keep their original receipts.
+      const remaining = issues.slice(delivered.length);
+      if (state.nestedRunId !== scope.recoveryKey
+        || !/^[0-9a-f]{64}$/.test(state.tokenSecret ?? "")
+        || remaining.some((issue) => recordedDelivery(readFile, work, issue))) {
+        return retain("failed", `nmg-sdlc-smoke execute exited ${state.executeStatus}`, evidence);
+      }
+      const priorStatus = state.executeStatus;
+      state = { ...state, phase: "running", executeStatus: null };
+      recoveryStore.write(scope.recoveryKey, state, { replace: true });
+      const resumed = await executeCommand(process.execPath, [
+        controller,
+        "run",
+        ...remaining.map((issue) => `#${issue}`),
+      ], {
+        cwd: work,
+        env: {
+          ...env,
+          NMG_SDLC_PLUGIN_ROOT: pluginRoot,
+          NMG_SDLC_SMOKE_OWNED: "1",
+          NMG_SDLC_SMOKE_RECOVERY: recoveryToken(scope.recoveryKey, state.tokenSecret),
+        },
+        signal: request.signal,
+      });
+      evidence.push(commandEvidence(
+        `sdlc-execute run ${remaining.map((issue) => `#${issue}`).join(" ")} (resumed after ${delivered.map(({ issue }) => `#${issue}`).join(", ")})`,
+        resumed,
+        work,
+      ));
+      const receipts = [];
+      for (const issue of issues) {
+        const proof = recordedDelivery(readFile, work, issue);
+        if (!proof) break;
+        receipts.push({ issue, ...proof });
+      }
+      const consistent = receipts.every((receipt) => receipt.invocationId === scope.recoveryKey)
+        && delivered.every((prior, index) => equal(receipts[index], prior))
+        && !issues.slice(receipts.length).some((issue) => recordedDelivery(readFile, work, issue));
+      if (!consistent) {
+        recoveryStore.write(scope.recoveryKey, { ...state, phase: "completed_unproven" }, { replace: true });
+        return retain("failed", "nmg-sdlc-smoke resumed invocation receipts inconsistent", evidence);
+      }
+      const environmental = environmentalFailure(resumed);
+      state = {
+        ...state,
+        phase: "failed",
+        executeStatus: environmental || resumed.status === 0 ? priorStatus : resumed.status,
+        expected: receipts,
+      };
+      recoveryStore.write(scope.recoveryKey, state, { replace: true });
+      if (environmental) return retain("incomplete", `nmg-sdlc-smoke execute ${resumed.reasonCode}`, evidence);
+      if (receipts.length === issues.length) {
+        return verifyRemoteDelivery({ expected: receipts, baselines, evidence, recovered: true });
+      }
+      return retain("failed", resumed.status === 0
+        ? `nmg-sdlc-smoke issue #${issues[receipts.length]} missing invocation delivery proof`
+        : `nmg-sdlc-smoke resumed execute exited ${resumed.status}`, evidence);
     }
 
     work = createTemp(join(tmpdir(), "nmg-sdlc-smoke-"));

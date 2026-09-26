@@ -31,3 +31,17 @@ Feature: Return write-spec to native plan mode after merged publication
     When the extension evaluates the continuation
     Then no extra prompt is submitted and any draft is preserved
     And a recorded continuation stays pending with a notification
+
+  @SCN004 @regression
+  Scenario: The registered smoke gate can finish a partially delivered queue
+    Given a failed smoke invocation delivered issue 7 of queue 7 and 9 with an invocation-bound receipt
+    When the same verification is rerun
+    Then the provider runs execute for issue 9 only in the retained clone with the same invocation token
+    And it passes only after exact-head merged pull requests close issues 7 and 9
+
+  @SCN005 @regression
+  Scenario: Execute can resume a queue from a retained clone
+    Given the checkout is on the first queued issue's branch or on a delivered issue's branch
+    When execute runs a queue
+    Then it continues the first issue or leaves the delivered branch for the default branch
+    And an undelivered or dirty foreign branch still stops with active_issue_conflict
