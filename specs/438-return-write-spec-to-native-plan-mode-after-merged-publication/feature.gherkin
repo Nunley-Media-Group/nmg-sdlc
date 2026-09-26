@@ -1,0 +1,33 @@
+**Issue**: #438
+**Date**: 2026-09-26
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/400-restore-per-spec-plan-approval-and-ci-gated-merge-waiting/
+
+# File: scripts/__tests__/extension-commands.test.mjs
+#
+# Generated from: specs/438-return-write-spec-to-native-plan-mode-after-merged-publication/requirements.md
+Feature: Return write-spec to native plan mode after merged publication
+  A queued follow-up containing /plan never dispatched builtin /plan,
+  so write-spec continuation stayed in execution mode.
+
+  @SCN001 @regression
+  Scenario: Merged publication re-enters native plan
+    Given the exact materialized merge helper returned merged true for issue 400
+    When the execution turn ends terminally
+    Then the extension submits /plan and the Continue workflow once through the focused TUI editor
+    And plan mode is recorded before the continuation prompt listing published issue 400
+
+  @SCN002 @regression
+  Scenario: Continuation keeps plan mode and every published issue
+    Given a continuation for issue 400 is running in native plan mode
+    When issue 402 is selected, proposed, approved, and published
+    Then the next terminal turn end submits a plan-mode continuation listing issues 400 and 402
+    And an already-active plan receives the continuation without toggling plan off
+
+  @SCN003 @regression
+  Scenario: Fail closed without duplicate or stray submissions
+    Given a malformed, unrelated, pre-merge, or duplicate result, a nonterminal turn end, missing UI, an unfocused editor, a non-empty draft, or a submit failure
+    When the extension evaluates the continuation
+    Then no extra prompt is submitted and any draft is preserved
+    And a recorded continuation stays pending with a notification
