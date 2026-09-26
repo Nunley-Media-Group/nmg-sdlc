@@ -20,6 +20,7 @@ import {
   rewriteInteractiveInput,
   sessionModeFromEntries,
   withArguments,
+  renderWriteSpecContinuation,
   writeSpecPlanReentry,
 } from '../../src/sdlc-commands.mjs';
 
@@ -144,14 +145,26 @@ describe('write-spec plan re-entry', () => {
       isError: true,
       content: [{ type: 'text', text: '{"ok":false,"reasonCode":"default_checkout_failed","merged":true,"pr":401}\n\nCommand exited with code 1' }],
     })],
-  ])('builds a static continuation prompt for %s', (_label, toolResult) => {
-    const result = writeSpecPlanReentry(toolResult, repoRoot);
-    expect(result).toMatchObject({ issue: 400, pr: 401 });
-    expect(result.prompt.startsWith('/plan\n\n')).toBe(true);
-    expect(result.prompt).toContain('Append 400 to published[] exactly once');
-    expect(result.prompt).toContain('distinct complete four-file local://spec-{N}-plan.md');
-    expect(result.prompt).toContain('before its distinct proposal is approved');
-    expect(result.prompt).not.toContain('default_checkout_failed');
+  ])('records the merged publication for %s', (_label, toolResult) => {
+    expect(writeSpecPlanReentry(toolResult, repoRoot)).toEqual({
+      issue: 400,
+      slug: 'restore-per-spec-plan-approval-and-ci-gated-merge-waiting',
+      pr: 401,
+    });
+  });
+
+  it('renders the complete workflow entered at the Continue loop with every published issue', () => {
+    const prompt = renderWriteSpecContinuation(repoRoot, provenanceRoot(), [
+      { issue: 400, slug: 'first' },
+      { issue: 402, slug: 'second' },
+    ]);
+    expect(prompt.startsWith(
+      'Post-publication continuation. published[] = [400, 402] (N-slug names: 400-first, 402-second). Skip Initial issue selection and start ## Continue loop.\n\n',
+    )).toBe(true);
+    expect(prompt).toContain('# Write Spec');
+    expect(prompt).toContain('## Continue loop');
+    expect(prompt).not.toContain('$ARGUMENTS:');
+    expect(prompt).not.toContain('node <plugin-root>/scripts/');
   });
 
   it.each([

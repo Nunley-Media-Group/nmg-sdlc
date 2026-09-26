@@ -10,6 +10,16 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.26.0] - 2026-09-26
+
+### Changed
+
+- Bump the plugin minor version to 3.26.0.
+
+### Fixed
+
+- Return `/sdlc-write-spec` to native plan mode after each merged publication: the extension records the authoritative merge result and, once the execution turn ends, submits `/plan` plus the complete Continue workflow through the TUI editor instead of queuing a follow-up message that never ran `/plan`. A selected next issue gets its own plan-mode Discovery, plan, and `xd://propose` (#438).
+
 ## [3.25.1] - 2026-09-26
 
 ### Fixed

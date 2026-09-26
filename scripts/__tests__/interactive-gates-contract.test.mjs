@@ -34,7 +34,6 @@ describe('native /plan interactive contract', () => {
 
   it('returns every merged write-spec publication to native plan', () => {
     const source = read('references/interactive-gates.md');
-    expect(source).toContain('every merged publication queues exactly one `tool_result`-driven follow-up `/plan` turn');
     expect(source).toContain('every selected continuation issue writes a distinct complete local plan');
     expect(source).toContain('calls `xd://propose` before mutation');
     expect(source).not.toContain('After write-spec approval, execution publishes then `ask` Continue/Finished');
