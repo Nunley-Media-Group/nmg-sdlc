@@ -1,0 +1,23 @@
+**Issue**: #441
+**Date**: 2026-09-26
+**Status**: Approved
+**Author**: NMG
+
+# File: scripts/__tests__/sdlc-execute.test.mjs
+#
+# Generated from: specs/441-continue-an-explicit-execute-queue-after-the-previous-issue-is-delivered/requirements.md
+Feature: Continue an explicit execute queue after the previous issue is delivered
+  Delivery left the checkout on the delivered issue branch,
+  so the next queued issue stopped with active_issue_conflict.
+
+  @SCN001 @regression
+  Scenario: Queue continues after a delivered issue
+    Given an explicit queue of issues 42 and 43 started from the default branch
+    When issue 42 is MERGED at its head and CLOSED
+    Then the controller switches to the default branch and processes issue 43
+
+  @SCN002 @regression
+  Scenario: Undelivered or dirty foreign branches still fail closed
+    Given the checkout is on issue 42's branch that is not delivered or has changes outside .omp
+    When issue 43 is processed
+    Then the controller stops with active_issue_conflict and preserves the branch and worktree
