@@ -456,7 +456,21 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
       for (;;) {
         const current = checkout(cwd, run);
         const branchIssue = parseIssueBranch(current.branch);
-        if (branchIssue && branchIssue.issueNumber !== issue) throw new Error('active_issue_conflict');
+        if (branchIssue && branchIssue.issueNumber !== issue) {
+          // A queue leaves the previous issue's branch only once that issue is delivered at this head.
+          const status = run('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd });
+          if (!succeeded(status)) throw new Error('worktree_status_unavailable');
+          const dirty = String(status.stdout ?? '').split(/\r?\n/).filter(Boolean)
+            .some((line) => !line.slice(3).startsWith('.omp/'));
+          if (dirty || !completed(cwd, run, branchIssue.issueNumber, current.branch, current.head)) {
+            throw new Error('active_issue_conflict');
+          }
+          const base = run('gh', ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'], { cwd });
+          const defaultBranch = succeeded(base) ? String(base.stdout ?? '').trim() : '';
+          if (!defaultBranch) throw new Error('default_branch_unreadable');
+          if (!succeeded(run('git', ['switch', defaultBranch], { cwd }))) throw new Error('default_checkout_failed');
+          continue;
+        }
         const evidence = branchIssue ? statusEvidence(cwd, run) : null;
         if (branchIssue && completed(cwd, run, issue, current.branch, current.head)) {
           output.push(`#${issue}: MERGED and CLOSED`);

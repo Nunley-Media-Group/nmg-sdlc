@@ -10,6 +10,12 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+## [3.25.1] - 2026-09-26
+
+### Fixed
+
+- Continue an explicit `/sdlc-execute #A #B` queue after #A is delivered: when the checkout is still on #A's branch and #A's PR is MERGED at that head with #A CLOSED and a clean worktree, the controller switches to the repository default branch before #B instead of stopping with `active_issue_conflict`; undelivered or dirty branches still fail closed (#441).
+
 ## [3.25.0] - 2026-09-25
 
 ### Changed
