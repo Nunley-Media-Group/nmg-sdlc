@@ -2,9 +2,9 @@
 
 **Date**: 2026-09-27
 **Issue**: #444
-**Reviewer**: architecture-reviewer (verify worker, controller run 88d82699-cdbb-4584-a129-d67994245115)
+**Reviewer**: architecture-reviewer (nmg-sdlc verify worker)
 **Scope**: Implementation verification against spec
-**Verification head**: 46a4c424eff486565afb271013c795ab07e9113b
+**Verification head**: 3d0e6410c5902e24579468a73c63dcd444007dde
 
 ---
 
@@ -12,34 +12,18 @@
 
 | Category | Score (1-5) |
 |----------|-------------|
-| Spec Compliance | 4 |
-| Architecture (SOLID) | 3 |
-| Security | 4 |
+| Spec Compliance | 5 |
+| Architecture (SOLID) | 4 |
+| Security | 5 |
 | Performance | 4 |
-| Testability | 5 |
+| Testability | 4 |
 | Error Handling | 4 |
-| **Overall** | 4.0 |
+| **Overall** | 4.3 |
 
-### Implementation Status: Partial
-**Total Issues**: 3 (1 Medium, 2 Low)
+### Implementation Status: Pass
+**Total Issues**: 2 (both Low, non-blocking)
 
-Both registered validations passed at the verification head:
-- `repository.tests`: 833 passed, 2 skipped.
-- `repository.nmg-sdlc-smoke`: live self-provisioning of smoke #185, spec PR #186 `MERGED`, delivery PR #187 `MERGED` at `e08a20a4f5dd1aef8a5f59df06c8ba85a11855b3`, and #185 `CLOSED`.
-
-A fresh live TUI exercise at this head showed that initial-picker Finished ends in session mode `none`.
-
-One AC9 `Then` clause is still unimplemented. A provisioning failure returns no created-issue URL as evidence. That leaves AC9 Partial. Only this report was in the verify publication scope, so the gap could not be fixed here.
-
----
-
-## Deterministic Steering Artifact and Ceiling
-
-- Runner: `sdlc-verify-steering.mjs --project . --issue 444 --spec specs/444-… --base main --controller-run-id 88d82699-cdbb-4584-a129-d67994245115`
-- Artifact: `.omp/sdlc/verification/444.json`. Identity: head `46a4c424eff486565afb271013c795ab07e9113b`, clean tree, steering `sha256:a52a941b…`, spec `sha256:f7171ce0…`.
-- Ceiling: `null`.
-- Coverage: `declared: 2`, `recorded: 2`, `complete: true`, with no missing, duplicate or unknown entries.
-- Manifest: `steering/manifest.json` loaded and validated with 4 modules, 3 snippets and 1 extension (`project.nmg-sdlc-smoke`).
+All 10 acceptance criteria and 7 tasks are implemented. Both manifest-registered validations passed at the exact head `3d0e6410c5902e24579468a73c63dcd444007dde` (coverage 2/2 complete, no ceiling). The live smoke gate provisioned smoke issue #188 unattended (spec PR #189 MERGED), then delivered it through this checkout's execute controller (PR #190 MERGED at `50e70585605ca43129213fc8a204b7be80588391`, issue CLOSED).
 
 ---
 
@@ -56,8 +40,21 @@ One AC9 `Then` clause is still unimplemented. A provisioning failure returns no 
 
 ## Delivery Validation
 
-- Local verification: Not complete (AC9 Partial)
+- Local verification: Pass
 - PR evidence: Not required
+
+---
+
+## Deterministic Steering Artifact and Ceiling
+
+`sdlc-verify-steering.mjs --project . --issue 444 --spec specs/444-… --base main --controller-run-id 88d82699-cdbb-4584-a129-d67994245115` → `ok: true`, `ceiling: null`.
+
+Artifact `.omp/sdlc/verification/444.json`: identity head `3d0e6410c5902e24579468a73c63dcd444007dde`, steering `sha256:5ae9b281…68ad`, spec `sha256:f7171ce0…b392`; coverage `declared: 2`, `recorded: 2`, `complete: true`, no missing/duplicate/unknown.
+
+| Validation | Provider | Required | Status | Summary |
+|------------|----------|----------|--------|---------|
+| `repository.tests` | `builtin.command` | yes | passed | `npm test -- --runInBand` exited 0 — 49 suites passed (1 skipped), 834 tests passed (2 skipped) |
+| `repository.nmg-sdlc-smoke` | `project.nmg-sdlc-smoke` | yes | passed | `nmg-sdlc-smoke delivered #188` |
 
 ---
 
@@ -65,16 +62,16 @@ One AC9 `Then` clause is still unimplemented. A provisioning failure returns no 
 
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
-| AC1 | Continue-loop Finished exits plan mode fully | Pass | `writeSpecFinishedSelection` (`src/sdlc-commands.mjs:107`) sets `exitPending` (`src/extension.ts:97`). `agent_end` (`src/extension.ts:208`) exits on a terminal end or a `planDecisionContinuation` (`:123`), and `exitPlanMode` (`:181`) awaits `onSubmit("/plan")` for each toggle. In the SCN001 fixture (`extension-commands.test.mjs:334`), the continuation is submitted once and exactly two `/plan` toggles end at `none`. The host continuation path is the same one the live AC2 run exercised. |
-| AC2 | Initial-picker Finished exits plan mode fully | Pass | Live TUI at this head. See Exercise Test Results. After the `Finished — stop without writing a spec` result, the session logged: assistant `stop`, the host decision reminder, assistant `aborted`, `mode plan_paused`, `mode none`. The screen showed `Plan mode disabled.` No Discovery ran, there was no `Published specs:` or `Next step:`, and nothing was re-asked. The SCN002 fixture also passes. |
-| AC3 | Non-Finished selections keep plan mode | Pass | Selection is by exact label (`WRITE_SPEC_FINISHED_LABELS`) and only while `writeSpec.active`. A later non-Finished ask resets `exitPending` to `false`. The SCN003 fixture (`:357`) covers an issue row, Continue, custom `#12`/`abc`, and asks outside write-spec. |
-| AC4 | Undispatchable exit fails safe | Pass | `focusedEditor` returns `undefined` when there is no UI, a draft, an unfocused editor or a disabled submit. `exitPlanMode` sends `FINISHED_EXIT_NOTICE` once and `exitPending` is cleared before dispatch. `willContinue` ends that are not a plan-decision continuation return early. SCN004 fixtures (`:378`, `:389`) pass. The amended AC4 in `46a4c42` matches the implementation. |
-| AC5 | Post-publication continuation is preserved | Pass | A pending continuation wins on a terminal end (`submitContinuation`), and `startInteractiveCommand` resets state. SCN005 (`:407`) passes. |
-| AC6 | Smoke gate self-provisions without an explicit queue | Pass | Live: the registered gate ran with `NMG_SDLC_SMOKE_ISSUES` unset. It cloned into `nmg-sdlc-smoke-provision-ylvLG8`, prompted `/sdlc-draft-issue <need>` and then `/sdlc-write-spec 185` (bare) in owned pane `smoke-provision-bacd587a`, and delivered #185 through the execute controller of this checkout (`smokePluginRoot`, `nmg-sdlc-smoke.mjs:973`). SCN006 passes. |
-| AC7 | Every provisioning gate is answered automatically | Pass | `askDecision` (`:658`) presses `enter` on the Recommended option (0 when none is marked). Plan approval is detected by `planGateVisible` or `pendingPlanApproval`. The live run answered all draft and spec gates without operator input. SCN007 (including the truncated and unpainted variants) passes. |
-| AC8 | Provisioning completion is proven from GitHub | Pass | `publishedSpec` (`:685`) requires `spec-created` plus a merged `docs: approve spec for #N` PR. Live evidence: `provisioned smoke issue #185 …; spec PR …/pull/186 MERGED`, with the pane closed in `finally`. SCN008 passes. |
-| AC9 | Provisioning failures fail closed, no duplicates | **Partial** | Pass: `failed` status, screen snapshot, agent status, session path, retained clone, pane closed, recovery reuse, interrupted-without-issue fail-closed, and `incomplete` on launch or cancel (SCN009 fixtures). **Missing: "any created issue URL as evidence"**. After an issue is identified (a spec-phase stall or ask failure), and in the multiple-new-issues case, the `stop()` envelope carries no issue URL. `newSmokeIssues` output is not recorded as evidence, and the summary carries bare numbers only. |
-| AC10 | Explicit queues keep priority | Pass | `resolveQueue` (`:173`) gives `config.issues` or a non-blank env queue priority, and an invalid value returns `null`, which yields `issues config invalid`. SCN010 (`:1504`, `:1515`) passes. |
+| AC1 | Continue-loop Finished exits plan mode fully | Pass | `src/extension.ts:95-101` records the Finished selection; `:208-221` exits at a terminal end or the plan-mode decision continuation (`planDecisionContinuation`, `:123-128`); `exitPlanMode` `:181-206` awaits `onSubmit("/plan")` per toggle until mode `none`; test `extension-commands.test.mjs:280` |
+| AC2 | Initial-picker Finished exits plan mode fully | Pass | Label `Finished — stop without writing a spec` in `src/sdlc-commands.mjs:97-100`; `workflows/write-spec/WORKFLOW.md:37` step 7 ends the turn without `ask`/`xd://propose`; same exit path; test `extension-commands.test.mjs:280` |
+| AC3 | Non-Finished selections keep plan mode | Pass | `writeSpecFinishedSelection` returns `false` for other labels and `customInput` (`src/sdlc-commands.mjs:107-119`); a later non-Finished ask resets `exitPending` (`src/extension.ts:99`); `sdlc-commands.test.mjs:185` cases |
+| AC4 | Undispatchable exit fails safe | Pass | `focusedEditor` requires UI, empty draft, focused `CustomEditor`, enabled submit (`src/extension.ts:131-155`); failure/declined confirm → `FINISHED_EXIT_NOTICE` once, pending cleared before dispatch (`:190-205`, `:218-220`); non-decision `willContinue` ends return early (`:211-212`); asserted in `extension-commands.test.mjs:379-383` |
+| AC5 | Post-publication continuation is preserved | Pass | Pending continuation wins in the same turn (`src/extension.ts:213-216`); `/sdlc-write-spec` resets published/pending/exit (`:111-117`); test `extension-commands.test.mjs:413-417` |
+| AC6 | Smoke gate self-provisions without an explicit queue | Pass | `provisionSmokeIssue` (`steering/extensions/nmg-sdlc-smoke.mjs:702-889`); live: provisioning clone, pane `wF:p2E`, `/sdlc-draft-issue <need>`, `/sdlc-write-spec 188`, spec PR #189 MERGED, then delivery of `[188]`; test `nmg-sdlc-smoke.test.mjs:1351` |
+| AC7 | Every provisioning gate is answered automatically | Pass | `askDecision` answers only the Recommended/index-0 option with `enter`, never other issue rows (`:658-674`); plan approval by screen marker or session evidence (`:608-636`, `:851-860`); only `agentSendKeys(["enter"])`; live provisioning needed no operator input; tests `:1351`, `:1386` |
+| AC8 | Provisioning completion is proven from GitHub | Pass | `publishedSpec` requires `spec-created` + merged `docs: approve spec for #N` PR (`:685-698`); pane closed in `finally` (`:885-888`); tests `:1408`, `:1421` |
+| AC9 | Provisioning failures fail closed, never duplicate issues | Pass | Multiple/zero/stall/free-form → `failed` with screen, status, session, created-issue URL, retained clone (`:733-747`, `:818-865`); launch/cancel/loss → `incomplete` (`:786-813`); recovery reuse/interrupted identity tests `:1435-1519` |
+| AC10 | Explicit queues keep priority | Pass | `resolveQueue` (`:173-188`) prefers `config.issues` then the env value; invalid non-blank fails; tests `:1520`, `:1531`, `:448` |
 
 ---
 
@@ -82,13 +79,13 @@ One AC9 `Then` clause is still unimplemented. A provisioning failure returns no 
 
 | Task | Description | Status | Notes |
 |------|-------------|--------|-------|
-| T001 | Detect Finished selections | Complete | `src/sdlc-commands.mjs:97-119`; cases in `sdlc-commands.test.mjs:185-204` |
-| T002 | Exit plan mode after a Finished turn | Complete | `src/extension.ts` |
-| T003 | Align write-spec contracts | Complete | `WORKFLOW.md` step 7 and the Continue-loop Finished branch, `publish.md`, `references/interactive-gates.md`, `README.md` |
-| T004 | Finished-exit regressions | Complete | `extension-commands.test.mjs` SCN001–SCN005 |
-| T005 | Smoke self-provisioning | Complete with gap | AC9 created-issue URL evidence is missing |
-| T006 | Register provisioning in steering | Complete | `manifest.json` `config.provision.need`; tech and product snippets updated; the manifest validated during the gate run |
-| T007 | Smoke regressions and docs | Complete | SCN006–SCN010 tests; README live-smoke section; CHANGELOG `[Unreleased]` |
+| T001 | Detect write-spec Finished picker selections | Complete | `WRITE_SPEC_FINISHED_LABELS`, `writeSpecFinishedSelection` in `src/sdlc-commands.mjs` |
+| T002 | Fully exit native plan mode after a terminal Finished turn | Complete | `src/extension.ts` exit state, decision-continuation detection, awaited toggles |
+| T003 | Align write-spec contracts with the Finished exit | Complete | `WORKFLOW.md`, `publish.md`, `references/interactive-gates.md`, `README.md` updated; skill inventory and plugin surface clean |
+| T004 | Regression coverage for the Finished exit | Complete | `extension-commands.test.mjs`, `sdlc-commands.test.mjs` |
+| T005 | Self-provision smoke issues | Complete | `steering/extensions/nmg-sdlc-smoke.mjs`; frozen `extension` export unchanged |
+| T006 | Register provisioning in steering | Complete | `steering/manifest.json` config `{issuesEnv, provision.need}`, `when.kind: always`, required; snippets updated; steering validated by the runner (steering hash recorded, no ceiling) |
+| T007 | Regression coverage and docs for smoke provisioning | Complete | SCN006–SCN010 tests; README live-smoke section; CHANGELOG `[Unreleased]` `### Fixed` |
 
 ---
 
@@ -98,38 +95,38 @@ One AC9 `Then` clause is still unimplemented. A provisioning failure returns no 
 
 | Principle | Score (1-5) | Notes |
 |-----------|-------------|-------|
-| Single Responsibility | 3 | `steering/extensions/nmg-sdlc-smoke.mjs` grew to 1680 lines. Provisioning (Herdr driving, JSONL gate parsing, GitHub proof) is added to a provider that already owns clone, recovery and delivery proof. |
-| Open/Closed | 4 | Provisioning is config-driven (`config.provision.need`) and the explicit-queue path is unchanged. |
-| Liskov Substitution | 4 | The injected `herdr`, `sleep` and `pollMs` adapters replace real ones cleanly. |
-| Interface Segregation | 4 | The Herdr adapter exposes only the seven calls it needs. |
-| Dependency Inversion | 4 | Plugin modules load through a guarded dynamic import, so the provider fails closed when they are absent. |
+| Single Responsibility | 4 | Finished classification is a pure function in `sdlc-commands.mjs`; extension owns event wiring. `nmg-sdlc-smoke.mjs` (1688 lines) now holds delivery proof, recovery store, and provisioning TUI driving in one module |
+| Open/Closed | 4 | Provisioning added behind `resolveQueue` kinds without changing explicit-queue flow |
+| Liskov Substitution | 5 | Injected `runCommand`/`readFileSync`/Herdr adapter substitutes cleanly in tests |
+| Interface Segregation | 4 | `createHerdrAdapter` exposes only the needed pane/agent verbs |
+| Dependency Inversion | 4 | Provider depends on injected executors; sleep/poll interval injectable |
 
 ### Layer Separation
 
-The extension keeps its role as dispatcher. Only builtin `/plan` goes through the focused editor, and no workflow tells the user to type `/plan`. The steering provider stays within its frozen `extension` export.
+Extension factory dispatches only builtin `/plan` via the focused editor and never mutates Git. Workflow contracts describe the extension's behavior rather than instructing users to type `/plan`. The steering extension remains project-owned and does not change orchestration contracts.
 
 ### Dependency Flow
 
-Steering extension → `src/process-supervision.mjs` and `scripts/*` through a guarded import. The direction is unchanged.
+`src/extension.ts` → `src/sdlc-commands.mjs` (pure helpers). Steering provider → plugin runtime via guarded dynamic import; no new runtime dependencies.
 
 ---
 
 ## Security Assessment
 
-- [x] Authentication: uses ambient `gh` auth; no secrets are requested.
-- [x] Authorization: mutations are confined to `Nunley-Media-Group/nmg-sdlc-smoke` through the real workflows; the origin allowlist is checked on the provisioning clone.
-- [x] Input validation: queue tokens are matched against `^#?[1-9]\d*$`; ask options are chosen by index only, and free-form or multi-select asks fail closed; other issue rows are never selected.
-- [x] Injection prevention: every `herdr` and `gh` call uses an argument array; the need text is passed as one argument.
-- [x] Data protection: evidence is bounded (`bounded(screen)`).
+- [x] Authentication: relies on existing `gh` auth; no secret handling added
+- [x] Authorization: remote mutation limited to allowlisted `Nunley-Media-Group/nmg-sdlc-smoke` origin, checked on the provisioning clone (`:760-764`)
+- [x] Input validation: issue numbers validated as safe positive integers; free-form and multi-select asks fail closed
+- [x] Injection prevention: all `git`/`gh`/`herdr` calls use argument arrays; the `--search` value is built from an integer issue number
+- [x] Data protection: the provisioner types only the configured need and bare issue numbers; gates answered with `enter` only
 
 ---
 
 ## Performance Assessment
 
-- [x] Async patterns: polling uses an injectable sleep and poll-count bounds, with no wall-clock deadline.
-- [x] Caching: N/A.
-- [x] Resource management: the owned pane is always closed in `finally`; the clone is removed on success and retained on failure.
-- [ ] Query optimization: each 3 s poll re-reads the whole session JSONL and re-stats the session directory. This is acceptable for bounded provisioning sessions (Low).
+- [x] Async patterns: `/plan` toggles awaited one at a time; polling uses injectable sleep
+- [x] Caching: n/a
+- [x] Resource management: owned pane always closed in `finally`; provisioning clone removed on success, retained on failure
+- [ ] Query optimization: each 3 s poll re-reads the whole session JSONL and stats every session file in the directory (`:593-604`, `:836`, `:855`) — linear but bounded to one provisioning session (Low)
 
 ---
 
@@ -139,22 +136,23 @@ Steering extension → `src/process-supervision.mjs` and `scripts/*` through a g
 
 | Acceptance Criterion | Has Scenario | Has Steps | Passes |
 |---------------------|-------------|-----------|--------|
-| AC1 | SCN001 | Yes | Yes |
-| AC2 | SCN002 | Yes | Yes (plus live) |
-| AC3 | SCN003 | Yes | Yes |
-| AC4 | SCN004 | Yes | Yes |
-| AC5 | SCN005 | Yes | Yes |
-| AC6 | SCN006 | Yes | Yes (plus live) |
-| AC7 | SCN007 | Yes | Yes (plus live) |
-| AC8 | SCN008 | Yes | Yes (plus live) |
-| AC9 | SCN009 | Yes | Yes, but no assertion on created-issue URL evidence |
-| AC10 | SCN010 | Yes | Yes |
+| AC1 | Yes (SCN001) | Yes | Yes |
+| AC2 | Yes (SCN002) | Yes | Yes |
+| AC3 | Yes (SCN003) | Yes | Yes |
+| AC4 | Yes (SCN004) | Yes | Yes |
+| AC5 | Yes (SCN005) | Yes | Yes |
+| AC6 | Yes (SCN006) | Yes | Yes |
+| AC7 | Yes (SCN007) | Yes | Yes |
+| AC8 | Yes (SCN008) | Yes | Yes |
+| AC9 | Yes (SCN009) | Yes | Yes |
+| AC10 | Yes (SCN010) | Yes | Yes |
 
 ### Coverage Summary
 
 - Feature files: 10 scenarios
-- Step definitions: Jest contract tests
-- `repository.tests`: `Test Suites: 1 skipped, 49 passed`; `Tests: 2 skipped, 833 passed, 835 total`, exit 0. The skipped suite is the opt-in `RUN_EXERCISE_TESTS` exercise suite, and the skipped tests are win32-only.
+- Step definitions: Implemented as Jest ESM tests in `scripts/__tests__/`
+- Unit/contract tests: 834 passed, 2 skipped (full suite, 49 suites passed, 1 skipped)
+- Integration: live smoke gate (provisioning + delivery) passed
 
 ---
 
@@ -162,29 +160,30 @@ Steering extension → `src/process-supervision.mjs` and `scripts/*` through a g
 
 | Field | Value |
 |-------|-------|
-| **Skill Exercised** | `write-spec` (bare, initial-picker Finished); `draft-issue` and `write-spec` through live smoke provisioning |
-| **Test Project** | `/tmp/nmg444-ex-5gnC/smoke` (a disposable `nmg-sdlc-smoke` clone, removed afterwards); smoke provisioning clone `nmg-sdlc-smoke-provision-ylvLG8` |
-| **Exercise Method** | Real OMP TUI in an owned Herdr pane: `omp --no-extensions --extension <checkout>/src/extension.ts --plugin-dir <checkout>`. `exercise-omp.mjs` (RPC) cannot enter native plan mode, and its `/sdlc-write-spec` run never settled; it was cancelled (exit 130) and is not used as evidence. |
-| **Interactive gate handling** | Key presses only (`down down enter` on Finished) |
-| **Duration** | About 1 minute (Finished exit); registered gate about 16.5 minutes |
+| **Skill Exercised** | `write-spec` (and `draft-issue`) |
+| **Test Project** | Disposable clone of `Nunley-Media-Group/nmg-sdlc-smoke` (`nmg-sdlc-smoke-provision-CZvif1`) |
+| **Exercise Method** | Real TUI in provider-owned Herdr `omp` pane via `repository.nmg-sdlc-smoke`; deterministic fixture `node scripts/skill-exercise-runner.mjs --skill write-spec` |
+| **Interactive gate handling** | Automatic Recommended / `Approve and execute` key presses by the provider |
+| **Duration** | Steering run 1088 s total (tests + provisioning + delivery) |
 
 ### Captured Output Summary
 
-- Finished exit, session `2026-09-27T09-46-40-408Z_01a0e242….jsonl`:
-  - `09:46:46.506Z` mode `plan`; the helper listed #143 and #184; the picker was asked.
-  - `09:47:04.344Z` `selectedOptions:["Finished — stop without writing a spec"]`.
-  - `09:47:05.849Z` assistant `stop`, then the host `Plan mode turn ended without a required tool call` reminder.
-  - `09:47:05.868Z` assistant `aborted`, followed by mode `plan_paused` and mode `none`. The screen showed `Plan mode disabled.` and the agent went `idle`.
-- Smoke provisioning session `2026-09-27T08-31-51-080Z_01a0e1fd….jsonl`: issue #185 was drafted and its spec published (PR #186 merged). Delivery PR #187 merged at `e08a20a4…` and #185 was closed.
+- Provisioning: baseline latest issue #185; `/sdlc-draft-issue <need>` created #188; `/sdlc-write-spec 188` (bare number) published; issue #188 `spec-created`, spec PR #189 MERGED.
+- Delivery: `sdlc-execute run #188` → start/implement/verify/deliver passed, `#188: MERGED and CLOSED`; closing PR #190 MERGED with `headRefOid` `50e70585605ca43129213fc8a204b7be80588391`, outside the empty pre-run baseline.
+- Fixture: `skill-exercise-runner --skill write-spec` exit 0, 14 pass / 0 fail / 0 skipped.
 
 ### AC Evaluation
 
 | AC | Description | Verdict | Evidence |
 |----|-------------|---------|----------|
-| AC2 | Initial-picker Finished exits plan mode | Pass | Final mode `none`, no re-ask, no typed command |
-| AC6 | Self-provision and deliver | Pass | #185, PR #186, PR #187 |
-| AC7 | Automatic gate answers | Pass | Draft and spec gates answered; no operator input |
-| AC8 | GitHub completion proof | Pass | `spec-created` plus merged spec PR #186 |
+| AC6 | Self-provision without explicit queue | Pass | Live provisioning of #188 and delivery proof above |
+| AC7 | Automatic gate answers | Pass | No operator input; smoke result `passed` |
+| AC8 | GitHub completion evidence | Pass | Provisioning evidence records spec PR #189 MERGED |
+| AC1–AC5 | Plan-mode Finished exit | Pass (contract tests) | The provisioner closes its pane on publication before any Finished selection, so live TUI proof of AC1–AC5 comes from the host-fixture tests |
+
+### Notes
+
+Print/RPC harnesses cannot drive interactive `/sdlc-write-spec` (`exercise-testing.md:48`). `exercise-omp.mjs --cwd <disposable> -- /sdlc-write-spec` produced no terminal state; the verifier stopped it after 600 s, removed the disposable project, and relied on the live Herdr TUI evidence instead.
 
 ---
 
@@ -192,62 +191,76 @@ Steering extension → `src/process-supervision.mjs` and `scripts/*` through a g
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` (registered) | Pass | `npm test -- --runInBand` exited 0; 833 passed |
-| `repository.nmg-sdlc-smoke` (registered) | Pass | Provisioned #185; PR #187 `MERGED` at `e08a20a4f5dd1aef8a5f59df06c8ba85a11855b3` matches the pre-merge proof; #185 `CLOSED` |
-| Skill inventory | Pass | `Skill inventory audit: clean (90 items mapped).` |
-| OMP plugin surface | Pass | `Plugin surface validation passed: repository` |
-| Skill exercise (`write-spec`) | Pass | `Summary: 14 pass, 0 fail, 0 skipped` |
-| Git hygiene | Pass | `git diff --check main...HEAD` exited 0 |
+| Contract tests (`repository.tests`) | Pass | `npm test -- --runInBand` exit 0; 834 passed, 2 skipped |
+| Live smoke project (`repository.nmg-sdlc-smoke`) | Pass | Provisioned #188 (spec PR #189 MERGED); delivered via PR #190 MERGED at `50e70585…8391`; #188 CLOSED |
+| Skill inventory | Pass | `node scripts/skill-inventory-audit.mjs --check` exit 0 — clean (90 items mapped) |
+| OMP plugin surface | Pass | `node scripts/verify-plugin-surface.mjs --root . --label repository` exit 0 |
+| Skill creator validation | Pass | No skill-bundled files edited during verification; changed bundles pass inventory, surface, and fixture checks |
+| Skill exercise | Pass | `node scripts/skill-exercise-runner.mjs --skill write-spec` exit 0 (14/14) |
+| Prompt quality | Pass | Finished branches: single interpretation, turn ends without `ask`/`xd://propose`, extension-owned exit, warning fallback documented |
+| Git hygiene | Pass | `git diff --check main...HEAD` exit 0 |
 
-**Gate Summary**: 6/6 gates passed, 0 failed, 0 incomplete
+**Gate Summary**: 8/8 gates passed, 0 failed, 0 incomplete
 
 ---
 
 ## Fixes Applied
 
-None. The verify publication scope allows writes only to this report.
+| Severity | Category | Location | Original Issue | Fix Applied | Routing |
+|----------|----------|----------|----------------|-------------|---------|
+| — | — | — | No fixes required | — | — |
 
 ## Remaining Issues
 
-### Medium Priority
+### Critical Issues
+None.
 
-| Field | Value |
-|-------|-------|
-| **Severity** | Medium |
-| **Category** | Error Handling |
-| **Location** | `steering/extensions/nmg-sdlc-smoke.mjs` (`provisionSmokeIssue` `stop()` and `newSmokeIssues`, around lines 677 and 727–829) |
-| **Issue** | AC9 requires "any created issue URL as evidence" on a provisioning failure. The failure envelope has no issue URL: not after issue N is identified (spec-phase stall, ask failure, cancellation), and not for the multiple-new-issues case, whose summary lists bare `#179, #181`. |
-| **Impact** | Operators cannot follow a failed provisioning to the created smoke issue from the gate evidence alone. The AC9 contract is unmet. |
-| **Reason Not Fixed** | Outside the verify publication scope (only `verification-report.md` is writable). The implementation step must add a `github` evidence entry with `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/<N>` for each created issue and extend SCN009 fixtures to assert it. |
+### High Priority
+None.
+
+### Medium Priority
+None.
 
 ### Low Priority
 
-| Severity | Category | Location | Issue | Reason Not Fixed |
-|----------|----------|----------|-------|------------------|
-| Low | SOLID | `steering/extensions/nmg-sdlc-smoke.mjs` | The file is 1680 lines. Provisioning could move to its own module under `steering/extensions/`. | Refactor; outside scope |
-| Low | Error Handling | `src/extension.ts:220` | `void exitPlanMode(session)` calls `sessionManager.getEntries()` outside its `try`, so a throwing host would produce an unhandled rejection. | Hypothetical host failure; outside scope |
+| Field | Value |
+|-------|-------|
+| **Severity** | Low |
+| **Category** | Testing |
+| **Location** | `steering/extensions/nmg-sdlc-smoke.mjs:783-790` |
+| **Issue** | No dedicated regression covers the pane-split / agent-start `incomplete` branches of provisioning |
+| **Impact** | A future change could reclassify Herdr launch failure without a failing test |
+| **Reason Not Fixed** | Outside this verification's writable scope (report only); the branch is straightforward and matches AC9 |
+
+| Field | Value |
+|-------|-------|
+| **Severity** | Low |
+| **Category** | Performance |
+| **Location** | `steering/extensions/nmg-sdlc-smoke.mjs:593-604`, `:836`, `:855` |
+| **Issue** | Each poll re-reads the full session JSONL and stats every session file in the directory |
+| **Impact** | Linear per-poll cost in session size; bounded by one provisioning session |
+| **Reason Not Fixed** | Acceptable for a verification-only provider; outside writable scope |
 
 ---
 
 ## Positive Observations
 
-- `writeSpecFinishedSelection` uses exact labels, so near-miss labels and custom input can never trigger the exit.
-- The editor-gated `/plan` dispatch never overwrites a draft. Each toggle is awaited, and the loop stops when the mode stops progressing.
-- Provisioning drives only key presses, checks completion only against GitHub, and always closes its owned pane.
-- The fixtures reproduce the real host `/plan` toggling and the Herdr/JSONL gate states.
+- Exit dispatch mirrors the host rule precisely (plan mode, text-only reply, not `error`/`aborted`) and clears the pending exit before dispatch, so it cannot fire twice.
+- Provisioning completion depends on GitHub evidence, not on the session state, and the owned pane is closed in `finally`.
+- Failure evidence includes created issue URLs, screen, agent status, session path, and the retained clone.
 
 ---
 
 ## Recommendations Summary
 
 ### Before PR (Must)
-- [ ] Add created-issue URL evidence to provisioning failure envelopes (AC9) and assert it in SCN009.
+- None.
 
 ### Short Term (Should)
-- [ ] Guard `exitPlanMode` against host `getEntries` failures.
+- [ ] Add a regression for provisioning pane-split/agent-start `incomplete`.
 
 ### Long Term (Could)
-- [ ] Split smoke provisioning out of `nmg-sdlc-smoke.mjs`.
+- [ ] Split provisioning TUI driving out of `nmg-sdlc-smoke.mjs`; tail-read the session JSONL incrementally.
 
 ---
 
@@ -255,18 +268,19 @@ None. The verify publication scope allows writes only to this report.
 
 | File | Issues | Notes |
 |------|--------|-------|
-| `src/extension.ts` | 1 | Finished exit |
-| `src/sdlc-commands.mjs` | 0 | Selection classifier |
-| `steering/extensions/nmg-sdlc-smoke.mjs` | 2 | Provisioning |
-| `steering/manifest.json`, `steering/snippets/project-*.md` | 0 | |
-| `workflows/write-spec/WORKFLOW.md`, `workflows/write-spec/references/publish.md`, `references/interactive-gates.md` | 0 | |
-| `README.md`, `CHANGELOG.md` | 0 | |
-| `scripts/__tests__/extension-commands.test.mjs`, `sdlc-commands.test.mjs`, `nmg-sdlc-smoke.test.mjs` | 1 | SCN009 lacks a URL assertion |
+| `src/extension.ts` | 0 | Finished exit and continuation precedence |
+| `src/sdlc-commands.mjs` | 0 | Finished classifier |
+| `steering/extensions/nmg-sdlc-smoke.mjs` | 2 | Low: launch-branch test gap, per-poll full reads |
+| `steering/manifest.json` | 0 | Provision config registered |
+| `steering/snippets/project-tech.md`, `project-product.md` | 0 | Unattended provisioning documented |
+| `workflows/write-spec/WORKFLOW.md`, `references/publish.md`, `references/interactive-gates.md` | 0 | Contracts aligned |
+| `README.md`, `CHANGELOG.md` | 0 | Docs updated |
+| `scripts/__tests__/*.test.mjs` (3) | 0 | SCN001–SCN010 covered |
 
 ---
 
 ## Recommendation
 
-**Needs fixes**
+**Ready for PR**
 
-Both registered gates are green. The Finished exit is proven live and the smoke gate self-provisions and delivers end to end. AC9 is Partial because failure evidence omits the created-issue URL. Return to implementation for that single fix, then rerun the full registered gate.
+Every acceptance criterion passes, both registered validations passed at the exact head with complete coverage, and the live smoke gate proved unattended provisioning plus exact-head delivery.
