@@ -1428,12 +1428,16 @@ describe('nmg-sdlc smoke gate self-provisioning', () => {
     expect(fixture.calls.some((call) => call.program === process.execPath)).toBe(false);
   });
 
+  const createdIssueUrls = (outcome) => outcome.evidence
+    .filter((entry) => entry.kind === 'github' && /\/issues\/\d+$/.test(entry.artifact ?? ''))
+    .map((entry) => entry.artifact);
+
   it.each([
-    ['zero new issues', { created: [] }, 'nmg-sdlc-smoke provisioning stalled during draft'],
-    ['multiple new issues', { created: [179, 181] }, 'nmg-sdlc-smoke provisioning created multiple issues #179, #181'],
-    ['an unrecognized blocked gate', { unknownBlocked: true, draftGates: [], created: [] }, 'nmg-sdlc-smoke provisioning stalled during draft'],
-    ['a free-form ask', { draftGates: [{ ask: [{ id: 'need', question: 'What?', options: [] }] }] }, 'nmg-sdlc-smoke provisioning free-form ask'],
-  ])('SCN009: fails closed on %s, closes the pane, and retains the clone', async (_label, tuiOptions, summary) => {
+    ['zero new issues', { created: [] }, 'nmg-sdlc-smoke provisioning stalled during draft', []],
+    ['multiple new issues', { created: [179, 181] }, 'nmg-sdlc-smoke provisioning created multiple issues #179, #181', [179, 181]],
+    ['an unrecognized blocked gate', { unknownBlocked: true, draftGates: [], created: [] }, 'nmg-sdlc-smoke provisioning stalled during draft', []],
+    ['a free-form ask', { draftGates: [{ ask: [{ id: 'need', question: 'What?', options: [] }] }] }, 'nmg-sdlc-smoke provisioning free-form ask', []],
+  ])('SCN009: fails closed on %s, closes the pane, and retains the clone', async (_label, tuiOptions, summary, created) => {
     const tui = fakeProvisioningTui(tuiOptions);
     const fixture = provisioningHarness(tui);
     const outcome = await fixture.provider(fixture.request);
@@ -1441,7 +1445,19 @@ describe('nmg-sdlc smoke gate self-provisioning', () => {
     expect(outcome).toMatchObject({ status: 'failed', summary });
     expect(tui.closed).toEqual(['wF:p99']);
     expect(retained(outcome)).toBe(true);
+    expect(createdIssueUrls(outcome)).toEqual(
+      created.map((number) => `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/${number}`),
+    );
     expect(fixture.calls.some((call) => call.program === process.execPath)).toBe(false);
+  });
+
+  it('SCN009: a spec-phase failure after the issue is created returns its URL as evidence', async () => {
+    const tui = fakeProvisioningTui({ specGates: [{ ask: [question(['#30 — Unrelated marker'])] }] });
+    const fixture = provisioningHarness(tui);
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning stalled during spec' });
+    expect(createdIssueUrls(outcome)).toEqual(['https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/179']);
   });
 
   it('SCN009: a retry of the same identity reuses the recorded issue and only finishes its spec', async () => {

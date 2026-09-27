@@ -718,6 +718,7 @@ async function provisionSmokeIssue({
   const clone = createTemp(join(tmpdir(), "nmg-sdlc-smoke-provision-"));
   onClone(clone);
   let issue = recordedIssue ?? null;
+  let createdIssues = issue ? [issue] : [];
   let pane = null;
   let name = null;
   let sessionPath = null;
@@ -734,6 +735,11 @@ async function provisionSmokeIssue({
     summary,
     evidence: [
       ...evidence,
+      ...createdIssues.map((number) => ({
+        kind: "github",
+        summary: `provisioning created smoke issue #${number}`,
+        artifact: `https://github.com/${SMOKE_SLUG}/issues/${number}`,
+      })),
       ...extra,
       ...(sessionPath ? [{ kind: "artifact", summary: "provisioning session", artifact: sessionPath }] : []),
       retainedCloneEvidence(clone),
@@ -812,10 +818,12 @@ async function provisionSmokeIssue({
         if (phase === "draft" && status !== "working") {
           const created = await newSmokeIssues(executeCommand, env, signal, baseline);
           if (created?.length > 1) {
+            createdIssues = created;
             return stop("failed", `nmg-sdlc-smoke provisioning created multiple issues ${created.map((n) => `#${n}`).join(", ")}`);
           }
           if (created?.length === 1) {
             [issue] = created;
+            createdIssues = created;
             onIssue(issue);
             break;
           }
