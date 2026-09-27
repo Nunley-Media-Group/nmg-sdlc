@@ -118,7 +118,10 @@
         "kind": "always"
       },
       "config": {
-        "issuesEnv": "NMG_SDLC_SMOKE_ISSUES"
+        "issuesEnv": "NMG_SDLC_SMOKE_ISSUES",
+        "provision": {
+          "need": "Add one small, new, self-contained capability to this project that no existing issue or spec covers. Keep it to a single issue."
+        }
       }
     }
   ]

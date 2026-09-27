@@ -103,4 +103,4 @@ Published specs: #<n> on <n>-<slug>[, ...]
 Next step: /sdlc-execute #<first-published>
 ```
 
-The successful publication session remains on the repository default branch.
+The successful publication session remains on the repository default branch. Both Finished choices (this one and the initial picker's `Finished — stop without writing a spec`) end the turn after their output without another `ask` or `xd://propose`. When that reply settles, native plan mode schedules a decision-reminder continuation; the extension then exits native plan mode fully by dispatching builtin `/plan` through the focused TUI editor, one awaited toggle at a time (`plan` → `plan_paused` → `none`), which aborts the continuation. When no UI, a non-empty draft, an unfocused editor, a submit failure, or a declined `Exit plan mode?` confirmation prevents that, it preserves the draft, warns once, and leaves `/plan` to the user.

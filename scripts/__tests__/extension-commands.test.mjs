@@ -91,12 +91,11 @@ describe('extension sdlc- commands', () => {
     ))).toBe(false);
   });
 
-  it('submits one plan-mode Continue prompt through the TUI editor after a terminal turn', () => {
-    const extensionUrl = pathToFileURL(path.join(repoRoot, 'src', 'extension.ts')).href;
-    const helper = JSON.stringify(path.join(repoRoot, 'scripts', 'publish-approved-spec.mjs'));
-    const fixture = `
+  const extensionUrl = pathToFileURL(path.join(repoRoot, 'src', 'extension.ts')).href;
+  const publishHelper = JSON.stringify(path.join(repoRoot, 'scripts', 'publish-approved-spec.mjs'));
+  const hostFixture = `
       const { default: installExtension } = await import(${JSON.stringify(extensionUrl)});
-      const helper = ${JSON.stringify(helper)};
+      const helper = ${JSON.stringify(publishHelper)};
       class CustomEditor {}
       let sessions = 0;
       // One extension instance models one TUI process; its hosts model sessions.
@@ -114,8 +113,10 @@ describe('extension sdlc- commands', () => {
 
       // Host model: the editor submit handler dispatches builtin /plan (toggling
       // an active plan off) and submits the remainder as a prompt in the new mode.
-      function host({ mode = 'none', draft = '', focused = 'editor', submitThrows = false, hasUI = true } = {}, emit = extension()) {
-        const state = { entries: mode === 'plan' ? [{ type: 'mode_change', mode: 'plan' }] : [], draft, prompts: [], notices: [] };
+      // onSubmit applies a bare /plan as the host does: plan pauses (unless the
+      // Exit plan mode? confirmation is declined) and plan_paused disables.
+      function host({ mode = 'none', draft = '', focused = 'editor', submitThrows = false, hasUI = true, declineExit = false } = {}, emit = extension()) {
+        const state = { entries: mode === 'none' ? [] : [{ type: 'mode_change', mode }], draft, prompts: [], notices: [], commands: [] };
         const currentMode = () => state.entries.at(-1)?.mode ?? 'none';
         const sessionId = 'session-' + (++sessions);
         const editor = new CustomEditor();
@@ -129,7 +130,16 @@ describe('extension sdlc- commands', () => {
           }
           state.prompts.push({ mode: currentMode(), text });
         };
-        Object.assign(state, { submitThrows, focused: focused === 'editor' ? editor : {} , hasUI });
+        editor.onSubmit = async (text) => {
+          await Promise.resolve();
+          if (state.submitThrows) throw new Error('submit failed');
+          state.commands.push(text);
+          if (text !== '/plan') throw new Error('unexpected command ' + text);
+          const current = currentMode();
+          if (current === 'plan' && state.declineExit) return;
+          state.entries.push({ type: 'mode_change', mode: current === 'plan' ? 'plan_paused' : current === 'plan_paused' ? 'none' : 'plan' });
+        };
+        Object.assign(state, { submitThrows, declineExit, focused: focused === 'editor' ? editor : {} , hasUI });
         state.ctx = {
           get hasUI() { return state.hasUI; },
           sessionManager: { getEntries: () => state.entries, getSessionId: () => sessionId },
@@ -159,6 +169,22 @@ describe('extension sdlc- commands', () => {
         draft: state.draft,
         notices: state.notices.length,
       });
+      const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  `;
+
+  function runHostFixture(body) {
+    const exercised = spawnSync(process.execPath, ['--input-type=module', '--eval', hostFixture + body], {
+      cwd: fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-extension-')),
+      encoding: 'utf8',
+      env: { ...process.env, NMG_SDLC_REVIEW_SLICE: '' },
+    });
+    expect(exercised.stderr).toBe('');
+    expect(exercised.status).toBe(0);
+    return JSON.parse(exercised.stdout);
+  }
+
+  it('submits one plan-mode Continue prompt through the TUI editor after a terminal turn', () => {
+    const out = runHostFixture(`
       const out = {};
 
       const a = host();
@@ -212,15 +238,7 @@ describe('extension sdlc- commands', () => {
       after.emit('agent_end', {});
       out.afterRestart = summary(after);
       process.stdout.write(JSON.stringify(out));
-    `;
-    const exercised = spawnSync(process.execPath, ['--input-type=module', '--eval', fixture], {
-      cwd: fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-extension-')),
-      encoding: 'utf8',
-      env: { ...process.env, NMG_SDLC_REVIEW_SLICE: '' },
-    });
-    expect(exercised.stderr).toBe('');
-    expect(exercised.status).toBe(0);
-    const out = JSON.parse(exercised.stdout);
+    `);
     const head = (numbers, names) => `Post-publication continuation. published[] = [${numbers}] (N-slug names: ${names}). Skip Initial issue selection and start ## Continue loop.`;
     const idle = { prompts: [], modes: [], draft: '', notices: 0 };
 
@@ -257,5 +275,172 @@ describe('extension sdlc- commands', () => {
     expect(out.afterRestart.prompts.at(-1)).toEqual(
       { mode: 'plan', head: head('440', '440-slug-440'), workflow: true },
     );
+  });
+
+  it('exits native plan mode after the write-spec Finished reply, at the plan-mode decision continuation', () => {
+    const out = runHostFixture(`
+      let asks = 0;
+      const ask = (selectedOptions, extra = {}) => ({
+        type: 'tool_result',
+        toolName: 'ask',
+        toolCallId: 'ask-' + (++asks),
+        details: { selectedOptions, ...extra },
+        isError: false,
+      });
+      const finishedLoop = ask(['Finished — stop writing specs']);
+      const finishedInitial = ask(['Finished — stop without writing a spec']);
+      const reply = { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'Published specs: …' }] };
+      const aborted = { role: 'assistant', stopReason: 'aborted', content: [] };
+      // Host model of one turn: tool results reach the model, which replies
+      // with text only. Native plan mode continues a text-only turn that
+      // settles in plan mode (willContinue: true, forced decision). A /plan
+      // dispatched meanwhile aborts that continuation, which then ends
+      // terminally; otherwise the model re-asks.
+      const turn = async (state, results) => {
+        for (const result of results) await Promise.all(state.emit('tool_result', result));
+        if (state.entries.at(-1)?.mode !== 'plan') {
+          state.ends.push('terminal');
+          state.emit('agent_end', { messages: [reply] });
+          await flush();
+          return;
+        }
+        state.ends.push('continued');
+        state.emit('agent_end', { willContinue: true, messages: [reply] });
+        await flush();
+        if (state.entries.at(-1)?.mode === 'plan') {
+          state.ends.push('reasked');
+          return;
+        }
+        state.ends.push('aborted');
+        state.emit('agent_end', { messages: [reply, aborted] });
+        await flush();
+      };
+      const exitSummary = (state) => ({
+        commands: [...state.commands],
+        modes: state.entries.map(({ mode }) => mode),
+        ends: [...state.ends],
+        prompts: state.prompts.length,
+        draft: state.draft,
+        notices: [...state.notices],
+      });
+      const tracked = (state) => Object.assign(state, { ends: [] });
+      const writeSpecSession = (options = {}) => {
+        const state = tracked(host(options));
+        state.emit('input', { text: '/sdlc-write-spec', source: 'interactive' });
+        return state;
+      };
+      const out = {};
+
+      // SCN001: the post-publication continuation enters plan mode; Finished exits it.
+      const loop = tracked(host());
+      loop.emit('tool_result', merge(450, 'p450'));
+      loop.emit('agent_end', {});
+      await turn(loop, [finishedLoop]);
+      out.loop = exitSummary(loop);
+      loop.emit('agent_end', {});
+      await flush();
+      out.loopLater = exitSummary(loop);
+      // The finished session is inactive: a later plan-mode Finished answer is not write-spec's.
+      loop.setMode('plan');
+      await turn(loop, [finishedLoop]);
+      out.afterExit = exitSummary(loop);
+
+      // SCN002: bare /sdlc-write-spec initial picker Finished.
+      const initial = writeSpecSession({ mode: 'plan' });
+      await turn(initial, [finishedInitial]);
+      out.initial = exitSummary(initial);
+
+      const paused = writeSpecSession({ mode: 'plan_paused' });
+      await turn(paused, [finishedLoop]);
+      out.paused = exitSummary(paused);
+
+      // SCN003: non-Finished selections and asks outside write-spec keep plan mode.
+      for (const [name, results] of [
+        ['issueRow', [ask(['#445 — Next issue'])]],
+        ['continue', [ask(['Continue — enter another issue number'])]],
+        ['customIssue', [ask([], { customInput: '#12' })]],
+        ['customInvalid', [ask([], { customInput: 'abc' })]],
+        ['errored', [{ ...finishedLoop, isError: true }]],
+        ['laterAsk', [finishedLoop, ask(['#445 — Next issue'])]],
+      ]) {
+        const state = writeSpecSession({ mode: 'plan' });
+        await turn(state, results);
+        out[name] = exitSummary(state);
+      }
+      const draftIssue = tracked(host({ mode: 'plan' }));
+      draftIssue.emit('input', { text: '/sdlc-draft-issue', source: 'interactive' });
+      await turn(draftIssue, [finishedLoop]);
+      out.otherCommand = exitSummary(draftIssue);
+      const noSession = tracked(host({ mode: 'plan' }));
+      await turn(noSession, [finishedLoop]);
+      out.noSession = exitSummary(noSession);
+
+      // SCN004: other continuations (tool calls, errors) wait for the terminal end.
+      const waiting = writeSpecSession({ mode: 'plan' });
+      waiting.emit('tool_result', finishedLoop);
+      waiting.emit('agent_end', { willContinue: true, messages: [{ role: 'assistant', stopReason: 'toolUse', content: [{ type: 'toolCall' }] }] });
+      waiting.emit('agent_end', { willContinue: true, messages: [{ role: 'assistant', stopReason: 'error', content: [] }] });
+      await flush();
+      out.waitingNonterminal = exitSummary(waiting);
+      waiting.emit('agent_end', { messages: [reply] });
+      await flush();
+      out.waitingTerminal = exitSummary(waiting);
+
+      // SCN004: undispatchable or non-progressing exits keep the draft and warn once.
+      for (const [name, options] of [
+        ['missingUI', { hasUI: false }],
+        ['draft', { draft: 'my draft' }],
+        ['wrongFocus', { focused: {} }],
+        ['submitThrows', { submitThrows: true }],
+        ['declined', { declineExit: true }],
+      ]) {
+        const state = writeSpecSession({ mode: 'plan' });
+        Object.assign(state, options);
+        await turn(state, [finishedLoop]);
+        out[name] = exitSummary(state);
+        Object.assign(state, { hasUI: true, submitThrows: false, declineExit: false });
+        state.emit('agent_end', { messages: [reply] });
+        await flush();
+        out[name + 'Later'] = exitSummary(state);
+      }
+
+      // SCN005: a continuation pending in the same turn wins; a new invocation drops a pending exit.
+      const both = writeSpecSession();
+      await turn(both, [merge(460, 'p460'), finishedLoop]);
+      both.emit('agent_end', {});
+      await flush();
+      out.continuationWins = exitSummary(both);
+      const restarted = writeSpecSession({ mode: 'plan' });
+      restarted.emit('tool_result', finishedLoop);
+      restarted.emit('input', { text: '/sdlc-write-spec', source: 'interactive' });
+      await turn(restarted, []);
+      out.restarted = exitSummary(restarted);
+      process.stdout.write(JSON.stringify(out));
+    `);
+    const exited = { commands: ['/plan', '/plan'], modes: ['plan', 'plan_paused', 'none'], ends: ['continued', 'aborted'], draft: '', notices: [] };
+    const kept = { commands: [], modes: ['plan'], ends: ['continued', 'reasked'], prompts: 0, draft: '', notices: [] };
+    const notice = 'NMG SDLC: write-spec finished, but plan mode is still active; /plan exits it.';
+
+    expect(out.loop).toEqual({ ...exited, prompts: 1 });
+    expect(out.loopLater).toEqual(out.loop);
+    expect(out.afterExit).toEqual({ ...exited, modes: [...exited.modes, 'plan'], ends: [...exited.ends, 'continued', 'reasked'], prompts: 1 });
+    expect(out.initial).toEqual({ ...exited, prompts: 0 });
+    expect(out.paused).toEqual({ commands: ['/plan'], modes: ['plan_paused', 'none'], ends: ['terminal'], prompts: 0, draft: '', notices: [] });
+    for (const name of ['issueRow', 'continue', 'customIssue', 'customInvalid', 'errored', 'laterAsk', 'otherCommand', 'noSession', 'restarted']) {
+      expect({ name, ...out[name] }).toEqual({ name, ...kept });
+    }
+    expect(out.waitingNonterminal).toEqual({ ...kept, ends: [] });
+    expect(out.waitingTerminal).toEqual({ ...exited, ends: [], prompts: 0 });
+    for (const name of ['missingUI', 'draft', 'wrongFocus', 'submitThrows', 'declined']) {
+      const failed = {
+        ...kept,
+        commands: name === 'declined' ? ['/plan'] : [],
+        draft: name === 'draft' ? 'my draft' : '',
+        notices: [notice],
+      };
+      expect({ name, ...out[name] }).toEqual({ name, ...failed });
+      expect({ name, ...out[name + 'Later'] }).toEqual({ name, ...failed });
+    }
+    expect(out.continuationWins).toEqual({ commands: [], modes: ['plan'], ends: ['terminal'], prompts: 1, draft: '', notices: [] });
   });
 });

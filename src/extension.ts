@@ -10,10 +10,15 @@ import {
   renderWriteSpecContinuation,
   rewriteInteractiveInput,
   sessionModeFromEntries,
+  writeSpecFinishedSelection,
   writeSpecPlanReentry,
 } from "./sdlc-commands.mjs";
 
-type HostEditor = { submit(): void; disableSubmit?: boolean };
+type HostEditor = {
+  submit(): void;
+  disableSubmit?: boolean;
+  onSubmit?: (text: string) => void | Promise<void>;
+};
 
 type ExtensionAPI = {
   setLabel(label: string): void;
@@ -43,9 +48,19 @@ type CommandContext = {
 type WriteSpecContinuation = {
   published: Array<{ issue: number; slug: string }>;
   pending: boolean;
+  // A write-spec session (the command or its continuation) is running.
+  active: boolean;
+  // A Finished picker selection awaits the end of its reply turn.
+  exitPending: boolean;
+};
+
+type AgentEnd = {
+  willContinue?: boolean;
+  messages?: Array<{ role?: string; stopReason?: string; content?: Array<{ type?: string }> }>;
 };
 
 const PENDING_CONTINUATION_NOTICE = "NMG SDLC: write-spec Continue is pending; it is submitted in plan mode after the next turn ends with an empty editor.";
+const FINISHED_EXIT_NOTICE = "NMG SDLC: write-spec finished, but plan mode is still active; /plan exits it.";
 
 
 export default function nmgSdlc(pi: ExtensionAPI): void {
@@ -59,7 +74,7 @@ export default function nmgSdlc(pi: ExtensionAPI): void {
   // One write-spec run per TUI process: plan approval ("Approve and execute")
   // clears into a new session, so published[] must outlive the session id.
   // Each new /sdlc-write-spec invocation starts a fresh list.
-  const writeSpec: WriteSpecContinuation = { published: [], pending: false };
+  const writeSpec: WriteSpecContinuation = { published: [], pending: false, active: false, exitPending: false };
   const recordedPublications = new Set<string>();
 
   pi.on("input", (event, ctx) => {
@@ -70,9 +85,7 @@ export default function nmgSdlc(pi: ExtensionAPI): void {
       sessionMode: sessionModeFromEntries(session.sessionManager?.getEntries?.()),
       headless: isInteractiveHeadless(session),
     });
-    if (rewritten && parseInteractiveSlash(input.text)?.command === "sdlc-write-spec") {
-      Object.assign(writeSpec, { published: [], pending: false });
-    }
+    if (rewritten) startInteractiveCommand(parseInteractiveSlash(input.text)?.command);
     return rewritten;
   });
 
@@ -81,6 +94,11 @@ export default function nmgSdlc(pi: ExtensionAPI): void {
   // builtin /plan command runs and post-merge remediation finishes first.
   pi.on("tool_result", (event) => {
     const toolResult = (event ?? {}) as { toolCallId?: string; [key: string]: unknown };
+    const finished = writeSpecFinishedSelection(toolResult);
+    if (finished !== null) {
+      if (writeSpec.active) writeSpec.exitPending = finished;
+      return;
+    }
     const result = writeSpecPlanReentry(toolResult, packageRoot);
     if (!result || typeof toolResult.toolCallId !== "string") return;
     if (recordedPublications.has(toolResult.toolCallId)) return;
@@ -90,22 +108,37 @@ export default function nmgSdlc(pi: ExtensionAPI): void {
     writeSpec.pending = true;
   });
 
-  pi.on("agent_end", (event, ctx) => {
-    if ((event as { willContinue?: boolean } | undefined)?.willContinue === true) return;
-    const session = (ctx ?? {}) as CommandContext;
-    if (!writeSpec.pending) return;
+  function startInteractiveCommand(command: string | undefined): void {
+    if (command === "sdlc-write-spec") {
+      Object.assign(writeSpec, { published: [], pending: false, active: true, exitPending: false });
+    } else {
+      Object.assign(writeSpec, { active: false, exitPending: false });
+    }
+  }
+
+  // Native plan mode never ends a text-only turn in plan mode: it appends a
+  // decision reminder and continues (willContinue: true). This mirrors that
+  // host rule so a Finished reply exits there; the /plan dispatch aborts the
+  // forced continuation. Other continuations still wait for the terminal end.
+  function planDecisionContinuation(end: AgentEnd, session: CommandContext): boolean {
+    if (sessionModeFromEntries(session.sessionManager?.getEntries?.()) !== "plan") return false;
+    const reply = end.messages?.findLast((message) => message?.role === "assistant");
+    if (!reply || reply.stopReason === "error" || reply.stopReason === "aborted") return false;
+    return !reply.content?.some((part) => part?.type === "toolCall");
+  }
+
+  // The focused TUI editor, only when the draft is empty and it can submit.
+  function focusedEditor(session: CommandContext): HostEditor | undefined {
     const ui = session.ui;
     const CustomEditor = pi.pi?.CustomEditor;
     if (
       session.hasUI !== true
       || !ui?.getEditorText
-      || !ui.setEditorText
       || !ui.setEditorComponent
       || typeof CustomEditor !== "function"
       || ui.getEditorText() !== ""
     ) {
-      ui?.notify?.(PENDING_CONTINUATION_NOTICE, "warning");
-      return;
+      return undefined;
     }
     let editor: HostEditor | undefined;
     try {
@@ -116,11 +149,16 @@ export default function nmgSdlc(pi: ExtensionAPI): void {
         return focused;
       });
     } catch {
-      ui.notify?.(PENDING_CONTINUATION_NOTICE, "warning");
-      return;
+      return undefined;
     }
-    if (!editor || editor.disableSubmit === true) {
-      ui.notify?.(PENDING_CONTINUATION_NOTICE, "warning");
+    return editor && editor.disableSubmit !== true ? editor : undefined;
+  }
+
+  function submitContinuation(session: CommandContext): void {
+    const ui = session.ui;
+    const editor = ui?.setEditorText ? focusedEditor(session) : undefined;
+    if (!ui?.setEditorText || !editor) {
+      ui?.notify?.(PENDING_CONTINUATION_NOTICE, "warning");
       return;
     }
     const continuation = renderWriteSpecContinuation(packageRoot, process.cwd(), writeSpec.published);
@@ -129,11 +167,57 @@ export default function nmgSdlc(pi: ExtensionAPI): void {
     try {
       ui.setEditorText(inPlan ? continuation : `/plan\n\n${continuation}`);
       editor.submit();
+      writeSpec.active = true;
     } catch {
       ui.setEditorText("");
       writeSpec.pending = true;
       ui.notify?.(PENDING_CONTINUATION_NOTICE, "warning");
     }
+  }
+
+  // Bare /plan pauses an enabled plan and a second /plan from plan_paused
+  // disables it. Each toggle is awaited through the editor's onSubmit handler
+  // because submit() does not await it.
+  async function exitPlanMode(session: CommandContext): Promise<void> {
+    const currentMode = () => sessionModeFromEntries(session.sessionManager?.getEntries?.());
+    const mode = currentMode();
+    if (mode !== "plan" && mode !== "plan_paused") {
+      writeSpec.active = false;
+      return;
+    }
+    const editor = focusedEditor(session);
+    const onSubmit = editor?.onSubmit;
+    if (!editor || typeof onSubmit !== "function") {
+      session.ui?.notify?.(FINISHED_EXIT_NOTICE, "warning");
+      return;
+    }
+    try {
+      for (let toggle = 0; toggle < 2; toggle++) {
+        const before = currentMode();
+        if (before !== "plan" && before !== "plan_paused") break;
+        await onSubmit.call(editor, "/plan");
+        if (currentMode() === before) break;
+      }
+    } catch {
+      // Reported below: the mode is still plan or plan_paused.
+    }
+    if (currentMode() === "none") writeSpec.active = false;
+    else session.ui?.notify?.(FINISHED_EXIT_NOTICE, "warning");
+  }
+
+  pi.on("agent_end", (event, ctx) => {
+    const end = (event ?? {}) as AgentEnd;
+    const session = (ctx ?? {}) as CommandContext;
+    if (end.willContinue === true) {
+      if (!writeSpec.exitPending || writeSpec.pending || !planDecisionContinuation(end, session)) return;
+    } else if (writeSpec.pending) {
+      writeSpec.exitPending = false;
+      submitContinuation(session);
+      return;
+    }
+    if (!writeSpec.exitPending) return;
+    writeSpec.exitPending = false;
+    void exitPlanMode(session);
   });
 
   pi.on("context", (event) => {
@@ -156,7 +240,7 @@ export default function nmgSdlc(pi: ExtensionAPI): void {
           sessionMode: "none",
         });
         if (!rewritten?.text) return;
-        if (name === "sdlc-write-spec") Object.assign(writeSpec, { published: [], pending: false });
+        startInteractiveCommand(name);
         pi.sendUserMessage(rewritten.text);
       },
     });

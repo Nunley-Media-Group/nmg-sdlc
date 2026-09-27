@@ -230,7 +230,7 @@ Every executable issue acceptance criterion has a corresponding Gherkin scenario
 | Skill fixtures | Deterministic artifact/rubric runner | `scripts/__fixtures__/skill-exercise/` |
 | Live skill proof | Disposable project via `omp --print --no-session` | Verification evidence |
 | Installed-surface proof | Fresh install or actual upgrade root | Release verification evidence |
-| Consumer-project smoke | Clone `Nunley-Media-Group/nmg-sdlc-smoke` and run this checkout's execute controller for the configured explicit issue queue | Steering validation `repository.nmg-sdlc-smoke` |
+| Consumer-project smoke | Clone `Nunley-Media-Group/nmg-sdlc-smoke`, provision a fresh issue with an Approved spec unless an explicit queue is set, and run this checkout's execute controller for that queue | Steering validation `repository.nmg-sdlc-smoke` |
 
 ### Disposable Exercise Pattern
 
@@ -243,7 +243,7 @@ Every executable issue acceptance criterion has a corresponding Gherkin scenario
 
 Do not pollute production repositories to prove issue/PR content. When a remote mutation is not essential, evaluate the exact command/body artifact through a deterministic fixture.
 
-The live smoke gate may mutate only `Nunley-Media-Group/nmg-sdlc-smoke`, and only through `scripts/sdlc-execute.mjs run` and its normal workflow-owned workers; the provider never performs ad-hoc GitHub writes. Before each verification, provision one or more fresh issues with approved specs through the smoke repository's normal `/sdlc-draft-issue` and `/sdlc-write-spec` workflows, then set their explicit numbers in `NMG_SDLC_SMOKE_ISSUES`. Delivered issues are terminal and must not be reused.
+The live smoke gate may mutate only `Nunley-Media-Group/nmg-sdlc-smoke`, and only through the real `/sdlc-draft-issue`, `/sdlc-write-spec`, and `scripts/sdlc-execute.mjs run` workflows and their workers; the provider never performs ad-hoc GitHub writes. Without an explicit queue, the gate provisions one fresh issue itself, with no operator input: it drafts it with `config.provision.need` and writes its Approved spec in a provider-owned Herdr `omp` pane, answering every ask with its Recommended option and every plan approval with `Approve and execute`. It ends provisioning on GitHub publication evidence, then closes the pane. Operators never provision smoke issues or answer smoke gates. `NMG_SDLC_SMOKE_ISSUES` is only an optional explicit override. Delivered issues are terminal and must not be reused.
 
 ### Smoke Experiment Scope and Progress
 
@@ -278,7 +278,7 @@ Never infer a stronger layer from a weaker one.
 | Gate | Condition | Action | Pass Criteria |
 |------|-----------|--------|---------------|
 | Contract tests | `scripts/__tests__/` exists | `cd scripts && npm test` | Exit 0; no unexpected skips or orphaned imports |
-| Live smoke project | Always | Provision fresh smoke issues and approved specs through normal workflow ownership; set the explicit queue in `NMG_SDLC_SMOKE_ISSUES`; clone `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git` without shallow history; record each configured issue's exact closing-PR baseline; then run `node &lt;plugin-root&gt;/scripts/sdlc-execute.mjs run #N [...]` once for the configured issues in order (a rerun after execute delivered only a leading part of the queue resumes the undelivered remainder in the retained clone under the same invocation token), with cwd set to the clone and `NMG_SDLC_SMOKE_OWNED=1`; read each workflow-recorded pre-merge delivery proof before accepting controller success | For every configured issue, an exact closing PR outside the pre-run baseline is GitHub `MERGED`, its number and `headRefOid` exactly equal the invocation's pre-merge delivery proof, and the issue is GitHub `CLOSED`; a nonzero execute exit may pass only when all current-invocation proof is exact; pre-existing merged PRs and status JSON cannot pass |
+| Live smoke project | Always | Use the explicit queue in `NMG_SDLC_SMOKE_ISSUES` when set; otherwise provision one fresh issue with an Approved spec itself through the real draft-issue and write-spec workflows in a provider-owned Herdr pane; clone `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git` without shallow history; record each configured issue's exact closing-PR baseline; then run `node &lt;plugin-root&gt;/scripts/sdlc-execute.mjs run #N [...]` once for the configured issues in order (a rerun after execute delivered only a leading part of the queue resumes the undelivered remainder in the retained clone under the same invocation token), with cwd set to the clone and `NMG_SDLC_SMOKE_OWNED=1`; read each workflow-recorded pre-merge delivery proof before accepting controller success | For every configured issue, an exact closing PR outside the pre-run baseline is GitHub `MERGED`, its number and `headRefOid` exactly equal the invocation's pre-merge delivery proof, and the issue is GitHub `CLOSED`; a nonzero execute exit may pass only when all current-invocation proof is exact; pre-existing merged PRs and status JSON cannot pass |
 | Skill inventory | Skill/reference/agent surface changed | `node scripts/skill-inventory-audit.mjs --check` | Exit 0 and baseline current |
 | OMP plugin surface | Plugin surface changed | `node scripts/verify-plugin-surface.mjs --root . --label repository` | Exit 0 |
 | Skill creator validation | Skill-bundled files changed in a worker | Resolve and read `skill://skill-creator`, then validate each affected bundle as directed | All affected bundles satisfy the resolved skill-creator contract |
@@ -353,7 +353,7 @@ Exercise live proof uses `omp --print --no-session` loading this repository's sk
 | `HERDR_SOCKET_PATH` | Herdr 0.8.0 socket for execute |
 | `HERDR_PANE_ID` | Calling pane id for execute splits |
 | `NMG_SDLC_SMOKE_OWNED` | Must be `1` only while the verification-owned controller mutates `Nunley-Media-Group/nmg-sdlc-smoke`; it authorizes no other repository or mutation path |
-| `NMG_SDLC_SMOKE_ISSUES` | Fresh, explicit comma- or whitespace-separated smoke issue numbers with approved specs; required by the always-on mutable smoke gate and never reused after delivery |
+| `NMG_SDLC_SMOKE_ISSUES` | Optional explicit comma- or whitespace-separated smoke issue numbers with approved specs; when unset the always-on smoke gate provisions its own fresh issue. Never reuse delivered issues |
 
 No optional environment variable may change interactive `/plan` behavior or broaden mutation scope.
 
