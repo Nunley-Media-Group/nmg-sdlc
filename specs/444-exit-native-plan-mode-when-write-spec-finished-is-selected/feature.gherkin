@@ -1,0 +1,49 @@
+**Issue**: #444
+**Date**: 2026-09-26
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/438-return-write-spec-to-native-plan-mode-after-merged-publication/
+
+# File: scripts/__tests__/extension-commands.test.mjs
+# Generated from: specs/444-exit-native-plan-mode-when-write-spec-finished-is-selected/requirements.md
+Feature: Exit native plan mode when write-spec Finished is selected
+  Selecting Finished in either write-spec picker left the TUI session in
+  native plan mode, so the write-spec cycle could not stop.
+
+  @SCN001 @regression
+  Scenario: Continue-loop Finished exits plan mode fully
+    Given a write-spec continuation running in native plan mode after issue 450 was published
+    When the Continue picker returns "Finished — stop writing specs" and the turn ends terminally
+    Then the extension dispatches builtin /plan twice through the focused TUI editor
+    And the session mode is recorded as plan_paused and then none
+    And the continuation prompt was submitted exactly once and no other command is dispatched
+
+  @SCN002 @regression
+  Scenario: Initial-picker Finished exits plan mode fully
+    Given bare /sdlc-write-spec running in native plan mode
+    When the initial picker returns "Finished — stop without writing a spec" and the turn ends terminally
+    Then the extension dispatches builtin /plan twice through the focused TUI editor
+    And the last session mode is none and no notification is shown
+
+  @SCN003 @regression
+  Scenario: Non-Finished selections keep plan mode
+    Given a write-spec session in native plan mode
+    When a picker returns "#445 — Next issue", "Continue — enter another issue number", custom input "#12", or custom input "abc" and the turn ends terminally
+    Then no /plan command is dispatched
+    And the session mode stays plan
+
+  @SCN004 @regression
+  Scenario: Undispatchable exit fails safe
+    Given "Finished — stop writing specs" was selected in a write-spec session in native plan mode
+    When the terminal turn ends with no UI, the editor draft "my draft", an unfocused editor, a throwing submit, or a declined exit confirmation
+    Then the editor draft is unchanged and no partial command is submitted
+    And the warning "NMG SDLC: write-spec finished, but plan mode is still active; /plan exits it." is shown once
+    And a later terminal turn end dispatches nothing
+    And a non-terminal turn end before the terminal one dispatches nothing
+
+  @SCN005 @regression
+  Scenario: Post-publication continuation is preserved
+    Given merged write-spec publications for issues 400 and 402 in one TUI process
+    When each execution turn ends terminally
+    Then the Continue prompt is submitted into plan mode exactly once per publication listing every published N-slug
+    And a new /sdlc-write-spec invocation resets the published list and a pending Finished exit
