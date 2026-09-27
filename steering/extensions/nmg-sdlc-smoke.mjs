@@ -615,6 +615,26 @@ export function planGateVisible(screen) {
   });
 }
 
+// The native plan-approval gate is pending when the session's last message is a successful
+// `xd://propose` result and plan mode has not been left since. OMP can leave that focused
+// fullscreen selector unpainted (observed in a session replaced by an earlier approval), so the
+// screen marker alone cannot prove the gate.
+export function pendingPlanApproval(sessionText) {
+  let pending = false;
+  for (const line of String(sessionText ?? "").split("\n")) {
+    let entry;
+    try { entry = JSON.parse(line); } catch { continue; }
+    if (entry?.type === "message") {
+      const message = entry.message;
+      const xdev = message?.role === "toolResult" && message.isError !== true ? message.details?.xdev : null;
+      pending = xdev?.tool === "propose" && xdev.mode === "execute";
+    } else if (entry?.type === "mode_change" && entry.mode !== "plan") {
+      pending = false;
+    }
+  }
+  return pending;
+}
+
 // The last built-in ask call without a matching tool result is the gate the TUI is showing.
 export function pendingAsk(sessionText) {
   const answered = new Set();
@@ -823,7 +843,9 @@ async function provisionSmokeIssue({
           // Herdr reports the native plan-approval selector as settled: `idle`, `blocked` without a
           // pending ask, or `done` in an unfocused pane. Its default is "Approve and execute".
           const screen = await herdr.agentRead(name);
-          if (planGateVisible(screen?.stdout)) {
+          const planPending = planGateVisible(screen?.stdout)
+            || (sessionPath !== null && pendingPlanApproval(readFile(sessionPath, "utf8")));
+          if (planPending) {
             await herdr.agentSendKeys(name, ["enter"]);
             quiet = 0;
             continue;

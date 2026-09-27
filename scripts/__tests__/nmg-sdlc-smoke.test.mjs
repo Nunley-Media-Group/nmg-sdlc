@@ -1196,6 +1196,15 @@ function askCall(id, questions) {
 function askResult(id) {
   return { type: 'message', message: { role: 'toolResult', toolCallId: id, toolName: 'ask', content: [] } };
 }
+function proposeResult(id) {
+  return {
+    type: 'message',
+    message: {
+      role: 'toolResult', toolCallId: id, toolName: 'write', content: [{ type: 'text', text: 'Plan ready for review.' }],
+      details: { xdev: { tool: 'propose', mode: 'execute', inner: { planFilePath: 'local://plan.md', title: 'plan', planExists: true } } },
+    },
+  };
+}
 function question(labels, recommended = 0) {
   return { id: labels[0], question: 'Pick', options: labels.map((label) => ({ label })), recommended };
 }
@@ -1214,6 +1223,19 @@ const NARROW_PLAN_SCREEN = [
   '╰───────────────────╯',
 ].join('\n');
 
+// The spec-phase screen captured live when OMP left the focused plan-approval selector unpainted.
+const UNPAINTED_PLAN_SCREEN = [
+  ' • propose',
+  '  └─',
+  ' title="spec-184\\',
+  ' n…"',
+  ' Plan ready for …',
+  ' ⟨Ctrl+O: Expand⟩',
+  '',
+  '╭── …RBe1T ───╮',
+  '╰─              ─╯',
+].join('\n');
+
 // A scripted OMP TUI behind a fake Herdr adapter. Each phase lists gates in order; an ask gate
 // needs one `enter` per question plus a submit, a plan gate needs one `enter`.
 function fakeProvisioningTui({
@@ -1224,7 +1246,9 @@ function fakeProvisioningTui({
   afterPublish = { ask: [question(['#30 — Unrelated marker', '#143 — Other helper', 'Finished — stop writing specs'])] },
   unknownBlocked = false,
   planScreen = 'plan text\nPlan mode - next step\nApprove and execute',
+  specPlanScreen = planScreen,
   planStatus = 'idle',
+  planEvidence = true,
 } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-smoke-session-'));
   commandFixtures.push({ root: dir, marker: path.join(dir, 'absent-marker') });
@@ -1242,6 +1266,10 @@ function fakeProvisioningTui({
       tui.gate.id = `toolu_${tui.askSeq += 1}`;
       append(askCall(tui.gate.id, tui.gate.ask));
     }
+    if (tui.gate?.plan && planEvidence) {
+      append(proposeResult(`toolu_propose_${tui.askSeq += 1}`));
+      append({ type: 'mode_change', mode: 'plan' });
+    }
     if (!tui.gate) {
       if (tui.phase === 'draft') tui.issueCreated = true;
       if (tui.phase === 'spec') {
@@ -1257,7 +1285,7 @@ function fakeProvisioningTui({
     if (tui.gate?.plan) return planStatus;
     return 'idle';
   };
-  const screen = () => (tui.gate?.plan ? planScreen : 'Working…');
+  const screen = () => (tui.gate?.plan ? (tui.phase === 'spec' ? specPlanScreen : planScreen) : 'Working…');
   const ok = (value) => result(0, JSON.stringify({ result: value }));
   tui.herdr = {
     paneSplit: async (cwd) => { tui.splits.push(cwd); return ok({ pane: { pane_id: 'wF:p99' } }); },
@@ -1279,6 +1307,7 @@ function fakeProvisioningTui({
       const needed = tui.gate.ask ? tui.gate.ask.length + (tui.gate.ask.length > 1 ? 1 : 0) : 1;
       if (tui.pressed >= needed) {
         if (tui.gate.ask) append(askResult(tui.gate.id));
+        if (tui.gate.plan && planEvidence) append({ type: 'mode_change', mode: 'none' });
         openGate();
       }
       return result();
@@ -1346,7 +1375,7 @@ describe('nmg-sdlc smoke gate self-provisioning', () => {
     ['blocked without a pending ask', 'blocked'],
     ['done in an unfocused pane', 'done'],
   ])('SCN007: approves a plan selector truncated by a narrow pane while %s', async (_label, planStatus) => {
-    const tui = fakeProvisioningTui({ planScreen: NARROW_PLAN_SCREEN, planStatus });
+    const tui = fakeProvisioningTui({ planScreen: NARROW_PLAN_SCREEN, planStatus, planEvidence: false });
     const fixture = provisioningHarness(tui);
     const outcome = await fixture.provider(fixture.request);
 
@@ -1354,12 +1383,23 @@ describe('nmg-sdlc smoke gate self-provisioning', () => {
     expect(tui.keys).toEqual(['enter', 'enter', 'enter', 'enter', 'enter', 'enter', 'enter']);
   });
 
-  it('SCN009: records the last agent status when a stall fails closed', async () => {
-    const tui = fakeProvisioningTui({ planScreen: 'Plan review\nnot a selector…' });
+  it('SCN007: approves a spec-phase plan gate that OMP left unpainted, from session evidence', async () => {
+    const tui = fakeProvisioningTui({ specPlanScreen: UNPAINTED_PLAN_SCREEN, planStatus: 'done' });
+    const fixture = provisioningHarness(tui);
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(outcome.status).toBe('passed');
+    expect(tui.prompts).toEqual([`/sdlc-draft-issue ${NEED}`, '/sdlc-write-spec 179']);
+    expect(tui.keys).toEqual(['enter', 'enter', 'enter', 'enter', 'enter', 'enter', 'enter']);
+  });
+
+  it('SCN009: an unpainted plan gate without propose evidence stalls and records the agent status', async () => {
+    const tui = fakeProvisioningTui({ planScreen: UNPAINTED_PLAN_SCREEN, planEvidence: false });
     const fixture = provisioningHarness(tui);
     const outcome = await fixture.provider(fixture.request);
 
     expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning stalled during draft' });
+    expect(tui.keys).toHaveLength(4);
     expect(outcome.evidence).toEqual(expect.arrayContaining([
       { kind: 'artifact', summary: 'provisioning agent status', artifact: 'idle' },
     ]));
