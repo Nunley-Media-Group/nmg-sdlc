@@ -33,7 +33,7 @@
 **When** the user selects `Finished — stop writing specs`
 **Then** the existing `Published specs: …` and `Next step: /sdlc-execute #<first-published>` lines are printed unchanged
 **And** the turn ends without another `ask` or `xd://propose`
-**And** after that turn ends terminally, the session's plan mode is fully disabled (last session mode entry `none`, no plan or plan-paused status) without the user typing any command
+**And** when that reply turn ends (terminally, or at the host's plan-mode decision continuation for a text-only reply), the session's plan mode is fully disabled (last session mode entry `none`, no plan or plan-paused status) without the user typing any command
 **And** the extension dispatches only builtin `/plan` commands, so the working tree remains on the repository default branch
 
 ### AC2: Initial-picker Finished exits plan mode fully
@@ -42,7 +42,7 @@
 **When** the user selects `Finished — stop without writing a spec`
 **Then** write-spec stops without Discovery and without printing `Published specs:` or `Next step:`
 **And** the turn ends without another `ask` or `xd://propose`
-**And** after that turn ends terminally, the session's plan mode is fully disabled without the user typing any command
+**And** when that reply turn ends (terminally, or at the host's plan-mode decision continuation for a text-only reply), the session's plan mode is fully disabled without the user typing any command
 
 ### AC3: Non-Finished selections keep plan mode
 
@@ -54,12 +54,12 @@
 ### AC4: Undispatchable exit fails safe
 
 **Given** a Finished selection whose plan-mode exit cannot be dispatched because there is no UI, a non-empty editor draft, an unfocused editor, or a submit failure, or whose dispatched `/plan` leaves plan mode active (for example, the host's `Exit plan mode?` confirmation is declined)
-**When** the terminal `agent_end` evaluates the exit
+**When** the reply turn's exit point (a terminal `agent_end`, or a plan-mode decision continuation) evaluates the exit
 **Then** the extension preserves any editor draft and submits no partial command
 **And** it shows the warning notification `NMG SDLC: write-spec finished, but plan mode is still active; /plan exits it.`
-**And** a later terminal `agent_end` dispatches nothing for that Finished selection
-**But Given** a non-terminal `agent_end` (`willContinue: true`) after a Finished selection
-**Then** the extension dispatches nothing and waits for the terminal end
+**And** a later `agent_end` dispatches nothing for that Finished selection
+**But Given** a non-terminal `agent_end` (`willContinue: true`) after a Finished selection that is not a plan-mode decision continuation — the session is not in `plan`, or the last assistant message contains a tool call or stopped with `error`/`aborted`
+**Then** the extension dispatches nothing and waits for the reply turn's exit point
 
 ### AC5: Post-publication continuation is preserved
 
@@ -108,16 +108,18 @@
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR1 | In a write-spec session (started by `/sdlc-write-spec` or its post-publication continuation), detect an `ask` result that selected the exact label `Finished — stop writing specs` or `Finished — stop without writing a spec`, and after the next terminal `agent_end` dispatch builtin `/plan` through the focused TUI editor, one awaited toggle at a time, until the session mode is `none` (not `plan_paused`). | Must |
+| FR1 | In a write-spec session (started by `/sdlc-write-spec` or its post-publication continuation), detect an `ask` result that selected the exact label `Finished — stop writing specs` or `Finished — stop without writing a spec`. At that reply turn's exit point — the next terminal `agent_end`, or a `willContinue: true` plan-mode decision continuation for a text-only reply — dispatch builtin `/plan` through the focused TUI editor, one awaited toggle at a time, until the session mode is `none` (not `plan_paused`). | Must |
 | FR2 | Both write-spec Finished branches end the turn after their existing output without calling `ask` or `xd://propose`; the write-spec workflow, publish reference, and interactive-surface reference describe the extension's plan-mode exit. | Must |
 | FR3 | Keep Finished labels, the Finished summary text, non-Finished picker outcomes, and the post-publication continuation unchanged; a pending continuation takes precedence over a Finished exit in the same turn. | Must |
 | FR4 | When the exit cannot be dispatched or leaves plan mode active, preserve the editor draft, submit nothing partial, show the warning notification once, and drop the pending exit. | Must |
 
 | FR5 | Extend `steering/extensions/nmg-sdlc-smoke.mjs` so an absent/empty explicit queue plus `config.provision.need` provisions one fresh issue with an Approved spec through the real draft-issue and write-spec workflows in a provider-owned Herdr `omp` pane, driven only by key presses chosen from the session's pending gate. | Must |
-| FR6 | Detect gates by polling (never a single indefinite `herdr agent wait`): pending `ask` from the session JSONL (last `ask` tool call without a result), plan approval from the `Plan mode - next step` screen marker while idle. Submit issue numbers bare, never `#N`. | Must |
+| FR6 | Detect gates by polling (never a single indefinite `herdr agent wait`): pending `ask` from the session JSONL (last `ask` tool call without a result, agent `blocked`); plan approval from the settled selector (`idle`, `done`, or `blocked` without a pending ask) shown by its screen marker (whole or pane-truncated) or, when OMP leaves it unpainted, by session evidence (last message a successful `xd://propose` result with no later non-plan mode change). Submit issue numbers bare, never `#N`. | Must |
 | FR7 | Complete provisioning only on GitHub evidence (new issue N, `spec-created`, merged spec PR); always close the owned pane; persist the provisioned issue in the recovery store before delivery so retries never draft twice. | Must |
 | FR8 | Apply the steering change through the shared steering writer (`scripts/sdlc-steering.mjs apply` with the current `sourceDigest`, then `validate`), registering `config.provision.need` in `steering/manifest.json` and updating the tech/product snippets so operators never provision smoke issues or set `NMG_SDLC_SMOKE_ISSUES`. | Must |
 | FR9 | Deterministic regressions with faked Herdr/gh/JSONL for: provisioning success, Recommended/approve key sequences, publication-then-loop pane close, zero or multiple new issues, unknown gate, recovery reuse, explicit-queue precedence. | Must |
+| FR10 | The gate proves the checkout under verification: when the verified project is itself an nmg-sdlc plugin root, its candidate tree and execute controller come from that checkout, not an installed package named by `NMG_SDLC_PLUGIN_ROOT`. A delivered provisioned issue is terminal; a changed verification identity provisions a fresh issue. | Must |
+
 ## Out of Scope
 
 - Stop/exit behavior of other interactive commands (`/sdlc-draft-issue`, `/sdlc-onboard-project`, `/sdlc-upgrade-project`, `/sdlc-run-retro`)
@@ -132,3 +134,4 @@
 |-------|------|---------|
 | #444 | 2026-09-26 | Initial defect report |
 | #444 | 2026-09-26 | Added smoke-gate self-provisioning (AC6–AC10, FR5–FR9) |
+| #444 | 2026-09-27 | Exit at the host's plan-mode decision continuation (AC1, AC2, AC4, FR1); plan-gate detection, checkout controller, and fresh-issue rules from live smoke (FR6, FR10) |

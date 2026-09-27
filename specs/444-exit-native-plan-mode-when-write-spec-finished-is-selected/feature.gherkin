@@ -13,7 +13,7 @@ Feature: Exit native plan mode when write-spec Finished is selected
   @SCN001 @regression
   Scenario: Continue-loop Finished exits plan mode fully
     Given a write-spec continuation running in native plan mode after issue 450 was published
-    When the Continue picker returns "Finished — stop writing specs" and the turn ends terminally
+    When the Continue picker returns "Finished — stop writing specs" and the text-only reply ends at the plan-mode decision continuation or terminally
     Then the extension dispatches builtin /plan twice through the focused TUI editor
     And the session mode is recorded as plan_paused and then none
     And the continuation prompt was submitted exactly once and no other command is dispatched
@@ -21,7 +21,7 @@ Feature: Exit native plan mode when write-spec Finished is selected
   @SCN002 @regression
   Scenario: Initial-picker Finished exits plan mode fully
     Given bare /sdlc-write-spec running in native plan mode
-    When the initial picker returns "Finished — stop without writing a spec" and the turn ends terminally
+    When the initial picker returns "Finished — stop without writing a spec" and the text-only reply ends at the plan-mode decision continuation or terminally
     Then the extension dispatches builtin /plan twice through the focused TUI editor
     And the last session mode is none and no notification is shown
 
@@ -35,11 +35,11 @@ Feature: Exit native plan mode when write-spec Finished is selected
   @SCN004 @regression
   Scenario: Undispatchable exit fails safe
     Given "Finished — stop writing specs" was selected in a write-spec session in native plan mode
-    When the terminal turn ends with no UI, the editor draft "my draft", an unfocused editor, a throwing submit, or a declined exit confirmation
+    When the reply turn's exit point is reached with no UI, the editor draft "my draft", an unfocused editor, a throwing submit, or a declined exit confirmation
     Then the editor draft is unchanged and no partial command is submitted
     And the warning "NMG SDLC: write-spec finished, but plan mode is still active; /plan exits it." is shown once
-    And a later terminal turn end dispatches nothing
-    And a non-terminal turn end before the terminal one dispatches nothing
+    And a later turn end dispatches nothing
+    And a non-terminal turn end that is not a plan-mode decision continuation (a tool-call reply, an error or aborted stop, or a session not in plan mode) dispatches nothing
 
   @SCN005 @regression
   Scenario: Post-publication continuation is preserved

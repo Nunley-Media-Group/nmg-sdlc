@@ -25,9 +25,9 @@
 **Type**: Modify
 **Depends**: T001
 **Acceptance**:
-- After a Finished selection in a write-spec session, the next terminal `agent_end` awaits the focused editor's `onSubmit("/plan")` once per toggle until the session mode is `none` (two toggles from `plan`, one from `plan_paused`) and dispatches nothing else (AC1, AC2, FR1)
+- After a Finished selection in a write-spec session, the reply turn's exit point — a terminal `agent_end`, or a `willContinue: true` plan-mode decision continuation (mode `plan`, last assistant message without a tool call and not `error`/`aborted`) — awaits the focused editor's `onSubmit("/plan")` once per toggle until the session mode is `none` (two toggles from `plan`, one from `plan_paused`) and dispatches nothing else (AC1, AC2, FR1)
 - Issue rows, `Continue — enter another issue number`, automatic Other input, a later non-Finished `ask` in the same turn, and `ask` results outside a write-spec session dispatch no exit (AC3)
-- Missing UI, non-empty draft, unfocused editor, submit failure, or a mode that stops progressing leaves the draft intact and shows `NMG SDLC: write-spec finished, but plan mode is still active; /plan exits it.` once; the pending exit is dropped; `willContinue: true` dispatches nothing and keeps it pending (AC4, FR4)
+- Missing UI, non-empty draft, unfocused editor, submit failure, or a mode that stops progressing leaves the draft intact and shows `NMG SDLC: write-spec finished, but plan mode is still active; /plan exits it.` once; the pending exit is dropped; any other `willContinue: true` end (not `plan` mode, a tool-call reply, or an `error`/`aborted` stop) dispatches nothing and keeps it pending (AC4, FR4)
 - A pending continuation is submitted exactly as before and wins over a Finished exit in the same turn; a new `/sdlc-write-spec` invocation clears published[], pending continuation, and pending exit (AC5, FR3)
 
 ### T003: Align write-spec contracts with the Finished exit
