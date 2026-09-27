@@ -11,15 +11,22 @@ import {
   realpathSync,
   renameSync,
   rmSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
-import { terminateOwnedProcessGroup, terminateOwnedProcessGroupAfterLeaderLoss } from "../../src/process-supervision.mjs";
-import { resolvePluginController, resolvePluginRoot } from "../../scripts/plugin-controller-path.mjs";
-import { inspectDeliveryValidation, inspectVerificationReadiness } from "../../scripts/verification-readiness.mjs";
+// The steering writer validates a staged copy of steering/ outside the checkout, where these
+// plugin modules do not resolve. Loading must still succeed there; a provider invocation
+// without them fails closed instead.
+const plugin = await Promise.all([
+  import("../../src/process-supervision.mjs"),
+  import("../../scripts/plugin-controller-path.mjs"),
+  import("../../scripts/verification-readiness.mjs"),
+]).then(([supervision, controllerPath, readiness]) => ({ ...supervision, ...controllerPath, ...readiness }))
+  .catch(() => null);
 
 const SMOKE_REPO = "https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git";
 const SMOKE_OWNER = "Nunley-Media-Group";
@@ -75,7 +82,9 @@ function runCommand(program, args, { cwd, env, signal } = {}) {
       resolve({ stdout, stderr, ...result });
     };
     const stop = async (leaderLost = false) => {
-      const cleanup = await (leaderLost ? terminateOwnedProcessGroupAfterLeaderLoss : terminateOwnedProcessGroup)(child);
+      const cleanup = await (leaderLost
+        ? plugin.terminateOwnedProcessGroupAfterLeaderLoss
+        : plugin.terminateOwnedProcessGroup)(child);
       if (!cleanup.ok) {
         child.stdout?.destroy();
         child.stderr?.destroy();
@@ -150,22 +159,32 @@ function environmentalFailure(result) {
   return ["cancelled", "process_lost", "launch_failed", "cleanup_failed"].includes(result?.reasonCode);
 }
 
-function configuredIssues(config, env) {
-  let issues = config?.issues;
-  if (!Object.hasOwn(config ?? {}, "issues")) {
-    if (typeof config?.issuesEnv !== "string" || !config.issuesEnv) return null;
-    const source = String(env[config.issuesEnv] ?? "").trim();
-    if (!source) return null;
-    const tokens = source.split(/[\s,]+/);
-    if (!tokens.every((token) => /^#?[1-9]\d*$/.test(token))) return null;
-    issues = tokens.map((token) => Number(token.replace(/^#/, "")));
-  }
+function explicitIssues(issues) {
   return Array.isArray(issues)
     && issues.length > 0
     && issues.every((issue) => Number.isSafeInteger(issue) && issue > 0)
     && new Set(issues).size === issues.length
     ? issues
     : null;
+}
+
+// Explicit queues (config.issues or a non-blank env value) take priority. Without one, a
+// configured provision need makes the gate draft and specify its own fresh smoke issue.
+function resolveQueue(config, env) {
+  if (Object.hasOwn(config ?? {}, "issues")) {
+    const issues = explicitIssues(config.issues);
+    return issues ? { kind: "explicit", issues } : null;
+  }
+  if (typeof config?.issuesEnv !== "string" || !config.issuesEnv) return null;
+  const source = String(env[config.issuesEnv] ?? "").trim();
+  if (source) {
+    const tokens = source.split(/[\s,]+/);
+    if (!tokens.every((token) => /^#?[1-9]\d*$/.test(token))) return null;
+    const issues = explicitIssues(tokens.map((token) => Number(token.replace(/^#/, ""))));
+    return issues ? { kind: "explicit", issues } : null;
+  }
+  const need = config.provision?.need;
+  return typeof need === "string" && need.trim() ? { kind: "provision", need: need.trim() } : null;
 }
 
 function closingIssue(result) {
@@ -482,11 +501,15 @@ export function validNestedOwnership(store, token, request, issues) {
   const match = String(token ?? "").match(/^([0-9a-f]{64})\.([0-9a-f]{64})$/);
   if (!match) return null;
   const state = store.read(match[1]);
+  // A provisioning queue (issues === null) reaches nested execution only through the outer
+  // invocation's recorded provisioned issue.
+  const expectedIssues = issues ?? (state?.provisioned ? [state.provisioned.issue] : null);
   if (
     !state
     || state.tokenSecret !== match[2]
     || state.clonePath !== resolve(request.projectRoot)
-    || !equal(state.issues, issues)
+    || !expectedIssues
+    || !equal(state.issues, expectedIssues)
     || state.phase !== "running"
   ) return null;
   // The token digest binds nested execution to this outer invocation.
@@ -532,7 +555,287 @@ function recoveryRecord(readFile, work, invocationId, issue) {
   return null;
 }
 
+const SMOKE_SLUG = `${SMOKE_OWNER}/${SMOKE_NAME}`;
+const PROVISION_POLL_MS = 3000;
+// Poll-count bounds, not wall-clock deadlines: consecutive polls with no progress and no
+// answerable gate, and polls waiting for a freshly started agent to accept input.
+const PROVISION_STALL_POLLS = 20;
+const PROVISION_READY_POLLS = 100;
+const PLAN_GATE_MARKER = "Plan mode - next step";
+const ISSUE_ROW = /^#(\d+)\s+—/;
 
+function defaultSleep(ms) {
+  return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
+}
+
+export function createHerdrAdapter(executeCommand, env, signal) {
+  const herdr = (args) => executeCommand("herdr", args, { env, signal });
+  return {
+    paneSplit: (cwd) => herdr(["pane", "split", "--current", "--direction", "right", "--cwd", cwd, "--no-focus"]),
+    paneClose: (pane) => herdr(["pane", "close", pane]),
+    agentStart: (name, pane) => herdr(["agent", "start", name, "--kind", "omp", "--pane", pane]),
+    agentGet: (name) => herdr(["agent", "get", name]),
+    agentPrompt: (name, text) => herdr(["agent", "prompt", name, text]),
+    agentRead: (name) => herdr(["agent", "read", name, "--source", "visible", "--format", "text"]),
+    agentSendKeys: (name, keys) => herdr(["agent", "send-keys", name, ...keys]),
+  };
+}
+
+function herdrResult(result) {
+  return result?.status === 0 ? parseJson(result)?.result ?? null : null;
+}
+
+// Plan approval starts a new session file in the same per-cwd directory; the provisioning
+// clone is unique, so the newest JSONL there is the live session.
+function liveSessionFile(sessionPath) {
+  if (typeof sessionPath !== "string" || !sessionPath.endsWith(".jsonl")) return null;
+  try {
+    const directory = dirname(sessionPath);
+    return readdirSync(directory)
+      .filter((name) => name.endsWith(".jsonl"))
+      .map((name) => join(directory, name))
+      .reduce((newest, file) => (statSync(file).mtimeMs > statSync(newest).mtimeMs ? file : newest), sessionPath);
+  } catch {
+    return sessionPath;
+  }
+}
+
+// The last built-in ask call without a matching tool result is the gate the TUI is showing.
+export function pendingAsk(sessionText) {
+  const answered = new Set();
+  let last = null;
+  for (const line of String(sessionText ?? "").split("\n")) {
+    let entry;
+    try { entry = JSON.parse(line); } catch { continue; }
+    const message = entry?.type === "message" ? entry.message : null;
+    if (message?.role === "toolResult" && message.toolName === "ask") answered.add(message.toolCallId);
+    if (message?.role === "assistant" && Array.isArray(message.content)) {
+      for (const part of message.content) {
+        if (part?.type === "toolCall" && part.name === "ask") last = part;
+      }
+    }
+  }
+  return last && !answered.has(last.id) ? last : null;
+}
+
+// OMP pre-positions each question's cursor on its recommended option (index 0 when unset), so
+// `enter` selects it and advances; a final `enter` submits a multi-question review tab.
+export function askDecision(call, issue) {
+  const questions = Array.isArray(call?.arguments?.questions) ? call.arguments.questions : [];
+  if (!questions.length) return { kind: "fail", summary: "free-form ask" };
+  for (const question of questions) {
+    const options = Array.isArray(question?.options) ? question.options : [];
+    if (!options.length) return { kind: "fail", summary: "free-form ask" };
+    if (question.multi === true) return { kind: "fail", summary: "multi-select ask" };
+    const recommended = Number.isInteger(question.recommended)
+      && question.recommended >= 0
+      && question.recommended < options.length ? question.recommended : 0;
+    const row = String(options[recommended]?.label ?? "").match(ISSUE_ROW);
+    // Never pick another issue (for example write-spec's continuation picker); publication
+    // evidence ends the session instead.
+    if (row && Number(row[1]) !== issue) return { kind: "wait" };
+  }
+  return { kind: "answer" };
+}
+
+async function newSmokeIssues(executeCommand, env, signal, baseline) {
+  const listed = await executeCommand("gh", [
+    "issue", "list", "-R", SMOKE_SLUG, "--state", "all", "--author", "@me", "--limit", "20", "--json", "number",
+  ], { env, signal });
+  const rows = listed.status === 0 ? parseJson(listed) : null;
+  if (!Array.isArray(rows)) return null;
+  return rows.map((row) => row?.number).filter((number) => Number.isSafeInteger(number) && number > baseline);
+}
+
+async function publishedSpec(executeCommand, env, signal, issue) {
+  const viewed = await executeCommand("gh", [
+    "issue", "view", String(issue), "-R", SMOKE_SLUG, "--json", "labels,url",
+  ], { env, signal });
+  const view = viewed.status === 0 ? parseJson(viewed) : null;
+  if (!Array.isArray(view?.labels) || !view.labels.some((label) => label?.name === "spec-created")) return null;
+  const title = `docs: approve spec for #${issue}`;
+  const listed = await executeCommand("gh", [
+    "pr", "list", "-R", SMOKE_SLUG, "--state", "merged", "--search", `"${title}" in:title`, "--json", "number,title,url",
+  ], { env, signal });
+  const pulls = listed.status === 0 ? parseJson(listed) : null;
+  const pull = Array.isArray(pulls) ? pulls.find((candidate) => candidate?.title === title) : null;
+  return pull ? { issueUrl: view.url, pull } : null;
+}
+
+// Drafts (unless `issue` is already recorded) and specifies one fresh smoke issue through the
+// real interactive workflows in a provider-owned Herdr pane, answering every gate itself.
+async function provisionSmokeIssue({
+  need,
+  issue: recordedIssue,
+  herdr,
+  executeCommand,
+  readFile,
+  createTemp,
+  remove,
+  env,
+  signal,
+  sleep,
+  pollMs,
+  onClone,
+  onIssue,
+}) {
+  const evidence = [];
+  const clone = createTemp(join(tmpdir(), "nmg-sdlc-smoke-provision-"));
+  onClone(clone);
+  let issue = recordedIssue ?? null;
+  let pane = null;
+  let name = null;
+  let sessionPath = null;
+  const snapshot = async () => {
+    const screen = name ? await herdr.agentRead(name) : null;
+    return [{ kind: "artifact", summary: "provisioning screen", artifact: bounded(screen?.stdout ?? "") }];
+  };
+  const stop = (status, summary, extra = []) => ({
+    status,
+    summary,
+    evidence: [
+      ...evidence,
+      ...extra,
+      ...(sessionPath ? [{ kind: "artifact", summary: "provisioning session", artifact: sessionPath }] : []),
+      retainedCloneEvidence(clone),
+    ],
+  });
+  const checked = async (summary, program, args, cwd) => {
+    const result = await executeCommand(program, args, { cwd, env, signal });
+    evidence.push(commandEvidence(summary, result, cwd ?? null));
+    return result;
+  };
+  try {
+    const cloned = await checked(`git clone --single-branch ${SMOKE_REPO} (provisioning)`, "git", [
+      "clone", "--single-branch", SMOKE_REPO, clone,
+    ]);
+    if (environmentalFailure(cloned) || cloned.status !== 0) {
+      return stop("incomplete", `nmg-sdlc-smoke provisioning clone ${cloned.reasonCode ?? `exited ${cloned.status}`}`);
+    }
+    const origin = await checked("git remote get-url origin (provisioning)", "git", ["remote", "get-url", "origin"], clone);
+    if (environmentalFailure(origin)) return stop("incomplete", `nmg-sdlc-smoke provisioning origin ${origin.reasonCode}`);
+    if (origin.status !== 0 || !allowedOrigin(origin.stdout)) {
+      return stop("failed", "nmg-sdlc-smoke provisioning origin not allowlisted");
+    }
+    const dirty = await checked("git status --porcelain (provisioning)", "git", ["status", "--porcelain"], clone);
+    if (environmentalFailure(dirty)) return stop("incomplete", `nmg-sdlc-smoke provisioning clean-check ${dirty.reasonCode}`);
+    if (dirty.status !== 0 || String(dirty.stdout ?? "").trim() !== "") {
+      return stop("failed", "nmg-sdlc-smoke provisioning clone dirty");
+    }
+    let baseline = null;
+    if (!issue) {
+      const latest = await checked("gh issue list latest (provisioning baseline)", "gh", [
+        "issue", "list", "-R", SMOKE_SLUG, "--state", "all", "--limit", "1", "--json", "number",
+      ]);
+      if (environmentalFailure(latest)) return stop("incomplete", `nmg-sdlc-smoke provisioning baseline ${latest.reasonCode}`);
+      const rows = latest.status === 0 ? parseJson(latest) : null;
+      baseline = Array.isArray(rows) ? (rows.length ? rows[0]?.number : 0) : null;
+      if (!Number.isSafeInteger(baseline) || baseline < 0) {
+        return stop("failed", "nmg-sdlc-smoke provisioning issue baseline unavailable");
+      }
+    }
+
+    const split = await herdr.paneSplit(clone);
+    evidence.push(commandEvidence("herdr pane split (provisioning)", split, clone));
+    pane = herdrResult(split)?.pane?.pane_id ?? null;
+    if (!pane) return stop("incomplete", "nmg-sdlc-smoke provisioning pane unavailable");
+    name = `smoke-provision-${randomBytes(4).toString("hex")}`;
+    const started = await herdr.agentStart(name, pane);
+    evidence.push(commandEvidence(`herdr agent start ${name} --kind omp`, started));
+    if (started.status !== 0) return stop("incomplete", "nmg-sdlc-smoke provisioning agent start failed");
+    for (let polls = 0; ; polls += 1) {
+      if (signal?.aborted) return stop("incomplete", "nmg-sdlc-smoke provisioning cancelled");
+      if (herdrResult(await herdr.agentGet(name))?.agent?.interactive_ready === true) break;
+      if (polls >= PROVISION_READY_POLLS) return stop("incomplete", "nmg-sdlc-smoke provisioning agent not ready");
+      await sleep(pollMs);
+    }
+
+    let published = null;
+    for (const phase of issue ? ["spec"] : ["draft", "spec"]) {
+      // Bare issue number: the TUI rewrites `#N` into `pr://N`.
+      const text = phase === "draft" ? `/sdlc-draft-issue ${need}` : `/sdlc-write-spec ${issue}`;
+      const prompted = await herdr.agentPrompt(name, text);
+      evidence.push(commandEvidence(`herdr agent prompt ${text}`, prompted));
+      if (environmentalFailure(prompted)) return stop("incomplete", `nmg-sdlc-smoke provisioning prompt ${prompted.reasonCode}`);
+      if (prompted.status !== 0) return stop("failed", "nmg-sdlc-smoke provisioning prompt rejected");
+      let quiet = 0;
+      for (;;) {
+        if (signal?.aborted) return stop("incomplete", "nmg-sdlc-smoke provisioning cancelled");
+        await sleep(pollMs);
+        const got = await herdr.agentGet(name);
+        if (environmentalFailure(got)) return stop("incomplete", `nmg-sdlc-smoke provisioning agent ${got.reasonCode}`);
+        const agent = herdrResult(got)?.agent;
+        if (!agent) return stop("incomplete", "nmg-sdlc-smoke provisioning agent lost");
+        const status = agent.agent_status;
+        sessionPath = liveSessionFile(agent.agent_session?.value) ?? sessionPath;
+
+        if (phase === "draft" && status !== "working") {
+          const created = await newSmokeIssues(executeCommand, env, signal, baseline);
+          if (created?.length > 1) {
+            return stop("failed", `nmg-sdlc-smoke provisioning created multiple issues ${created.map((n) => `#${n}`).join(", ")}`);
+          }
+          if (created?.length === 1) {
+            [issue] = created;
+            onIssue(issue);
+            break;
+          }
+        }
+        if (phase === "spec") {
+          published = await publishedSpec(executeCommand, env, signal, issue);
+          if (published) break;
+        }
+
+        const ask = status === "blocked" && sessionPath ? pendingAsk(readFile(sessionPath, "utf8")) : null;
+        if (ask) {
+          const decision = askDecision(ask, issue);
+          if (decision.kind === "fail") {
+            return stop("failed", `nmg-sdlc-smoke provisioning ${decision.summary}`, await snapshot());
+          }
+          if (decision.kind === "answer") {
+            await herdr.agentSendKeys(name, ["enter"]);
+            quiet = 0;
+            continue;
+          }
+        } else if (status === "idle") {
+          // Herdr reports the native plan-approval selector as idle; its default is "Approve and execute".
+          const screen = await herdr.agentRead(name);
+          if (String(screen?.stdout ?? "").includes(PLAN_GATE_MARKER)) {
+            await herdr.agentSendKeys(name, ["enter"]);
+            quiet = 0;
+            continue;
+          }
+        } else if (status === "working") {
+          quiet = 0;
+          continue;
+        }
+        quiet += 1;
+        if (quiet >= PROVISION_STALL_POLLS) {
+          return stop("failed", `nmg-sdlc-smoke provisioning stalled during ${phase}`, await snapshot());
+        }
+      }
+    }
+
+    remove(clone, { recursive: true, force: true });
+    return {
+      status: "passed",
+      issue,
+      evidence: [
+        ...evidence,
+        {
+          kind: "github",
+          summary: `provisioned smoke issue #${issue} ${published.issueUrl}; spec PR ${published.pull.url} MERGED`,
+          artifact: published.pull.url,
+        },
+        ...(sessionPath ? [{ kind: "artifact", summary: "provisioning session", artifact: sessionPath }] : []),
+      ],
+    };
+  } catch (error) {
+    return stop("incomplete", `nmg-sdlc-smoke provisioning ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    // Publication, not the session, ends provisioning: close the owned pane without answering more.
+    if (pane) await herdr.paneClose(pane);
+  }
+}
 
 export function inspectRecoveredVerificationEvidence(
   readFile,
@@ -574,7 +877,7 @@ export function inspectRecoveredVerificationEvidence(
   } catch {
     return false;
   }
-  const readiness = inspectVerificationReadiness({
+  const readiness = plugin.inspectVerificationReadiness({
     content,
     options: {
       expectedIssueNumber: recovered.issue,
@@ -584,7 +887,7 @@ export function inspectRecoveredVerificationEvidence(
   });
   if (readiness.implementationStatus !== "pass" || readiness.status === "unverifiable") return false;
   if (!content.includes("<!-- nmg-sdlc-delivery-validation:")) return true;
-  return inspectDeliveryValidation({
+  return plugin.inspectDeliveryValidation({
     content,
     options: {
       expectedIssueNumber: recovered.issue,
@@ -620,8 +923,6 @@ async function retainedCloneIdentity(executeCommand, state, env, signal) {
     : { status: "failed", summary: "nmg-sdlc-smoke retained clone identity mismatch", evidence };
 }
 
-
-
 export function createSmokeProvider({
   runCommand: executeCommand = runCommand,
   mkdtempSync: createTemp = mkdtempSync,
@@ -634,14 +935,18 @@ export function createSmokeProvider({
   verifyCurrentEvidence = inspectRecoveredVerificationEvidence,
   verifyRecoveredDelivery = inspectRecoveredDeliveryHandoff,
   verifyRetainedClone = retainedCloneIdentity,
+  herdr = null,
+  sleep = defaultSleep,
+  pollMs = PROVISION_POLL_MS,
   env = process.env,
 } = {}) {
-  return async function smokeProvider(request) {
+  const deliverSmoke = async (request, provisioning) => {
     const identity = request.identity;
-    const issues = configuredIssues(request.config, env);
-    if (!issues) {
+    const queue = resolveQueue(request.config, env);
+    if (!queue) {
       return envelope("failed", "nmg-sdlc-smoke issues config invalid", identity);
     }
+    let issues = queue.kind === "explicit" ? queue.issues : null;
 
     let controller;
     let pluginRoot;
@@ -650,8 +955,9 @@ export function createSmokeProvider({
         env,
         importMetaUrl: new URL("../../scripts/plugin-controller-path.mjs", import.meta.url).href,
       };
-      pluginRoot = resolvePluginRoot(options);
-      controller = resolvePluginController("sdlc-execute.mjs", options);
+      if (!plugin) throw new Error("plugin modules unavailable");
+      pluginRoot = plugin.resolvePluginRoot(options);
+      controller = plugin.resolvePluginController("sdlc-execute.mjs", options);
     } catch (error) {
       return envelope("failed", `nmg-sdlc-smoke ${error.message}`, identity);
     }
@@ -707,6 +1013,26 @@ export function createSmokeProvider({
     let terminalHeadEvidence = [];
     let supersedeFailedState = false;
     const receiptlessFailure = () => state?.phase === "failed" && !(state.expected ?? []).length;
+    let provisioned = null;
+    if (queue.kind === "provision" && state) {
+      provisioned = Number.isSafeInteger(state.provisioned?.issue) ? state.provisioned : null;
+      if (provisioned) issues = [provisioned.issue];
+      if (state.phase === "provisioning") {
+        if (!provisioned && sameOuterRequest(state, request)) {
+          return envelope("failed", "nmg-sdlc-smoke provisioning interrupted", identity, [
+            ...(typeof state.provisionClone === "string" ? [retainedCloneEvidence(state.provisionClone)] : []),
+          ]);
+        }
+        // A recorded issue is reused (its spec is finished if needed); an unrecorded interrupted
+        // provisioning under a changed verification identity is a new experiment.
+        state = null;
+        supersedeFailedState = true;
+      } else if (!provisioned) {
+        return envelope("failed", "nmg-sdlc-smoke recovery identity mismatch", identity, [
+          ...(typeof state.clonePath === "string" ? [retainedCloneEvidence(state.clonePath)] : []),
+        ]);
+      }
+    }
     if (state && (!equal(state.scope, scope) || !equal(state.issues, issues))) {
       return envelope("failed", "nmg-sdlc-smoke recovery identity mismatch", identity, [
         ...(typeof state.clonePath === "string" ? [retainedCloneEvidence(state.clonePath)] : []),
@@ -747,6 +1073,48 @@ export function createSmokeProvider({
       ]);
     }
 
+    if (queue.kind === "provision" && (!provisioned || !provisioned.published)) {
+      const provisioningState = {
+        schemaVersion: 1,
+        recoveryKey: scope.recoveryKey,
+        scope,
+        outerIdentity: identity,
+        validationId: request.validationId,
+        validationConfig: canonical(request.config),
+        pluginRoot,
+        issues: provisioned ? [provisioned.issue] : [],
+        phase: "provisioning",
+        provisioned,
+        provisionClone: null,
+      };
+      let recorded = provisioningState;
+      const record = (change) => {
+        recorded = { ...recorded, ...change };
+        recoveryStore.write(scope.recoveryKey, recorded, { replace: true });
+      };
+      recoveryStore.write(scope.recoveryKey, recorded, { replace: supersedeFailedState });
+      supersedeFailedState = true;
+      const outcome = await provisionSmokeIssue({
+        need: queue.need,
+        issue: provisioned?.issue,
+        herdr: herdr ?? createHerdrAdapter(executeCommand, env, request.signal),
+        executeCommand,
+        readFile,
+        createTemp,
+        remove,
+        env,
+        signal: request.signal,
+        sleep,
+        pollMs,
+        onClone: (provisionClone) => record({ provisionClone }),
+        onIssue: (issue) => record({ issues: [issue], provisioned: { issue, published: false } }),
+      });
+      provisioning.push(...outcome.evidence);
+      if (outcome.status !== "passed") return envelope(outcome.status, outcome.summary, identity);
+      provisioned = { issue: outcome.issue, published: true };
+      issues = [outcome.issue];
+      record({ issues, provisioned, provisionClone: null });
+    }
 
     let work = state?.clonePath ?? null;
     const retain = (status, summary, evidence = []) => envelope(status, summary, identity, [
@@ -1111,6 +1479,7 @@ export function createSmokeProvider({
         expected: [],
         validationConfig: canonical(request.config),
         candidateTree: launchedCandidate,
+        ...(provisioned ? { provisioned } : {}),
       };
       recoveryStore.write(scope.recoveryKey, state, { replace: supersedeFailedState });
       const execute = await executeCommand(process.execPath, [
@@ -1221,6 +1590,11 @@ export function createSmokeProvider({
     } catch (error) {
       return retain("incomplete", error instanceof Error ? error.message : String(error));
     }
+  };
+  return async function smokeProvider(request) {
+    const provisioning = [];
+    const result = await deliverSmoke(request, provisioning);
+    return provisioning.length ? { ...result, evidence: [...provisioning, ...result.evidence] } : result;
   };
 }
 

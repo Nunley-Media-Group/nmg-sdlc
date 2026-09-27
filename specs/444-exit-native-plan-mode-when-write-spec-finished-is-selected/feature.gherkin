@@ -47,3 +47,39 @@ Feature: Exit native plan mode when write-spec Finished is selected
     When each execution turn ends terminally
     Then the Continue prompt is submitted into plan mode exactly once per publication listing every published N-slug
     And a new /sdlc-write-spec invocation resets the published list and a pending Finished exit
+
+  # File: scripts/__tests__/nmg-sdlc-smoke.test.mjs
+  @SCN006 @regression
+  Scenario: Smoke gate provisions its own fresh issue when no queue is configured
+    Given NMG_SDLC_SMOKE_ISSUES is unset and the smoke validation config has a provision need
+    When the outer smoke provider runs with Herdr and GitHub available
+    Then it drafts exactly one new smoke issue and writes its Approved spec in one owned omp pane
+    And it delivers that issue with exact-head merged-PR and closed-issue proof
+    And no operator selection or environment variable was needed
+
+  @SCN007 @regression
+  Scenario: Provisioning gates are answered with Recommended choices and plan approval
+    Given the provisioning session shows a three-question ask and later the plan approval selector
+    When the provider polls the session
+    Then it sends enter for each question, enter on Submit, and enter on "Approve and execute"
+    And it submits "/sdlc-write-spec 179" with a bare issue number
+    And it never types text or selects Other
+
+  @SCN008 @regression
+  Scenario: Published spec ends provisioning even if the session keeps asking
+    Given issue 179 has the spec-created label and a merged "docs: approve spec for #179" pull request
+    When the session shows a continuation picker recommending issue 30
+    Then the provider closes its owned pane without answering and proceeds to delivery of 179
+
+  @SCN009 @regression
+  Scenario: Provisioning failures fail closed without duplicate drafts
+    Given provisioning finds zero or two new issues, or an unrecognized blocked gate persists
+    When the provider evaluates the session
+    Then the result is failed with screen and session evidence, the pane is closed, and the provisioning clone is retained
+    And a retry of the same verification identity reuses the recorded issue instead of drafting another
+
+  @SCN010 @regression
+  Scenario: Explicit queue keeps priority over provisioning
+    Given NMG_SDLC_SMOKE_ISSUES is "#11, 12"
+    When the gate runs
+    Then no provisioning pane is created and execute runs "#11 #12" exactly as before

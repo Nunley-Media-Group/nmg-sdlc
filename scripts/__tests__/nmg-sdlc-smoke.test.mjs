@@ -54,6 +54,7 @@ function harness(options = {}) {
   const deliveryHead = (issue) => `${issue}`.repeat(40).slice(0, 40);
   const configured = Array.isArray(config?.issues) ? config.issues : [11, 12];
   const readFileSync = jest.fn((file) => {
+    if (String(file).endsWith('.jsonl')) return fs.readFileSync(file, 'utf8');
     if (options.readFile) return options.readFile(file, { configured, deliveryHead });
     const text = String(file);
     if (text.includes('/smoke-deliveries/') && options.proofAvailable?.value === false) return '{}';
@@ -131,6 +132,9 @@ function harness(options = {}) {
     verifyCurrentEvidence: options.verifyCurrentEvidence ?? (() => true),
     verifyRetainedClone: options.verifyRetainedClone ?? (async () => ({ status: 'passed', evidence: [] })),
     env,
+    herdr: options.herdr ?? null,
+    sleep: async () => {},
+    pollMs: 0,
   });
   const request = {
     identity: {
@@ -260,10 +264,12 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect(validation).toEqual({
       id: 'repository.nmg-sdlc-smoke',
       provider: 'project.nmg-sdlc-smoke',
-
       required: true,
       when: { kind: 'always' },
-      config: { issuesEnv: 'NMG_SDLC_SMOKE_ISSUES' },
+      config: {
+        issuesEnv: 'NMG_SDLC_SMOKE_ISSUES',
+        provision: { need: expect.stringMatching(/\S/) },
+      },
     });
     expect(validation.config).not.toHaveProperty('issues');
   });
@@ -1163,5 +1169,245 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect(retained(outcome)).toBe(true);
     expect(fixture.rmSync).not.toHaveBeenCalled();
     expect(fixture.calls.map((call) => call.program)).not.toEqual(expect.arrayContaining(['npm', 'pytest', 'go']));
+  });
+});
+
+const NEED = 'Add one small new capability.';
+const PROVISION_CONFIG = Object.freeze({ issuesEnv: 'NMG_SDLC_SMOKE_ISSUES', provision: { need: NEED } });
+
+function askCall(id, questions) {
+  return { type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall', id, name: 'ask', arguments: { questions } }] } };
+}
+function askResult(id) {
+  return { type: 'message', message: { role: 'toolResult', toolCallId: id, toolName: 'ask', content: [] } };
+}
+function question(labels, recommended = 0) {
+  return { id: labels[0], question: 'Pick', options: labels.map((label) => ({ label })), recommended };
+}
+
+// A scripted OMP TUI behind a fake Herdr adapter. Each phase lists gates in order; an ask gate
+// needs one `enter` per question plus a submit, a plan gate needs one `enter`.
+function fakeProvisioningTui({
+  baseline = 178,
+  created = [179],
+  draftGates = [{ ask: [question(['greeting_has_hyphen', 'greeting_has_apostrophe']), question(['Enhancement', 'Bug']), question(['v3 (current)', 'v4 (next)'])] }, { plan: true }],
+  specGates = [{ ask: [question(['Keep scope minimal', 'Broaden'])] }, { plan: true }],
+  afterPublish = { ask: [question(['#30 — Unrelated marker', '#143 — Other helper', 'Finished — stop writing specs'])] },
+  unknownBlocked = false,
+} = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-smoke-session-'));
+  commandFixtures.push({ root: dir, marker: path.join(dir, 'absent-marker') });
+  const session = path.join(dir, 'session.jsonl');
+  fs.writeFileSync(session, '');
+  const tui = {
+    prompts: [], keys: [], splits: [], closed: [], phase: 'idle', gates: [], gate: null, pressed: 0,
+    issueCreated: false, published: false, askSeq: 0, session,
+  };
+  const append = (entry) => fs.appendFileSync(session, `${JSON.stringify(entry)}\n`);
+  const openGate = () => {
+    tui.gate = tui.gates.shift() ?? null;
+    tui.pressed = 0;
+    if (tui.gate?.ask) {
+      tui.gate.id = `toolu_${tui.askSeq += 1}`;
+      append(askCall(tui.gate.id, tui.gate.ask));
+    }
+    if (!tui.gate) {
+      if (tui.phase === 'draft') tui.issueCreated = true;
+      if (tui.phase === 'spec') {
+        tui.published = true;
+        tui.gate = afterPublish ? { ...afterPublish, id: 'toolu_after' } : null;
+        if (tui.gate?.ask) append(askCall(tui.gate.id, tui.gate.ask));
+      }
+    }
+  };
+  const status = () => {
+    if (unknownBlocked && tui.phase !== 'idle') return 'blocked';
+    if (tui.gate?.ask) return 'blocked';
+    return 'idle';
+  };
+  const screen = () => (tui.gate?.plan ? 'plan text\nPlan mode - next step\nApprove and execute' : 'Working…');
+  const ok = (value) => result(0, JSON.stringify({ result: value }));
+  tui.herdr = {
+    paneSplit: async (cwd) => { tui.splits.push(cwd); return ok({ pane: { pane_id: 'wF:p99' } }); },
+    paneClose: async (pane) => { tui.closed.push(pane); return result(); },
+    agentStart: async () => ok({ agent: { interactive_ready: true } }),
+    agentGet: async () => ok({ agent: { interactive_ready: true, agent_status: status(), agent_session: { value: session } } }),
+    agentPrompt: async (_name, text) => {
+      tui.prompts.push(text);
+      tui.phase = text.startsWith('/sdlc-draft-issue') ? 'draft' : 'spec';
+      tui.gates = structuredClone(tui.phase === 'draft' ? draftGates : specGates);
+      openGate();
+      return result();
+    },
+    agentRead: async () => result(0, screen()),
+    agentSendKeys: async (_name, keys) => {
+      tui.keys.push(...keys);
+      if (!tui.gate) return result();
+      tui.pressed += 1;
+      const needed = tui.gate.ask ? tui.gate.ask.length + (tui.gate.ask.length > 1 ? 1 : 0) : 1;
+      if (tui.pressed >= needed) {
+        if (tui.gate.ask) append(askResult(tui.gate.id));
+        openGate();
+      }
+      return result();
+    },
+  };
+  tui.github = (program, args) => {
+    if (program !== 'gh') return null;
+    if (args[0] === 'issue' && args[1] === 'list' && args.includes('--author')) {
+      return result(0, JSON.stringify(tui.issueCreated ? created.map((number) => ({ number })) : []));
+    }
+    if (args[0] === 'issue' && args[1] === 'list') return result(0, JSON.stringify([{ number: baseline }]));
+    if (args[0] === 'issue' && args[1] === 'view') {
+      return result(0, JSON.stringify({
+        url: `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/${args[2]}`,
+        labels: tui.published ? [{ name: 'enhancement' }, { name: 'spec-created' }] : [{ name: 'enhancement' }],
+      }));
+    }
+    if (args[0] === 'pr' && args[1] === 'list') {
+      return result(0, JSON.stringify(tui.published ? [{
+        number: 180,
+        title: `docs: approve spec for #${created[0]}`,
+        url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull/180',
+      }] : []));
+    }
+    return null;
+  };
+  return tui;
+}
+
+function provisioningHarness(tui, options = {}) {
+  return harness({
+    config: PROVISION_CONFIG,
+    herdr: tui.herdr,
+    ...options,
+    override: (program, args, commandOptions, calls) => tui.github(program, args)
+      ?? options.override?.(program, args, commandOptions, calls),
+  });
+}
+
+describe('nmg-sdlc smoke gate self-provisioning', () => {
+  it('SCN006/SCN007: drafts and specifies a fresh issue, answering every gate, then delivers it', async () => {
+    const tui = fakeProvisioningTui();
+    const fixture = provisioningHarness(tui);
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(outcome.status).toBe('passed');
+    expect(tui.prompts).toEqual([`/sdlc-draft-issue ${NEED}`, '/sdlc-write-spec 179']);
+    // Draft: three questions + submit, plan approval. Spec: one question, plan approval.
+    expect(tui.keys).toEqual(['enter', 'enter', 'enter', 'enter', 'enter', 'enter', 'enter']);
+    expect(tui.closed).toEqual(['wF:p99']);
+    const execute = fixture.calls.filter((call) => call.program === process.execPath);
+    expect(execute).toHaveLength(1);
+    expect(execute[0].args.slice(1)).toEqual(['run', '#179']);
+    expect(outcome.evidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'github', artifact: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull/180' }),
+      expect.objectContaining({ kind: 'github', summary: expect.stringContaining('issue #179') }),
+    ]));
+    const gh = fixture.calls.filter((call) => call.program === 'gh' && ['issue', 'pr'].includes(call.args[0]));
+    expect(gh.every((call) => call.args.includes('Nunley-Media-Group/nmg-sdlc-smoke'))).toBe(true);
+    expect(fixture.states.get(TEST_SCOPE.recoveryKey)).toMatchObject({ issues: [179], provisioned: { issue: 179, published: true } });
+  });
+
+  it('SCN008: closes the pane on publication without answering the continuation picker', async () => {
+    const tui = fakeProvisioningTui();
+    const fixture = provisioningHarness(tui);
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(outcome.status).toBe('passed');
+    const continuation = fs.readFileSync(tui.session, 'utf8');
+    expect(continuation).toContain('toolu_after');
+    expect(continuation).not.toContain('"toolCallId":"toolu_after"');
+    expect(tui.keys).toHaveLength(7);
+    expect(tui.closed).toEqual(['wF:p99']);
+  });
+
+  it('SCN008: never answers an unpublished picker that recommends another issue', async () => {
+    const tui = fakeProvisioningTui({ specGates: [{ ask: [question(['#30 — Unrelated marker', 'Finished — stop writing specs'])] }] });
+    const fixture = provisioningHarness(tui);
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning stalled during spec' });
+    expect(tui.keys).toHaveLength(5);
+    expect(fixture.calls.some((call) => call.program === process.execPath)).toBe(false);
+  });
+
+  it.each([
+    ['zero new issues', { created: [] }, 'nmg-sdlc-smoke provisioning stalled during draft'],
+    ['multiple new issues', { created: [179, 181] }, 'nmg-sdlc-smoke provisioning created multiple issues #179, #181'],
+    ['an unrecognized blocked gate', { unknownBlocked: true, draftGates: [], created: [] }, 'nmg-sdlc-smoke provisioning stalled during draft'],
+    ['a free-form ask', { draftGates: [{ ask: [{ id: 'need', question: 'What?', options: [] }] }] }, 'nmg-sdlc-smoke provisioning free-form ask'],
+  ])('SCN009: fails closed on %s, closes the pane, and retains the clone', async (_label, tuiOptions, summary) => {
+    const tui = fakeProvisioningTui(tuiOptions);
+    const fixture = provisioningHarness(tui);
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(outcome).toMatchObject({ status: 'failed', summary });
+    expect(tui.closed).toEqual(['wF:p99']);
+    expect(retained(outcome)).toBe(true);
+    expect(fixture.calls.some((call) => call.program === process.execPath)).toBe(false);
+  });
+
+  it('SCN009: a retry of the same identity reuses the recorded issue and only finishes its spec', async () => {
+    const states = new Map();
+    const failing = fakeProvisioningTui({ specGates: [{ ask: [question(['#30 — Unrelated marker'])] }] });
+    const first = provisioningHarness(failing, { states });
+    await expect(first.provider(first.request)).resolves.toMatchObject({ status: 'failed' });
+    expect(states.get(TEST_SCOPE.recoveryKey)).toMatchObject({ phase: 'provisioning', provisioned: { issue: 179, published: false } });
+
+    const tui = fakeProvisioningTui();
+    const retry = provisioningHarness(tui, { states });
+    const outcome = await retry.provider(retry.request);
+
+    expect(outcome.status).toBe('passed');
+    expect(tui.prompts).toEqual(['/sdlc-write-spec 179']);
+    expect(retry.calls.find((call) => call.program === process.execPath).args.slice(1)).toEqual(['run', '#179']);
+  });
+
+  it('SCN009: an interrupted provisioning without a recorded issue fails closed for the same identity', async () => {
+    const states = new Map([[TEST_SCOPE.recoveryKey, {
+      schemaVersion: 1,
+      recoveryKey: TEST_SCOPE.recoveryKey,
+      scope: TEST_SCOPE,
+      outerIdentity: {
+        headSha: 'a'.repeat(40), treeState: 'clean', dirtyDiffHash: null,
+        specHash: 'sha256:test', steeringHash: 'sha256:steering', validationConfigHash: 'sha256:validation',
+      },
+      validationId: 'repository.nmg-sdlc-smoke',
+      validationConfig: PROVISION_CONFIG,
+      issues: [],
+      phase: 'provisioning',
+      provisioned: null,
+      provisionClone: '/tmp/nmg-sdlc-smoke-provision-old',
+    }]]);
+    const tui = fakeProvisioningTui();
+    const fixture = provisioningHarness(tui, { states });
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning interrupted' });
+    expect(tui.prompts).toEqual([]);
+    expect(tui.splits).toEqual([]);
+  });
+
+  it('SCN010: an explicit queue never provisions', async () => {
+    const tui = fakeProvisioningTui();
+    const fixture = provisioningHarness(tui, { env: { ...VALID_ENV, NMG_SDLC_SMOKE_ISSUES: '#11, 12' } });
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(outcome.status).toBe('passed');
+    expect(tui.splits).toEqual([]);
+    expect(tui.prompts).toEqual([]);
+    expect(fixture.calls.find((call) => call.program === process.execPath).args.slice(1)).toEqual(['run', '#11', '#12']);
+  });
+
+  it('SCN010: an invalid non-blank explicit value still fails without provisioning', async () => {
+    const tui = fakeProvisioningTui();
+    const fixture = provisioningHarness(tui, { env: { ...VALID_ENV, NMG_SDLC_SMOKE_ISSUES: '#7 nope' } });
+
+    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
+      status: 'failed',
+      summary: 'nmg-sdlc-smoke issues config invalid',
+    });
+    expect(tui.splits).toEqual([]);
   });
 });
