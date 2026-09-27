@@ -34,7 +34,7 @@ If the trimmed value is empty:
 4. If `issues` is empty, print exactly `No open issues missing spec-created.` and stop without `ask` or usage output.
 5. Cache the complete `issues` array for this initial picker. Ask once with at most its first three rows as `#M — {title}`, recommended index 0, followed by exactly `Finished — stop without writing a spec`. Automatic Other remains available.
 6. A listed choice sets N. Parse automatic Other with `^#?([1-9]\d*)$`; a valid number sets N, while invalid input re-asks the same picker from the cached rows without rerunning the helper.
-7. Finished stops immediately without Discovery and without printing `Published specs:` or `Next step:`.
+7. Finished stops immediately without Discovery and without printing `Published specs:` or `Next step:`. End the turn there without another `ask` or `xd://propose`; after the turn ends, the extension exits native plan mode fully.
 
 After the initial selection, continue to Discovery with N.
 
@@ -158,7 +158,7 @@ Published specs: #<n> on <n>-<slug>[, ...]
 Next step: /sdlc-execute #<first-published>
 ```
 
-Stay on the repository default branch (the spec is already merged). Stop.
+Stay on the repository default branch (the spec is already merged). End the turn there without another `ask` or `xd://propose`; after the turn ends, the extension exits native plan mode fully.
 
 Continue / candidate / Other `#M`:
 

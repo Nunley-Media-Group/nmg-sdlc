@@ -21,6 +21,7 @@ import {
   sessionModeFromEntries,
   withArguments,
   renderWriteSpecContinuation,
+  writeSpecFinishedSelection,
   writeSpecPlanReentry,
 } from '../../src/sdlc-commands.mjs';
 
@@ -178,6 +179,41 @@ describe('write-spec plan re-entry', () => {
     ['non-bash result', event({ toolName: 'read' })],
   ])('rejects %s', (_label, toolResult) => {
     expect(writeSpecPlanReentry(toolResult, repoRoot)).toBeNull();
+  });
+});
+
+describe('write-spec Finished selection', () => {
+  const ask = (details, extra = {}) => ({ type: 'tool_result', toolName: 'ask', toolCallId: 'a1', details, isError: false, ...extra });
+
+  it.each([
+    ['Continue-loop Finished', ask({ selectedOptions: ['Finished — stop writing specs'] })],
+    ['initial-picker Finished', ask({ selectedOptions: ['Finished — stop without writing a spec'] })],
+    ['multi-question Finished', ask({ results: [
+      { id: 'other', selectedOptions: ['Yes'] },
+      { id: 'issue', selectedOptions: ['Finished — stop writing specs'] },
+    ] })],
+  ])('detects %s', (_label, event) => {
+    expect(writeSpecFinishedSelection(event)).toBe(true);
+  });
+
+  it.each([
+    ['an issue row', ask({ selectedOptions: ['#445 — Next issue'] })],
+    ['Continue', ask({ selectedOptions: ['Continue — enter another issue number'] })],
+    ['a near-miss label', ask({ selectedOptions: ['Finished - stop writing specs'] })],
+    ['custom input naming Finished', ask({ selectedOptions: [], customInput: 'Finished — stop writing specs' })],
+    ['multi-question custom input', ask({ results: [{ id: 'issue', selectedOptions: [], customInput: 'Finished — stop writing specs' }] })],
+    ['an errored result', ask({ selectedOptions: ['Finished — stop writing specs'] }, { isError: true })],
+    ['missing details', ask(undefined)],
+  ])('rejects %s', (_label, event) => {
+    expect(writeSpecFinishedSelection(event)).toBe(false);
+  });
+
+  it.each([
+    ['bash results', { type: 'tool_result', toolName: 'bash', details: { selectedOptions: ['Finished — stop writing specs'] } }],
+    ['non tool_result events', { type: 'tool_call', toolName: 'ask', details: { selectedOptions: ['Finished — stop writing specs'] } }],
+    ['undefined', undefined],
+  ])('ignores %s', (_label, event) => {
+    expect(writeSpecFinishedSelection(event)).toBeNull();
   });
 });
 

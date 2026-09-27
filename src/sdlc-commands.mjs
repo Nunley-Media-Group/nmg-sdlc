@@ -94,6 +94,30 @@ export function writeSpecPlanReentry(event, root = packageRoot) {
   return { issue, slug, pr: result.pr };
 }
 
+export const WRITE_SPEC_FINISHED_LABELS = Object.freeze([
+  "Finished — stop writing specs",
+  "Finished — stop without writing a spec",
+]);
+
+/**
+ * Classifies an `ask` tool result: `null` when the event is not an `ask`
+ * result, `true` when any answered question selected a write-spec Finished
+ * label, otherwise `false`. Automatic Other (`customInput`) is never Finished.
+ */
+export function writeSpecFinishedSelection(event) {
+  if (event?.type !== "tool_result" || event.toolName !== "ask") return null;
+  if (event.isError === true) return false;
+  const details = event.details ?? {};
+  const selected = [];
+  if (Array.isArray(details.selectedOptions)) selected.push(...details.selectedOptions);
+  if (Array.isArray(details.results)) {
+    for (const result of details.results) {
+      if (Array.isArray(result?.selectedOptions)) selected.push(...result.selectedOptions);
+    }
+  }
+  return selected.some((label) => typeof label === "string" && WRITE_SPEC_FINISHED_LABELS.includes(label));
+}
+
 function renderInteractiveWorkflow(command, root, provenanceRoot) {
   const pluginRoot = root ?? packageRoot;
   const projectRoot = provenanceRoot === undefined ? process.cwd() : provenanceRoot;

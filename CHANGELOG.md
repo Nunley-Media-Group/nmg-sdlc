@@ -10,6 +10,10 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 
 ## [Unreleased]
 
+### Fixed
+
+- Exit native plan mode when `/sdlc-write-spec` Finished is selected (#444): either Finished choice now ends the turn, and on the next terminal turn end the extension awaits builtin `/plan` through the focused TUI editor until the session mode is `none`. A draft, missing or unfocused editor, submit failure, or declined `Exit plan mode?` confirmation keeps the draft and warns once that `/plan` exits plan mode.
+
 ## [3.26.0] - 2026-09-26
 
 ### Changed
