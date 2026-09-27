@@ -1185,6 +1185,20 @@ function question(labels, recommended = 0) {
   return { id: labels[0], question: 'Pick', options: labels.map((label) => ({ label })), recommended };
 }
 
+// The plan-approval selector as captured from a live ~19-column Herdr split pane.
+const NARROW_PLAN_SCREEN = [
+  '╭─ Plan Review ─────╮',
+  '│  Add nmg-smoke  │ │',
+  '├───────────────────┤',
+  '│ Plan mode - next… │',
+  '│ continue with  ◂… │',
+  '│ ▸ Approve and ex… │',
+  '│   Refine plan     │',
+  '├───────────────────┤',
+  '│ ↑↓ select · ⏎ co… │',
+  '╰───────────────────╯',
+].join('\n');
+
 // A scripted OMP TUI behind a fake Herdr adapter. Each phase lists gates in order; an ask gate
 // needs one `enter` per question plus a submit, a plan gate needs one `enter`.
 function fakeProvisioningTui({
@@ -1194,6 +1208,8 @@ function fakeProvisioningTui({
   specGates = [{ ask: [question(['Keep scope minimal', 'Broaden'])] }, { plan: true }],
   afterPublish = { ask: [question(['#30 — Unrelated marker', '#143 — Other helper', 'Finished — stop writing specs'])] },
   unknownBlocked = false,
+  planScreen = 'plan text\nPlan mode - next step\nApprove and execute',
+  planStatus = 'idle',
 } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-smoke-session-'));
   commandFixtures.push({ root: dir, marker: path.join(dir, 'absent-marker') });
@@ -1223,9 +1239,10 @@ function fakeProvisioningTui({
   const status = () => {
     if (unknownBlocked && tui.phase !== 'idle') return 'blocked';
     if (tui.gate?.ask) return 'blocked';
+    if (tui.gate?.plan) return planStatus;
     return 'idle';
   };
-  const screen = () => (tui.gate?.plan ? 'plan text\nPlan mode - next step\nApprove and execute' : 'Working…');
+  const screen = () => (tui.gate?.plan ? planScreen : 'Working…');
   const ok = (value) => result(0, JSON.stringify({ result: value }));
   tui.herdr = {
     paneSplit: async (cwd) => { tui.splits.push(cwd); return ok({ pane: { pane_id: 'wF:p99' } }); },
@@ -1307,6 +1324,29 @@ describe('nmg-sdlc smoke gate self-provisioning', () => {
     const gh = fixture.calls.filter((call) => call.program === 'gh' && ['issue', 'pr'].includes(call.args[0]));
     expect(gh.every((call) => call.args.includes('Nunley-Media-Group/nmg-sdlc-smoke'))).toBe(true);
     expect(fixture.states.get(TEST_SCOPE.recoveryKey)).toMatchObject({ issues: [179], provisioned: { issue: 179, published: true } });
+  });
+
+  it.each([
+    ['idle', 'idle'],
+    ['blocked without a pending ask', 'blocked'],
+  ])('SCN007: approves a plan selector truncated by a narrow pane while %s', async (_label, planStatus) => {
+    const tui = fakeProvisioningTui({ planScreen: NARROW_PLAN_SCREEN, planStatus });
+    const fixture = provisioningHarness(tui);
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(outcome.status).toBe('passed');
+    expect(tui.keys).toEqual(['enter', 'enter', 'enter', 'enter', 'enter', 'enter', 'enter']);
+  });
+
+  it('SCN009: records the last agent status when a stall fails closed', async () => {
+    const tui = fakeProvisioningTui({ planScreen: 'Plan review\nnot a selector…' });
+    const fixture = provisioningHarness(tui);
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning stalled during draft' });
+    expect(outcome.evidence).toEqual(expect.arrayContaining([
+      { kind: 'artifact', summary: 'provisioning agent status', artifact: 'idle' },
+    ]));
   });
 
   it('SCN008: closes the pane on publication without answering the continuation picker', async () => {

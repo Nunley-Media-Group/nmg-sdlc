@@ -562,6 +562,9 @@ const PROVISION_POLL_MS = 3000;
 const PROVISION_STALL_POLLS = 20;
 const PROVISION_READY_POLLS = 100;
 const PLAN_GATE_MARKER = "Plan mode - next step";
+// A narrow pane truncates the selector title (`Plan mode - next…`); accept a truncated prefix at
+// least this long.
+const PLAN_GATE_MIN_PREFIX = "Plan mode".length;
 const ISSUE_ROW = /^#(\d+)\s+—/;
 
 function defaultSleep(ms) {
@@ -598,6 +601,18 @@ function liveSessionFile(sessionPath) {
   } catch {
     return sessionPath;
   }
+}
+
+// True when the visible screen shows the native plan-approval selector title, whole or truncated
+// with an ellipsis by the pane width.
+export function planGateVisible(screen) {
+  return String(screen ?? "").split("\n").some((raw) => {
+    const line = raw.replace(/^[\s│┃|]+|[\s│┃|]+$/g, "");
+    if (line.includes(PLAN_GATE_MARKER)) return true;
+    if (!line.endsWith("…")) return false;
+    const prefix = line.slice(0, -1).trimEnd();
+    return prefix.length >= PLAN_GATE_MIN_PREFIX && PLAN_GATE_MARKER.startsWith(prefix);
+  });
 }
 
 // The last built-in ask call without a matching tool result is the gate the TUI is showing.
@@ -686,9 +701,13 @@ async function provisionSmokeIssue({
   let pane = null;
   let name = null;
   let sessionPath = null;
+  let agentStatus = null;
   const snapshot = async () => {
     const screen = name ? await herdr.agentRead(name) : null;
-    return [{ kind: "artifact", summary: "provisioning screen", artifact: bounded(screen?.stdout ?? "") }];
+    return [
+      { kind: "artifact", summary: "provisioning screen", artifact: bounded(screen?.stdout ?? "") },
+      { kind: "artifact", summary: "provisioning agent status", artifact: String(agentStatus) },
+    ];
   };
   const stop = (status, summary, extra = []) => ({
     status,
@@ -767,6 +786,7 @@ async function provisionSmokeIssue({
         const agent = herdrResult(got)?.agent;
         if (!agent) return stop("incomplete", "nmg-sdlc-smoke provisioning agent lost");
         const status = agent.agent_status;
+        agentStatus = status;
         sessionPath = liveSessionFile(agent.agent_session?.value) ?? sessionPath;
 
         if (phase === "draft" && status !== "working") {
@@ -796,10 +816,11 @@ async function provisionSmokeIssue({
             quiet = 0;
             continue;
           }
-        } else if (status === "idle") {
-          // Herdr reports the native plan-approval selector as idle; its default is "Approve and execute".
+        } else if (status === "idle" || status === "blocked") {
+          // Herdr reports the native plan-approval selector as idle (blocked without a pending ask
+          // is accepted too); its default is "Approve and execute".
           const screen = await herdr.agentRead(name);
-          if (String(screen?.stdout ?? "").includes(PLAN_GATE_MARKER)) {
+          if (planGateVisible(screen?.stdout)) {
             await herdr.agentSendKeys(name, ["enter"]);
             quiet = 0;
             continue;
