@@ -1049,7 +1049,26 @@ export function createSmokeProvider({
     if (queue.kind === "provision" && state) {
       provisioned = Number.isSafeInteger(state.provisioned?.issue) ? state.provisioned : null;
       if (provisioned) issues = [provisioned.issue];
-      if (state.phase === "provisioning") {
+      if (provisioned?.published
+        && ["terminal", "cleanup_pending"].includes(state.phase)
+        && !sameOuterRequest(state, request)) {
+        // A delivered issue is terminal and never reused: a changed verification identity
+        // provisions a fresh issue instead of advancing the old delivery.
+        if (state.phase === "cleanup_pending" && typeof state.clonePath === "string") {
+          try {
+            remove(state.clonePath, { recursive: true, force: true });
+          } catch (error) {
+            return envelope("incomplete", "nmg-sdlc-smoke cleanup_failed", identity, [
+              commandEvidence("remove retained smoke clone", { error }),
+              retainedCloneEvidence(state.clonePath),
+            ]);
+          }
+        }
+        state = null;
+        provisioned = null;
+        issues = null;
+        supersedeFailedState = true;
+      } else if (state.phase === "provisioning") {
         if (!provisioned && sameOuterRequest(state, request)) {
           return envelope("failed", "nmg-sdlc-smoke provisioning interrupted", identity, [
             ...(typeof state.provisionClone === "string" ? [retainedCloneEvidence(state.provisionClone)] : []),

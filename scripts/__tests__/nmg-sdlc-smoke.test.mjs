@@ -1420,6 +1420,22 @@ describe('nmg-sdlc smoke gate self-provisioning', () => {
     expect(retry.calls.find((call) => call.program === process.execPath).args.slice(1)).toEqual(['run', '#179']);
   });
 
+  it('SCN009: a changed identity after a delivered provisioned issue provisions a fresh issue', async () => {
+    const states = new Map();
+    const first = provisioningHarness(fakeProvisioningTui(), { states });
+    await expect(first.provider(first.request)).resolves.toMatchObject({ status: 'passed' });
+    expect(states.get(TEST_SCOPE.recoveryKey)).toMatchObject({ phase: 'terminal', provisioned: { issue: 179, published: true } });
+
+    const tui = fakeProvisioningTui({ baseline: 179, created: [182] });
+    const retry = provisioningHarness(tui, { states });
+    const outcome = await retry.provider({ ...retry.request, identity: { ...retry.request.identity, headSha: 'b'.repeat(40) } });
+
+    expect(outcome).toMatchObject({ status: 'passed', summary: 'nmg-sdlc-smoke delivered #182' });
+    expect(tui.prompts).toEqual([`/sdlc-draft-issue ${NEED}`, '/sdlc-write-spec 182']);
+    expect(retry.calls.find((call) => call.program === process.execPath).args.slice(1)).toEqual(['run', '#182']);
+    expect(states.get(TEST_SCOPE.recoveryKey)).toMatchObject({ phase: 'terminal', provisioned: { issue: 182, published: true } });
+  });
+
   it('SCN009: an interrupted provisioning without a recorded issue fails closed for the same identity', async () => {
     const states = new Map([[TEST_SCOPE.recoveryKey, {
       schemaVersion: 1,
