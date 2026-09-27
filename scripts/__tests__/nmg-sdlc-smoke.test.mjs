@@ -253,6 +253,21 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect(fixture.mkdtempSync).not.toHaveBeenCalled();
   });
 
+  it('runs the verified checkout controller instead of an installed non-git NMG_SDLC_PLUGIN_ROOT', async () => {
+    const installed = commandFixture();
+    const checkout = path.resolve(SOURCE_ROOT);
+    const fixture = harness({ config: { issues: [7] }, env: { ...VALID_ENV, NMG_SDLC_PLUGIN_ROOT: installed.root } });
+    fixture.request.projectRoot = checkout;
+    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({ status: 'passed' });
+
+    const candidate = fixture.calls.filter((call) => call.program === 'git' && call.args[0] === 'read-tree');
+    expect(candidate.length).toBeGreaterThan(0);
+    expect(candidate.every((call) => call.options.cwd === checkout)).toBe(true);
+    const execute = fixture.calls.find((call) => call.program === process.execPath);
+    expect(execute.args[0]).toBe(path.join(checkout, 'scripts', 'sdlc-execute.mjs'));
+    expect(execute.options.env.NMG_SDLC_PLUGIN_ROOT).toBe(checkout);
+  });
+
 
   it('registers the required production env-backed smoke queue', () => {
     const manifest = JSON.parse(fs.readFileSync(

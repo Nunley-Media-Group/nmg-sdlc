@@ -944,6 +944,18 @@ async function retainedCloneIdentity(executeCommand, state, env, signal) {
     : { status: "failed", summary: "nmg-sdlc-smoke retained clone identity mismatch", evidence };
 }
 
+// The gate proves this checkout's controller: when the project under verification is itself an
+// nmg-sdlc plugin root, use it instead of an installed package that NMG_SDLC_PLUGIN_ROOT may name
+// (installed packages carry no Git candidate identity). Nested smoke verification runs in a
+// non-plugin clone and keeps the outer invocation's propagated root.
+function smokePluginRoot(projectRoot, options) {
+  try {
+    return plugin.resolvePluginRoot({ env: { NMG_SDLC_PLUGIN_ROOT: projectRoot } });
+  } catch {
+    return plugin.resolvePluginRoot(options);
+  }
+}
+
 export function createSmokeProvider({
   runCommand: executeCommand = runCommand,
   mkdtempSync: createTemp = mkdtempSync,
@@ -972,13 +984,12 @@ export function createSmokeProvider({
     let controller;
     let pluginRoot;
     try {
-      const options = {
+      if (!plugin) throw new Error("plugin modules unavailable");
+      pluginRoot = smokePluginRoot(request.projectRoot, {
         env,
         importMetaUrl: new URL("../../scripts/plugin-controller-path.mjs", import.meta.url).href,
-      };
-      if (!plugin) throw new Error("plugin modules unavailable");
-      pluginRoot = plugin.resolvePluginRoot(options);
-      controller = plugin.resolvePluginController("sdlc-execute.mjs", options);
+      });
+      controller = plugin.resolvePluginController("sdlc-execute.mjs", { env: { NMG_SDLC_PLUGIN_ROOT: pluginRoot } });
     } catch (error) {
       return envelope("failed", `nmg-sdlc-smoke ${error.message}`, identity);
     }
