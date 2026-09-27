@@ -1329,6 +1329,7 @@ describe('nmg-sdlc smoke gate self-provisioning', () => {
   it.each([
     ['idle', 'idle'],
     ['blocked without a pending ask', 'blocked'],
+    ['done in an unfocused pane', 'done'],
   ])('SCN007: approves a plan selector truncated by a narrow pane while %s', async (_label, planStatus) => {
     const tui = fakeProvisioningTui({ planScreen: NARROW_PLAN_SCREEN, planStatus });
     const fixture = provisioningHarness(tui);

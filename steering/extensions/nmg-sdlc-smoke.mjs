@@ -816,18 +816,18 @@ async function provisionSmokeIssue({
             quiet = 0;
             continue;
           }
-        } else if (status === "idle" || status === "blocked") {
-          // Herdr reports the native plan-approval selector as idle (blocked without a pending ask
-          // is accepted too); its default is "Approve and execute".
+        } else if (status === "working") {
+          quiet = 0;
+          continue;
+        } else {
+          // Herdr reports the native plan-approval selector as settled: `idle`, `blocked` without a
+          // pending ask, or `done` in an unfocused pane. Its default is "Approve and execute".
           const screen = await herdr.agentRead(name);
           if (planGateVisible(screen?.stdout)) {
             await herdr.agentSendKeys(name, ["enter"]);
             quiet = 0;
             continue;
           }
-        } else if (status === "working") {
-          quiet = 0;
-          continue;
         }
         quiet += 1;
         if (quiet >= PROVISION_STALL_POLLS) {
