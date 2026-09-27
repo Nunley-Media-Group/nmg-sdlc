@@ -277,7 +277,7 @@ describe('extension sdlc- commands', () => {
     );
   });
 
-  it('exits native plan mode fully after a write-spec Finished selection ends the turn', () => {
+  it('exits native plan mode after the write-spec Finished reply, at the plan-mode decision continuation', () => {
     const out = runHostFixture(`
       let asks = 0;
       const ask = (selectedOptions, extra = {}) => ({
@@ -289,46 +289,69 @@ describe('extension sdlc- commands', () => {
       });
       const finishedLoop = ask(['Finished — stop writing specs']);
       const finishedInitial = ask(['Finished — stop without writing a spec']);
+      const reply = { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'Published specs: …' }] };
+      const aborted = { role: 'assistant', stopReason: 'aborted', content: [] };
+      // Host model of one turn: tool results reach the model, which replies
+      // with text only. Native plan mode continues a text-only turn that
+      // settles in plan mode (willContinue: true, forced decision). A /plan
+      // dispatched meanwhile aborts that continuation, which then ends
+      // terminally; otherwise the model re-asks.
+      const turn = async (state, results) => {
+        for (const result of results) await Promise.all(state.emit('tool_result', result));
+        if (state.entries.at(-1)?.mode !== 'plan') {
+          state.ends.push('terminal');
+          state.emit('agent_end', { messages: [reply] });
+          await flush();
+          return;
+        }
+        state.ends.push('continued');
+        state.emit('agent_end', { willContinue: true, messages: [reply] });
+        await flush();
+        if (state.entries.at(-1)?.mode === 'plan') {
+          state.ends.push('reasked');
+          return;
+        }
+        state.ends.push('aborted');
+        state.emit('agent_end', { messages: [reply, aborted] });
+        await flush();
+      };
       const exitSummary = (state) => ({
         commands: [...state.commands],
         modes: state.entries.map(({ mode }) => mode),
+        ends: [...state.ends],
         prompts: state.prompts.length,
         draft: state.draft,
         notices: [...state.notices],
       });
+      const tracked = (state) => Object.assign(state, { ends: [] });
       const writeSpecSession = (options = {}) => {
-        const state = host(options);
+        const state = tracked(host(options));
         state.emit('input', { text: '/sdlc-write-spec', source: 'interactive' });
         return state;
       };
       const out = {};
 
       // SCN001: the post-publication continuation enters plan mode; Finished exits it.
-      const loop = host();
+      const loop = tracked(host());
       loop.emit('tool_result', merge(450, 'p450'));
       loop.emit('agent_end', {});
-      loop.emit('tool_result', finishedLoop);
-      loop.emit('agent_end', { willContinue: true });
-      await flush();
-      out.loopNonterminal = exitSummary(loop);
-      loop.emit('agent_end', {});
-      await flush();
+      await turn(loop, [finishedLoop]);
       out.loop = exitSummary(loop);
       loop.emit('agent_end', {});
       await flush();
       out.loopLater = exitSummary(loop);
+      // The finished session is inactive: a later plan-mode Finished answer is not write-spec's.
+      loop.setMode('plan');
+      await turn(loop, [finishedLoop]);
+      out.afterExit = exitSummary(loop);
 
       // SCN002: bare /sdlc-write-spec initial picker Finished.
       const initial = writeSpecSession({ mode: 'plan' });
-      initial.emit('tool_result', finishedInitial);
-      initial.emit('agent_end', {});
-      await flush();
+      await turn(initial, [finishedInitial]);
       out.initial = exitSummary(initial);
 
       const paused = writeSpecSession({ mode: 'plan_paused' });
-      paused.emit('tool_result', finishedLoop);
-      paused.emit('agent_end', {});
-      await flush();
+      await turn(paused, [finishedLoop]);
       out.paused = exitSummary(paused);
 
       // SCN003: non-Finished selections and asks outside write-spec keep plan mode.
@@ -337,27 +360,33 @@ describe('extension sdlc- commands', () => {
         ['continue', [ask(['Continue — enter another issue number'])]],
         ['customIssue', [ask([], { customInput: '#12' })]],
         ['customInvalid', [ask([], { customInput: 'abc' })]],
+        ['errored', [{ ...finishedLoop, isError: true }]],
         ['laterAsk', [finishedLoop, ask(['#445 — Next issue'])]],
       ]) {
         const state = writeSpecSession({ mode: 'plan' });
-        for (const result of results) state.emit('tool_result', result);
-        state.emit('agent_end', {});
-        await flush();
+        await turn(state, results);
         out[name] = exitSummary(state);
       }
-      const draftIssue = host({ mode: 'plan' });
+      const draftIssue = tracked(host({ mode: 'plan' }));
       draftIssue.emit('input', { text: '/sdlc-draft-issue', source: 'interactive' });
-      draftIssue.emit('tool_result', finishedLoop);
-      draftIssue.emit('agent_end', {});
-      await flush();
+      await turn(draftIssue, [finishedLoop]);
       out.otherCommand = exitSummary(draftIssue);
-      const noSession = host({ mode: 'plan' });
-      noSession.emit('tool_result', finishedLoop);
-      noSession.emit('agent_end', {});
-      await flush();
+      const noSession = tracked(host({ mode: 'plan' }));
+      await turn(noSession, [finishedLoop]);
       out.noSession = exitSummary(noSession);
 
-      // SCN004: undispatchable or non-progressing exits warn once and drop the exit.
+      // SCN004: other continuations (tool calls, errors) wait for the terminal end.
+      const waiting = writeSpecSession({ mode: 'plan' });
+      waiting.emit('tool_result', finishedLoop);
+      waiting.emit('agent_end', { willContinue: true, messages: [{ role: 'assistant', stopReason: 'toolUse', content: [{ type: 'toolCall' }] }] });
+      waiting.emit('agent_end', { willContinue: true, messages: [{ role: 'assistant', stopReason: 'error', content: [] }] });
+      await flush();
+      out.waitingNonterminal = exitSummary(waiting);
+      waiting.emit('agent_end', { messages: [reply] });
+      await flush();
+      out.waitingTerminal = exitSummary(waiting);
+
+      // SCN004: undispatchable or non-progressing exits keep the draft and warn once.
       for (const [name, options] of [
         ['missingUI', { hasUI: false }],
         ['draft', { draft: 'my draft' }],
@@ -366,46 +395,42 @@ describe('extension sdlc- commands', () => {
         ['declined', { declineExit: true }],
       ]) {
         const state = writeSpecSession({ mode: 'plan' });
-        state.emit('tool_result', finishedLoop);
         Object.assign(state, options);
-        state.emit('agent_end', {});
-        await flush();
+        await turn(state, [finishedLoop]);
         out[name] = exitSummary(state);
         Object.assign(state, { hasUI: true, submitThrows: false, declineExit: false });
-        state.emit('agent_end', {});
+        state.emit('agent_end', { messages: [reply] });
         await flush();
         out[name + 'Later'] = exitSummary(state);
       }
 
-      // SCN005: a pending continuation wins; a new invocation drops a pending exit.
+      // SCN005: a continuation pending in the same turn wins; a new invocation drops a pending exit.
       const both = writeSpecSession();
-      both.emit('tool_result', merge(460, 'p460'));
-      both.emit('tool_result', finishedLoop);
-      both.emit('agent_end', {});
-      await flush();
+      await turn(both, [merge(460, 'p460'), finishedLoop]);
       both.emit('agent_end', {});
       await flush();
       out.continuationWins = exitSummary(both);
       const restarted = writeSpecSession({ mode: 'plan' });
       restarted.emit('tool_result', finishedLoop);
       restarted.emit('input', { text: '/sdlc-write-spec', source: 'interactive' });
-      restarted.emit('agent_end', {});
-      await flush();
+      await turn(restarted, []);
       out.restarted = exitSummary(restarted);
       process.stdout.write(JSON.stringify(out));
     `);
-    const exited = { commands: ['/plan', '/plan'], modes: ['plan', 'plan_paused', 'none'], draft: '', notices: [] };
-    const kept = { commands: [], modes: ['plan'], prompts: 0, draft: '', notices: [] };
+    const exited = { commands: ['/plan', '/plan'], modes: ['plan', 'plan_paused', 'none'], ends: ['continued', 'aborted'], draft: '', notices: [] };
+    const kept = { commands: [], modes: ['plan'], ends: ['continued', 'reasked'], prompts: 0, draft: '', notices: [] };
     const notice = 'NMG SDLC: write-spec finished, but plan mode is still active; /plan exits it.';
 
-    expect(out.loopNonterminal).toEqual({ commands: [], modes: ['plan'], prompts: 1, draft: '', notices: [] });
     expect(out.loop).toEqual({ ...exited, prompts: 1 });
     expect(out.loopLater).toEqual(out.loop);
+    expect(out.afterExit).toEqual({ ...exited, modes: [...exited.modes, 'plan'], ends: [...exited.ends, 'continued', 'reasked'], prompts: 1 });
     expect(out.initial).toEqual({ ...exited, prompts: 0 });
-    expect(out.paused).toEqual({ commands: ['/plan'], modes: ['plan_paused', 'none'], prompts: 0, draft: '', notices: [] });
-    for (const name of ['issueRow', 'continue', 'customIssue', 'customInvalid', 'laterAsk', 'otherCommand', 'noSession', 'restarted']) {
+    expect(out.paused).toEqual({ commands: ['/plan'], modes: ['plan_paused', 'none'], ends: ['terminal'], prompts: 0, draft: '', notices: [] });
+    for (const name of ['issueRow', 'continue', 'customIssue', 'customInvalid', 'errored', 'laterAsk', 'otherCommand', 'noSession', 'restarted']) {
       expect({ name, ...out[name] }).toEqual({ name, ...kept });
     }
+    expect(out.waitingNonterminal).toEqual({ ...kept, ends: [] });
+    expect(out.waitingTerminal).toEqual({ ...exited, ends: [], prompts: 0 });
     for (const name of ['missingUI', 'draft', 'wrongFocus', 'submitThrows', 'declined']) {
       const failed = {
         ...kept,
@@ -416,6 +441,6 @@ describe('extension sdlc- commands', () => {
       expect({ name, ...out[name] }).toEqual({ name, ...failed });
       expect({ name, ...out[name + 'Later'] }).toEqual({ name, ...failed });
     }
-    expect(out.continuationWins).toEqual({ commands: [], modes: ['plan'], prompts: 1, draft: '', notices: [] });
+    expect(out.continuationWins).toEqual({ commands: [], modes: ['plan'], ends: ['terminal'], prompts: 1, draft: '', notices: [] });
   });
 });

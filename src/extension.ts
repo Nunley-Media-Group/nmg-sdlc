@@ -50,8 +50,13 @@ type WriteSpecContinuation = {
   pending: boolean;
   // A write-spec session (the command or its continuation) is running.
   active: boolean;
-  // A Finished picker selection awaits the next terminal agent_end.
+  // A Finished picker selection awaits the end of its reply turn.
   exitPending: boolean;
+};
+
+type AgentEnd = {
+  willContinue?: boolean;
+  messages?: Array<{ role?: string; stopReason?: string; content?: Array<{ type?: string }> }>;
 };
 
 const PENDING_CONTINUATION_NOTICE = "NMG SDLC: write-spec Continue is pending; it is submitted in plan mode after the next turn ends with an empty editor.";
@@ -111,6 +116,17 @@ export default function nmgSdlc(pi: ExtensionAPI): void {
     }
   }
 
+  // Native plan mode never ends a text-only turn in plan mode: it appends a
+  // decision reminder and continues (willContinue: true). This mirrors that
+  // host rule so a Finished reply exits there; the /plan dispatch aborts the
+  // forced continuation. Other continuations still wait for the terminal end.
+  function planDecisionContinuation(end: AgentEnd, session: CommandContext): boolean {
+    if (sessionModeFromEntries(session.sessionManager?.getEntries?.()) !== "plan") return false;
+    const reply = end.messages?.findLast((message) => message?.role === "assistant");
+    if (!reply || reply.stopReason === "error" || reply.stopReason === "aborted") return false;
+    return !reply.content?.some((part) => part?.type === "toolCall");
+  }
+
   // The focused TUI editor, only when the draft is empty and it can submit.
   function focusedEditor(session: CommandContext): HostEditor | undefined {
     const ui = session.ui;
@@ -162,7 +178,7 @@ export default function nmgSdlc(pi: ExtensionAPI): void {
   // Bare /plan pauses an enabled plan and a second /plan from plan_paused
   // disables it. Each toggle is awaited through the editor's onSubmit handler
   // because submit() does not await it.
-  function exitPlanMode(session: CommandContext): void {
+  async function exitPlanMode(session: CommandContext): Promise<void> {
     const currentMode = () => sessionModeFromEntries(session.sessionManager?.getEntries?.());
     const mode = currentMode();
     if (mode !== "plan" && mode !== "plan_paused") {
@@ -175,33 +191,33 @@ export default function nmgSdlc(pi: ExtensionAPI): void {
       session.ui?.notify?.(FINISHED_EXIT_NOTICE, "warning");
       return;
     }
-    void (async () => {
-      try {
-        for (let toggle = 0; toggle < 2; toggle++) {
-          const before = currentMode();
-          if (before !== "plan" && before !== "plan_paused") break;
-          await onSubmit.call(editor, "/plan");
-          if (currentMode() === before) break;
-        }
-      } catch {
-        // Reported below: the mode is still plan or plan_paused.
+    try {
+      for (let toggle = 0; toggle < 2; toggle++) {
+        const before = currentMode();
+        if (before !== "plan" && before !== "plan_paused") break;
+        await onSubmit.call(editor, "/plan");
+        if (currentMode() === before) break;
       }
-      if (currentMode() === "none") writeSpec.active = false;
-      else session.ui?.notify?.(FINISHED_EXIT_NOTICE, "warning");
-    })();
+    } catch {
+      // Reported below: the mode is still plan or plan_paused.
+    }
+    if (currentMode() === "none") writeSpec.active = false;
+    else session.ui?.notify?.(FINISHED_EXIT_NOTICE, "warning");
   }
 
   pi.on("agent_end", (event, ctx) => {
-    if ((event as { willContinue?: boolean } | undefined)?.willContinue === true) return;
+    const end = (event ?? {}) as AgentEnd;
     const session = (ctx ?? {}) as CommandContext;
-    if (writeSpec.pending) {
+    if (end.willContinue === true) {
+      if (!writeSpec.exitPending || writeSpec.pending || !planDecisionContinuation(end, session)) return;
+    } else if (writeSpec.pending) {
       writeSpec.exitPending = false;
       submitContinuation(session);
       return;
     }
     if (!writeSpec.exitPending) return;
     writeSpec.exitPending = false;
-    exitPlanMode(session);
+    void exitPlanMode(session);
   });
 
   pi.on("context", (event) => {

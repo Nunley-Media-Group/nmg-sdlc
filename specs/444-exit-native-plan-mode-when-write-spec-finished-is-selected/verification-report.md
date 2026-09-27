@@ -4,29 +4,27 @@
 **Issue**: #444
 **Reviewer**: architecture-reviewer (OMP verify worker)
 **Scope**: Implementation verification against spec
-**Verification head**: df5e33ea0e8eab901ded8d99ea39e6eb99aa2e7d
+**Verification head**: 3789e938bea04e221de611fe361314d0d6a724be
 
 ---
 
 ## Executive Summary
 
-The write-spec Finished exit (AC1–AC5, T001–T004) is implemented and covered by passing regressions. Commit `df5e33e` fixed the previous finding: the plan-gate branch now reads the screen for every status except `working`, including Herdr `done`, and the SCN007 fixture covers `done`.
+Both registered validations passed at `3789e93`: `repository.tests` and `repository.nmg-sdlc-smoke`. The smoke gate delivered its self-provisioned issue **#181** through PR **#183** (`MERGED` at `1120143d…`, issue `CLOSED`). The smoke provisioning half of this issue (AC6–AC10) is therefore proven.
 
-The live smoke provisioning worked end to end for the first time. The provider drafted smoke issue **#181** ("Add public greeting_has_apostrophe helper"), wrote and published its Approved spec (PR **#182**, `MERGED`, label `spec-created`), and closed its owned pane. This proves AC6 provisioning, AC7, and AC8 live.
-
-The following delivery phase still did not run. `repository.nmg-sdlc-smoke` returned **`incomplete`** with `nmg-sdlc-smoke candidate identity unavailable`. The cause: `plugin.resolvePluginRoot` prefers `NMG_SDLC_PLUGIN_ROOT`, which in this worker is the installed package `/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc`. That directory is not a git repository, so `candidateTree` (`git read-tree HEAD`) fails before execute is launched. `main` has the same resolution, so this is a pre-existing provider defect that surfaced only now that provisioning reaches delivery. It is still a plugin defect: steering requires the gate to run *this checkout's* execute controller.
+The live TUI exercise of the write-spec Finished exit **failed**, and that is the primary defect of this issue. A real OMP TUI session loaded this checkout's extension. After `Finished — stop without writing a spec` was selected, the session never left native plan mode. The host's plan-mode enforcement ends every non-`ask`/non-`propose` turn with a developer reminder (`Plan mode turn ended without a required tool call. You MUST choose exactly one next action now…`). The resulting `agent_end` is non-terminal, so the extension waits, as designed. The model then calls `ask` again, and a terminal `agent_end` never arrives. The session looped through three Finished confirmations with `mode_change` still `plan`. The host-fixture regressions pass because the fixture does not model this host behavior.
 
 | Category | Score (1-5) |
 |----------|-------------|
-| Spec Compliance | 4 |
+| Spec Compliance | 2 |
 | Architecture (SOLID) | 4 |
 | Security | 4 |
 | Performance | 4 |
-| Testability | 4 |
-| Error Handling | 4 |
-| **Overall** | 4.0 |
+| Testability | 3 |
+| Error Handling | 3 |
+| **Overall** | 3.3 |
 
-### Implementation Status: Incomplete
+### Implementation Status: Fail
 **Total Issues**: 2
 
 ---
@@ -51,17 +49,10 @@ The following delivery phase still did not run. `repository.nmg-sdlc-smoke` retu
 
 ## Deterministic Steering Artifact and Ceiling
 
-Command: `node "$NMG_SDLC_PLUGIN_ROOT/scripts/sdlc-verify-steering.mjs" --project . --issue 444 --spec specs/444-exit-native-plan-mode-when-write-spec-finished-is-selected --base main --controller-run-id 41cdfc97-f527-4223-bfee-db3675a75fb2` exited 1 after 661 s.
-
-Artifact: `.omp/sdlc/verification/444.json`
-
-| Field | Value |
-|-------|-------|
-| headSha | `df5e33ea0e8eab901ded8d99ea39e6eb99aa2e7d` (clean tree) |
-| steeringHash | `sha256:988145bbbcb5eceb512afc37a5aa32583be8908f4f7d2faa1eaa3a3fc67d5fe6` |
-| specHash | `sha256:f98cb19793af8ab5b0d0b60f7310df340dde26e205252b8d9b02ddaba603346a` |
-| coverage | declared 2, recorded 2, complete `true` |
-| ceiling | **Incomplete** |
+- Runner: `sdlc-verify-steering.mjs --project . --issue 444 --spec specs/444-… --base main --controller-run-id 41cdfc97-f527-4223-bfee-db3675a75fb2` → `ok: true`, `ceiling: null`
+- Artifact: `.omp/sdlc/verification/444.json`, identity `headSha 3789e938bea04e221de611fe361314d0d6a724be`, `steeringHash sha256:c36e776f…`, `specHash sha256:f98cb197…`, tree `clean`
+- Coverage: `declared 2`, `recorded 2`, `complete true`, no missing, duplicate, or unknown results
+- `steering/manifest.json` loaded: 4 managed modules, 3 snippets, and 1 extension (`project.nmg-sdlc-smoke`). The steering ceiling does not constrain the status. The status is capped at **Fail** by the failed live acceptance evidence below.
 
 ---
 
@@ -69,16 +60,16 @@ Artifact: `.omp/sdlc/verification/444.json`
 
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
-| AC1 | Continue-loop Finished exits plan mode fully | Pass | `tool_result` records `exitPending` from `writeSpecFinishedSelection` while `writeSpec.active`. On terminal `agent_end`, the extension awaits `onSubmit("/plan")` once per toggle until the mode is `none`. `WORKFLOW.md` ends the Finished branch with no `ask` or `xd://propose`. Covered by SCN001. |
-| AC2 | Initial-picker Finished exits plan mode fully | Pass | `WORKFLOW.md` step 7 ends the turn, and the label is in `WRITE_SPEC_FINISHED_LABELS`. Covered by SCN002. |
-| AC3 | Non-Finished selections keep plan mode | Pass | The classifier returns `false` for other labels and custom input. Covered by SCN003. |
-| AC4 | Undispatchable exit fails safe | Pass | `focusedEditor` rejects missing UI, a draft, an unfocused editor, and disabled submit. The extension shows `FINISHED_EXIT_NOTICE` once, and `willContinue: true` returns early. Covered by SCN004. |
-| AC5 | Post-publication continuation is preserved | Pass | A pending continuation wins and clears `exitPending`. `startInteractiveCommand` resets the state. Covered by SCN005 and the #438 tests. |
-| AC6 | Smoke gate self-provisions without an explicit queue | Incomplete | Provisioning is proven live: `/sdlc-draft-issue <need>` created exactly one new issue (#181; baseline latest was #179), then `/sdlc-write-spec 181` (bare number) ran in owned pane `wF:p1E`. The delivery smoke for `[181]` stopped before execute launched with `candidate identity unavailable`, because `NMG_SDLC_PLUGIN_ROOT` points at a plugin root without git. |
-| AC7 | Every provisioning gate is answered automatically | Pass | Live: the draft interview, its plan approval (Herdr status `done`), and the write-spec gates were all answered with key presses only. No operator input was needed. SCN007 fixtures pass for `idle`, `blocked`, and `done`. |
-| AC8 | Provisioning completion is proven from GitHub | Pass | Live: evidence reads `provisioned smoke issue #181 …; spec PR https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull/182 MERGED`, and the issue has `spec-created`. The pane was then closed, and `herdr agent get` no longer lists it. |
-| AC9 | Provisioning failures fail closed, never duplicate | Pass | SCN009 fixtures pass. The prior live stall failed closed without creating an issue. #181 is recorded in the recovery store for reuse under this verification identity. |
-| AC10 | Explicit queues keep priority | Pass | `resolveQueue` checks `config.issues` and then a non-blank env value before `provision`. SCN010 fixtures pass. |
+| AC1 | Continue-loop Finished exits plan mode fully | **Fail** | Same mechanism as AC2. `exitPlanMode` runs only on a terminal `agent_end` (`src/extension.ts:194-205`). Live native plan mode never produces that terminal end after Finished (see AC2). Covered only by the host fixture (`extension-commands.test.mjs:280`), which ends the turn terminally by fiat. |
+| AC2 | Initial-picker Finished exits plan mode fully | **Fail** | Live TUI exercise (below): Finished was selected three times. Each text-only turn received the host reminder `Plan mode turn ended without a required tool call…`, and the agent called `ask` again. The session's `mode_change` entries stayed `['plan']`, and no `/plan` was dispatched. |
+| AC3 | Non-Finished selections keep plan mode | Pass | `writeSpecFinishedSelection` exact-label match (`src/sdlc-commands.mjs`); `tool_result` gate on `writeSpec.active`; SCN003 host-fixture cases (`kept` expectation) pass. |
+| AC4 | Undispatchable exit fails safe | Partial | The draft, no-UI, unfocused, throwing, and declined cases pass in the fixture. Waiting on `willContinue: true` is implemented as specified, but that behavior is what defeats AC1/AC2 live. When no terminal end arrives, the warning never shows, so the user gets neither the exit nor the fallback notice. |
+| AC5 | Post-publication continuation is preserved | Pass | `submitContinuation` is unchanged apart from `focusedEditor` extraction and `active = true`; the continuation wins over the exit (`agent_end` checks `pending` first); `continuationWins` and continuation tests pass. |
+| AC6 | Smoke gate self-provisions without an explicit queue | Pass | Live: the provider drafted smoke #181 (created 05:26:58Z under `df5e33e`, whose provisioning code is identical to HEAD's) and published spec PR #182 (`docs: approve spec for #181`, `MERGED`, label `spec-created`). This run delivered #181 via PR #183 `MERGED` at `1120143d60f33f86a52e83f36d9ae15e41395472`, issue `CLOSED`. |
+| AC7 | Every provisioning gate is answered automatically | Pass | `askDecision` / `planGateVisible` send only `enter`. The #181 provisioning completed without operator input. SCN007 fixture asserts the exact key sequence and bare `/sdlc-write-spec 179`. |
+| AC8 | Provisioning completion is proven from GitHub | Pass | `publishedSpec` checks the `spec-created` label plus the merged PR by exact title, and `finally` closes the owned pane; SCN008 tests pass. |
+| AC9 | Provisioning failures fail closed; no duplicates | Pass | Live recovery reuse: smoke recovery state records `provisioned {"issue":181,"published":true}`, and this run reused #181 with no second draft. SCN009 tests cover zero or multiple issues, unknown or free-form gates, stalls, and the interrupted-provisioning fail-closed path. |
+| AC10 | Explicit queues keep priority | Pass | `resolveQueue` checks `config.issues` and a non-blank env value first; SCN010 tests (valid and invalid) pass. |
 
 ---
 
@@ -86,13 +77,13 @@ Artifact: `.omp/sdlc/verification/444.json`
 
 | Task | Description | Status | Notes |
 |------|-------------|--------|-------|
-| T001 | Detect Finished picker selections | Complete | `WRITE_SPEC_FINISHED_LABELS`, `writeSpecFinishedSelection` |
-| T002 | Exit plan mode after terminal Finished turn | Complete | Awaited `/plan` loop with a warning fallback |
-| T003 | Align write-spec contracts | Complete | `WORKFLOW.md`, `publish.md`, `interactive-gates.md`, README |
-| T004 | Finished-exit regressions | Complete | `extension-commands.test.mjs`, `sdlc-commands.test.mjs` |
-| T005 | Self-provision smoke issues | Complete (provisioning) | Proven live. Delivery handoff is blocked by the plugin-root resolution defect below. |
-| T006 | Register provisioning in steering | Complete | `config.provision.need`; snippets updated |
-| T007 | Provisioning regressions and docs | Complete | Includes the `done` fixture; README and CHANGELOG updated |
+| T001 | Detect Finished selections | Complete | `WRITE_SPEC_FINISHED_LABELS`, `writeSpecFinishedSelection` |
+| T002 | Exit plan mode after terminal Finished turn | Complete (ineffective live) | Built as designed, but the terminal-`agent_end` trigger is never reached under native plan-mode enforcement |
+| T003 | Align write-spec contracts | Complete | WORKFLOW.md step 7 and Continue-loop, publish.md, interactive-gates.md, README |
+| T004 | Regression coverage for the Finished exit | Complete | Fixture passes, but it does not model the host's plan-mode reminder loop |
+| T005 | Smoke self-provisioning | Complete | Proven live (#181/#182/#183) |
+| T006 | Steering registration | Complete | manifest `config.provision.need`; snippets updated |
+| T007 | Smoke regressions and docs | Complete | SCN006–SCN010; README and CHANGELOG |
 
 ---
 
@@ -102,38 +93,44 @@ Artifact: `.omp/sdlc/verification/444.json`
 
 | Principle | Score (1-5) | Notes |
 |-----------|-------------|-------|
-| Single Responsibility | 4 | The classifier and dispatch are separate, and provisioning is isolated in `provisionSmokeIssue` |
-| Open/Closed | 4 | `resolveQueue` adds a queue kind without changing explicit queues |
-| Liskov Substitution | 4 | `HostEditor.onSubmit` is optional |
-| Interface Segregation | 4 | The Herdr adapter is minimal |
-| Dependency Inversion | 4 | `herdr`, `sleep`, and `pollMs` are injectable. However, plugin-root resolution is inherited from the env-first shared resolver, which does not fit a checkout-bound gate. |
+| Single Responsibility | 4 | Classification lives in `sdlc-commands.mjs`, dispatch in `extension.ts`, and provisioning in its own `provisionSmokeIssue`. The smoke module grows past 1,600 lines. |
+| Open/Closed | 4 | The explicit-queue path is unchanged; provisioning is additive via `resolveQueue`. |
+| Liskov Substitution | 4 | The injected `herdr` adapter matches `createHerdrAdapter`. |
+| Interface Segregation | 4 | `HostEditor` gains only `onSubmit`. |
+| Dependency Inversion | 4 | Herdr, gh, sleep, and poll interval are injectable; plugin modules load through a guarded dynamic import that fails closed. |
 
 ### Layer Separation
 
-The extension dispatches only builtin `/plan`. The provider keeps its frozen `extension` export.
+The extension keeps git and GitHub out of the exit path, and only builtin `/plan` is dispatched. The steering provider stays within its validation-provider role, and all smoke mutations go through the real workflows in an owned pane.
 
 ### Dependency Flow
 
-`src/extension.ts` imports from `src/sdlc-commands.mjs`. The smoke provider loads plugin modules through a guarded dynamic import.
+`steering/extensions` → `src`/`scripts` via dynamic import. The documented fallback (`nmg-sdlc-smoke plugin modules unavailable`) keeps the staged-copy validation working.
 
 ---
 
 ## Security Assessment
 
-- [x] Authentication: uses the existing `gh` auth
-- [x] Authorization: the clone origin is allowlisted, and the provider never selects foreign issue rows or types free text
-- [x] Input validation: queue and issue numbers are validated
-- [x] Injection prevention: calls use argument arrays
-- [x] Data protection: the draft is preserved, and clones are retained on failure
+- [x] Authentication: `gh auth` precheck before provisioning; no credentials requested or logged
+- [x] Authorization: mutations are limited to the allowlisted `Nunley-Media-Group/nmg-sdlc-smoke` origin; only the owned pane is closed
+- [x] Input validation: exact Finished labels; issue-row regex; recommended index bounds-checked
+- [x] Injection prevention: Herdr and gh commands are argument arrays; the prompt text is a single argv element
+- [x] Data protection: the screen snapshot is `bounded`; the provisioning clone is retained only on failure
 
 ---
 
 ## Performance Assessment
 
-- [x] Async patterns: awaited toggles, and poll-count stall bounds with no wall-clock deadline
+- [x] Async patterns: `/plan` toggles are awaited serially; the provisioning poll uses a fixed interval with no wall-clock deadline
 - [x] Caching: N/A
-- [x] Resource management: the owned pane is closed in `finally`, and the temporary index is removed
-- [x] Query optimization: the new-issue scan is bounded
+- [x] Resource management: pane is closed in `finally`; clone removed on success
+- [x] Query optimization: `gh issue list --limit 20` bounded; session JSONL read per blocked poll only
+
+---
+
+## Error Handling Assessment
+
+The Finished exit's fallback warning (AC4) fires only on a terminal `agent_end`. In the live failure mode, no terminal end ever happens, so the user gets neither the exit nor the warning. They stay in a re-ask loop, which is the original defect. Provisioning errors map cleanly to `failed` or `incomplete` with evidence.
 
 ---
 
@@ -143,17 +140,23 @@ The extension dispatches only builtin `/plan`. The provider keeps its frozen `ex
 
 | Acceptance Criterion | Has Scenario | Has Steps | Passes |
 |---------------------|-------------|-----------|--------|
-| AC1–AC5 | SCN001–SCN005 | Yes | Yes |
-| AC6 | SCN006 | Yes (faked) | Fixtures yes; live provisioning yes; live delivery not reached |
-| AC7–AC8 | SCN007–SCN008 | Yes | Yes (fixtures and live) |
-| AC9 | SCN009 | Yes | Yes |
+| AC1 | SCN001 | Yes (host fixture) | Yes (fixture) / **No (live)** |
+| AC2 | SCN002 | Yes (host fixture) | Yes (fixture) / **No (live)** |
+| AC3 | SCN003 | Yes | Yes |
+| AC4 | SCN004 | Yes | Yes (fixture) |
+| AC5 | SCN005 | Yes | Yes |
+| AC6 | SCN006 | Yes | Yes (fixture + live) |
+| AC7 | SCN007 | Yes | Yes (fixture + live) |
+| AC8 | SCN008 | Yes | Yes |
+| AC9 | SCN009 | Yes | Yes (fixture + live reuse) |
 | AC10 | SCN010 | Yes | Yes |
 
 ### Coverage Summary
 
-- Feature file: 10 scenarios
-- Unit tests: `npm test -- --runInBand` passed 49 suites (1 skipped) and 830 tests (2 skipped)
-- Live smoke: `incomplete` (see gates)
+- Feature files: 10 scenarios (SCN001–SCN010)
+- Step definitions: Jest ESM tests in `scripts/__tests__/extension-commands.test.mjs`, `nmg-sdlc-smoke.test.mjs`, `sdlc-commands.test.mjs`
+- `npm test -- --runInBand` (registered `repository.tests`): exit 0
+- Fidelity gap: the host fixture's `agent_end` is terminal on demand. The real host injects a plan-mode reminder that continues the turn after any text-only ending.
 
 ---
 
@@ -161,10 +164,34 @@ The extension dispatches only builtin `/plan`. The provider keeps its frozen `ex
 
 | Field | Value |
 |-------|-------|
-| **Skill exercised** | `repository.nmg-sdlc-smoke`: live provisioning with `/sdlc-draft-issue` and `/sdlc-write-spec` in a Herdr `omp` pane, then delivery |
-| **Method** | The real steering provider run by `sdlc-verify-steering.mjs` |
-| **Outcome** | Issue #181 was provisioned and spec PR #182 merged. The provisioning clone was removed on success. The delivery clone `/var/folders/46/dqllytqs0sg2xdfglxddcf500000gn/T/nmg-sdlc-smoke-y0MmEe` was created and the baseline for #181 recorded (no closing PRs). `candidateTree` then failed in the non-git `NMG_SDLC_PLUGIN_ROOT`, and the gate returned `incomplete`. |
-| **Write-spec Finished TUI exit** | Not exercised live because it needs an interactive TUI picker selection. The evidence is the deterministic host-editor fixture (SCN001–SCN005). |
+| **Skill Exercised** | `write-spec` (bare `/sdlc-write-spec`, initial-picker Finished) |
+| **Test Project** | Disposable non-shallow clone of `Nunley-Media-Group/nmg-sdlc-smoke` in a platform temp dir (removed after capture) |
+| **Exercise Method** | Real OMP TUI in an owned Herdr pane: `herdr agent start ex444 --kind omp -- --no-extensions --no-skills --extension <checkout>/src/extension.ts --plugin-dir <checkout> --add-dir <checkout>`, then `herdr agent prompt ex444 /sdlc-write-spec`, then `down` + `enter` on Finished. `exercise-omp.mjs` (RPC) cannot enter native plan mode for interactive commands; the RPC attempt produced no `agent_end` and was explicitly cancelled. |
+| **Interactive gate handling** | Key presses only (`down`, `enter`); read-only picker, so no GitHub mutation |
+| **Duration** | ~10 minutes including polling |
+
+### Captured Output Summary
+
+Session JSONL (copy retained at `/tmp/nmg-sdlc-444-finished-exit-session.jsonl`), in order:
+
+1. `ask` result: `Finished — stop without writing a spec`
+2. assistant: `No spec written: you chose Finished at the issue picker…`
+3. developer: `<system-reminder> Plan mode turn ended without a required tool call. You MUST choose exactly one next action now: 1. Call ask … OR 2. … xd://propose …`
+4. assistant: `ask` ("You chose Finished… Plan mode needs one more action before this turn can end…"). Finished was selected again.
+5. assistant text, then the same developer reminder again, then a third `ask` ("Plan mode keeps requiring an action even though you chose Finished…")
+
+`mode_change` entries throughout: `['plan']`. No `/plan` dispatch and no warning notification were observed.
+
+### AC Evaluation
+
+| AC | Description | Verdict | Evidence |
+|----|-------------|---------|----------|
+| AC2 | Initial-picker Finished exits plan mode | Fail | Mode stayed `plan`; the host reminder forced repeated `ask` calls |
+| AC4 | Fail-safe warning | Fail (live) | No terminal `agent_end`, so no warning was shown |
+
+### Notes
+
+The pane and clone were owned by this exercise; the pane was closed and the clone removed after the session JSONL was captured.
 
 ---
 
@@ -172,62 +199,47 @@ The extension dispatches only builtin `/plan`. The provider keeps its frozen `ex
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` (builtin.command, required) | Pass | `npm test -- --runInBand` exited 0 at `df5e33e` |
-| `repository.nmg-sdlc-smoke` (project.nmg-sdlc-smoke, required) | Incomplete | `nmg-sdlc-smoke candidate identity unavailable`. Provisioning passed (#181 / PR #182); execute was not launched. The delivery clone was retained. |
-| Skill inventory (additional) | Pass | `skill-inventory-audit.mjs --check`: clean, 90 items |
-| OMP plugin surface (additional) | Pass | `verify-plugin-surface.mjs --root . --label repository` exited 0 |
-| Git hygiene (additional) | Pass | `git diff --check main...HEAD` exited 0 |
+| `repository.tests` (registered) | Pass | `npm test -- --runInBand` exited 0 at `3789e93` |
+| `repository.nmg-sdlc-smoke` (registered) | Pass | `nmg-sdlc-smoke delivered #181`; PR #183 `MERGED` at `1120143d60f33f86a52e83f36d9ae15e41395472`; issue #181 `CLOSED`; execute: start/implement/verify/deliver passed |
+| Skill inventory | Pass | `node scripts/skill-inventory-audit.mjs --check` → `clean (90 items mapped)` |
+| OMP plugin surface | Pass | `node scripts/verify-plugin-surface.mjs --root . --label repository` → passed |
+| Skill exercise (deterministic) | Pass | `node scripts/skill-exercise-runner.mjs --skill write-spec` → 14 pass, 0 fail |
+| Live skill proof | **Fail** | TUI exercise above: Finished does not leave plan mode |
+| Prompt quality | Fail | WORKFLOW.md says "End the turn there without another `ask` or `xd://propose`", but the host's plan-mode enforcement makes that instruction unexecutable (Complete paths, Output chain) |
+| Git hygiene | Pass | `git diff --check main...HEAD` exit 0 |
 
-**Gate Summary**: 1/2 registered passed, 0 failed, 1 incomplete
-
-Real smoke lifecycle evidence: provisioning is proven live; delivery was not reached. `repository.nmg-sdlc-smoke` was preserved as a required gate and not bypassed.
+**Gate Summary**: 6/8 gates passed, 2 failed, 0 incomplete
 
 ---
 
 ## Fixes Applied
 
-None. The verify publication scope permits only this report.
+None. The publication scope binds this verify worker to `verification-report.md` only. The defect also needs a spec change: AC4's "non-terminal `agent_end` waits" is the behavior that blocks the exit.
 
 ## Remaining Issues
 
-| Severity | Category | Location | Issue | Reason Not Fixed |
-|----------|----------|----------|-------|------------------|
-| Critical | Smoke provider | `steering/extensions/nmg-sdlc-smoke.mjs` `deliverSmoke` (`pluginRoot = plugin.resolvePluginRoot(options)`) together with `candidateTree` | `resolvePluginRoot` returns `NMG_SDLC_PLUGIN_ROOT` first. Here that is the installed package `/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc`, which is not a git repository, so `git read-tree HEAD` fails and delivery never launches. Steering requires the smoke to run this checkout's controller. Proposed fix: resolve the candidate root and controller from the provider's own checkout (`import.meta.url`, which is the verified project) rather than the env override, and add a fixture where `NMG_SDLC_PLUGIN_ROOT` is a non-git install. | Outside the verify publication scope; the fix belongs to implementation |
-| Medium | Smoke fixture reuse | Smoke issue #181 | #181 is open with an Approved spec and is recorded for reuse only under the current verification identity. After a code fix changes the head, provisioning will draft another issue unless #181 is reused. | Record only; the provider is designed to create new issues |
+### High Priority
 
----
+| Field | Value |
+|-------|-------|
+| **Severity** | High |
+| **Category** | Architecture / Error Handling |
+| **Location** | `src/extension.ts:194-205` (`agent_end`), `exitPlanMode`; spec AC1/AC2/AC4, design Fix Strategy |
+| **Issue** | The plan-mode exit is armed for the next *terminal* `agent_end`. Native plan mode never ends a turn terminally after a text-only reply: it injects `Plan mode turn ended without a required tool call…` (the non-terminal end is `willContinue: true`), and the model re-asks. The exit therefore never runs, and neither does the warning fallback. |
+| **Impact** | The original defect persists: selecting Finished loops forever in plan mode until the user exits manually. |
+| **Reason Not Fixed** | Needs a spec amendment of the trigger and the AC4 non-terminal clause. Candidates: dispatch the exit on the first `agent_end` after a Finished selection, including `willContinue: true`, before the reminder is acted on; or exit from the Finished `ask` `tool_result`. Also outside this worker's writable scope. |
 
-## Positive Observations
+### Medium Priority
 
-- The `done` status fix worked: the draft plan approval was pressed and the issue was created.
-- Provisioning completion was proven from GitHub evidence, and the owned pane was closed.
-- The failure was classified `incomplete` with a retained clone, not a false pass.
-
----
-
-## Recommendations Summary
-
-### Before PR (Must)
-- [ ] Bind the smoke candidate root and controller to the verified checkout rather than `NMG_SDLC_PLUGIN_ROOT`
-- [ ] Add a regression with a non-git `NMG_SDLC_PLUGIN_ROOT`
-- [ ] Rerun the full registered gate, including live delivery
-
----
-
-## Files Reviewed
-
-| File | Issues | Notes |
-|------|--------|-------|
-| `src/extension.ts`, `src/sdlc-commands.mjs` | 0 | Finished exit |
-| `workflows/write-spec/*`, `references/interactive-gates.md`, `README.md` | 0 | Contract text |
-| `steering/extensions/nmg-sdlc-smoke.mjs` | 1 | Plugin-root resolution for the delivery candidate |
-| `scripts/__tests__/nmg-sdlc-smoke.test.mjs` | 0 | `done` fixture added |
-| `steering/manifest.json`, `steering/snippets/*` | 0 | Provision registration |
-
----
+| Field | Value |
+|-------|-------|
+| **Severity** | Medium |
+| **Category** | Testing |
+| **Location** | `scripts/__tests__/extension-commands.test.mjs:280` (host fixture) |
+| **Issue** | The fixture does not model the host's plan-mode enforcement (a reminder plus a continued turn after a text-only ending), so SCN001/SCN002 pass while the live behavior fails. |
+| **Impact** | The regressions cannot catch the live failure. |
+| **Reason Not Fixed** | Depends on the redesigned trigger. Outside writable scope. |
 
 ## Recommendation
 
-**Needs fixes for remaining items**
-
-AC1–AC5 and AC7–AC10 pass. AC6 is Incomplete: live provisioning succeeded (#181, PR #182 merged), but the delivery smoke could not compute the candidate identity because `NMG_SDLC_PLUGIN_ROOT` points at a non-git installed plugin. Route back to implementation to bind the smoke candidate to the verified checkout, then rerun the full gate.
+Needs fixes: revise the Finished-exit trigger in the spec and design so that it survives native plan-mode enforcement. Then re-implement it, add a fixture that emits `willContinue: true` plus a re-ask after Finished, and rerun the full registered gate and a live TUI exercise.
