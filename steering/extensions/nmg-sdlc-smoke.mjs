@@ -697,6 +697,18 @@ async function publishedSpec(executeCommand, env, signal, issue) {
   return pull ? { issueUrl: view.url, pull } : null;
 }
 
+// A provisioning driver killed before its `finally` leaves its pane open. The recorded random agent
+// name must still resolve to the recorded pane before it is closed, so a reused pane id is never touched.
+async function closeAbandonedProvisionPane(herdr, recorded) {
+  if (typeof recorded?.pane !== "string" || typeof recorded?.agent !== "string") return [];
+  const got = await herdr.agentGet(recorded.agent);
+  if (herdrResult(got)?.agent?.pane_id !== recorded.pane) {
+    return [commandEvidence(`herdr agent get ${recorded.agent} (abandoned provisioning pane already gone)`, got)];
+  }
+  const closed = await herdr.paneClose(recorded.pane);
+  return [commandEvidence(`herdr pane close ${recorded.pane} (abandoned provisioning)`, closed)];
+}
+
 // Drafts (unless `issue` is already recorded) and specifies one fresh smoke issue through the
 // real interactive workflows in a provider-owned Herdr pane, answering every gate itself.
 async function provisionSmokeIssue({
@@ -712,6 +724,7 @@ async function provisionSmokeIssue({
   sleep,
   pollMs,
   onClone,
+  onPane,
   onIssue,
 }) {
   const evidence = [];
@@ -785,6 +798,7 @@ async function provisionSmokeIssue({
     pane = herdrResult(split)?.pane?.pane_id ?? null;
     if (!pane) return stop("incomplete", "nmg-sdlc-smoke provisioning pane unavailable");
     name = `smoke-provision-${randomBytes(4).toString("hex")}`;
+    onPane({ pane, agent: name });
     const started = await herdr.agentStart(name, pane);
     evidence.push(commandEvidence(`herdr agent start ${name} --kind omp`, started));
     if (started.status !== 0) return stop("incomplete", "nmg-sdlc-smoke provisioning agent start failed");
@@ -884,7 +898,10 @@ async function provisionSmokeIssue({
     return stop("incomplete", `nmg-sdlc-smoke provisioning ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     // Publication, not the session, ends provisioning: close the owned pane without answering more.
-    if (pane) await herdr.paneClose(pane);
+    if (pane) {
+      const closed = await herdr.paneClose(pane);
+      if (closed?.status === 0) onPane(null);
+    }
   }
 }
 
@@ -1054,6 +1071,7 @@ export function createSmokeProvider({
     if (!validHerdrEnvironment(env)) {
       return envelope("failed", "nmg-sdlc-smoke Herdr environment missing", identity);
     }
+    const herdrClient = herdr ?? createHerdrAdapter(executeCommand, env, request.signal);
 
     let scope;
     try {
@@ -1099,13 +1117,25 @@ export function createSmokeProvider({
         issues = null;
         supersedeFailedState = true;
       } else if (state.phase === "provisioning") {
+        provisioning.push(...await closeAbandonedProvisionPane(herdrClient, state.provisionPane));
         if (!provisioned && sameOuterRequest(state, request)) {
           return envelope("failed", "nmg-sdlc-smoke provisioning interrupted", identity, [
             ...(typeof state.provisionClone === "string" ? [retainedCloneEvidence(state.provisionClone)] : []),
           ]);
         }
         // A recorded issue is reused (its spec is finished if needed); an unrecorded interrupted
-        // provisioning under a changed verification identity is a new experiment.
+        // provisioning under a changed verification identity is a new experiment. Either way the
+        // superseded provisioning clone is removed.
+        if (typeof state.provisionClone === "string") {
+          try {
+            remove(state.provisionClone, { recursive: true, force: true });
+          } catch (error) {
+            return envelope("incomplete", "nmg-sdlc-smoke cleanup_failed", identity, [
+              commandEvidence("remove superseded provisioning clone", { error }),
+              retainedCloneEvidence(state.provisionClone),
+            ]);
+          }
+        }
         state = null;
         supersedeFailedState = true;
       } else if (!provisioned) {
@@ -1167,6 +1197,7 @@ export function createSmokeProvider({
         phase: "provisioning",
         provisioned,
         provisionClone: null,
+        provisionPane: null,
       };
       let recorded = provisioningState;
       const record = (change) => {
@@ -1178,7 +1209,7 @@ export function createSmokeProvider({
       const outcome = await provisionSmokeIssue({
         need: queue.need,
         issue: provisioned?.issue,
-        herdr: herdr ?? createHerdrAdapter(executeCommand, env, request.signal),
+        herdr: herdrClient,
         executeCommand,
         readFile,
         createTemp,
@@ -1188,6 +1219,7 @@ export function createSmokeProvider({
         sleep,
         pollMs,
         onClone: (provisionClone) => record({ provisionClone }),
+        onPane: (provisionPane) => record({ provisionPane }),
         onIssue: (issue) => record({ issues: [issue], provisioned: { issue, published: false } }),
       });
       provisioning.push(...outcome.evidence);

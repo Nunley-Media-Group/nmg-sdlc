@@ -1492,29 +1492,83 @@ describe('nmg-sdlc smoke gate self-provisioning', () => {
     expect(states.get(TEST_SCOPE.recoveryKey)).toMatchObject({ phase: 'terminal', provisioned: { issue: 182, published: true } });
   });
 
+  const DEAD_PANE = { pane: 'wF:p42', agent: 'smoke-provision-dead0000' };
+  const withDeadAgent = (tui, paneId = DEAD_PANE.pane) => {
+    const base = tui.herdr.agentGet;
+    tui.herdr.agentGet = async (name) => (name === DEAD_PANE.agent
+      ? result(0, JSON.stringify({ result: { agent: { pane_id: paneId } } }))
+      : base(name));
+    return tui;
+  };
+  const interruptedState = (extra = {}) => ({
+    schemaVersion: 1,
+    recoveryKey: TEST_SCOPE.recoveryKey,
+    scope: TEST_SCOPE,
+    outerIdentity: {
+      headSha: 'a'.repeat(40), treeState: 'clean', dirtyDiffHash: null,
+      specHash: 'sha256:test', steeringHash: 'sha256:steering', validationConfigHash: 'sha256:validation',
+    },
+    validationId: 'repository.nmg-sdlc-smoke',
+    validationConfig: PROVISION_CONFIG,
+    issues: [],
+    phase: 'provisioning',
+    provisioned: null,
+    provisionClone: '/tmp/nmg-sdlc-smoke-provision-old',
+    ...extra,
+  });
+
   it('SCN009: an interrupted provisioning without a recorded issue fails closed for the same identity', async () => {
-    const states = new Map([[TEST_SCOPE.recoveryKey, {
-      schemaVersion: 1,
-      recoveryKey: TEST_SCOPE.recoveryKey,
-      scope: TEST_SCOPE,
-      outerIdentity: {
-        headSha: 'a'.repeat(40), treeState: 'clean', dirtyDiffHash: null,
-        specHash: 'sha256:test', steeringHash: 'sha256:steering', validationConfigHash: 'sha256:validation',
-      },
-      validationId: 'repository.nmg-sdlc-smoke',
-      validationConfig: PROVISION_CONFIG,
-      issues: [],
-      phase: 'provisioning',
-      provisioned: null,
-      provisionClone: '/tmp/nmg-sdlc-smoke-provision-old',
-    }]]);
-    const tui = fakeProvisioningTui();
+    const states = new Map([[TEST_SCOPE.recoveryKey, interruptedState({ provisionPane: DEAD_PANE })]]);
+    const tui = withDeadAgent(fakeProvisioningTui());
     const fixture = provisioningHarness(tui, { states });
     const outcome = await fixture.provider(fixture.request);
 
     expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning interrupted' });
     expect(tui.prompts).toEqual([]);
     expect(tui.splits).toEqual([]);
+    expect(tui.closed).toEqual(['wF:p42']);
+    expect(retained(outcome)).toBe(true);
+  });
+
+  it('SCN009: a changed identity closes the abandoned provisioning pane, removes its clone, and provisions fresh', async () => {
+    const states = new Map([[TEST_SCOPE.recoveryKey, interruptedState({ provisionPane: DEAD_PANE })]]);
+    const tui = withDeadAgent(fakeProvisioningTui());
+    const fixture = provisioningHarness(tui, { states });
+    const outcome = await fixture.provider({ ...fixture.request, identity: { ...fixture.request.identity, headSha: 'b'.repeat(40) } });
+
+    expect(outcome.status).toBe('passed');
+    expect(tui.closed).toEqual(['wF:p42', 'wF:p99']);
+    expect(fixture.rmSync).toHaveBeenCalledWith('/tmp/nmg-sdlc-smoke-provision-old', { recursive: true, force: true });
+  });
+
+  it('SCN009: never closes a recorded pane id now owned by another agent', async () => {
+    const states = new Map([[TEST_SCOPE.recoveryKey, interruptedState({ provisionPane: DEAD_PANE })]]);
+    const tui = withDeadAgent(fakeProvisioningTui(), 'wF:p7');
+    const fixture = provisioningHarness(tui, { states });
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning interrupted' });
+    expect(tui.closed).toEqual([]);
+  });
+
+  it('SCN009: persists the owned pane before starting the agent and clears it once closed', async () => {
+    const states = new Map();
+    const tui = fakeProvisioningTui();
+    const start = tui.herdr.agentStart;
+    let recordedAtStart;
+    tui.herdr.agentStart = async (...args) => {
+      recordedAtStart = structuredClone(states.get(TEST_SCOPE.recoveryKey).provisionPane);
+      return start(...args);
+    };
+    const fixture = provisioningHarness(tui, { states });
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(recordedAtStart).toEqual({ pane: 'wF:p99', agent: expect.stringMatching(/^smoke-provision-[0-9a-f]{8}$/) });
+    expect(outcome.status).toBe('passed');
+    const provisioningWrites = fixture.recoveryStore.write.mock.calls
+      .map(([, value]) => value)
+      .filter((value) => value.phase === 'provisioning');
+    expect(provisioningWrites.at(-1)).toMatchObject({ provisioned: { issue: 179, published: true }, provisionPane: null });
   });
 
   it('SCN010: an explicit queue never provisions', async () => {
