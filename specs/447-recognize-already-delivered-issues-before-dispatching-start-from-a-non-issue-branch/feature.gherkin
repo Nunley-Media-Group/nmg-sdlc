@@ -1,0 +1,33 @@
+**Issue**: #447
+**Date**: 2026-09-30
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/441-continue-an-explicit-execute-queue-after-the-previous-issue-is-delivered/
+
+# File: scripts/__tests__/sdlc-execute.test.mjs
+# Generated from: specs/447-recognize-already-delivered-issues-before-dispatching-start-from-a-non-issue-branch/requirements.md
+Feature: Recognize already-delivered issues before dispatching START from a non-issue branch
+
+  @SCN001 @regression
+  Scenario: Delivered issue is recognized off-branch and the queue continues
+    Given a clean default-branch checkout and issues 42 and 43 each CLOSED with exactly one same-repository MERGED closing pull request on its own issue branch
+    When the controller processes the explicit queue "#42 #43"
+    Then it prints "#42: MERGED and CLOSED" and "#43: MERGED and CLOSED", exits 0, and dispatches no worker
+
+  @SCN002 @regression
+  Scenario: Closed issue without delivery proof stops
+    Given a clean default-branch checkout and issue 42 CLOSED with no MERGED closing pull request
+    When the controller processes "#42"
+    Then it exits 1 with stderr "issue_closed_undelivered: #42" and dispatches no worker
+
+  @SCN003 @regression
+  Scenario: Ambiguous or unreadable delivery evidence stops
+    Given a clean default-branch checkout and issue 42 CLOSED with two MERGED closing pull requests, or an issue or pull-request read that fails or is malformed
+    When the controller processes "#42"
+    Then it exits 1 with stderr "merged_pr_ambiguous: #42" or "delivery_evidence_unavailable: #42" respectively and dispatches no worker
+
+  @SCN004 @regression
+  Scenario: Open-issue admission and on-branch recognition are preserved
+    Given issue 42 OPEN on a clean default-branch checkout without the spec-created label, or issue 42 delivered on its own issue branch
+    When the controller processes issue 42
+    Then the OPEN issue stops with "#42 has no spec-created label", and the on-branch delivered issue prints "#42: MERGED and CLOSED"
