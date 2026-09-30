@@ -203,6 +203,42 @@ function completed(cwd, run, issue, branch, head) {
     && issueState.state === 'CLOSED' && Array.isArray(pr.closingIssuesReferences)
     && pr.closingIssuesReferences.some((reference) => reference.number === issue);
 }
+// Off-branch delivery proof from the issue side: the live issue state and its same-repository
+// closing pull requests. Returns 'open' or 'delivered'; otherwise throws `<reasonCode>: #<issue>`.
+function closedIssueDelivery(cwd, run, issue) {
+  const unavailable = () => new Error(`delivery_evidence_unavailable: #${issue}`);
+  const undelivered = () => new Error(`issue_closed_undelivered: #${issue}`);
+  const view = run('gh', ['issue', 'view', String(issue), '--json', 'number,state,closedByPullRequestsReferences'], { cwd });
+  if (!succeeded(view)) throw unavailable();
+  const value = parsed(view);
+  if (value?.number !== issue || !['OPEN', 'CLOSED'].includes(value.state)) throw unavailable();
+  if (value.state === 'OPEN') return 'open';
+  const references = value.closedByPullRequestsReferences;
+  if (!Array.isArray(references) || !references.every((reference) => Number.isSafeInteger(reference?.number)
+    && reference.number > 0 && typeof reference.repository?.owner?.login === 'string'
+    && typeof reference.repository?.name === 'string')) throw unavailable();
+  const repo = run('gh', ['repo', 'view', '--json', 'nameWithOwner'], { cwd });
+  const nameWithOwner = succeeded(repo) ? parsed(repo)?.nameWithOwner : null;
+  if (typeof nameWithOwner !== 'string' || !/^[^/]+\/[^/]+$/.test(nameWithOwner)) throw unavailable();
+  const numbers = new Set(references.filter(({ repository }) =>
+    `${repository.owner.login}/${repository.name}`.toLowerCase() === nameWithOwner.toLowerCase())
+    .map(({ number }) => number));
+  const merged = [...numbers].map((number) => {
+    const response = run('gh', ['pr', 'view', String(number), '--json',
+      'number,state,headRefName,mergedAt,mergeCommit,closingIssuesReferences'], { cwd });
+    const pr = succeeded(response) ? parsed(response) : null;
+    if (pr?.number !== number || typeof pr.state !== 'string') throw unavailable();
+    return pr;
+  }).filter((pr) => pr.state === 'MERGED');
+  if (!merged.length) throw undelivered();
+  if (merged.length > 1) throw new Error(`merged_pr_ambiguous: #${issue}`);
+  const [pr] = merged;
+  if (typeof pr.mergedAt !== 'string' || !SHA.test(pr.mergeCommit?.oid ?? '')
+    || !Array.isArray(pr.closingIssuesReferences)) throw unavailable();
+  if (!pr.closingIssuesReferences.some((reference) => reference?.number === issue)
+    || parseIssueBranch(pr.headRefName)?.issueNumber !== issue) throw undelivered();
+  return 'delivered';
+}
 // Another issue's branch is left for the default branch only when that issue is delivered at
 // this head and the worktree is clean outside .omp/; otherwise the caller keeps it (returns false).
 function leaveDeliveredBranch(cwd, run, current, branchIssue) {
@@ -482,6 +518,10 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           break;
         }
         if (!branchIssue && !failure) {
+          if (closedIssueDelivery(cwd, run, issue) === 'delivered') {
+            output.push(`#${issue}: MERGED and CLOSED`);
+            break;
+          }
           const view = run('gh', ['issue', 'view', String(issue), '--json', 'number,labels'], { cwd });
           if (!succeeded(view)) throw new Error(`issue #${issue} unavailable`);
           if (!issueHasSpecCreatedLabel(parsed(view))) throw new Error(`#${issue} has no spec-created label`);
