@@ -213,7 +213,7 @@ Successful output uses `NMG_SDLC_PUBLICATION` with this shape:
 /sdlc-execute
 ```
 
-Explicit lists are deduplicated in the supplied order. Every selected issue must have an approved spec, the `spec-created` label, and eligible official dependencies. Bare invocation on a branch recognized by parseIssueBranch selects that issue immediately without picker or extra flags. On non-issue branch, explicit numbers use start-issue worker; bare offers picker.
+Explicit lists are deduplicated in the supplied order. Every selected issue must have an approved spec, the `spec-created` label, and eligible official dependencies. Bare invocation on a branch recognized by parseIssueBranch selects that issue immediately without picker or extra flags. On non-issue branch, explicit numbers use start-issue worker; bare offers picker. Before that admission, an explicit issue that is already CLOSED by exactly one same-repository merged pull request from its own issue branch prints `#N: MERGED and CLOSED` and the queue continues without a worker. A CLOSED issue without that proof stops with `issue_closed_undelivered`, `merged_pr_ambiguous`, or `delivery_evidence_unavailable`.
 
 Start from a clean tree. Resume may preserve partial work already on the target issue branch; the controller never stashes, discards, resets, or force-pushes your changes. Use one execute controller per canonical project root and do not run unrelated branch-changing work concurrently.
 

@@ -197,6 +197,24 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
       onOwnedPane: (pane) => state.owned.push(pane), onPaneClosed: (pane) => state.released.push(pane), ...options }) };
 }
 
+// Answers the off-branch issue-side delivery reads from per-test maps; everything else uses f.run.
+function issueDeliveryRun(f, { issues = {}, prs = {} } = {}) {
+  return (command, args, options) => {
+    if (command === 'gh' && args[0] === 'issue' && args[1] === 'view'
+      && args[args.indexOf('--json') + 1] === 'number,state,closedByPullRequestsReferences') {
+      return Object.hasOwn(issues, args[2]) ? result(issues[args[2]]) : result('', 1);
+    }
+    if (command === 'gh' && args[0] === 'pr' && args[1] === 'view' && Object.hasOwn(prs, args[2])) {
+      return result(prs[args[2]]);
+    }
+    return f.run(command, args, options);
+  };
+}
+const closingRef = (number, login = 'example', name = 'controller') => ({ number, repository: { owner: { login }, name } });
+const closedIssue = (number, references) => ({ number, state: 'CLOSED', closedByPullRequestsReferences: references });
+const mergedPr = (number, issue, headRefName) => ({ number, state: 'MERGED', headRefName,
+  mergedAt: '2026-09-29T00:00:00Z', mergeCommit: { oid: 'b'.repeat(40) }, closingIssuesReferences: [{ number: issue }] });
+
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 
 describe('branch-first execute', () => {
@@ -331,6 +349,49 @@ describe('branch-first execute', () => {
     expect(response.stderr).not.toContain('active_issue_conflict');
     expect(git(f.root, 'branch', '--show-current')).toBe('main');
     expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['start', 'verify', 'deliver']);
+  });
+  it('recognizes delivered issues off-branch without a worker and continues the queue', () => {
+    const f = fixture({ branch: 'main' });
+    const run = issueDeliveryRun(f, {
+      issues: { 42: closedIssue(42, [closingRef(9), closingRef(77, 'someone', 'fork')]), 43: closedIssue(43, [closingRef(10)]) },
+      prs: { 9: mergedPr(9, 42, '42-example'), 10: mergedPr(10, 43, '43-next') },
+    });
+    expect(f.execute('#42 #43', { run })).toEqual({ status: 0,
+      stdout: '#42: MERGED and CLOSED\n#43: MERGED and CLOSED\n', stderr: '' });
+    expect(f.state.starts).toEqual([]);
+    expect(git(f.root, 'branch', '--show-current')).toBe('main');
+  });
+  it.each([
+    ['no closing pull request', { issues: { 42: closedIssue(42, []) } }],
+    ['only an open closing pull request', { issues: { 42: closedIssue(42, [closingRef(9)]) },
+      prs: { 9: { ...mergedPr(9, 42, '42-example'), state: 'OPEN' } } }],
+  ])('stops a closed off-branch issue with %s as undelivered', (_label, maps) => {
+    const f = fixture({ branch: 'main' });
+    expect(f.execute('#42', { run: issueDeliveryRun(f, maps) }))
+      .toEqual({ status: 1, stdout: '', stderr: 'issue_closed_undelivered: #42\n' });
+    expect(f.state.starts).toEqual([]);
+  });
+  it.each([
+    ['two merged closing pull requests', 'merged_pr_ambiguous', { issues: { 42: closedIssue(42, [closingRef(9), closingRef(10)]) },
+      prs: { 9: mergedPr(9, 42, '42-example'), 10: mergedPr(10, 42, '42-retry') } }],
+    ['a failed issue read', 'delivery_evidence_unavailable', {}],
+    ['an issue read missing closing references', 'delivery_evidence_unavailable',
+      { issues: { 42: { number: 42, state: 'CLOSED' } } }],
+    ['a failed pull-request read', 'delivery_evidence_unavailable', { issues: { 42: closedIssue(42, [closingRef(9)]) } }],
+    ['a merged pull request missing mergedAt', 'delivery_evidence_unavailable', { issues: { 42: closedIssue(42, [closingRef(9)]) },
+      prs: { 9: { ...mergedPr(9, 42, '42-example'), mergedAt: undefined } } }],
+  ])('stops a closed off-branch issue with %s', (_label, reasonCode, maps) => {
+    const f = fixture({ branch: 'main' });
+    expect(f.execute('#42', { run: issueDeliveryRun(f, maps) }))
+      .toEqual({ status: 1, stdout: '', stderr: `${reasonCode}: #42\n` });
+    expect(f.state.starts).toEqual([]);
+  });
+  it('keeps spec-created label admission for an open off-branch issue', () => {
+    const f = fixture({ branch: 'main' });
+    f.state.labels = [];
+    const run = issueDeliveryRun(f, { issues: { 42: { number: 42, state: 'OPEN', closedByPullRequestsReferences: [] } } });
+    expect(f.execute('#42', { run })).toEqual({ status: 1, stdout: '', stderr: '#42 has no spec-created label\n' });
+    expect(f.state.starts).toEqual([]);
   });
 
   it('keeps a dirty delivered issue branch instead of moving to the next queued issue', () => {
