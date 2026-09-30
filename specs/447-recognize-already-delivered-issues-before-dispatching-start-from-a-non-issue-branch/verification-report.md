@@ -5,26 +5,26 @@
 **Reviewer**: architecture-reviewer (OMP verify worker)
 **Scope**: Implementation verification against spec
 
-**Verification head**: 2a5c7e3790e8047d886a33d3cb881b17720337da
+**Verification head**: 892ce4ec160000b7e13a469c86ea9ffabbe55e0e
 
 ---
 
 ## Executive Summary
 
-The branch `447-recognize-already-delivered-issues-before-dispatching-start-from-a-non-issue-branch` contains no implementation. Its HEAD `2a5c7e3` is the spec-approval commit (`docs: approve spec for #447 (#450)`), `origin/main..HEAD` is empty, and the worktree is clean. `closedIssueDelivery()` does not exist in `scripts/sdlc-execute.mjs`, and `scripts/__tests__/sdlc-execute.test.mjs` has none of the required regression tests. Every delivery acceptance criterion except the preserved-behavior AC4 is unimplemented.
+Commit `892ce4e` implements the approved design. It adds a module-private `closedIssueDelivery(cwd, run, issue)` directly after `completed()` in `scripts/sdlc-execute.mjs` and calls it as the first statement of the off-branch admission block. A delivered issue prints `#N: MERGED and CLOSED` and breaks to the next queued issue. `issue_closed_undelivered`, `merged_pr_ambiguous`, and `delivery_evidence_unavailable` reach the existing `fail()` path as `<reasonCode>: #N` with no worker. The nine new regression tests pass at HEAD. All eight AC1–AC3 tests fail against the pre-fix `main` controller. Both registered validations passed at the exact head, including a real `repository.nmg-sdlc-smoke` delivery of smoke issue #191 by this checkout's execute controller.
 
 | Category | Score (1-5) |
 |----------|-------------|
-| Spec Compliance | 1 |
-| Architecture (SOLID) | 3 |
-| Security | 3 |
-| Performance | 3 |
-| Testability | 2 |
-| Error Handling | 2 |
-| **Overall** | 2.3 |
+| Spec Compliance | 5 |
+| Architecture (SOLID) | 4 |
+| Security | 5 |
+| Performance | 4 |
+| Testability | 5 |
+| Error Handling | 4 |
+| **Overall** | 4.5 |
 
-### Implementation Status: Fail
-**Total Issues**: 4
+### Implementation Status: Pass
+**Total Issues**: 1 (Low, non-blocking)
 
 ---
 
@@ -41,18 +41,19 @@ The branch `447-recognize-already-delivered-issues-before-dispatching-start-from
 
 ## Delivery Validation
 
-- Local verification: Not complete
+- Local verification: Pass
 - PR evidence: Not required
 
 ---
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Runner: `sdlc-verify-steering.mjs --project . --issue 447 --spec specs/447-… --base main --controller-run-id d39b82e3-8fa0-49a3-9153-b7940c91ea9a`
-- Artifact: `.omp/sdlc/verification/447.json`
-- Identity: head `2a5c7e3790e8047d886a33d3cb881b17720337da`, tree `clean`, spec `sha256:de3af557…e119`, steering `sha256:5ae9b281…68ad`
+- Runner: `sdlc-verify-steering.mjs --project . --issue 447 --spec specs/447-… --base main --controller-run-id d39b82e3-8fa0-49a3-9153-b7940c91ea9a` (exit 0, `ok: true`)
+- Artifact: `.omp/sdlc/verification/447.json`, generated `2026-09-30T16:43:55.483Z`
+- Identity: head `892ce4ec160000b7e13a469c86ea9ffabbe55e0e`, tree `clean`, spec `sha256:de3af557…e119`, steering `sha256:5ae9b281…68ad`
+- Changed paths vs `main`: `CHANGELOG.md`, `README.md`, `scripts/__tests__/sdlc-execute.test.mjs`, `scripts/sdlc-execute.mjs`, and this report
 - Coverage: declared 2, recorded 2, complete `true`, missing/duplicate/unknown none
-- Ceiling: **Fail**
+- Ceiling: none. Both required validations report `passed` with evidence.
 
 ---
 
@@ -60,16 +61,16 @@ The branch `447-recognize-already-delivered-issues-before-dispatching-start-from
 
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
-| AC1 | Delivered issue recognized off-branch; prints `#N: MERGED and CLOSED`, no worker, queue continues | Fail | `scripts/sdlc-execute.mjs:484-501`: on a non-issue branch the loop goes straight to `gh issue view N --json number,labels`, the label/dependency/spec admission, and `step = 'start'`. Nothing reads the issue's live state or closing PRs, so a delivered issue is still dispatched to START. `closedIssueDelivery` is absent (grep: no match). |
-| AC2 | CLOSED without proof → exit 1 `issue_closed_undelivered: #N`, no worker | Fail | `issue_closed_undelivered` appears nowhere in `scripts/`. A CLOSED issue off-branch either fails with `#N has no spec-created label` or is dispatched to START. |
-| AC3 | Ambiguous/unreadable evidence → `merged_pr_ambiguous: #N` / `delivery_evidence_unavailable: #N`, no worker | Fail | These codes appear only in the on-branch `completed()` (`scripts/sdlc-execute.mjs:193,197`), with no `: #N` suffix and only when the issue branch is checked out. The off-branch path never emits them. |
-| AC4 | OPEN-issue admission and on-branch recognition preserved | Pass (unchanged code) | `scripts/sdlc-execute.mjs:480-487` is unchanged; existing tests "recognizes an exact-head merged PR and closed issue without a label or new worker" (`scripts/__tests__/sdlc-execute.test.mjs:291`) and "starts an explicit issue from a non-issue branch, then uses its new live branch" (`:300`) pass in `repository.tests`. This holds only because nothing changed; T002's new AC4 test does not exist. |
+| AC1 | Delivered issue recognized off-branch; prints `#N: MERGED and CLOSED`, no worker, queue continues | Pass | `scripts/sdlc-execute.mjs:520-524` calls `closedIssueDelivery` first in `if (!branchIssue && !failure)` and breaks on `'delivered'`. Proof in `:208-241` covers same-repo filtering (`:223-225`), MERGED selection, `mergedAt`, 40-hex `SHA` merge commit, closing reference, and `parseIssueBranch(headRefName)`. Test "recognizes delivered issues off-branch without a worker and continues the queue": `#42 #43` returns status 0, stdout `#42: MERGED and CLOSED\n#43: MERGED and CLOSED\n`, and `starts: []`. The branch stays `main`, and the unreadable cross-repo reference #77 is never read. |
+| AC2 | CLOSED without proof exits 1 with `issue_closed_undelivered: #N` and no worker | Pass | `:233` covers zero merged PRs, and `:238-239` covers a missing closing reference or an issue-branch mismatch. Tests cover "no closing pull request" and "only an open closing pull request": stderr `issue_closed_undelivered: #42\n`, status 1, `starts: []`. |
+| AC3 | Ambiguous or unreadable evidence exits 1 with `merged_pr_ambiguous: #N` or `delivery_evidence_unavailable: #N` and no worker | Pass | `:234` handles ambiguity. `:212-214`, `:216-219`, `:220-222`, `:229-230`, and `:236-237` handle unavailable evidence. Tests cover two merged PRs, a failed issue read, missing `closedByPullRequestsReferences`, a failed PR read, and a merged PR missing `mergedAt`. Each returns the exact stderr, status 1, and `starts: []`. |
+| AC4 | OPEN-issue admission and on-branch recognition preserved | Pass | `:215` returns `'open'`, and the unchanged label, dependency, and spec admission at `:525-532` follows. The on-branch `completed()` path at `:516-519` is untouched. Test "keeps spec-created label admission for an open off-branch issue" gives stderr `#42 has no spec-created label\n` with no starts. The pre-existing tests "starts an explicit issue from a non-issue branch, then uses its new live branch" and "recognizes an exact-head merged PR and closed issue without a label or new worker" pass. Live smoke also exercised the OPEN off-branch path: `#191: start passed … MERGED and CLOSED`. |
 
 | FR | Status | Evidence |
 |----|--------|----------|
-| FR1 | Fail | No off-branch live-state or closing-PR read comes before admission |
-| FR2 | Fail | No issue-side delivery proof (same-repo, MERGED, `mergedAt`, 40-hex merge commit, closing reference, head-branch parse) |
-| FR3 | Fail | Reason codes `issue_closed_undelivered` / `merged_pr_ambiguous` / `delivery_evidence_unavailable` with `: #N` are not produced off-branch |
+| FR1 | Pass | Live state and closing PRs are read before the `number,labels` admission read. A CLOSED issue decision needs no local branch or label (`:520-524`). |
+| FR2 | Pass | Same repo (case-insensitive `nameWithOwner`), `state === 'MERGED'`, string `mergedAt`, `SHA.test(mergeCommit.oid)`, a closing reference containing the issue, and a head branch that parses to the issue (`:223-239`) |
+| FR3 | Pass | Three stable reason codes with `: #N`. Thrown errors reach the existing catch→`fail()` before any pane, git, or GitHub mutation. Tests assert `starts: []`. |
 
 ---
 
@@ -77,51 +78,49 @@ The branch `447-recognize-already-delivered-issues-before-dispatching-start-from
 
 | Task | Description | Status | Notes |
 |------|-------------|--------|-------|
-| T001 | Correct the root cause in `scripts/sdlc-execute.mjs` | Incomplete | `closedIssueDelivery(cwd, run, issue)` is missing and is not called at the top of `if (!branchIssue && !failure)` |
-| T002 | Behavioral regression coverage in `scripts/__tests__/sdlc-execute.test.mjs` | Incomplete | No `gh issue view … closedByPullRequestsReferences` helper and no AC1–AC4 tests |
+| T001 | Correct the root cause in `scripts/sdlc-execute.mjs` | Complete | Implements the eight-step algorithm and reuses `succeeded`, `parsed`, `SHA`, and `parseIssueBranch`. It is the first statement of the off-branch block. |
+| T002 | Behavioral regression coverage | Complete | Adds the `issueDeliveryRun` helper and nine tests covering AC1–AC4. Focused run: 32/32 pass. Pre-fix check: `main`'s controller with the HEAD test file in a disposable worktree gave 8 failed (all AC1–AC3 tests) and 24 passed. |
 
 ---
 
 ## Architecture Assessment
 
-There is no diff to review. The scores assess the current `runExecute` off-branch path against the approved design.
-
 ### SOLID Compliance
 
 | Principle | Score (1-5) | Notes |
 |-----------|-------------|-------|
-| Single Responsibility | 3 | The admission block mixes label, dependency, and spec admission; the design's module-private `closedIssueDelivery` helper would keep delivery proof separate, but it is missing |
-| Open/Closed | 3 | The per-issue loop is modified in place; this is acceptable for a script-local controller |
-| Liskov Substitution | 3 | N/A for a function-oriented module; the injected `run` keeps substitutability |
-| Interface Segregation | 3 | `run(cmd, args, {cwd})` is a narrow seam |
-| Dependency Inversion | 3 | `gh` is reached through the injected `run`, which the design reuses |
+| Single Responsibility | 4 | One focused function owns issue-side delivery proof. `sdlc-execute.mjs` is already a large controller module (779 lines), a pre-existing condition. |
+| Open/Closed | 4 | The existing on-branch `completed()` is unchanged. The new proof is additive. |
+| Liskov Substitution | 4 | The injected `run` seam keeps fake and real `gh` interchangeable |
+| Interface Segregation | 4 | Narrow `(cwd, run, issue)` signature with a two-value return |
+| Dependency Inversion | 4 | All GitHub access goes through the injected `run`, with no direct process spawning |
 
 ### Layer Separation
 
-The script layer owns the controller routing, which is correct per structure steering. No boundary violation was found.
+Routing logic stays in the scripts layer, consistent with structure steering. No workflow, agent, or reference files changed.
 
 ### Dependency Flow
 
-Unchanged. The design reuses `succeeded`, `parsed`, `SHA`, and `parseIssueBranch`; none of that exists yet.
+The change reuses existing module helpers and `parseIssueBranch` from `sdlc-status.mjs`. It introduces no new imports or dependencies.
 
 ---
 
 ## Security Assessment
 
-- [x] Authentication: delegated to `gh`
-- [x] Authorization: N/A
-- [ ] Input validation: the issue-side closing-PR evidence validation required by FR2 (same-repository filter, SHA shape, head-branch parse) is not implemented
-- [x] Injection prevention: existing `gh` calls use argument arrays
-- [x] Data protection: N/A
+- [x] Authentication: delegated to the `gh` CLI
+- [x] Authorization: read-only `gh` reads; no mutation on any failure path
+- [x] Input validation: every GitHub value is shape-checked (number identity, state enum, reference shape, repo slug regex, SHA regex, head-branch parse). Cross-repository references are ignored and never read.
+- [x] Injection prevention: argument arrays only; the issue and PR numbers are safe integers passed as `String(n)`
+- [x] Data protection: errors expose only the reason code and issue number
 
 ---
 
 ## Performance Assessment
 
-- [x] Async patterns: N/A (synchronous CLI controller; bounded reads)
+- [x] Async patterns: synchronous CLI controller, consistent with the module
 - [x] Caching: N/A
-- [x] Resource management: no new resources
-- [ ] Query optimization: the design's single extra `gh issue view` for OPEN issues is not present; nothing to assess
+- [x] Resource management: reads are bounded by the de-duplicated same-repo closing references
+- [x] Query optimization: an OPEN issue costs one extra `gh issue view`, as the design accepts. A CLOSED issue costs one repo read plus one PR read per same-repo reference.
 
 ---
 
@@ -131,17 +130,18 @@ Unchanged. The design reuses `succeeded`, `parsed`, `SHA`, and `parseIssueBranch
 
 | Acceptance Criterion | Has Scenario | Has Steps | Passes |
 |---------------------|-------------|-----------|--------|
-| AC1 | Yes (SCN001) | No | No |
-| AC2 | Yes (SCN002) | No | No |
-| AC3 | Yes (SCN003) | No | No |
-| AC4 | Yes (SCN004) | Partial (pre-existing on-branch and OPEN-start tests only) | Yes (pre-existing) |
+| AC1 | Yes (SCN001) | Yes (Jest) | Yes |
+| AC2 | Yes (SCN002) | Yes (Jest, 2 cases) | Yes |
+| AC3 | Yes (SCN003) | Yes (Jest, 5 cases) | Yes |
+| AC4 | Yes (SCN004) | Yes (new OPEN test + 2 pre-existing tests) | Yes |
 
 ### Coverage Summary
 
 - Feature files: 4 scenarios in `feature.gherkin`
-- Step definitions: Missing (T002 Jest tests not written)
-- Unit tests: `cd scripts && npm test -- --runInBand` exit 0 (entire existing suite; no #447 tests)
-- Integration tests: none for #447
+- Step definitions: Implemented as Jest tests in `scripts/__tests__/sdlc-execute.test.mjs`
+- Unit tests: `npm test -- --runInBand sdlc-execute.test.mjs` gave 32/32 pass. The full suite gave 49 suites passed, 1 skipped; 843 tests passed, 2 skipped (845 total).
+- Skips: pre-existing opt-in `RUN_EXERCISE_TESTS` exercise suite and a Windows-only junction test. No unexpected skips.
+- Integration tests: live smoke (below)
 
 ---
 
@@ -149,8 +149,8 @@ Unchanged. The design reuses `succeeded`, `parsed`, `SHA`, and `parseIssueBranch
 
 | Field | Value |
 |-------|-------|
-| **Reason** | Skipped: `git diff origin/main...HEAD` is empty, so no plugin change exists under `workflows/`, `agents/`, or `scripts/` to exercise |
-| **Recommendation** | After T001/T002 land, run the full gate again, including `repository.nmg-sdlc-smoke` |
+| **Reason** | Not applicable. The diff touches no `workflows/`, `agents/`, `references/`, `src/`, or plugin-manifest files, so no skill exercise fixture applies. The changed controller path was exercised live by `repository.nmg-sdlc-smoke`. |
+| **Recommendation** | None |
 
 ---
 
@@ -158,12 +158,12 @@ Unchanged. The design reuses `succeeded`, `parsed`, `SHA`, and `parseIssueBranch
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` (builtin.command `npm test -- --runInBand`, cwd `scripts`) | Pass | Provider summary `command exited 0` at head `2a5c7e37…` |
-| `repository.nmg-sdlc-smoke` (project.nmg-sdlc-smoke) | Fail (recorded) | Provider summary `nmg-sdlc-smoke Herdr environment missing`. Cause: the runner was launched from a subprocess without `HERDR_ENV`, `HERDR_SOCKET_PATH`, or `HERDR_PANE_ID` (confirmed unset there and set in the worker pane shell). This is a launch-environment failure of this verification attempt, not a plugin defect. A real smoke experiment was intentionally not repeated: HEAD has no #447 change, so there is no plugin hypothesis to test (steering: Smoke Experiment Scope and Progress). |
-| Skill inventory / plugin surface / skill exercise / skill-creator validation | N/A | No changed skill, reference, agent, or plugin-surface files |
-| Git hygiene | Pass | Clean worktree; no diff |
+| `repository.tests` (builtin.command `npm test -- --runInBand`, cwd `scripts`) | Pass | `command exited 0` at head `892ce4ec…`: 49 suites passed and 1 skipped; 843 tests passed and 2 skipped |
+| `repository.nmg-sdlc-smoke` (project.nmg-sdlc-smoke) | Pass | `nmg-sdlc-smoke delivered #191`. Provisioned smoke issue #191 through real `/sdlc-draft-issue` and `/sdlc-write-spec` in a provider-owned Herdr pane (spec PR #192 MERGED). Pre-run closing-PR baseline was empty. `sdlc-execute run #191` gave `start passed / implement passed / verify passed / deliver passed / MERGED and CLOSED`. Proof: issue #191 CLOSED; PR #193 MERGED with `headRefOid` `565633da4eee36440e75418de0aef4c57fab211f` |
+| Skill inventory / plugin surface / skill exercise / skill-creator validation | N/A | No skill, reference, agent, or plugin-surface files changed |
+| Git hygiene | Pass | `git diff --check main...HEAD` exit 0 |
 
-**Gate Summary**: 1/2 registered gates passed, 1 failed, 0 incomplete
+**Gate Summary**: 2/2 registered gates passed, 0 failed, 0 incomplete
 
 ---
 
@@ -171,68 +171,48 @@ Unchanged. The design reuses `succeeded`, `parsed`, `SHA`, and `parseIssueBranch
 
 | Severity | Category | Location | Original Issue | Fix Applied | Routing |
 |----------|----------|----------|----------------|-------------|---------|
-| — | — | — | None. The publication scope for verify allows writes only to `verification-report.md`, and the missing feature is implementation work, not a local finding. | — | — |
+| — | — | — | None required | — | — |
 
 ## Remaining Issues
 
 ### Critical Issues
-
-| Field | Value |
-|-------|-------|
-| **Severity** | Critical |
-| **Category** | Architecture |
-| **Location** | `scripts/sdlc-execute.mjs:484` |
-| **Issue** | `closedIssueDelivery(cwd, run, issue)` (T001, design steps 1–8) is not implemented or called first in the off-branch admission block |
-| **Impact** | AC1–AC3 / FR1–FR3 fail; an already-delivered issue on a non-issue branch is still dispatched to START and aborts the queue |
-| **Reason Not Fixed** | Implementation is the implement stage's responsibility; the verify publication scope is limited to the report |
-
-| Field | Value |
-|-------|-------|
-| **Severity** | Critical |
-| **Category** | Testing |
-| **Location** | `scripts/__tests__/sdlc-execute.test.mjs` |
-| **Issue** | T002 regression tests (AC1 delivered queue, AC2 undelivered, AC3 ambiguous/unreadable, AC4 OPEN-without-label) are absent |
-| **Impact** | No failing-before/passing-after proof |
-| **Reason Not Fixed** | Same as above |
+None.
 
 ### High Priority
+None.
+
+### Medium Priority
+None.
+
+### Low Priority
 
 | Field | Value |
 |-------|-------|
-| **Severity** | High |
-| **Category** | Error Handling |
-| **Location** | `scripts/sdlc-execute.mjs:485-486` |
-| **Issue** | A failed issue read off-branch reports `issue #N unavailable` rather than the required `delivery_evidence_unavailable: #N` |
-| **Impact** | FR3 stable reason codes are missing |
-| **Reason Not Fixed** | Part of T001 |
-
-| Field | Value |
-|-------|-------|
-| **Severity** | High |
+| **Severity** | Low |
 | **Category** | Testing |
-| **Location** | `repository.nmg-sdlc-smoke` |
-| **Issue** | No real passing smoke result exists for this head |
-| **Impact** | Full-green verification is impossible until the implementation lands and smoke runs in a Herdr-enabled environment |
-| **Reason Not Fixed** | No plugin change exists to test; the smoke gate must be rerun after T001/T002 |
+| **Location** | `scripts/__tests__/sdlc-execute.test.mjs` |
+| **Issue** | Some implemented `closedIssueDelivery` branches have no dedicated test: a merged PR whose head branch belongs to another issue, a merged PR without a closing reference to the issue, only cross-repository references, and a failed `gh repo view`. |
+| **Impact** | A future regression in those branches would not be caught. The code is correct by inspection (`:220-225`, `:238-239`). |
+| **Reason Not Fixed** | Not required by T002's acceptance list. The verify publication scope allows writes only to this report. |
 
 ---
 
 ## Positive Observations
 
-- The approved design is precise (an eight-step algorithm with exact reason codes, reusing the existing helpers) and limited to the off-branch path.
-- The existing contract suite is green at the verification head.
+- The design is followed step for step. Helper reuse avoids a second delivery-proof convention.
+- The fail-closed ordering is sound: every malformed or unreadable read stops before admission, with no pane or mutation.
+- The pre-fix/post-fix regression proof is exact: 8 targeted failures on `main` and 32/32 at HEAD.
+- README and CHANGELOG `[Unreleased]` document the new stop codes.
 
 ---
 
 ## Recommendations Summary
 
 ### Before PR (Must)
-- [ ] Implement T001 `closedIssueDelivery()` and call it first in the off-branch admission block
-- [ ] Implement T002 regression tests and confirm AC1–AC3 fail before the fix
-- [ ] Rerun the full registered gate (`repository.tests`, then real `repository.nmg-sdlc-smoke` from a Herdr-enabled environment)
+- [x] None
 
 ### Short Term (Should)
-- [ ] None
+- [ ] Optionally add tests for the head-branch mismatch, missing closing reference, cross-repo-only, and repo-read-failure branches
 
 ### Long Term (Could)
 - [ ] None
@@ -243,14 +223,15 @@ Unchanged. The design reuses `succeeded`, `parsed`, `SHA`, and `parseIssueBranch
 
 | File | Issues | Notes |
 |------|--------|-------|
-| `scripts/sdlc-execute.mjs` | 2 | Off-branch admission block lacks delivery proof |
-| `scripts/__tests__/sdlc-execute.test.mjs` | 1 | Missing #447 regression tests |
-| `specs/447-…/{requirements,design,tasks}.md`, `feature.gherkin` | 0 | All Approved, `**Issue**: #447` |
+| `scripts/sdlc-execute.mjs` | 0 | `closedIssueDelivery` and its call site |
+| `scripts/__tests__/sdlc-execute.test.mjs` | 1 (Low) | Nine new regression tests |
+| `README.md`, `CHANGELOG.md` | 0 | User-facing behavior documented |
+| `specs/447-…/{requirements,design,tasks}.md`, `feature.gherkin` | 0 | All `**Status**: Approved`, `**Issue**: #447` |
 
 ---
 
 ## Recommendation
 
-**Major rework needed**
+**Ready for PR**
 
-No implementation of #447 exists at the verification head. Return to implementation: complete T001 and T002, then run fresh full-gate verification.
+Every delivery AC, FR, task, and scenario passes with code and test evidence. Coverage is complete. Both required registered validations, including a real smoke delivery, passed at the exact head `892ce4ec160000b7e13a469c86ea9ffabbe55e0e`.
