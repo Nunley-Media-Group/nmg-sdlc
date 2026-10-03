@@ -1,0 +1,49 @@
+**Issue**: #453
+**Date**: 2026-10-03
+**Status**: Approved
+**Author**: RussellBTech
+**Related Spec**: specs/407-wait-for-required-ci-before-merging-spec-only-prs/, specs/429-wait-through-stale-unstable-spec-pr-mergeability-after-checks-pass/
+
+# Generated from: specs/453-fix-private-repository-merge-readiness-for-unavailable-account-plan-capabilities/requirements.md
+Feature: Fix private-repository merge readiness for unavailable account-plan capabilities
+
+  @SCN001 @AC1
+  Scenario: Explicit capability unavailability skips only its discovery source
+    Given branch-rule or classic required-status-check protection discovery fails with HTTP 403
+    And its diagnostic is "Upgrade to GitHub Pro or make this repository public to enable this feature."
+    When approved-spec publication evaluates readiness
+    Then it continues evaluating every remaining policy and check observation
+    And the unavailable source alone does not cause pr_readiness_failed
+    And classification does not depend on a repository-name exception
+
+  @SCN002 @AC2
+  Scenario: Non-capability discovery failures remain closed
+    Given discovery has a permission, authentication, generic 403, ambiguous missing-resource, malformed-data, or network failure without explicit account-plan capability evidence
+    When approved-spec publication evaluates readiness
+    Then it reports the discovery failure without authorizing merge
+    And the existing explicitly identified unprotected-branch response remains a separate supported case
+
+  @SCN003 @AC3
+  Scenario: Unavailable discovery cannot erase available requirements
+    Given one discovery source explicitly reports unavailable capability and the other requires a check that has not reported
+    When approved-spec publication evaluates readiness
+    Then the missing required check prevents readiness
+    And every applicable requirement remains enforced when discovery succeeds normally
+    And an explicit merge-policy blocker still prevents merge
+
+  @SCN004 @AC4
+  Scenario: Unavailable policy discovery preserves checks and exact-head gates
+    Given policy discovery explicitly reports unavailable capability
+    When approved-spec publication evaluates successive PR snapshots
+    Then absent or pending checks never authorize an early merge
+    And failed, unknown, malformed, or unreadable checks remain non-passing
+    And changed PR identity, non-open state, draft state, and non-CLEAN mergeability cannot authorize merge
+    And only two fresh successful CLEAN snapshots at the unchanged head permit the existing exact-head merge path
+
+  @SCN005 @AC5
+  Scenario: Delivery check queries never inherit the discovery exception
+    Given implementation delivery observes required and all reported PR checks for a private repository
+    When readiness evaluates readable checks or a query failure including the explicit account-plan HTTP 403 diagnostic
+    Then ordinary successful readiness continues to work
+    And pending, failed, absent, malformed, and unreadable evidence remain non-passing
+    And verification, review, exact-head identity, and mergeability gates retain their behavior
