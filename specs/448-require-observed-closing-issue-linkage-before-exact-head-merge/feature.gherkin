@@ -1,0 +1,43 @@
+**Issue**: #448
+**Date**: 2026-10-06
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/8-open-pr-skill/
+
+# File: scripts/__tests__/sdlc-deliver.test.mjs
+# Generated from: specs/448-require-observed-closing-issue-linkage-before-exact-head-merge/requirements.md
+Feature: Require observed closing-issue linkage before exact-head merge
+
+  @SCN001 @regression
+  Scenario: Missing linkage blocks the exact-head merge
+    Given issue #42 has merge-ready pull request #77 whose body contains "Closes #42"
+    And GitHub reports closing references for #77 that do not include issue #42 at "https://github.test/owner/repo/issues/42"
+    When ordinary delivery runs for #42
+    Then no merge command is issued
+    And the deliver handoff fails with reason "closing_linkage_unobserved" and summary "PR #77 does not link issue #42; exact-head merge not attempted"
+    And pull request #77 remains open and branch "feature/42-delivery" remains on the local and remote repository
+
+  @SCN002 @regression
+  Scenario: Observed linkage allows the exact-head merge
+    Given issue #42 has merge-ready pull request #77
+    And GitHub reports a closing reference for #77 with number 42 and URL "https://github.test/owner/repo/issues/42"
+    When ordinary delivery runs for #42
+    Then closing references are read before the merge command
+    And pull request #77 is merged at the exact head and issue #42 is CLOSED
+    And the deliver handoff passes
+
+  @SCN003 @regression
+  Scenario: Deliver worker waits and diagnoses without a fixed limit
+    Given ordinary delivery reported "closing_linkage_unobserved" for #42
+    When the deliver worker prompt for #42 is rendered from the open-pr workflow
+    Then it directs the worker to wait for CI and other pull request checks and processes, re-observe live closing linkage, diagnose repository-specific causes, and rerun ordinary delivery with no numeric observation limit
+    And it forbids merging outside ordinary delivery, force-pushing, and synthesizing a handoff
+    And it directs the worker to keep the branch and pull request and report the exact gap when linkage cannot be established
+
+  @SCN004 @regression
+  Scenario: Post-merge reconciliation is preserved
+    Given pull request #77 is already MERGED at the exact head
+    And GitHub reports no closing reference to issue #42
+    When ordinary delivery reconciles #42
+    Then no new merge command is issued
+    And the deliver handoff fails with reason "delivery_linkage_unproven" and summary "Merged PR #77 does not link issue #42"
