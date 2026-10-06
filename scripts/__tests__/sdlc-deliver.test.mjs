@@ -20,7 +20,7 @@ function git(cwd, ...args) {
   return result.stdout.trim();
 }
 
-function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'passed', remoteIssueState = 'OPEN', existing = false, lostAck = false, checksState = 'SUCCESS', smokeOwned = false, humanReview = false } = {}) {
+function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'passed', remoteIssueState = 'OPEN', existing = false, lostAck = false, checksState = 'SUCCESS', checkResponses = {}, smokeOwned = false, humanReview = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-delivery-current-'));
   const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-delivery-remote-'));
   roots.push(root, remote);
@@ -129,6 +129,7 @@ function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'p
   const issueUrl = 'https://github.test/owner/repo/issues/42';
   const issue = { number: 42, title: 'Deliver verified changes', body: '', labels: [{ name: 'enhancement' }], state: issueState, url: issueUrl };
   const success = [{ name: 'contract-tests', state: checksState, bucket: checksState === 'SUCCESS' ? 'pass' : 'fail', link: 'https://github.test/checks/77', event: 'pull_request' }];
+  const checkCalls = { required: 0, all: 0 };
   const run = (binary, args, opts = {}) => {
     calls.push([binary, ...args]);
     if (binary === 'git' || binary === process.execPath) {
@@ -161,7 +162,13 @@ function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'p
       pr.body = fs.readFileSync(args[args.indexOf('--body-file') + 1], 'utf8');
       return { status: 0, stdout: '', stderr: '' };
     }
-    if (args[0] === 'pr' && args[1] === 'checks') return { status: 0, stdout: JSON.stringify(success), stderr: '' };
+    if (args[0] === 'pr' && args[1] === 'checks') {
+      const query = args.includes('--required') ? 'required' : 'all';
+      const responses = checkResponses[query];
+      const index = checkCalls[query]++;
+      if (!responses) return { status: 0, stdout: JSON.stringify(success), stderr: '' };
+      return Array.isArray(responses) ? responses[Math.min(index, responses.length - 1)] : responses;
+    }
     if (args[0] === 'api' && args[1] === 'graphql') return { status: 0, stdout: JSON.stringify({ data: { repository: { pullRequest: {
       reviews: { nodes: humanReview ? [{
         id: 'human-review', author: { login: 'reviewer', __typename: 'User' },
@@ -393,5 +400,69 @@ console.log(JSON.stringify(value));
     const second = runDeliver({ cwd: f.root, issue: 42, run: f.run });
     expect(second).toMatchObject({ status: 0, handoff: { status: 'passed' } });
     expect(deliveryCalls(f, 'merge')).toHaveLength(1);
+  });
+
+  describe('PR check queries', () => {
+    const PLAN_UNAVAILABLE = 'gh: Upgrade to GitHub Pro or make this repository public to enable this feature. (HTTP 403)';
+    const checkRow = (state, bucket, name = 'contract-tests') => ({
+      name, state, bucket, link: 'https://github.test/checks/77', event: 'pull_request',
+    });
+    const checks = (...rows) => ({ status: rows.some((row) => row.bucket === 'pending') ? 8 : 0, stdout: JSON.stringify(rows), stderr: '' });
+
+    test.each([
+      ['required', 'gh pr checks --required'],
+      ['all', 'gh pr checks'],
+    ])('the account-plan diagnostic on the %s query fails delivery instead of becoming an empty check set', (query, description) => {
+      const f = fixture({ existing: true, checkResponses: { [query]: { status: 1, stdout: '', stderr: PLAN_UNAVAILABLE } } });
+      const result = runDeliver({ cwd: f.root, issue: 42, run: f.run, sleep: () => { throw new Error('unexpected wait'); } });
+      expect(result).toMatchObject({ status: 1, handoff: { status: 'failed', reasonCode: 'delivery_failed' } });
+      expect(result.handoff.summary).toContain(`${description} returned no JSON`);
+      expect(deliveryCalls(f, 'merge')).toHaveLength(0);
+      expect(f.issueState).toBe('OPEN');
+    });
+
+    test.each([
+      ['required', 'malformed', { status: 0, stdout: '{', stderr: '' }, 'gh pr checks --required returned invalid JSON'],
+      ['all', 'malformed', { status: 0, stdout: '{"checks":[]}', stderr: '' }, 'gh pr checks did not return a check array'],
+      ['required', 'unreadable', { status: 4, stdout: '', stderr: 'gh: Bad credentials (HTTP 401)' }, 'gh pr checks --required failed: gh: Bad credentials (HTTP 401)'],
+      ['all', 'unreadable', { status: 1, stdout: '', stderr: 'error connecting to api.github.com' }, 'gh pr checks returned no JSON'],
+    ])('%s query %s output fails closed without merging', (query, _kind, response, summary) => {
+      const f = fixture({ existing: true, checkResponses: { [query]: response } });
+      const result = runDeliver({ cwd: f.root, issue: 42, run: f.run, sleep: () => { throw new Error('unexpected wait'); } });
+      expect(result).toMatchObject({ status: 1, handoff: { status: 'failed', reasonCode: 'delivery_failed' } });
+      expect(result.handoff.summary).toContain(summary);
+      expect(deliveryCalls(f, 'merge')).toHaveLength(0);
+    });
+
+    test('a failed check reported only by the unfiltered query blocks merge with remediation', () => {
+      const f = fixture({
+        existing: true,
+        checkResponses: { all: { status: 1, stdout: JSON.stringify([checkRow('SUCCESS', 'pass'), checkRow('FAILURE', 'fail', 'lint')]), stderr: '' } },
+      });
+      const result = runDeliver({ cwd: f.root, issue: 42, run: f.run, sleep: () => { throw new Error('unexpected wait'); } });
+      expect(result).toMatchObject({
+        status: 1,
+        handoff: { status: 'failed', reasonCode: 'checks_failed' },
+        remediation: { failingChecks: [{ name: 'lint' }] },
+      });
+      expect(deliveryCalls(f, 'merge')).toHaveLength(0);
+    });
+
+    test.each([
+      ['required', checks(checkRow('PENDING', 'pending')), checks(checkRow('SUCCESS', 'pass'))],
+      ['unfiltered', checks(checkRow('SUCCESS', 'pass'), checkRow('PENDING', 'pending', 'lint')),
+        checks(checkRow('SUCCESS', 'pass'), checkRow('SUCCESS', 'pass', 'lint'))],
+    ])('a pending %s check waits and merges only after it passes', (label, pendingChecks, passingChecks) => {
+      const query = label === 'required' ? 'required' : 'all';
+      const f = fixture({ existing: true, checkResponses: { [query]: [pendingChecks, passingChecks] } });
+      const result = runDeliver({ cwd: f.root, issue: 42, run: f.run, sleep: () => f.calls.push(['sleep']) });
+      expect(result).toMatchObject({ status: 0, handoff: { status: 'passed' } });
+      const merge = f.calls.findIndex((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'merge');
+      const firstWait = f.calls.findIndex((call) => call[0] === 'sleep');
+      expect(firstWait).toBeGreaterThan(-1);
+      expect(merge).toBeGreaterThan(firstWait);
+      expect(deliveryCalls(f, 'merge')).toHaveLength(1);
+      expect(deliveryCalls(f, 'merge')[0]).toContain(f.currentHead);
+    });
   });
 });

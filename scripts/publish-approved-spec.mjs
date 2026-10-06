@@ -380,11 +380,24 @@ function reportedChecks(pr, head, required) {
   return checks;
 }
 
+const ACCOUNT_PLAN_UNAVAILABLE = 'Upgrade to GitHub Pro or make this repository public to enable this feature. (HTTP 403)';
+
+// Only this exact GitHub diagnostic proves the policy source is absent on the account plan;
+// every other discovery failure stays fail-closed.
+function isAccountPlanCapabilityUnavailable(result) {
+  if (!Number.isInteger(result.status) || result.status === 0) return false;
+  return String(result.stderr || '').split('\n').some((line) => {
+    const trimmed = line.trim();
+    return trimmed === ACCOUNT_PLAN_UNAVAILABLE || trimmed === `gh: ${ACCOUNT_PLAN_UNAVAILABLE}`;
+  });
+}
+
 function expectedCheckNames(pr, head, url, base) {
   const match = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/\d+\/?$/.exec(url ?? '');
   if (!match) fail('pr_readiness_failed', { pr, head, detail: 'PR repository identity unavailable' });
   const path = `repos/${match[1]}/${match[2]}`;
-  const rules = readJson(run('gh', ['api', `${path}/rules/branches/${encodeURIComponent(base)}`]), 'pr_readiness_failed');
+  const rulesResult = run('gh', ['api', `${path}/rules/branches/${encodeURIComponent(base)}`]);
+  const rules = isAccountPlanCapabilityUnavailable(rulesResult) ? [] : readJson(rulesResult, 'pr_readiness_failed');
   if (!Array.isArray(rules)) fail('pr_readiness_failed', { pr, head, detail: 'branch rules unavailable' });
   const expected = new Set();
   for (const rule of rules) {
@@ -412,8 +425,8 @@ function expectedCheckNames(pr, head, url, base) {
     }
     for (const name of policy.contexts) expected.add(name);
     for (const check of policy.checks) expected.add(check.context);
-  } else if (protection.status !== 1
-    || !/Branch not protected/.test(`${protection.stdout || ''} ${protection.stderr || ''}`)) {
+  } else if (!isAccountPlanCapabilityUnavailable(protection) && (protection.status !== 1
+    || !/Branch not protected/.test(`${protection.stdout || ''} ${protection.stderr || ''}`))) {
     fail('pr_readiness_failed', { pr, head, detail: 'branch protection unavailable', stderr: protection.stderr || '' });
   }
   return expected;

@@ -121,6 +121,11 @@ fi
 if [ "$1" = "api" ]; then
   case "$2" in
     */rules/branches/main)
+      if [ -n "$GH_RULES_STATUS" ]; then
+        if [ -n "$GH_RULES_STDOUT" ]; then printf '%s\\n' "$GH_RULES_STDOUT"; fi
+        if [ -n "$GH_RULES_STDERR" ]; then printf '%s\\n' "$GH_RULES_STDERR" >&2; fi
+        exit "$GH_RULES_STATUS"
+      fi
       if [ "$GH_EXPECTED_MISSING" = "1" ] && [ "$GH_PROTECTED" != "1" ]; then
         printf '%s\\n' '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"guardrails"}]}}]'
       elif [ "$GH_STALE_UNSTABLE" = "1" ] || [ "$GH_BLOCKED_PENDING" = "1" ]; then
@@ -130,6 +135,11 @@ if [ "$1" = "api" ]; then
       fi
       exit 0 ;;
     */protection/required_status_checks)
+      if [ -n "$GH_PROTECTION_STATUS" ]; then
+        if [ -n "$GH_PROTECTION_STDOUT" ]; then printf '%s\\n' "$GH_PROTECTION_STDOUT"; fi
+        if [ -n "$GH_PROTECTION_STDERR" ]; then printf '%s\\n' "$GH_PROTECTION_STDERR" >&2; fi
+        exit "$GH_PROTECTION_STATUS"
+      fi
       if [ "$GH_PROTECTED" = "1" ]; then
         printf '%s\\n' '{"contexts":["guardrails"],"checks":[{"context":"guardrails"}]}'
         exit 0
@@ -145,6 +155,7 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   if [ "$GH_RECONCILE_UNREADABLE" = "1" ] && [ "$count" -ge 3 ]; then exit 1; fi
   printf '%s\\n' "$count" > .pr-view-count
   state=CLEAN
+  if [ -n "$GH_MERGE_STATE" ]; then state="$GH_MERGE_STATE"; fi
   if [ "$GH_POLICY_BLOCK" = "1" ]; then state=BLOCKED; fi
   if [ "$GH_STALE_UNSTABLE" = "1" ] && [ "$count" -lt 3 ]; then state=UNSTABLE; fi
   if [ "$GH_PENDING_CI" = "1" ] && [ "$count" -lt 3 ]; then state=UNSTABLE; fi
@@ -165,11 +176,31 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   if [ "$GH_RECONCILE_BASE_DRIFT" = "1" ] && [ "$count" -ge 3 ]; then prbase=other; fi
   draft=false
   if [ "$GH_DRAFT_PR" = "1" ] && [ "$count" -ge 2 ]; then draft=true; fi
-  printf '{"number":99,"state":"%s","isDraft":%s,"headRefName":"%s","headRefOid":"%s","baseRefName":"%s","mergeStateStatus":"%s","url":"https://github.com/example/repo/pull/99"}\\n' "$prstate" "$draft" "$prhead" "$sha" "$prbase" "$state"
+  prnumber=99
+  if [ "$GH_DRIFT_NUMBER" = "1" ] && [ "$count" -ge 2 ]; then prnumber=98; fi
+  printf '{"number":%s,"state":"%s","isDraft":%s,"headRefName":"%s","headRefOid":"%s","baseRefName":"%s","mergeStateStatus":"%s","url":"https://github.com/example/repo/pull/99"}\\n' "$prnumber" "$prstate" "$draft" "$prhead" "$sha" "$prbase" "$state"
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
   count=$(cat .pr-view-count)
+  if [ "$4" = "--required" ] && [ -n "$GH_REQUIRED_CHECKS_STATUS" ]; then
+    if [ -n "$GH_REQUIRED_CHECKS_STDOUT" ]; then printf '%s\\n' "$GH_REQUIRED_CHECKS_STDOUT"; fi
+    if [ -n "$GH_REQUIRED_CHECKS_STDERR" ]; then printf '%s\\n' "$GH_REQUIRED_CHECKS_STDERR" >&2; fi
+    exit "$GH_REQUIRED_CHECKS_STATUS"
+  fi
+  if [ "$4" != "--required" ] && [ -n "$GH_ALL_CHECKS_STATUS" ]; then
+    if [ -n "$GH_ALL_CHECKS_STDOUT" ]; then printf '%s\\n' "$GH_ALL_CHECKS_STDOUT"; fi
+    if [ -n "$GH_ALL_CHECKS_STDERR" ]; then printf '%s\\n' "$GH_ALL_CHECKS_STDERR" >&2; fi
+    exit "$GH_ALL_CHECKS_STATUS"
+  fi
+  if [ "$GH_LATE_REQUIRED" = "1" ]; then
+    if [ "$count" -ge 3 ]; then
+      printf '%s\\n' '[{"name":"contribution","state":"SUCCESS","bucket":"pass"},{"name":"guardrails","state":"SUCCESS","bucket":"pass"}]'
+    else
+      printf '%s\\n' '[{"name":"contribution","state":"SUCCESS","bucket":"pass"}]'
+    fi
+    exit 0
+  fi
   if [ "$GH_NO_REQUIRED" = "1" ] && [ "$4" = "--required" ]; then
     printf '%s\\n' "no required checks reported on the '42-add-x' branch" >&2
     exit 1
@@ -202,6 +233,10 @@ if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
 fi
 if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
   echo "$*" | grep -q -- '--squash' || exit 1
+  if [ "$GH_LATE_REQUIRED" = "1" ] && [ "$(cat .pr-view-count)" -lt 3 ]; then
+    printf '%s\\n' 'required status check expected' >&2
+    exit 1
+  fi
   if [ "$GH_PENDING_CI" = "1" ]; then
     count=0
     if [ -f .pr-view-count ]; then count=$(cat .pr-view-count); fi
@@ -1137,5 +1172,158 @@ describe('publish-approved-spec', () => {
     const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], env);
     expect(result.status).not.toBe(0);
     expect(parse(result)).toMatchObject({ ok: false, reasonCode: 'spec_not_approved' });
+  });
+
+  describe('with account-plan unavailable policy discovery', () => {
+    const PLAN_SENTENCE = 'Upgrade to GitHub Pro or make this repository public to enable this feature.';
+    const PLAN_BODY = JSON.stringify({ message: PLAN_SENTENCE, status: '403' });
+    const unavailable = (source) => ({
+      [`GH_${source}_STATUS`]: '1',
+      [`GH_${source}_STDOUT`]: PLAN_BODY,
+      [`GH_${source}_STDERR`]: `gh: ${PLAN_SENTENCE} (HTTP 403)`,
+    });
+    const BOTH_UNAVAILABLE = { ...unavailable('RULES'), ...unavailable('PROTECTION') };
+    const RULES_REQUIRE_GUARDRAILS = {
+      GH_RULES_STATUS: '0',
+      GH_RULES_STDOUT: '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"guardrails"}]}}]',
+    };
+    const sourceResponse = (source, { status, stdout = '', stderr = '' }) => ({
+      [`GH_${source}_STATUS`]: status,
+      [`GH_${source}_STDOUT`]: stdout,
+      [`GH_${source}_STDERR`]: stderr,
+    });
+
+    function mergeWith(flags) {
+      const { root, env } = makeRepo();
+      expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
+      writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+      expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
+      const head = git(root, ['rev-parse', 'HEAD']).trim();
+      const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], { ...env, ...flags });
+      const log = fs.readFileSync(path.join(root, '.gh-log'), 'utf8');
+      const stateLog = path.join(root, '.pr-state-log');
+      const states = fs.existsSync(stateLog) ? fs.readFileSync(stateLog, 'utf8').trim().split('\n') : [];
+      return { head, result, log, states };
+    }
+
+    function expectExactHeadMerge({ head, result, log }) {
+      expect(result.status).toBe(0);
+      expect(parse(result)).toEqual({ ok: true, branch: 'main', pr: 99, merged: true, squash: true, labeled: true });
+      expect(log.match(/pr merge 99 /g)).toHaveLength(1);
+      expect(log).toContain(`pr merge 99 --squash --match-head-commit ${head} --delete-branch`);
+      const lines = log.trim().split('\n');
+      expect(lines.findIndex((line) => line.startsWith('pr merge 99 ')))
+        .toBeGreaterThan(lines.findLastIndex((line) => line.startsWith('pr view 99 ')));
+    }
+
+    it.each([
+      ['branch rules', unavailable('RULES')],
+      ['classic protection', unavailable('PROTECTION')],
+      ['both policy sources', BOTH_UNAVAILABLE],
+      ['branch rules without the gh prefix', {
+        ...sourceResponse('RULES', { status: '1', stderr: `${PLAN_SENTENCE} (HTTP 403)` }),
+      }],
+    ])('continues readiness and merges the exact head when %s report the plan capability unavailable', (_source, flags) => {
+      const merged = mergeWith(flags);
+      expectExactHeadMerge(merged);
+      expect(merged.states).toEqual(['CLEAN', 'CLEAN']);
+      const lines = merged.log.trim().split('\n');
+      const rules = lines.findIndex((line) => line.startsWith('api repos/example/repo/rules/branches/main'));
+      const protection = lines.findIndex((line) => line.startsWith('api repos/example/repo/branches/main/protection/required_status_checks'));
+      const checks = lines.findIndex((line) => line.startsWith('pr checks 99 --required'));
+      expect(rules).toBeGreaterThanOrEqual(0);
+      expect(protection).toBeGreaterThan(rules);
+      expect(checks).toBeGreaterThan(protection);
+    });
+
+    const NON_CAPABILITY_FAILURES = [
+      ['a permission failure', { status: '1', stderr: 'gh: Resource not accessible by integration (HTTP 403)' }],
+      ['an authentication failure', { status: '1', stderr: 'gh: Bad credentials (HTTP 401)' }],
+      ['a generic HTTP 403', { status: '1', stdout: '{"message":"Forbidden"}', stderr: 'gh: Forbidden (HTTP 403)' }],
+      ['an ambiguous HTTP 404', { status: '1', stdout: '{"message":"Not Found"}', stderr: 'gh: Not Found (HTTP 404)' }],
+      ['the capability sentence with HTTP 404', { status: '1', stderr: `gh: ${PLAN_SENTENCE} (HTTP 404)` }],
+      ['the capability sentence inside another diagnostic', { status: '1', stderr: `warning: gh: ${PLAN_SENTENCE} (HTTP 403)` }],
+      ['a network failure', { status: '1', stderr: 'error connecting to api.github.com' }],
+      ['malformed successful data', { status: '0', stdout: '{' }],
+      ['the capability sentence on a successful malformed response', {
+        status: '0', stdout: '{', stderr: `gh: ${PLAN_SENTENCE} (HTTP 403)`,
+      }],
+    ];
+
+    it.each([
+      ...NON_CAPABILITY_FAILURES.map(([label, response]) => [`branch rules return ${label}`, sourceResponse('RULES', response), response]),
+      ...NON_CAPABILITY_FAILURES.map(([label, response]) => [`classic protection returns ${label}`, sourceResponse('PROTECTION', response), response]),
+      ['branch rules return a non-array payload', sourceResponse('RULES', { status: '0', stdout: '{"rules":[]}' }), {}],
+      ['classic protection returns malformed checks', sourceResponse('PROTECTION', { status: '0', stdout: '{"contexts":"guardrails"}' }), {}],
+      ['branch rules are unavailable and classic protection returns a generic HTTP 403', {
+        ...unavailable('RULES'), ...sourceResponse('PROTECTION', { status: '1', stderr: 'gh: Forbidden (HTTP 403)' }),
+      }, { stderr: 'gh: Forbidden (HTTP 403)' }],
+      ['classic protection is unavailable and branch rules return a generic HTTP 403', {
+        ...sourceResponse('RULES', { status: '1', stderr: 'gh: Forbidden (HTTP 403)' }), ...unavailable('PROTECTION'),
+      }, { stderr: 'gh: Forbidden (HTTP 403)' }],
+    ])('reports the discovery failure without merging when %s', (_case, flags, response) => {
+      const { result, log } = mergeWith(flags);
+      expect(result.status).not.toBe(0);
+      const output = parse(result);
+      expect(output).toMatchObject({ ok: false, reasonCode: 'pr_readiness_failed' });
+      if (response.status !== '0' && response.stderr) expect(output.stderr).toContain(response.stderr);
+      else expect(output.detail).toEqual(expect.any(String));
+      expect(log).not.toContain('pr merge 99');
+    });
+
+    it.each([
+      ['branch rules are unavailable and classic protection requires it', { ...unavailable('RULES'), GH_PROTECTED: '1' }],
+      ['classic protection is unavailable and branch rules require it', { ...RULES_REQUIRE_GUARDRAILS, ...unavailable('PROTECTION') }],
+      ['both policy sources are readable and require it', { ...RULES_REQUIRE_GUARDRAILS, GH_PROTECTED: '1' }],
+    ])('waits for an unreported required check when %s', (_case, flags) => {
+      const merged = mergeWith({ ...flags, GH_LATE_REQUIRED: '1' });
+      expectExactHeadMerge(merged);
+      expect(merged.states).toEqual(['CLEAN', 'CLEAN', 'CLEAN', 'CLEAN']);
+      expect(merged.log.match(/pr checks 99 --required/g)).toHaveLength(4);
+    });
+
+    it.each([
+      ['absent then pending checks', { GH_PENDING_CI: '1' }],
+      ['pending unfiltered checks', { GH_OPTIONAL_PENDING: '1' }],
+      ['stale UNSTABLE mergeability', { GH_EXISTING_PR: '1', GH_STALE_UNSTABLE: '1' }],
+    ])('waits through %s for two fresh CLEAN snapshots at the unchanged head', (_case, flags) => {
+      const merged = mergeWith({ ...BOTH_UNAVAILABLE, ...flags });
+      expectExactHeadMerge(merged);
+      expect(merged.states).toEqual(['UNSTABLE', 'UNSTABLE', 'CLEAN', 'CLEAN']);
+      expect(merged.log.match(/pr view 99 /g)).toHaveLength(4);
+    });
+
+    it.each([
+      ['pr_check_failed', 'a terminal failed check', { GH_FAILED_CI: '1' }, { check: { name: 'contribution', state: 'FAILURE' } }],
+      ['pr_readiness_failed', 'an unknown check state', sourceResponse('REQUIRED_CHECKS', {
+        status: '0', stdout: '[{"name":"contribution","state":"STALE","bucket":"pass"}]',
+      }), { detail: 'unknown PR check state' }],
+      ['pr_readiness_failed', 'malformed required checks', sourceResponse('REQUIRED_CHECKS', { status: '0', stdout: '{' }),
+        { detail: 'checks returned invalid JSON' }],
+      ['pr_readiness_failed', 'non-array reported checks', sourceResponse('ALL_CHECKS', { status: '0', stdout: '{"checks":[]}' }),
+        { detail: 'checks unavailable' }],
+      ['pr_readiness_failed', 'a required check query with the plan diagnostic', sourceResponse('REQUIRED_CHECKS', {
+        status: '1', stderr: `gh: ${PLAN_SENTENCE} (HTTP 403)`,
+      }), { detail: 'checks returned invalid JSON' }],
+      ['pr_readiness_failed', 'a reported check query with the plan diagnostic', sourceResponse('ALL_CHECKS', {
+        status: '1', stderr: `gh: ${PLAN_SENTENCE} (HTTP 403)`,
+      }), { detail: 'checks returned invalid JSON' }],
+      ['pr_readiness_failed', 'an unreadable reported check query', sourceResponse('ALL_CHECKS', {
+        status: '4', stdout: '[]', stderr: 'gh: Bad credentials (HTTP 401)',
+      }), { detail: 'checks unavailable', stderr: 'gh: Bad credentials (HTTP 401)\n' }],
+      ['pr_head_changed', 'a changed head', { GH_DRIFT_HEAD: '1' }, { observed: { headRefOid: '0'.repeat(40) } }],
+      ['pr_head_changed', 'a changed head branch', { GH_DRIFT_BRANCH: '1' }, { observed: { headRefName: 'other' } }],
+      ['pr_head_changed', 'a changed base', { GH_DRIFT_BASE: '1' }, { observed: { baseRefName: 'other' } }],
+      ['pr_head_changed', 'a changed PR number', { GH_DRIFT_NUMBER: '1' }, { observed: { number: 98 } }],
+      ['pr_head_changed', 'a closed PR', { GH_CLOSED_PR: '1' }, { observed: { state: 'CLOSED' } }],
+      ['pr_merge_blocked', 'a draft PR', { GH_DRAFT_PR: '1' }, { isDraft: true }],
+      ['pr_merge_blocked', 'an explicit merge-policy blocker', { GH_POLICY_BLOCK: '1' }, { mergeStateStatus: 'BLOCKED' }],
+      ['pr_merge_blocked', 'DIRTY mergeability', { GH_MERGE_STATE: 'DIRTY' }, { mergeStateStatus: 'DIRTY' }],
+    ])('fails closed with %s on %s without merging', (reasonCode, _case, flags, evidence) => {
+      const { result, log } = mergeWith({ ...BOTH_UNAVAILABLE, ...flags });
+      expect(result.status).not.toBe(0);
+      expect(parse(result)).toMatchObject({ ok: false, reasonCode, pr: 99, ...evidence });
+      expect(log).not.toContain('pr merge 99');
+    });
   });
 });
