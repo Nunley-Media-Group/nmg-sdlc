@@ -4,28 +4,28 @@
 **Issue**: #448
 **Reviewer**: architecture-reviewer (nmg-sdlc verify worker)
 **Scope**: Implementation verification against spec
-**Verification head**: 22e5c7ca55f5f090cce1017c3ae68bea9843fc18
+**Verification head**: fd1975c6a734f002851bf066e2aa4408eaffb98e
 
 ---
 
 ## Executive Summary
 
-The branch `448-require-observed-closing-issue-linkage-before-exact-head-merge` contains no implementation. Its HEAD (`22e5c7ca55f5f090cce1017c3ae68bea9843fc18`) equals `main` and `origin/main`; `git diff --stat main...HEAD` is empty and `git log main..HEAD` lists no commits. The only #448 commit is the approved spec (PR #456, merged). None of `closingLinkObserved`, `requireClosingLinkage` or `closing_linkage_unobserved` appears under `scripts/`, `workflows/` or `references/`. The defect is still present. `scripts/sdlc-deliver.mjs:1459-1466` runs `registeredGate`, then `writeSmokeDeliveryProof`, then `gh pr merge --squash --match-head-commit`, and only after that `reconcilePostMerge`, which is the only code that reads `closingIssuesReferences` (`scripts/sdlc-deliver.mjs:1115-1131`).
+Commit `fd1975c` implements T001–T003 as the approved design specifies. Ordinary delivery now reads the PR's live `closingIssuesReferences` after `registeredGate` and before `writeSmokeDeliveryProof` and `gh pr merge`. If no entry matches the issue number and the same-repository issue URL, delivery returns `closing_linkage_unobserved` without merging. Post-merge reconciliation uses the same extracted predicate and behaves as before. The open-pr workflow and `ci-monitoring.md` direct the deliver worker to wait, re-observe, diagnose and rerun, with no numeric limit.
 
-Both registered validations passed at this head (`repository.tests`, `repository.nmg-sdlc-smoke`; coverage 2/2 complete). They exercised the unchanged pre-fix code, so they do not prove any #448 acceptance criterion.
+Both registered validations passed at the exact head with complete coverage (2/2). The live smoke run delivered smoke issue #200 through `sdlc-execute`, and that run went through the new pre-merge linkage gate. With the pre-fix `sdlc-deliver.mjs`, the new regression tests fail with exactly the defect: the PR merges, then delivery fails `delivery_linkage_unproven`. With the fix they pass. One low-severity observation is outside the approved change set.
 
 | Category | Score (1-5) |
 |----------|-------------|
-| Spec Compliance | 1 |
-| Architecture (SOLID) | 3 |
-| Security | 3 |
-| Performance | 4 |
-| Testability | 2 |
-| Error Handling | 1 |
-| **Overall** | 2.3 |
+| Spec Compliance | 5 |
+| Architecture (SOLID) | 4 |
+| Security | 5 |
+| Performance | 5 |
+| Testability | 5 |
+| Error Handling | 4 |
+| **Overall** | 4.7 |
 
-### Implementation Status: Fail
-**Total Issues**: 4
+### Implementation Status: Pass
+**Total Issues**: 1 (Low; outside approved scope)
 
 ---
 
@@ -42,17 +42,18 @@ Both registered validations passed at this head (`repository.tests`, `repository
 
 ## Delivery Validation
 
-- Local verification: Not complete
+- Local verification: Pass
 - PR evidence: Not required
 
 ---
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Runner: `sdlc-verify-steering.mjs --project . --issue 448 --spec specs/448-… --base main --controller-run-id b754d265-edcb-44ef-97c7-598322f2036c`. It returned `ok: true` and `ceiling: null`.
-- Artifact: `.omp/sdlc/verification/448.json`. Identity: head `22e5c7ca55f5f090cce1017c3ae68bea9843fc18`, steering `sha256:8cc2905a…`, spec `sha256:85ed3f87…`, `changedPaths: []`.
+- Runner: `sdlc-verify-steering.mjs --project . --issue 448 --spec specs/448-require-observed-closing-issue-linkage-before-exact-head-merge --base main --controller-run-id b754d265-edcb-44ef-97c7-598322f2036c`. It returned `ok: true` and `ceiling: null`.
+- Artifact: `.omp/sdlc/verification/448.json`. Identity: head `fd1975c6a734f002851bf066e2aa4408eaffb98e`, clean tree, steering `sha256:8cc2905a…`, spec `sha256:85ed3f87…`.
+- Changed paths: `CHANGELOG.md`, `scripts/__tests__/sdlc-deliver.test.mjs`, `scripts/sdlc-deliver.mjs`, `workflows/open-pr/WORKFLOW.md`, `workflows/open-pr/references/ci-monitoring.md`, and this report.
 - Coverage: declared 2, recorded 2, complete `true`. Nothing is missing, duplicated or unknown.
-- The steering artifact sets no ceiling. Status is capped at **Fail** because acceptance criteria and tasks are unimplemented.
+- No ceiling applies.
 
 ---
 
@@ -60,10 +61,10 @@ Both registered validations passed at this head (`repository.tests`, `repository
 
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
-| AC1 | Missing linkage blocks the merge (`closing_linkage_unobserved`, no merge, branch and PR intact) | Fail | `scripts/sdlc-deliver.mjs:1459-1462`: the merge is issued with no linkage read beforehand. `closing_linkage_unobserved` does not exist anywhere in `scripts/`, `workflows/` or `references/`. |
-| AC2 | Linkage is read after the registered gate and before the merge command | Fail | `fetchSnapshot` and the merge-ready loop never request `closingIssuesReferences` before `gh pr merge`. The only read is in `reconcilePostMerge` (`scripts/sdlc-deliver.mjs:1115`), which runs after the merge. |
-| AC3 | Deliver worker waits, re-observes, diagnoses and reruns with no numeric limit | Fail | `workflows/open-pr/WORKFLOW.md` and `workflows/open-pr/references/ci-monitoring.md` have no `closing_linkage_unobserved` guidance. The T003 evidence command (`workerPrompt({ step: 'deliver', issue: 42 })` must include `closing_linkage_unobserved` and `No numeric observation limit`) exited 1. |
-| AC4 | Post-merge reconciliation is preserved (`delivery_linkage_unproven`, `Merged PR #P does not link issue #N`) | Partial | The existing behavior is still in place at `scripts/sdlc-deliver.mjs:1128-1131`. However, T001 did not extract the `closingLinkObserved` predicate, and the T002 regression test for AC4 does not exist. |
+| AC1 | Missing linkage blocks the merge | Pass | `requireClosingLinkage` (`scripts/sdlc-deliver.mjs:1114-1129`) is called at `:1481`, between `registeredGate` (`:1480`) and `writeSmokeDeliveryProof`/`gh pr merge` (`:1482-1484`). If the link is absent, it calls `abortDelivery(fail(context, 'closing_linkage_unobserved', 'PR #P does not link issue #N; exact-head merge not attempted', null, [pr.url]))`. Jest `test.each` covers three cases: empty references, a cross-repository #42, and a same-repository #41. Each returns status 1 with that handoff and makes 0 merge calls. The PR and issue stay `OPEN`, and the branch `feature/42-delivery` remains both locally and at `origin`. |
+| AC2 | Linkage is read after the gate and before the merge, then the merge proceeds | Pass | The same test sets the linked reference and reruns: status 0, a passed handoff, exactly one merge containing the current head, and the issue `CLOSED`. The last `gh pr view` before the merge requests `closingIssuesReferences`. Live: the `repository.nmg-sdlc-smoke` run went through this code path and merged smoke PR #202 at `f0f60219bf87444c9a28f3d4624762ff5750296f`, closing smoke issue #200. |
+| AC3 | Worker waits and diagnoses with no fixed limit | Pass | The paragraph from the `workflows/open-pr/WORKFLOW.md` design was inserted verbatim, and the reference-reading sentence was extended. The `ci-monitoring.md` paragraph was inserted verbatim (checked against the quoted strings in design.md). The T003 prompt command exited 0 (`deliver worker prompt carries linkage guidance`). An OMP RPC dry-run exercise of the rendered deliver worker prompt treated the condition as non-terminal and made no numeric limit. It refused a direct merge, a force-push and handoff synthesis. On persistent failure it keeps the branch and PR and reports the gap (see Exercise Test Results). |
+| AC4 | Post-merge reconciliation is preserved | Pass | `reconcilePostMerge` now calls `closingLinkObserved(pr, issue, issueData.url)`, which is the same predicate as before (`:1150`). The already-MERGED paths (`:1281`, `:1373`, `:1435`) do not call `requireClosingLinkage`. Jest: a delivered PR with references cleared fails `delivery_linkage_unproven` / `Merged PR #77 does not link issue #42`, and the merge count stays 1. The existing lost-acknowledgment test passes unchanged. |
 
 ---
 
@@ -71,52 +72,50 @@ Both registered validations passed at this head (`repository.tests`, `repository
 
 | Task | Description | Status | Notes |
 |------|-------------|--------|-------|
-| T001 | Correct the root cause in `scripts/sdlc-deliver.mjs` | Incomplete | `closingLinkObserved` and `requireClosingLinkage` are absent, and nothing is called between `registeredGate` and `writeSmokeDeliveryProof`. |
-| T002 | Behavioral regression coverage in `scripts/__tests__/sdlc-deliver.test.mjs` | Incomplete | There is no `closingReferences` fixture option and no `closing_linkage_unobserved` test (0 matches). |
-| T003 | Deliver-worker guidance in the open-pr workflow and `ci-monitoring.md` | Incomplete | Neither paragraph exists, and the prompt-evidence command exits 1. |
+| T001 | Correct the root cause | Complete | Both helpers match the design Fix Strategy exactly. The new code does not call `reconciliationFailure`, sleep, poll or count observations. |
+| T002 | Behavioral regression coverage | Complete | Adds the `closingReferences` fixture option and setter, the AC1/AC2 `test.each` and the AC4 test. Fail-before is proven: in an isolated copy with `main:scripts/sdlc-deliver.mjs`, the 3 AC1/AC2 cases fail (received `delivery_linkage_unproven`) and AC4 passes. |
+| T003 | Deliver-worker guidance | Complete | Both paragraphs are present. The prompt-evidence command, `skill-inventory-audit.mjs --check` and `verify-plugin-surface.mjs` all exit 0. |
 
 ---
 
 ## Architecture Assessment
 
-The scores below apply to the unchanged delivery path, because no #448 change exists to review.
-
 ### SOLID Compliance
 
 | Principle | Score (1-5) | Notes |
 |-----------|-------------|-------|
-| Single Responsibility | 3 | `runDeliverUnlocked` combines discovery, gating, merging and reconciliation. The designed private `requireClosingLinkage` helper would keep the new precondition isolated, but it does not exist. |
-| Open/Closed | 3 | Adding the precondition should need one call-site insertion. That has not been done. |
-| Liskov Substitution | 4 | Not materially applicable. Handoff shapes stay consistent through `fail`/`writeHandoff`. |
-| Interface Segregation | 3 | The `gh pr view` field lists are tailored per call. A pre-merge linkage read is missing. |
-| Dependency Inversion | 3 | The injected `run` and `sleep` make the code testable. The linkage predicate is inlined in `reconcilePostMerge` instead of being a shared predicate. |
+| Single Responsibility | 4 | The new precondition is a private helper, and the call site adds one line. `runDeliverUnlocked` was already large. |
+| Open/Closed | 4 | The precondition was added without changing the classifier or the shared snapshot. |
+| Liskov Substitution | 5 | The handoff shapes still come from the shared `fail`/`writeHandoff`. |
+| Interface Segregation | 4 | A dedicated minimal `--json` field list for the pre-merge read. |
+| Dependency Inversion | 4 | The injected `run` keeps the helper testable. A single predicate is shared by the pre-merge and post-merge checks. |
 
 ### Layer Separation
 
-Script and workflow layers are separated correctly. The workflow layer has no worker contract for an unobserved-linkage condition.
+The script enforces the precondition. The workflow layer gives the worker its behavior, and the classifier and execute controller are unchanged, which matches the Blast Radius in design.md.
 
 ### Dependency Flow
 
-The deliver worker prompt inlines `workflows/open-pr/WORKFLOW.md`, so worker behavior for this failure can only change once T003 lands.
+The deliver worker prompt inlines `workflows/open-pr/WORKFLOW.md` through `workerPrompt`. The new text reaches workers without any controller change.
 
 ---
 
 ## Security Assessment
 
 - [x] Authentication: unchanged. Uses the authenticated `gh` CLI.
-- [x] Authorization: the exact-head merge uses `--match-head-commit`.
-- [ ] Input validation: GitHub linkage state is not validated before an irreversible remote mutation (the merge).
-- [x] Injection prevention: argument arrays are used for `gh` and `git`.
+- [x] Authorization: the merge is still `--match-head-commit`. The pre-merge read also checks PR number, head and `OPEN` state.
+- [x] Input validation: the PR URL and repository URL are validated with the same patterns as `reconcilePostMerge`. A cross-repository reference with the same number is rejected (tested).
+- [x] Injection prevention: argument arrays are used for every `gh`/`git` call.
 - [x] Data protection: no secrets are handled.
 
 ---
 
 ## Performance Assessment
 
-- [x] Async patterns: bounded synchronous CLI calls.
+- [x] Async patterns: one bounded synchronous `gh pr view` per merge attempt.
 - [x] Caching: not applicable.
-- [x] Resource management: no leaks observed on this path.
-- [x] Query optimization: the designed change adds only one `gh pr view` read before the merge. It is not present.
+- [x] Resource management: no new processes or files on the failure path. No smoke proof is written before the abort.
+- [x] Query optimization: minimal field list.
 
 ---
 
@@ -126,16 +125,17 @@ The deliver worker prompt inlines `workflows/open-pr/WORKFLOW.md`, so worker beh
 
 | Acceptance Criterion | Has Scenario | Has Steps | Passes |
 |---------------------|-------------|-----------|--------|
-| AC1 (SCN001) | Yes | No | No |
-| AC2 (SCN002) | Yes | No | No |
-| AC3 (SCN003) | Yes | No | No (prompt-evidence command exit 1) |
-| AC4 (SCN004) | Yes | No | No dedicated test; the existing behavior is unchanged |
+| AC1 (SCN001) | Yes | Yes (Jest `test.each`, 3 cases) | Yes |
+| AC2 (SCN002) | Yes | Yes (same test, linked rerun) | Yes |
+| AC3 (SCN003) | Yes | Runtime evidence: prompt-evidence command plus OMP exercise | Yes |
+| AC4 (SCN004) | Yes | Yes (`a merged PR without closing linkage…`) | Yes |
 
 ### Coverage Summary
 
-- Feature files: 4 scenarios in `feature.gherkin`
-- Step definitions: Missing. The Jest cases specified in T002 are absent from `scripts/__tests__/sdlc-deliver.test.mjs`.
-- `repository.tests` (`npm test -- --runInBand` in `scripts/`): passed (exit 0) at the verification head. It proves only the unchanged tree.
+- Feature files: 4 scenarios
+- Step definitions: Implemented in Jest (`scripts/__tests__/sdlc-deliver.test.mjs`)
+- Focused suite: `npm --prefix scripts test -- --runInBand __tests__/sdlc-deliver.test.mjs` passed 27/27.
+- Full suite: `repository.tests` (`npm test -- --runInBand` in `scripts/`) exited 0 at the verification head.
 
 ---
 
@@ -143,8 +143,25 @@ The deliver worker prompt inlines `workflows/open-pr/WORKFLOW.md`, so worker beh
 
 | Field | Value |
 |-------|-------|
-| **Reason** | Not performed. `git diff main...HEAD` shows no change under `workflows/` or `agents/`, so there is no changed plugin surface to exercise. |
-| **Recommendation** | After T003 lands, exercise the deliver worker prompt as specified in T003. |
+| **Skill Exercised** | open-pr, as the rendered deliver worker prompt from `workerPrompt({ step: 'deliver', issue: 42 })` |
+| **Test Project** | Disposable `nmg-sdlc-exercise-448-*` temp git project (removed afterwards) |
+| **Exercise Method** | `node scripts/exercise-omp.mjs --cwd <project> -- <dry-run prompt + rendered deliver worker prompt>` (OMP RPC harness, this checkout loaded) |
+| **Interactive gate handling** | N/A (automated worker) |
+| **Duration** | 30 s, exit 0 |
+
+### Captured Output Summary
+
+The prompt gave the worker a failed `closing_linkage_unobserved` handoff for PR #77 and asked for its next actions under the dry-run contract. The worker classified the condition as non-terminal. It planned to wait with `gh pr checks 77` until nothing was pending, re-observe with `gh pr view 77 --json closingIssuesReferences,baseRefName,body,…`, and diagnose three causes: base branch versus default branch, a missing `Closes #42`, and an issue in another repository. It would rerun `sdlc-deliver.mjs --issue 42` only after linkage was observed or a diagnosed cause changed. It stated there is no numeric observation limit. It refused a direct `gh pr merge`, a force-push and handoff synthesis. If linkage could not be established, it would keep the branch and PR, leave the delivery-written failed handoff, and report the exact gap.
+
+### AC Evaluation
+
+| AC | Description | Verdict | Evidence |
+|----|-------------|---------|----------|
+| AC3 | Worker waits and diagnoses with no fixed limit | Pass | The answers to questions (1)–(5) in the exercise output match FR3 point by point. |
+
+### Notes
+
+GitHub operations were evaluated as a dry run, and the exercise made no remote mutation. The live merge path (AC2) is proven separately by the registered smoke run. `/sdlc-open-pr` was not run as a file command because `commands/sdlc-open-pr.md` is outside the approved change set (see Remaining Issues). The deliver worker receives the changed `WORKFLOW.md` through `workerPrompt`.
 
 ---
 
@@ -152,10 +169,14 @@ The deliver worker prompt inlines `workflows/open-pr/WORKFLOW.md`, so worker beh
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `repository.tests` (builtin.command) | Pass | `npm test -- --runInBand exited 0` at `22e5c7ca55f5f090cce1017c3ae68bea9843fc18` |
-| `repository.nmg-sdlc-smoke` (project.nmg-sdlc-smoke) | Pass | Provisioned smoke issue #197 (spec PR #198 MERGED). `sdlc-execute run #197` returned start/implement/verify/deliver passed. PR #199 MERGED at `fa664154602dab9416de5b05b181f88277693ef2`, outside the empty pre-run baseline, and issue #197 CLOSED. |
+| `repository.tests` (builtin.command) | Pass | `npm test -- --runInBand exited 0` at `fd1975c6a734f002851bf066e2aa4408eaffb98e`, clean tree |
+| `repository.nmg-sdlc-smoke` (project.nmg-sdlc-smoke) | Pass | Provisioned smoke issue #200 (spec PR #201 MERGED). The closing-PR baseline was empty. `sdlc-execute run #200` reported start, implement, verify and deliver as passed. The closing-PR proof shows PR #202 `MERGED` at `f0f60219bf87444c9a28f3d4624762ff5750296f`, outside the baseline, and issue #200 `CLOSED`. |
+| Skill inventory | Pass | `skill-inventory-audit.mjs --check`: clean (90 items mapped) |
+| OMP plugin surface | Pass | `verify-plugin-surface.mjs --root . --label repository` passed |
+| Skill exercise | Pass | OMP RPC dry-run exercise (above) |
+| Git hygiene | Pass | `git diff --check main...HEAD` exited 0 |
 
-**Gate Summary**: 2/2 gates passed, 0 failed, 0 incomplete. The gates do not cover the missing #448 implementation.
+**Gate Summary**: 6/6 gates passed, 0 failed, 0 incomplete. Registered coverage: 2/2, complete.
 
 ---
 
@@ -163,70 +184,44 @@ The deliver worker prompt inlines `workflows/open-pr/WORKFLOW.md`, so worker beh
 
 | Severity | Category | Location | Original Issue | Fix Applied | Routing |
 |----------|----------|----------|----------------|-------------|---------|
-| — | — | — | None | No fixes applied. The verify publication scope permits writes only to this report, and the missing implementation is not a small local verification fix. | — |
+| — | — | — | None | No fixes were needed within the verify publication scope. | — |
 
 ## Remaining Issues
 
-### Critical Issues
+### Low Priority
 
 | Field | Value |
 |-------|-------|
-| **Severity** | Critical |
-| **Category** | Error Handling |
-| **Location** | `scripts/sdlc-deliver.mjs:1459-1466` |
-| **Issue** | The exact-head merge is issued before closing linkage is observed (T001, AC1, AC2, FR1, FR2). |
-| **Impact** | A PR without GitHub-computed closing linkage is merged irreversibly, then fails `delivery_linkage_unproven` with the issue still OPEN. |
-| **Reason Not Fixed** | No implementation exists on the branch. This is implementation work outside the verify publication scope and is routed to implementation diagnosis. |
-
-| Field | Value |
-|-------|-------|
-| **Severity** | High |
-| **Category** | Testing |
-| **Location** | `scripts/__tests__/sdlc-deliver.test.mjs` |
-| **Issue** | The T002 regression tests are absent (AC1, AC2, AC4). |
-| **Impact** | No test protects the pre-merge linkage gate. |
-| **Reason Not Fixed** | Depends on T001. Outside the verify publication scope. |
-
-| Field | Value |
-|-------|-------|
-| **Severity** | High |
+| **Severity** | Low |
 | **Category** | Architecture |
-| **Location** | `workflows/open-pr/WORKFLOW.md`, `workflows/open-pr/references/ci-monitoring.md` |
-| **Issue** | The T003 deliver-worker guidance for `closing_linkage_unobserved` is absent (AC3, FR3). |
-| **Impact** | The deliver worker has no non-terminal wait, re-observe, diagnose and rerun contract. |
-| **Reason Not Fixed** | The edits are skill-bundled implementation outside the verify publication scope. |
+| **Location** | `commands/sdlc-open-pr.md` |
+| **Issue** | The standalone `/sdlc-open-pr` file command is a separately maintained summary of the open-pr workflow, and it has no `closing_linkage_unobserved` paragraph. It still points to `references/ci-monitoring.md` when checks fail, and that file now carries the guidance. |
+| **Impact** | A manually invoked `/sdlc-open-pr` session gets less direct guidance for this condition. Delivery itself still fails closed and never merges. The execute deliver worker is unaffected because it inlines `WORKFLOW.md`. |
+| **Reason Not Fixed** | The file is outside the approved Changes table and outside the verify publication scope, which allows writes only to this report. Recommend a follow-up issue. |
 
-| Field | Value |
-|-------|-------|
-| **Severity** | Medium |
-| **Category** | SOLID |
-| **Location** | `scripts/sdlc-deliver.mjs:1128-1129` |
-| **Issue** | The `closingLinkObserved` predicate has not been extracted (part of T001 for AC4). |
-| **Impact** | Without a single shared predicate, the pre-merge and post-merge linkage checks could drift apart. |
-| **Reason Not Fixed** | Part of T001. |
+Note: the undefined `reconciliationFailure` call sites already existed and are explicitly out of scope in requirements.md. The new code does not use them.
 
 ---
 
 ## Positive Observations
 
-- Post-merge reconciliation still fails `delivery_linkage_unproven` correctly when a merged PR lacks linkage.
-- The registered gate and live smoke both passed with complete coverage at the exact head, so a correct T001–T003 change starts from a green baseline.
+- The design was implemented exactly, using a single shared predicate. Pre-merge and post-merge linkage checks cannot drift apart.
+- The abort happens before `writeSmokeDeliveryProof`, so no pre-merge smoke receipt is written for an unmerged PR.
+- The regression tests demonstrably fail on the pre-fix code and cover both cross-repository and wrong-issue references.
+- The live smoke run exercised the new gate end to end, from linkage observed to exact-head merge to issue `CLOSED`.
 
 ---
 
 ## Recommendations Summary
 
 ### Before PR (Must)
-- [ ] Implement T001 exactly as specified in design.md Fix Strategy.
-- [ ] Add the T002 Jest regression cases and run `npm --prefix scripts test -- --runInBand __tests__/sdlc-deliver.test.mjs`.
-- [ ] Add the T003 workflow guidance through `skill://skill-creator`, then run the prompt-evidence command, `skill-inventory-audit.mjs --check` and `verify-plugin-surface.mjs`.
-- [ ] Rerun the full registered gate at the new head.
+- [ ] None.
 
 ### Short Term (Should)
 - [ ] None.
 
 ### Long Term (Could)
-- [ ] None.
+- [ ] File a follow-up issue to add the `closing_linkage_unobserved` guidance to `commands/sdlc-open-pr.md`.
 
 ---
 
@@ -234,15 +229,17 @@ The deliver worker prompt inlines `workflows/open-pr/WORKFLOW.md`, so worker beh
 
 | File | Issues | Notes |
 |------|--------|-------|
-| `scripts/sdlc-deliver.mjs` | 2 | The merge precedes the linkage read, and the predicate is not extracted. |
-| `scripts/__tests__/sdlc-deliver.test.mjs` | 1 | T002 coverage is missing. |
-| `workflows/open-pr/WORKFLOW.md` | 1 | T003 guidance is missing. |
-| `workflows/open-pr/references/ci-monitoring.md` | 1 | T003 guidance is missing (counted with the item above). |
+| `scripts/sdlc-deliver.mjs` | 0 | Helpers and call site match the design |
+| `scripts/__tests__/sdlc-deliver.test.mjs` | 0 | T002 coverage is complete, with fail-before proven |
+| `workflows/open-pr/WORKFLOW.md` | 0 | Design paragraph is verbatim |
+| `workflows/open-pr/references/ci-monitoring.md` | 0 | Design paragraph is verbatim |
+| `CHANGELOG.md` | 0 | `[Unreleased]` entry is accurate |
+| `commands/sdlc-open-pr.md` | 1 | Not changed. Low, outside scope |
 
 ---
 
 ## Recommendation
 
-**Major rework needed**
+**Ready for PR**
 
-The branch head is identical to `main` and contains none of the approved T001–T003 changes. All four acceptance criteria are unproven: AC1–AC3 fail and AC4 is partial. The work returns to implementation diagnosis. After the changes land, the full registered gate must be rerun at the new head.
+All four acceptance criteria, all three tasks and both registered validations pass at `fd1975c6a734f002851bf066e2aa4408eaffb98e`. Coverage is complete, and there is live smoke delivery proof. The only remaining item is a low-severity documentation gap outside the approved scope.
