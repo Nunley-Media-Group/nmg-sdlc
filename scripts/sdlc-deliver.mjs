@@ -1106,6 +1106,28 @@ function reconcileMergeability({ context, run, branch, observed, spec, publicati
   }
 }
 
+function closingLinkObserved(pr, issue, issueUrl) {
+  return Array.isArray(pr.closingIssuesReferences)
+    && pr.closingIssuesReferences.some((item) => item.number === issue && item.url === issueUrl);
+}
+
+function requireClosingLinkage({ context, run, prNumber, head }) {
+  const pr = jsonCommand(run, context.cwd, 'gh', [
+    'pr', 'view', String(prNumber), '--json', 'number,url,state,headRefOid,closingIssuesReferences',
+  ]).value;
+  if (pr?.number !== prNumber || pr.headRefOid !== head || pr.state !== 'OPEN') {
+    abortDelivery(fail(context, 'delivery_reconciliation_required', `PR #${prNumber} changed before exact-head merge`));
+  }
+  const repositoryUrl = String(pr.url ?? '').replace(/\/pull\/[1-9]\d*\/?$/, '');
+  if (!/^https:\/\/[^/]+\/[^/]+\/[^/]+$/.test(repositoryUrl) || pr.url !== `${repositoryUrl}/pull/${prNumber}`) {
+    abortDelivery(fail(context, 'delivery_reconciliation_required', 'Observed issue/repository identity does not match the exact delivery target'));
+  }
+  if (!closingLinkObserved(pr, context.issue, `${repositoryUrl}/issues/${context.issue}`)) {
+    abortDelivery(fail(context, 'closing_linkage_unobserved',
+      `PR #${prNumber} does not link issue #${context.issue}; exact-head merge not attempted`, null, [pr.url]));
+  }
+}
+
 function reconcilePostMerge({ context, run, sleep, expected }) {
   const { cwd, issue } = context;
   let closeIssued = false;
@@ -1125,8 +1147,7 @@ function reconcilePostMerge({ context, run, sleep, expected }) {
       abortDelivery(fail(context, 'delivery_reconciliation_required', 'Observed issue/repository identity does not match the exact delivery target'));
     }
     const merged = pr.state === 'MERGED' && Boolean(pr.mergedAt) && SHA.test(pr.mergeCommit?.oid ?? '');
-    const linked = Array.isArray(pr.closingIssuesReferences)
-      && pr.closingIssuesReferences.some((item) => item.number === issue && item.url === issueData.url);
+    const linked = closingLinkObserved(pr, issue, issueData.url);
     if (merged && linked && issueData.state === 'CLOSED') return { pr, issueData };
     if (merged && !linked) abortDelivery(fail(context, 'delivery_linkage_unproven', `Merged PR #${pr.number} does not link issue #${issue}`));
     if (pr.state === 'CLOSED') abortDelivery(fail(context, 'merge_failed', `PR #${pr.number} closed without an exact-head merge`));
@@ -1457,6 +1478,7 @@ function runDeliverUnlocked({
       }
       exactRemoteHead({ run, cwd, branch, head });
       registeredGate({ fs, cwd, run, issue: issueNumber, spec, head, report });
+      requireClosingLinkage({ context, run, prNumber: current.number, head });
       writeSmokeDeliveryProof({ cwd, env, fs, issue: issueNumber, pullRequest: current.number, headSha: head });
       try {
         command(run, cwd, 'gh', ['pr', 'merge', String(current.number), '--squash', '--match-head-commit', head], { allowFailure: true });

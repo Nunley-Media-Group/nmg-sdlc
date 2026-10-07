@@ -20,7 +20,7 @@ function git(cwd, ...args) {
   return result.stdout.trim();
 }
 
-function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'passed', remoteIssueState = 'OPEN', existing = false, lostAck = false, checksState = 'SUCCESS', checkResponses = {}, smokeOwned = false, humanReview = false } = {}) {
+function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'passed', remoteIssueState = 'OPEN', existing = false, lostAck = false, checksState = 'SUCCESS', checkResponses = {}, smokeOwned = false, humanReview = false, closingReferences = [{ number: 42, url: 'https://github.test/owner/repo/issues/42' }] } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-delivery-current-'));
   const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-delivery-remote-'));
   roots.push(root, remote);
@@ -120,6 +120,7 @@ function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'p
   fs.writeFileSync(path.join(root, '.omp/sdlc/verification/42.json'), `${JSON.stringify(artifact)}\n`);
   const calls = [];
   let issueState = remoteIssueState;
+  let closing = closingReferences;
   let pr = existing ? {
     number: 77, title: 'Deliver verified changes', url: 'https://github.test/owner/repo/pull/77', state: 'OPEN',
     isDraft: pending, headRefName: 'feature/42-delivery', headRefOid: git(root, 'rev-parse', 'HEAD'),
@@ -157,7 +158,7 @@ function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'p
       return { status: 0, stdout: `${pr.url}\n`, stderr: '' };
     }
     if (args[0] === 'pr' && args[1] === 'view') return { status: 0, stdout: JSON.stringify({ ...pr,
-      closingIssuesReferences: [{ number: 42, url: issueUrl }] }), stderr: '' };
+      closingIssuesReferences: closing }), stderr: '' };
     if (args[0] === 'pr' && args[1] === 'edit') {
       pr.body = fs.readFileSync(args[args.indexOf('--body-file') + 1], 'utf8');
       return { status: 0, stdout: '', stderr: '' };
@@ -194,6 +195,7 @@ function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'p
   return {
     root, sourceHead, get currentHead() { return git(root, 'rev-parse', 'HEAD'); },
     run, calls, get pr() { return pr; }, get issueState() { return issueState; },
+    set closingReferences(value) { closing = value; },
     env: smokeOwned ? { NMG_SDLC_SMOKE_OWNED: '1', NMG_SDLC_SMOKE_RECOVERY: `${'a'.repeat(64)}.${'b'.repeat(64)}` } : {},
   };
 }
@@ -399,6 +401,50 @@ console.log(JSON.stringify(value));
     expect(first).toMatchObject({ status: 0, handoff: { status: 'passed' } });
     const second = runDeliver({ cwd: f.root, issue: 42, run: f.run });
     expect(second).toMatchObject({ status: 0, handoff: { status: 'passed' } });
+    expect(deliveryCalls(f, 'merge')).toHaveLength(1);
+  });
+
+  test.each([
+    ['no closing references', []],
+    ['a reference to the issue number in another repository', [{ number: 42, url: 'https://github.test/other/repo/issues/42' }]],
+    ['a same-repository reference to another issue', [{ number: 41, url: 'https://github.test/owner/repo/issues/41' }]],
+  ])('unobserved closing linkage (%s) blocks the exact-head merge until linkage is observed', (_label, references) => {
+    const f = fixture({ closingReferences: references });
+    const blocked = runDeliver({ cwd: f.root, issue: 42, run: f.run });
+    expect(blocked).toMatchObject({
+      status: 1,
+      handoff: {
+        status: 'failed', reasonCode: 'closing_linkage_unobserved',
+        summary: 'PR #77 does not link issue #42; exact-head merge not attempted',
+      },
+    });
+    expect(deliveryCalls(f, 'merge')).toHaveLength(0);
+    expect(f.pr.state).toBe('OPEN');
+    expect(f.issueState).toBe('OPEN');
+    expect(git(f.root, 'branch', '--show-current')).toBe('feature/42-delivery');
+    expect(git(f.root, 'ls-remote', 'origin', 'refs/heads/feature/42-delivery')).toContain(f.currentHead);
+
+    f.closingReferences = [{ number: 42, url: 'https://github.test/owner/repo/issues/42' }];
+    const delivered = runDeliver({ cwd: f.root, issue: 42, run: f.run });
+    expect(delivered).toMatchObject({ status: 0, handoff: { status: 'passed' } });
+    expect(deliveryCalls(f, 'merge')).toHaveLength(1);
+    expect(deliveryCalls(f, 'merge')[0]).toContain(f.currentHead);
+    expect(f.issueState).toBe('CLOSED');
+    const mergeIndex = f.calls.findIndex((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'merge');
+    const lastView = f.calls.slice(0, mergeIndex).findLast((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === 'view');
+    expect(lastView[lastView.indexOf('--json') + 1].split(',')).toContain('closingIssuesReferences');
+  });
+
+  test('a merged PR without closing linkage still fails post-merge reconciliation without a new merge', () => {
+    const f = fixture();
+    expect(runDeliver({ cwd: f.root, issue: 42, run: f.run })).toMatchObject({ status: 0, handoff: { status: 'passed' } });
+    expect(deliveryCalls(f, 'merge')).toHaveLength(1);
+    f.closingReferences = [];
+    const reconciled = runDeliver({ cwd: f.root, issue: 42, run: f.run });
+    expect(reconciled).toMatchObject({
+      status: 1,
+      handoff: { reasonCode: 'delivery_linkage_unproven', summary: 'Merged PR #77 does not link issue #42' },
+    });
     expect(deliveryCalls(f, 'merge')).toHaveLength(1);
   });
 
