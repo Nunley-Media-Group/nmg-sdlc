@@ -1,0 +1,40 @@
+**Issue**: #458
+**Date**: 2026-10-18
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/145-add-lifecycle-status-command-for-active-sdlc-work/
+
+# File: scripts/__tests__/sdlc-status.test.mjs, scripts/__tests__/sdlc-execute.test.mjs
+# Generated from: specs/458-fix-sdlc-status-pull-request-query-failing-on-unsupported-reviewthreads-field/requirements.md
+Feature: Fix sdlc-status pull-request query failing on unsupported reviewThreads field
+
+  @SCN001 @regression
+  Scenario: Status reports the branch's open draft pull request
+    Given issue branch "42-example" whose open draft pull request 9 is returned by "gh pr view"
+    And a "gh" stub that rejects any "pr view --json" field outside the gh 2.97.0 field set with "Unknown JSON field"
+    When "/sdlc-status --json" collects evidence for that branch
+    Then "pullRequest" has number 9, state "OPEN", isDraft true, the branch head as "headRefOid", "baseRefName" "main", "mergeStateStatus" "CLEAN", and closing issue numbers [42]
+    And "missingArtifacts" does not contain "pull request"
+
+  @SCN002 @regression
+  Scenario: Execute verify observes the draft pull request
+    Given issue branch "42-example" at head H whose verification report is a current Pass with readiness "pr_evidence_satisfied"
+    And its open draft pull request has head H
+    And a "gh" stub that rejects unsupported "pr view --json" fields
+    When the "/sdlc-execute" controller evaluates the verify result for issue 42
+    Then it treats verification as green and dispatches deliver instead of reporting "pr_evidence_pending"
+
+  @SCN003 @regression
+  Scenario: A failed pull-request query is reported as a gap
+    Given "gh pr view" exits 1 with "HTTP 502: Bad Gateway", exits 1 with a 409-character error, or exits 0 with output that is not valid JSON
+    When status evidence is collected
+    Then "pullRequest" is null
+    And "gaps" contains exactly one pull-request entry: "pull request fetch failed: " with the bounded error message for a command failure, or "pull request parse failed: " with the bounded parse error for invalid JSON
+
+  @SCN004 @regression
+  Scenario: A branch without a pull request is unchanged
+    Given "gh pr view" exits 1 with 'no pull requests found for branch "42-example"'
+    And the verification report is a current Pass
+    When status evidence is collected
+    Then "pullRequest" is null and "gaps" contains no pull-request entry
+    And status reports stage "verified" with next action "/sdlc-open-pr #42"
