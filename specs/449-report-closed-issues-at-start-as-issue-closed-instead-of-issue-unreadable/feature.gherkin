@@ -1,0 +1,29 @@
+**Issue**: #449
+**Date**: 2026-10-18
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/194-move-start-and-execute-orchestration-into-controllers-behind-sibling-workers/
+
+# File: scripts/__tests__/start-issue-controller.test.mjs
+# Generated from: specs/449-report-closed-issues-at-start-as-issue-closed-instead-of-issue-unreadable/requirements.md
+Feature: Report closed issues at START as issue_closed instead of issue_unreadable
+
+  @SCN001 @regression
+  Scenario: Closed issue is reported as closed
+    Given "gh issue view 42" succeeds and returns issue 42 with state "CLOSED"
+    When START runs for issue 42
+    Then ".omp/sdlc/handoffs/42-start.json" has status "failed", reasonCode "issue_closed", summary "GitHub issue #42 is CLOSED", intervention true, step "start", and next null
+    And the issue view is the only command START ran
+
+  @SCN002 @regression
+  Scenario: Unreadable issue is unchanged
+    Given "gh issue view 42" fails, returns unparseable output, returns issue 41, or returns issue 42 without a state
+    When START runs for issue 42
+    Then ".omp/sdlc/handoffs/42-start.json" has reasonCode "issue_unreadable" and summary "GitHub issue #42 is unreadable"
+    And the issue view is the only command START ran
+
+  @SCN003 @regression
+  Scenario: Open issue is unchanged
+    Given "gh issue view 42" succeeds and returns issue 42 with state "OPEN" and no open blocker
+    When START runs for issue 42
+    Then it reads the official blocked-by graph, develops branch "42-ship-it", and writes a passed handoff with next "implement"
