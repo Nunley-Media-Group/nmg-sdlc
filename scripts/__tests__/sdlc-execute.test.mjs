@@ -13,6 +13,20 @@ const env = { HERDR_ENV: '1', HERDR_SOCKET_PATH: '/tmp/herdr-test', HERDR_PANE_I
 const git = (root, ...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
 const result = (value, status = 0) => ({ status, stdout: typeof value === 'string' ? value : JSON.stringify(value), stderr: '' });
 const digest = (value) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
+const GH_PR_VIEW_JSON_FIELDS = new Set(`additions assignees author autoMergeRequest baseRefName baseRefOid body
+  changedFiles closed closedAt closingIssuesReferences comments commits createdAt deletions files fullDatabaseId
+  headRefName headRefOid headRepository headRepositoryOwner id isCrossRepository isDraft labels latestReviews
+  maintainerCanModify mergeCommit mergeStateStatus mergeable mergedAt mergedBy milestone number potentialMergeCommit
+  projectCards projectItems reactionGroups reviewDecision reviewRequests reviews state statusCheckRollup title
+  updatedAt url`.split(/\s+/));
+
+function ghPrViewUnknownField(args) {
+  const index = args.indexOf('--json');
+  if (index === -1) return null;
+  const unknown = String(args[index + 1] ?? '').split(',').find((field) => !GH_PR_VIEW_JSON_FIELDS.has(field));
+  if (unknown === undefined) return null;
+  return `Unknown JSON field: "${unknown}"\nAvailable fields:\n${[...GH_PR_VIEW_JSON_FIELDS].map((field) => `  ${field}`).join('\n')}\n`;
+}
 
 function fixture({ branch = '42-example', dirty = false, existingImplementation = true, withPrEvidence = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'execute-controller-'));
@@ -97,7 +111,9 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
       ? [{ number: 9, state: 'MERGED', headRefName: '42-example', headRefOid: git(root, 'rev-parse', 'HEAD') }]
       : []);
     if (args[0] === 'pr' && args[1] === 'view') {
-      if (!state.merged && !state.draft) return result('', 1);
+      const unknownField = ghPrViewUnknownField(args);
+      if (unknownField) return { status: 1, stdout: '', stderr: unknownField };
+      if (!state.merged && !state.draft) return { status: 1, stdout: '', stderr: 'no pull requests found for branch "42-example"\n' };
       if (state.draft && !state.merged) return result({ number: 9, state: 'OPEN',
         isDraft: true, headRefName: '42-example', headRefOid: git(root, 'rev-parse', 'HEAD') });
       return result({ number: 9, state: 'MERGED', headRefName: '42-example',

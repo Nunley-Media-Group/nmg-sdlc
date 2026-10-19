@@ -221,6 +221,8 @@ const CLOSING_PULL_REQUEST_FIELDS = `
   pageInfo { hasNextPage endCursor }
 `;
 
+const NO_BRANCH_PULL_REQUEST = /^no pull requests found for branch /m;
+
 function normalizeProjectItems(items) {
   return (items || []).map((it) => ({
     id: it.id,
@@ -269,7 +271,7 @@ function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
 
   // PR from branch
   try {
-    const prRes = adapters.run('gh', ['pr', 'view', '--json', 'number,state,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,closingIssuesReferences,reviewThreads'], { cwd: projectRoot });
+    const prRes = adapters.run('gh', ['pr', 'view', '--json', 'number,state,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,closingIssuesReferences'], { cwd: projectRoot });
     if (prRes.ok) {
       const p = JSON.parse(prRes.stdout);
       if (p && p.headRefName === branch) {
@@ -284,9 +286,11 @@ function collectGithub(projectRoot, branch, issueNumber, adapters, gaps) {
           closing: (p.closingIssuesReferences || []).map((c) => c.number),
         };
       }
+    } else if (!NO_BRANCH_PULL_REQUEST.test(commandFailure(prRes))) {
+      gaps.push(`pull request fetch failed: ${boundedMessage(commandFailure(prRes))}`);
     }
   } catch (e) {
-    // non fatal
+    gaps.push(`pull request parse failed: ${boundedMessage(e.message)}`);
   }
   return result;
 }
