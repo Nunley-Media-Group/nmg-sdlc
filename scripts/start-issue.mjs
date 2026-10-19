@@ -243,8 +243,12 @@ export function startIssue({
   const fail = (summary, reasonCode) => writeHandoff(handoffFor(issueNumber, 'failed', summary, reasonCode));
 
   const issueData = parseJson(run('gh', ['issue', 'view', String(issueNumber), '--json', 'number,title,body,labels,state'], { cwd }));
-  if (issueData?.number !== issueNumber || String(issueData?.state).toUpperCase() !== 'OPEN') {
+  const issueState = typeof issueData?.state === 'string' ? issueData.state.toUpperCase() : null;
+  if (issueData?.number !== issueNumber || (issueState !== 'OPEN' && issueState !== 'CLOSED')) {
     return fail(`GitHub issue #${issueNumber} is unreadable`, 'issue_unreadable');
+  }
+  if (issueState === 'CLOSED') {
+    return fail(`GitHub issue #${issueNumber} is CLOSED`, 'issue_closed');
   }
 
   let dependency;
