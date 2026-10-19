@@ -204,10 +204,50 @@ describe('startIssue controller', () => {
     expect(fs.existsSync(path.join(cwd, '.omp'))).toBe(false);
   });
 
-  it('writes issue_unreadable', () => {
-    const f = fixture({ issueStatus: 1 });
+  const ISSUE_VIEW_CALL = ['gh', 'issue', 'view', '42', '--json', 'number,title,body,labels,state'];
+
+  it('writes issue_closed for a CLOSED issue before any other command', () => {
+    const f = fixture({ issue: { number: 42, title: 'Ship It!', body: '', labels: [], state: 'CLOSED' } });
     startIssue({ issue: 42, cwd: f.cwd, run: f.run });
-    expect(handoff(f.cwd).reasonCode).toBe('issue_unreadable');
+    expect(handoff(f.cwd)).toEqual({
+      schemaVersion: 1,
+      issue: 42,
+      step: 'start',
+      status: 'failed',
+      intervention: true,
+      summary: 'GitHub issue #42 is CLOSED',
+      artifacts: [],
+      next: null,
+      reasonCode: 'issue_closed',
+    });
+    expect(f.calls).toEqual([ISSUE_VIEW_CALL]);
+  });
+
+  it.each([
+    ['failed read', () => fixture({ issueStatus: 1 })],
+    ['number mismatch', () => fixture({ issue: { number: 41, title: 'Ship It!', body: '', labels: [], state: 'OPEN' } })],
+    ['missing state', () => fixture({ issue: { number: 42, title: 'Ship It!', body: '', labels: [] } })],
+    ['unparseable stdout', () => {
+      const f = fixture();
+      const run = (command, args, options) => {
+        if (command === 'gh' && args[0] === 'issue' && args[1] === 'view') {
+          f.calls.push([command, ...args]);
+          return { status: 0, stdout: '{', stderr: '' };
+        }
+        return f.run(command, args, options);
+      };
+      return { ...f, run };
+    }],
+  ])('writes issue_unreadable for a %s', (_label, build) => {
+    const f = build();
+    startIssue({ issue: 42, cwd: f.cwd, run: f.run });
+    expect(handoff(f.cwd)).toMatchObject({
+      reasonCode: 'issue_unreadable',
+      summary: 'GitHub issue #42 is unreadable',
+      intervention: true,
+      next: null,
+    });
+    expect(f.calls).toEqual([ISSUE_VIEW_CALL]);
   });
 
   it('writes dependency_unreadable before branch mutation', () => {
