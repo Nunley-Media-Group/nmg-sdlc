@@ -12,6 +12,22 @@ import {
   renderText,
   runCli,
 } from '../sdlc-status.mjs';
+import { inspectIssueSpecScope } from '../issue-spec-scope.mjs';
+
+const GH_PR_VIEW_JSON_FIELDS = new Set(`additions assignees author autoMergeRequest baseRefName baseRefOid body
+  changedFiles closed closedAt closingIssuesReferences comments commits createdAt deletions files fullDatabaseId
+  headRefName headRefOid headRepository headRepositoryOwner id isCrossRepository isDraft labels latestReviews
+  maintainerCanModify mergeCommit mergeStateStatus mergeable mergedAt mergedBy milestone number potentialMergeCommit
+  projectCards projectItems reactionGroups reviewDecision reviewRequests reviews state statusCheckRollup title
+  updatedAt url`.split(/\s+/));
+
+function ghPrViewUnknownField(args) {
+  const index = args.indexOf('--json');
+  if (index === -1) return null;
+  const unknown = String(args[index + 1] ?? '').split(',').find((field) => !GH_PR_VIEW_JSON_FIELDS.has(field));
+  if (unknown === undefined) return null;
+  return `Unknown JSON field: "${unknown}"\nAvailable fields:\n${[...GH_PR_VIEW_JSON_FIELDS].map((field) => `  ${field}`).join('\n')}\n`;
+}
 
 function baseEvidence(overrides = {}) {
   return {
@@ -436,6 +452,141 @@ describe('sdlc-status v3 recommendations', () => {
       fs.rmSync(project, { recursive: true, force: true });
     }
   });
+});
 
+describe('sdlc-status branch pull-request evidence', () => {
+  const ok = (value) => ({ ok: true, status: 0, stdout: typeof value === 'string' ? value : JSON.stringify(value), stderr: '' });
 
+  function statusFixture(prView) {
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-status-pr-'));
+    const git = (...args) => execFileSync('git', args, { cwd: project, encoding: 'utf8' }).trim();
+    git('init', '-b', 'main');
+    git('config', 'user.name', 'Test');
+    git('config', 'user.email', 'test@example.com');
+    fs.writeFileSync(path.join(project, 'README.md'), 'fixture\n');
+    git('add', 'README.md');
+    git('commit', '-m', 'fixture');
+    git('checkout', '-b', '42-example');
+    const specPath = 'specs/42-example';
+    const specDir = path.join(project, specPath);
+    fs.mkdirSync(specDir, { recursive: true });
+    const header = '**Issue**: #42\n**Status**: Approved\n\n';
+    for (const name of ['requirements.md', 'design.md', 'feature.gherkin']) {
+      fs.writeFileSync(path.join(specDir, name), header);
+    }
+    fs.writeFileSync(path.join(specDir, 'tasks.md'), `${header}### T001: Update helper\n`);
+    fs.mkdirSync(path.join(project, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(project, 'src', 'helper.mjs'), 'export const helper = true;\n');
+    const scope = inspectIssueSpecScope({ projectRoot: project, specPath, issueNumber: 42 });
+    const marker = JSON.stringify({
+      issueNumber: 42, specPath, status: scope.status, delivery: scope.delivery, regression: scope.regression,
+    });
+    fs.writeFileSync(path.join(specDir, 'verification-report.md'),
+      `# Verification Report\n\n### Implementation Status: Pass\n\n<!-- nmg-sdlc-issue-scope: ${marker} -->\n`);
+    git('add', '.');
+    git('commit', '-m', 'feat: helper');
+    const head = git('rev-parse', 'HEAD');
+    const run = (command, args, options = {}) => {
+      if (command !== 'gh') {
+        const result = spawnSync(command, args, { cwd: options.cwd, encoding: 'utf8', stdio: 'pipe' });
+        return {
+          ok: !result.error && result.status === 0,
+          status: result.status,
+          stdout: result.stdout ?? '',
+          stderr: result.error?.message ?? result.stderr ?? '',
+        };
+      }
+      if (args[0] === 'repo') return args.includes('--jq') ? ok('main\n') : ok({ nameWithOwner: 'example/status' });
+      if (args[0] === 'issue' && args[1] === 'view') {
+        return ok({ number: 42, title: 'Example', state: 'OPEN', body: '', labels: [], projectItems: { nodes: [] } });
+      }
+      if (args[0] === 'api') {
+        return args.some((arg) => String(arg).endsWith('/dependencies/blocked_by'))
+          ? ok([])
+          : ok({ id: 4242, number: 42, state: 'OPEN', repository: 'example/status' });
+      }
+      if (args[0] === 'pr' && args[1] === 'view') {
+        const unknownField = ghPrViewUnknownField(args);
+        return unknownField ? { ok: false, status: 1, stdout: '', stderr: unknownField } : prView(args, head);
+      }
+      throw new Error(`unexpected gh ${args.join(' ')}`);
+    };
+    return { project, head, run };
+  }
+
+  function statusJson(fixture) {
+    let out = '';
+    const code = runCli(['--project', fixture.project, '--json'], {
+      adapters: { run: fixture.run },
+      stdout: { write(chunk) { out += chunk; } },
+      stderr: { write() {} },
+    });
+    expect(code).toBe(0);
+    return JSON.parse(out);
+  }
+
+  const pullRequestGaps = (status) => status.gaps.filter((gap) => gap.startsWith('pull request '));
+
+  it('reports the open draft pull request when gh rejects unsupported pr view fields', () => {
+    let project;
+    try {
+      const fixture = statusFixture((args, head) => {
+        const full = {
+          number: 9, state: 'OPEN', isDraft: true, headRefName: '42-example', headRefOid: head,
+          baseRefName: 'main', mergeStateStatus: 'CLEAN', closingIssuesReferences: [{ number: 42 }],
+        };
+        const requested = args[args.indexOf('--json') + 1].split(',');
+        return ok(Object.fromEntries(requested.filter((key) => Object.hasOwn(full, key)).map((key) => [key, full[key]])));
+      });
+      project = fixture.project;
+      const status = statusJson(fixture);
+      expect(status.pullRequest).toEqual({
+        number: 9, state: 'OPEN', isDraft: true, headRefOid: fixture.head, baseRefName: 'main',
+        mergeStateStatus: 'CLEAN', checks: 'unknown', closing: [42],
+      });
+      expect(status.missingArtifacts).not.toContain('pull request');
+      expect(pullRequestGaps(status)).toEqual([]);
+    } finally {
+      if (project) fs.rmSync(project, { recursive: true, force: true });
+    }
+  });
+
+  const longFailure = `GraphQL: ${'x'.repeat(400)}`;
+  it.each([
+    ['fetch failure', { ok: false, status: 1, stdout: '', stderr: 'HTTP 502: Bad Gateway (https://api.github.com/graphql)\n' },
+      'pull request fetch failed: HTTP 502: Bad Gateway (https://api.github.com/graphql)'],
+    ['long fetch failure', { ok: false, status: 1, stdout: '', stderr: longFailure },
+      `pull request fetch failed: ${longFailure.slice(0, 237)}...`],
+    ['parse failure', { ok: true, status: 0, stdout: '{not json', stderr: '' },
+      expect.stringMatching(/^pull request parse failed: \S.{0,239}$/)],
+  ])('reports a pull-request %s as one bounded gap', (_label, response, expected) => {
+    let project;
+    try {
+      const fixture = statusFixture(() => response);
+      project = fixture.project;
+      const status = statusJson(fixture);
+      expect(status.pullRequest).toBeNull();
+      expect(pullRequestGaps(status)).toEqual([expected]);
+    } finally {
+      if (project) fs.rmSync(project, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps a branch without a pull request gap-free and verified', () => {
+    let project;
+    try {
+      const fixture = statusFixture(() => ({
+        ok: false, status: 1, stdout: '', stderr: 'no pull requests found for branch "42-example"\n',
+      }));
+      project = fixture.project;
+      const status = statusJson(fixture);
+      expect(status.pullRequest).toBeNull();
+      expect(pullRequestGaps(status)).toEqual([]);
+      expect(status.verification).toMatchObject({ status: 'pass', current: true });
+      expect(status.stage).toBe('verified');
+      expect(status.nextAction.command).toBe('/sdlc-open-pr #42');
+    } finally {
+      if (project) fs.rmSync(project, { recursive: true, force: true });
+    }
+  });
 });
