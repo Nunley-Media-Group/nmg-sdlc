@@ -1,0 +1,27 @@
+**Issue**: #477
+**Date**: 2026-10-24
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/473-fix-smoke-provisioning-prompting-through-a-workspace-trust-dialog-herdr-reports-as-ready/
+
+# File: scripts/__tests__/nmg-sdlc-smoke.test.mjs
+# Generated from: specs/477-fix-smoke-delivery-hanging-on-the-workspace-trust-dialog-in-its-fresh-delivery-clone/requirements.md
+Feature: Fix smoke delivery hanging on the workspace-trust dialog in its fresh delivery clone
+
+  @SCN001 @regression
+  Scenario: The delivery clone is trusted before the nested controller runs
+    Given a delivery clone pane that shows the narrow workspace-trust dialog
+    When trustSmokeClone runs
+    Then it keys "down enter" once, passes once the agent is ready, and closes the pane
+
+  @SCN002
+  Scenario: An already-trusted clone is not keyed
+    Given a delivery clone pane that starts ready with no dialog
+    When trustSmokeClone runs
+    Then it sends no keys and closes the pane
+
+  @SCN003 @regression
+  Scenario: Only the owned clone is ever keyed
+    Given a trust pane whose cwd is "/Users/someone/project", or one showing a permission prompt
+    When trustSmokeClone runs
+    Then it fails without sending keys and closes the pane
