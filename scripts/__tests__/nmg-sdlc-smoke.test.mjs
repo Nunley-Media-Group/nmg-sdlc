@@ -1206,6 +1206,26 @@ const LIVE_TRUST_SCREEN = [
   '   Yes, I trust this folder',
   ' Enter to confirm · Esc to cancel',
 ].join('\n');
+// Captured live from the provider's narrow `--direction right` pane: the header has scrolled away
+// and the accept label wraps. Herdr reports this agent idle and interactive_ready.
+const NARROW_TRUST_SCREEN = [
+  ' trust? (Like your own',
+  ' code, a well-known open',
+  ' source project, or work',
+  ' from your team). If not,',
+  ' take a moment to review',
+  " what's in this folder",
+  ' first.',
+  " Claude Code'll be able",
+  ' to read, edit, and',
+  ' execute files here.',
+  ' Security guide',
+  ' ❯ No, exit',
+  '   Yes, I trust this',
+  '   folder',
+  ' Enter to confirm · Esc',
+  ' to cancel',
+].join('\n');
 const PERMISSION_SCREEN = [
   ' Bash command',
   '   gh issue create -R Nunley-Media-Group/nmg-sdlc-smoke',
@@ -1254,7 +1274,7 @@ function fakeClaudePane({
     issueCreated: false, published: false, dialogPolls: 0, gets: 0, notReady: notReadyPolls,
   };
   const ok = (value) => result(0, JSON.stringify({ result: value }));
-  const trustGone = (candidate) => pane.trustCleared && candidate === TRUST_SCREEN;
+  const trustGone = (candidate) => pane.trustCleared && [TRUST_SCREEN, NARROW_TRUST_SCREEN].includes(candidate);
   const activeDialog = () => (dialog && dialog.phase === pane.phase && pane.remaining === 0
     && !trustGone(dialog.screen)
     && pane.dialogPolls < (dialog.polls ?? Infinity) ? dialog : null);
@@ -1316,7 +1336,7 @@ function fakeClaudePane({
     paneGet: async (id) => ok({ pane: { pane_id: id, cwd: paneCwd, foreground_cwd: paneCwd } }),
     paneSendKeys: async (_id, keys) => {
       pane.keys.push(keys);
-      if (trustAccepts && screen() === TRUST_SCREEN) pane.trustCleared = true;
+      if (trustAccepts && [TRUST_SCREEN, NARROW_TRUST_SCREEN].includes(screen())) pane.trustCleared = true;
       return result();
     },
   };
@@ -1410,6 +1430,7 @@ describe('nmg-sdlc smoke provisioning Claude pane', () => {
     ['workspace trust', TRUST_SCREEN, 'workspace_trust'],
     ['workspace trust (newer wording)', 'Quick safety check: Is this a project you created or one you trust?\n❯ 1. Yes, I trust this folder', 'workspace_trust'],
     ['workspace trust (live capture)', LIVE_TRUST_SCREEN, 'workspace_trust'],
+    ['workspace trust (narrow pane, wrapped label)', NARROW_TRUST_SCREEN, 'workspace_trust'],
     ['a permission ask', PERMISSION_SCREEN, 'permission'],
     ['an edit permission ask', 'Do you want to make this edit to README.md?\n❯ 1. Yes', 'permission'],
     ['plan approval without autopilot', PLAN_APPROVAL_SCREEN, 'plan_approval'],
@@ -1565,6 +1586,34 @@ describe('nmg-sdlc smoke gate self-provisioning', () => {
     expect(outcome.evidence).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'command', summary: 'herdr pane send-keys wF:p99 down enter (accept workspace trust for owned clone)' }),
     ]));
+  });
+
+  it('#473: accepts a trust prompt Herdr reports as ready before sending the first prompt', async () => {
+    // agent start succeeds and every agent get is interactive_ready, while the pane shows trust.
+    const pane = fakeClaudePane({ trustAccepts: true, readyScreen: NARROW_TRUST_SCREEN });
+    const promptedWithTrust = [];
+    const agentPrompt = pane.herdr.agentPrompt;
+    pane.herdr.agentPrompt = async (name, text) => {
+      promptedWithTrust.push(!pane.trustCleared);
+      return agentPrompt(name, text);
+    };
+    const fixture = provisioningHarness(pane);
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(outcome.status).toBe('passed');
+    expect(pane.keys).toEqual([['down', 'enter']]);
+    expect(pane.prompts).toEqual([`/sdlc-draft-issue ${NEED}`, '/sdlc-write-spec 179']);
+    expect(promptedWithTrust).toEqual([false, false]);
+  });
+
+  it('#473: prompts a ready agent with no dialog on screen without sending keys', async () => {
+    const pane = fakeClaudePane();
+    const fixture = provisioningHarness(pane);
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(outcome.status).toBe('passed');
+    expect(pane.keys).toEqual([]);
+    expect(pane.prompts).toEqual([`/sdlc-draft-issue ${NEED}`, '/sdlc-write-spec 179']);
   });
 
   it('SCN009: a trust prompt still showing after one acceptance attempt stalls without keying again', async () => {

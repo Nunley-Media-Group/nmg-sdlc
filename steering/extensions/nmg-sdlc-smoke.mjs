@@ -610,7 +610,8 @@ const CLAUDE_DIALOGS = Object.freeze([
 ]);
 
 export function claudeDialog(screen) {
-  const text = String(screen ?? "");
+  // A narrow pane wraps dialog labels across lines, so whitespace runs compare as one space.
+  const text = String(screen ?? "").replace(/\s+/g, " ");
   return CLAUDE_DIALOGS.find((dialog) => dialog.patterns.some((pattern) => pattern.test(text))) ?? null;
 }
 
@@ -832,11 +833,16 @@ async function provisionSmokeIssue({
     }
     for (let polls = 0; ; polls += 1) {
       if (signal?.aborted) return stop("incomplete", "nmg-sdlc-smoke provisioning cancelled");
-      if (herdrResult(await herdr.agentGet(name))?.agent?.interactive_ready === true) break;
+      // Herdr can report a narrow pane's trust dialog as ready, and a prompt's Enter would then
+      // confirm its preselected `No, exit`; the dialog is checked before readiness is trusted.
       const dialog = await visibleDialog();
-      if (dialog?.kind === "workspace_trust" && !(await acceptOwnedTrust())) {
-        return stop("failed", `nmg-sdlc-smoke provisioning stalled at ${dialog.label}`, await snapshot(dialog));
+      if (dialog?.kind === "workspace_trust") {
+        if (!(await acceptOwnedTrust())) {
+          return stop("failed", `nmg-sdlc-smoke provisioning stalled at ${dialog.label}`, await snapshot(dialog));
+        }
+        continue;
       }
+      if (herdrResult(await herdr.agentGet(name))?.agent?.interactive_ready === true) break;
       if (polls >= PROVISION_READY_POLLS) return stop("incomplete", "nmg-sdlc-smoke provisioning agent not ready");
       await sleep(pollMs);
     }

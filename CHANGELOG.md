@@ -12,6 +12,12 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.2.2] - 2026-10-24
+
+### Fixed
+
+- Live smoke provisioning no longer loses its Claude Code agent at the workspace-trust dialog (#473). In the provider's narrow provisioning pane, Herdr reports the trust dialog as a ready agent, and the `/sdlc-draft-issue` prompt's Enter confirmed its preselected `No, exit`. The readiness loop now accepts a visible trust dialog for the owned clone before it trusts readiness. `claudeDialog` now matches dialog labels that wrap across lines.
+
 ## [4.2.1] - 2026-10-24
 
 ### Fixed

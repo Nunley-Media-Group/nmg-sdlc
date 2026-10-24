@@ -1,6 +1,6 @@
 {
   "name": "nmg-sdlc",
-  "version": "4.2.1",
+  "version": "4.2.2",
   "description": "Spec-driven delivery for Claude Code and Herdr",
   "license": "MIT",
   "type": "module",
