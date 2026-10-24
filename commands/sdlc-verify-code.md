@@ -1,6 +1,7 @@
 ---
 description: "Verify implementation against the approved spec"
 argument-hint: "[#N]"
+model: opus
 ---
 
 Plugin paths: `${CLAUDE_PLUGIN_ROOT}` is the installed nmg-sdlc plugin root. Read packaged files by their `${CLAUDE_PLUGIN_ROOT}/...` path.

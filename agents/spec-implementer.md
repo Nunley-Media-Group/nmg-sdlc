@@ -1,6 +1,7 @@
 ---
 name: spec-implementer
 description: Implement approved spec tasks.
+model: sonnet
 ---
 
 # Spec Implementer

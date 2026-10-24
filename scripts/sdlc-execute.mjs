@@ -8,6 +8,7 @@ import { closeSync, constants as fsConstants, fstatSync, lstatSync, openSync, re
 import { join, relative, resolve } from 'node:path';
 import { defaultPromptRegistry, renderPrompt, writePromptProvenance } from '../src/sdlc-prompt-snippets.mjs';
 import { packageRoot } from '../src/sdlc-workflows.mjs';
+import { SDLC_MODELS } from '../src/host-events.mjs';
 import { collectEvidence, parseIssueBranch } from './sdlc-status.mjs';
 import { inspectPublicationScope } from './sdlc-safe-recoveries.mjs';
 import { inspectVerificationArtifactRepair, inspectVerificationReadiness, MAX_VERIFICATION_REPORT_BYTES } from './verification-readiness.mjs';
@@ -142,9 +143,18 @@ export function workerPermissionMode(env = process.env) {
   const value = env?.NMG_SDLC_WORKER_PERMISSION_MODE;
   return WORKER_PERMISSION_MODES.includes(value) ? value : DEFAULT_WORKER_PERMISSION_MODE;
 }
+// Failures that wait on outside evidence rather than a repair: the next dispatch keeps its stage model.
+const REPAIR_EXEMPT_REASONS = new Set(['pr_evidence_pending', 'mergeability_reverification_required']);
+/** Claude Code model alias for a stage worker: the stage's model, or the repair model when the
+ * invocation recorded a repairable failure for the issue. */
+export function stageModel(step, failure) {
+  if (!Object.hasOwn(SDLC_MODELS.stages, step)) throw new Error(`unknown stage: ${step}`);
+  if (step !== 'start' && failure && !REPAIR_EXEMPT_REASONS.has(failure.reasonCode)) return SDLC_MODELS.repair;
+  return SDLC_MODELS.stages[step];
+}
 /** Claude Code argv after `--`: every worker loads the controller's own plugin checkout. */
-export function workerAgentArgs({ env = process.env, pluginRoot = packageRoot } = {}) {
-  return ['--plugin-dir', pluginRoot, '--permission-mode', workerPermissionMode(env)];
+export function workerAgentArgs({ env = process.env, pluginRoot = packageRoot, model } = {}) {
+  return ['--plugin-dir', pluginRoot, '--permission-mode', workerPermissionMode(env), ...(model ? ['--model', model] : [])];
 }
 export function defaultHerdr(run, cwd, env = process.env) {
   const invoke = (args) => run('herdr', args, { cwd });
@@ -158,8 +168,8 @@ export function defaultHerdr(run, cwd, env = process.env) {
     paneClose: (pane) => invoke(['pane', 'close', pane]),
     listPanes: () => invoke(['pane', 'list']),
     listAgents: () => invoke(['agent', 'list']),
-    agentStart: ({ name, paneId }) => invoke(['agent', 'start', name, '--kind', 'claude', '--pane', paneId,
-      '--', ...workerAgentArgs({ env })]),
+    agentStart: ({ name, paneId, model }) => invoke(['agent', 'start', name, '--kind', 'claude', '--pane', paneId,
+      '--', ...workerAgentArgs({ env, model })]),
     agentPrompt: ({ name, prompt }) => invoke(['agent', 'prompt', name, prompt]),
     agentWait: ({ name, until }) => invoke(['agent', 'wait', name, ...(until ? ['--until', until] : [])]),
     agentGet: (name) => invoke(['agent', 'get', name]),
@@ -610,7 +620,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
         if (!pane || pane === env.HERDR_PANE_ID) throw new Error('pane_identity_unavailable');
         owned.add(pane);
         onOwnedPane(pane);
-        if (!succeeded(api.agentStart({ name, paneId: pane }))) throw new Error('agent_start_failed');
+        if (!succeeded(api.agentStart({ name, paneId: pane, model: stageModel(step, failure) }))) throw new Error('agent_start_failed');
         const sent = api.agentPrompt({ name, prompt: instructions });
         if (!succeeded(sent)) {
           if (!String(JSON.stringify(sent)).includes('agent_prompt_stalled')) throw new Error('worker_prompt_failed');

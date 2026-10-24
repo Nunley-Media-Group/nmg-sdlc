@@ -15,6 +15,11 @@ type World = {
   bash: { command: string; stdout: string; isError?: true }[]
   seen: string[]
   envSet: Record<string, string | undefined>
+  sessionModel: string
+  steps: { model: string; effort?: unknown; agentId?: string }[]
+  origins: string[]
+  configWrites: string[]
+  modelFails: boolean
   clock: ReturnType<typeof mock.clock>
 }
 
@@ -23,6 +28,7 @@ type World = {
 function engine(on: On, { interactive = true, env = {} as Record<string, string> } = {}): World {
   const world: World = {
     plans: [], prompts: [], toasts: [], renders: [], draft: '', renderFails: false, bash: [], seen: [], envSet: {},
+    sessionModel: 'claude-sonnet-5-5', steps: [], origins: [], configWrites: [], modelFails: false,
     clock: mock.clock(on),
   }
   mock.env(on, env)
@@ -31,6 +37,15 @@ function engine(on: On, { interactive = true, env = {} as Record<string, string>
   on('command.register', (_, e) => ({ value: { command: e.name } }))
   on('session.cwd', () => ({ value: '/project' }))
   on('session.surfaces', () => ({ value: interactive ? ['terminal'] as const : [] }))
+  on('session.model', () => {
+    if (world.modelFails) throw new Error('host unavailable')
+    return { value: world.sessionModel }
+  })
+  on('config.set', (_, e) => { world.configWrites.push(JSON.stringify(e)); return {} as never })
+  on('turn.step', async function* (_, e) {
+    world.steps.push({ model: e.model, ...(e.effort === undefined ? {} : { effort: e.effort }), ...(e.agentId === undefined ? {} : { agentId: e.agentId }) })
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null } as never
+  })
   on('prompt.read', () => ({ value: { text: world.draft, cursor: world.draft.length } }))
   on('ui.toast', (_, e) => { world.toasts.push(e.text); return { value: undefined } })
   on('ui.log', () => ({ value: undefined }))
@@ -47,7 +62,7 @@ function engine(on: On, { interactive = true, env = {} as Record<string, string>
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('command.run', (_, e) => { world.plans.push(`/${e.command}${e.args ? ` ${e.args}` : ''}`); return {} })
-  on('prompt.submit', (_, e) => { world.prompts.push({ text: e.text, ...(e.origin.kind === 'plugin' && e.origin.asUser ? { asUser: true as const } : {}) }); return { text: e.text } })
+  on('prompt.submit', (_, e) => { world.origins.push(e.origin.kind); world.prompts.push({ text: e.text, ...(e.origin.kind === 'plugin' && e.origin.asUser ? { asUser: true as const } : {}) }); return { text: e.text } })
   on('tool.call', { tool: 'Bash' }, (_, e) => {
     world.seen.push(e.command)
     const answer = world.bash.find(item => item.command === e.command)
@@ -90,6 +105,19 @@ async function ask($: Dollar, answer: string) {
     questions: [{ question, header: 'Next', multiSelect: false, options: [{ label: FINISHED, description: 'stop' }, { label: 'Continue', description: 'more' }] }],
     answers: { [question]: answer },
   } as never)
+}
+
+// One model request of the current turn: main's unless `agentId` is given.
+async function step($: Dollar, world: World, extra: { agentId?: string; model?: string } = {}) {
+  const stream = $.turn.step({ turnId: 't', index: 0, model: world.sessionModel, effort: 'high', messageCount: 1, ...extra })
+  for await (const _chunk of stream) { /* drain */ }
+  return world.steps.at(-1)
+}
+
+// The person's own Enter at the prompt (or Remote Control's `bridge`).
+async function typed($: Dollar, world: World, text: string, kind: 'composer' | 'bridge' = 'composer') {
+  await $.prompt.submit({ text, wait: false, origin: { kind } })
+  await world.clock.advance(5)
 }
 
 function mergeCommand(root: string, issue: number) {
@@ -328,5 +356,87 @@ describe('autopilot', () => {
     await start($, world)
     expect(await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: [] } })).toEqual({})
     expect(await $.classic.PermissionRequest({ tool_name: 'ExitPlanMode', tool_input: {} })).toEqual({})
+  })
+})
+
+describe('step models', () => {
+  test('hooks-registered commands run on their model without changing the session model', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    await typed($, world, '/sdlc-write-spec #7')
+    await run($, world, 'sdlc-write-spec', '#7')
+    expect(world.origins.at(-1)).toBe('plugin')
+    expect(await step($, world)).toEqual({ model: 'opus', effort: 'high' })
+
+    // write-spec Continue, submitted by the hooks module after a merge.
+    await $.tool.call({ tool: 'Bash', command: `node "${ROOT_TOKEN}/scripts/sdlc-status.mjs"` })
+    const root = /^node "(.+)\/scripts\//.exec(world.seen.at(-1) ?? '')?.[1] ?? ''
+    world.bash.push({ command: mergeCommand(root, 7), stdout: '{"ok":true,"merged":true,"pr":8}' })
+    await $.tool.call({ tool: 'Bash', command: mergeCommand(root, 7), tool_use_id: 'p7' } as never)
+    await endTurn($, world)
+    expect(world.prompts.at(-1)?.text).toContain(CONTINUE_HEAD)
+    expect(world.origins.at(-1)).toBe('plugin')
+    expect(await step($, world)).toEqual({ model: 'opus', effort: 'high' })
+
+    // The Finished nudge, submitted when the Finished reply ends without ExitPlanMode.
+    await ask($, FINISHED)
+    await endTurn($, world)
+    expect(world.prompts.at(-1)?.text).toContain('call ExitPlanMode now')
+    expect(world.origins.at(-1)).toBe('plugin')
+    expect(await step($, world)).toEqual({ model: 'opus', effort: 'high' })
+
+    expect(await step($, world, { agentId: 'sub-agent', model: 'claude-haiku-5-5' }))
+      .toEqual({ model: 'claude-haiku-5-5', effort: 'high', agentId: 'sub-agent' })
+
+    // A composer-typed command clears the old override before its own command.run sets the new one.
+    await typed($, world, '/sdlc-execute #7')
+    await run($, world, 'sdlc-execute', '#7')
+    expect(await step($, world)).toEqual({ model: 'haiku', effort: 'high' })
+
+    // Nothing set the session model: no /model run and no settings write.
+    expect(world.sessionModel).toBe('claude-sonnet-5-5')
+    expect(world.plans.filter(plan => plan.startsWith('/model'))).toEqual([])
+    expect(world.configWrites).toEqual([])
+  })
+
+  test('the override ends when the user moves on or picks a model', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    await run($, world, 'sdlc-draft-issue')
+    expect(await step($, world)).toEqual({ model: 'opus', effort: 'high' })
+    await $.prompt.submit({ text: 'reminder', wait: false, isMeta: true, origin: { kind: 'composer' } })
+    await $.prompt.submit({ text: 'done', wait: false, origin: { kind: 'task-notification' } })
+    expect(await step($, world)).toEqual({ model: 'opus', effort: 'high' })
+    await typed($, world, 'thanks, something else now')
+    expect(await step($, world)).toEqual({ model: 'claude-sonnet-5-5', effort: 'high' })
+
+    await run($, world, 'sdlc-draft-issue')
+    await typed($, world, 'from my phone', 'bridge')
+    expect(await step($, world)).toEqual({ model: 'claude-sonnet-5-5', effort: 'high' })
+
+    await run($, world, 'sdlc-draft-issue')
+    world.sessionModel = 'claude-haiku-5-5'
+    expect(await step($, world)).toEqual({ model: 'claude-haiku-5-5', effort: 'high' })
+    world.sessionModel = 'claude-sonnet-5-5'
+    expect(await step($, world)).toEqual({ model: 'claude-sonnet-5-5', effort: 'high' })
+
+    world.renderFails = true
+    await run($, world, 'sdlc-steering')
+    expect(await step($, world)).toEqual({ model: 'claude-sonnet-5-5', effort: 'high' })
+  })
+
+  test('a headless refusal sets no override', async ($, on) => {
+    const world = engine(on, { interactive: false })
+    await start($, world, false)
+    await run($, world, 'sdlc-write-spec', '#7')
+    expect(await step($, world)).toEqual({ model: 'claude-sonnet-5-5', effort: 'high' })
+  })
+
+  test('a failing session model read never blocks or rewrites a request', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    await run($, world, 'sdlc-draft-issue')
+    world.modelFails = true
+    expect(await step($, world)).toEqual({ model: 'claude-sonnet-5-5', effort: 'high' })
   })
 })

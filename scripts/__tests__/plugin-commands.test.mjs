@@ -53,9 +53,16 @@ describe('Claude Code plugin commands', () => {
 
   it('writes command files that Claude Code materializes under -p and in the TUI', () => {
     const markdown = renderAutomatedCommandMarkdown('sdlc-status', 'status', 'Report read-only SDLC status', repoRoot);
-    expect(markdown.startsWith('---\ndescription: "Report read-only SDLC status"\nargument-hint: "[--json]"\n---\n\n')).toBe(true);
+    expect(markdown.startsWith('---\ndescription: "Report read-only SDLC status"\nargument-hint: "[--json]"\nmodel: haiku\n---\n\n')).toBe(true);
     expect(markdown).not.toContain('<plugin-root>');
     expect(markdown).toContain('${CLAUDE_PLUGIN_ROOT}/scripts/sdlc-status.mjs');
+  });
+
+  it('declares each automated command file\'s model in its frontmatter', () => {
+    const models = Object.fromEntries(AUTOMATED_COMMANDS.map(([name]) => [
+      name, read(`commands/${name}.md`).match(/^---\n[\s\S]*?^model: (\S+)$[\s\S]*?^---$/m)?.[1],
+    ]));
+    expect(models).toEqual({ 'sdlc-status': 'haiku', 'sdlc-verify-code': 'opus', 'sdlc-open-pr': 'sonnet' });
   });
 
   it('ships a Claude Code manifest and no OMP extension surface', () => {

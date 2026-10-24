@@ -1,6 +1,12 @@
 export const INTERACTIVE_COMMANDS: ReadonlyArray<readonly [string, string, string]>;
 export const AUTOMATED_COMMANDS: ReadonlyArray<readonly [string, string, string]>;
 export const DIRECT_COMMANDS: readonly string[];
+export type SdlcModel = "haiku" | "sonnet" | "opus";
+export const SDLC_MODELS: {
+  readonly stages: { readonly start: SdlcModel; readonly implement: SdlcModel; readonly verify: SdlcModel; readonly deliver: SdlcModel };
+  readonly repair: SdlcModel;
+  readonly commands: { readonly [command: string]: SdlcModel };
+};
 export const WRITE_SPEC_FINISHED_LABELS: readonly string[];
 export const PLAN_ENABLED_TEXT: string;
 export function isInteractiveCommand(name: unknown): boolean;

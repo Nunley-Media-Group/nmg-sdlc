@@ -1,6 +1,7 @@
 ---
 description: "Deliver verified work through exact-head PR merge"
 argument-hint: "[#N]"
+model: sonnet
 ---
 
 Plugin paths: `${CLAUDE_PLUGIN_ROOT}` is the installed nmg-sdlc plugin root. Read packaged files by their `${CLAUDE_PLUGIN_ROOT}/...` path.

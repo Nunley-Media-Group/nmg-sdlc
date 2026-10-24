@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { SDLC_MODELS } from '../../src/host-events.mjs';
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 function read(relativePath) {
@@ -111,6 +113,20 @@ describe('repo steering contract (v4)', () => {
       const model = fs.readFileSync(filePath, 'utf8').match(/^model:\s*"?([^"\n]+)"?$/m)?.[1];
       if (model !== undefined) expect(['haiku', 'sonnet', 'opus', 'inherit']).toContain(model);
     }
+  });
+
+  test('agents and steering declare the stage models', () => {
+    const tech = read('steering/snippets/project-tech.md');
+    const stages = { starter: 'start', 'spec-implementer': 'implement', 'architecture-reviewer': 'verify', deliverer: 'deliver' };
+    const declared = Object.fromEntries(Object.keys(stages).map((name) => [
+      name, read(`agents/${name}.md`).match(/^---\n[\s\S]*?^model:\s*(\S+)$[\s\S]*?^---$/m)?.[1],
+    ]));
+    expect(declared).toEqual({ starter: 'haiku', 'spec-implementer': 'sonnet', 'architecture-reviewer': 'opus', deliverer: 'sonnet' });
+    for (const [name, step] of Object.entries(stages)) {
+      expect(declared[name]).toBe(SDLC_MODELS.stages[step]);
+      expect(tech).toContain(`| \`agents/${name}.md\` | \`${name}\` | \`${SDLC_MODELS.stages[step]}\` |`);
+    }
+    expect(tech).toContain('`model` is `haiku`, `sonnet`, or `opus` and matches `SDLC_MODELS`; never hardcode model ids.');
   });
 
 });

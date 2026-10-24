@@ -1,6 +1,7 @@
 ---
 description: "Report read-only SDLC status"
 argument-hint: "[--json]"
+model: haiku
 ---
 
 Plugin paths: `${CLAUDE_PLUGIN_ROOT}` is the installed nmg-sdlc plugin root. Read packaged files by their `${CLAUDE_PLUGIN_ROOT}/...` path.
