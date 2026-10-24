@@ -8,7 +8,7 @@ This document defines the product vision, target users, and success metrics. All
 
 **nmg-sdlc is a Claude Code plugin and a Herdr workflow that turns GitHub issues into verified, production-ready implementations through a spec-driven SDLC.**
 
-It is not a Codex or Oh My Pi plugin. Users invoke `/sdlc-draft-issue`, `/sdlc-write-spec`, `/sdlc-execute`, and `/sdlc-status` as plugin commands.
+It is not a Codex plugin. Users invoke `/sdlc-draft-issue`, `/sdlc-write-spec`, `/sdlc-execute`, and `/sdlc-status` as plugin commands.
 
 ---
 

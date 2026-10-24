@@ -54,7 +54,7 @@
 
 ## T004: Verify and deliver the correction
 
-**File(s)**: `specs/278-stack-agnostic-delivery-versioning/`, repository verification surfaces
+**File(s)**: `specs/278-stack-agnostic-delivery-versioning/`
 **Type**: Create/Verify
 **Depends**: T001, T002, T003
 

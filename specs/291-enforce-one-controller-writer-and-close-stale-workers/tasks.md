@@ -49,7 +49,7 @@
 
 ### T003: Add Regression Coverage
 
-**File(s)**: `scripts/__tests__/sdlc-execute.test.mjs`, `scripts/__tests__/sdlc-deliver.test.mjs`, applicable verification controller test file
+**File(s)**: `scripts/__tests__/sdlc-execute.test.mjs`, `scripts/__tests__/sdlc-deliver.test.mjs`
 **Type**: Modify
 **Depends**: T001, T002
 **Acceptance**:

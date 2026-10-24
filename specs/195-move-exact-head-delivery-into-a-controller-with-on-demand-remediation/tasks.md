@@ -96,7 +96,7 @@
 
 ### T007: Remove unconditional deliver extra workflow
 
-**File(s)**: `scripts/sdlc-execute.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`, prompt-byte tests, generated command surfaces if affected
+**File(s)**: `scripts/sdlc-execute.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`
 **Type**: Modify
 **Depends**: T006
 **Acceptance**:
