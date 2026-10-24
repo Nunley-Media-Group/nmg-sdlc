@@ -71,7 +71,7 @@ async function fixture({
   holdBootstrap = false, startupFailure = false, probePeer = false, waitForController = true, outsideHerdr = false,
 } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-cancel-')));
-  const runtime = path.join(root, '.omp/sdlc');
+  const runtime = path.join(root, '.nmg-sdlc');
   const bin = path.join(runtime, 'bin');
   fs.mkdirSync(bin, { recursive: true });
   const spec = path.join(root, 'specs/42-ship-it');
@@ -79,7 +79,7 @@ async function fixture({
   for (const file of ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']) {
     fs.writeFileSync(path.join(spec, file), '**Issue**: #42\n**Status**: Approved\n');
   }
-  fs.writeFileSync(path.join(root, '.gitignore'), '.omp/sdlc/\n');
+  fs.writeFileSync(path.join(root, '.gitignore'), '.nmg-sdlc/\n');
   git(root, ['init', '-b', '42-ship-it']);
   git(root, ['add', '.gitignore', 'specs']);
   git(root, ['commit', '-m', 'fixture']);
@@ -171,7 +171,7 @@ throw new Error('Unexpected gh command: '+args.join(' '));\n`);
   command('herdr', `const fs = require('node:fs');
 const args = process.argv.slice(2);
 const out = value => { console.log(typeof value === 'string' ? value : JSON.stringify(value)); process.exit(0); };
-if (args[0] === 'integration') out('omp: installed');
+if (args[0] === 'integration') out('claude: installed');
 if (args[0] === 'agent' && args[1] === 'list') out([]);
 if (args[0] === 'agent' && args[1] === 'get') out({result:{state:'working'}});
 if (args[0] === 'agent' && args[1] === 'start') out('');
@@ -324,7 +324,7 @@ posix('execute CLI cancellation during real blocking commands', () => {
     const value = await fixture({ outsideHerdr: true, waitForController: false });
     const result = await value.done;
     expect(result.code).toBe(2);
-    expect(result.stdout).toContain('execute requires a Herdr OMP session');
+    expect(result.stdout).toContain('execute requires a Herdr session');
     expect(result.stderr).toBe('');
     expect(fs.existsSync(value.leasePath)).toBe(false);
     // supervisor cleanup no longer mutates run.json; failed remains as seeded or unset

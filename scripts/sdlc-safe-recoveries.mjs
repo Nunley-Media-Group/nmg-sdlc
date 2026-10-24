@@ -56,7 +56,7 @@ function porcelainEntries(output) {
 }
 
 function nonRuntimePath(path) {
-  return path !== '.omp' && !path.startsWith('.omp/');
+  return path !== '.nmg-sdlc' && !path.startsWith('.nmg-sdlc/');
 }
 
 function porcelainPaths(output) {
@@ -216,7 +216,7 @@ function validPublicationPath(file) {
     && !file.includes('\\') && !file.includes('\0') && !/^[!:^]/.test(file)
     && !/^[A-Za-z][A-Za-z0-9+.-]*:/.test(file)
     && !file.split('/').some((part) => part === '..' || part === '.')
-    && file !== '.omp' && !file.startsWith('.omp/')
+    && file !== '.nmg-sdlc' && !file.startsWith('.nmg-sdlc/')
     && (firstGlob < 0 || (firstGlob > 0 && /[A-Za-z0-9_-]/.test(file.slice(0, firstGlob))));
 }
 

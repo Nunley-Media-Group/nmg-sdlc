@@ -6,20 +6,20 @@ This document defines the product vision, target users, and success metrics. All
 
 ## Mission
 
-**nmg-sdlc is an Oh My Pi extension and a Herdr workflow that turns GitHub issues into verified, production-ready implementations through a spec-driven SDLC.**
+**nmg-sdlc is a Claude Code plugin and a Herdr workflow that turns GitHub issues into verified, production-ready implementations through a spec-driven SDLC.**
 
-It is not a Codex plugin. Users invoke `/sdlc-draft-issue`, `/sdlc-write-spec`, `/sdlc-execute`, and `/sdlc-status` as extension commands.
+It is not a Codex or Oh My Pi plugin. Users invoke `/sdlc-draft-issue`, `/sdlc-write-spec`, `/sdlc-execute`, and `/sdlc-status` as plugin commands.
 
 ---
 
 ## Target Users
 
-### Primary: Developer in Oh My Pi / Herdr
+### Primary: Developer in Claude Code / Herdr
 
 | Characteristic | Implication |
 |----------------|-------------|
-| Uses Oh My Pi daily | Public commands are `/sdlc-*`; interactive ones enter native `/plan` with `ask` and `xd://propose` |
-| Runs Herdr for delivery | Automated stages run as sibling `omp` panes, not in-process `task` workers |
+| Uses Claude Code daily | Public commands are `/sdlc-*`; interactive ones enter native plan mode with `AskUserQuestion` and `ExitPlanMode` |
+| Runs Herdr for delivery | Automated stages run as sibling Claude panes, not in-process `Agent` subagents |
 | Works from GitHub issues | Work is issue-driven with linked branches and traceable specs |
 | Wants structured process | BDD specs provide guardrails without excessive ceremony |
 | Values quality gates | Verification catches implementation drift before delivery |
@@ -36,8 +36,8 @@ It is not a Codex plugin. Users invoke `/sdlc-draft-issue`, `/sdlc-write-spec`, 
 
 ## Core Value Proposition
 
-1. **Native interactive surface** — `/sdlc-draft-issue`, `/sdlc-write-spec`, `/sdlc-onboard-project`, and `/sdlc-upgrade-project` run inside native `/plan` with `ask` + `xd://propose`.
-2. **Automated delivery** — after an approved spec, `/sdlc-execute` drives Herdr `--kind omp` workers until merge or a failed handoff.
+1. **Native interactive surface** — `/sdlc-draft-issue`, `/sdlc-write-spec`, `/sdlc-onboard-project`, `/sdlc-upgrade-project`, `/sdlc-steering`, and `/sdlc-run-retro` run inside native plan mode with `AskUserQuestion` + `ExitPlanMode`.
+2. **Automated delivery** — after an approved spec, `/sdlc-execute` drives Herdr `--kind claude` workers until merge or a failed handoff.
 3. **Stack-agnostic BDD** — any language or framework supplies conventions through project `steering/`.
 4. **One issue, one spec** — `specs/{N}-{slug}/` is owned by a single issue. There is no epic type.
 5. **Evidence-backed delivery** — specs, verification results, Git state, and GitHub state remain distinct and auditable.
@@ -52,8 +52,8 @@ It is not a Codex plugin. Users invoke `/sdlc-draft-issue`, `/sdlc-write-spec`, 
 | Stack-agnostic | Never assume a language, framework, or tool; project steering provides specifics |
 | OS-agnostic | Support macOS, Windows, and Linux without hardcoded platform assumptions |
 | Process over tooling | Skills define lifecycle structure; projects define technical choices |
-| Native plan for judgment | Interactive skills use built-in `ask` + `xd://propose` inside `/plan` |
-| Workers never ask | Automated skills never call `ask`; missing preconditions write a failed handoff |
+| Native plan for judgment | Interactive skills use `AskUserQuestion` + `ExitPlanMode` inside native plan mode |
+| Workers never ask | Automated skills never call `AskUserQuestion` or `ExitPlanMode`; missing preconditions write a failed handoff |
 | Spec as source of truth | Implementation and verification trace back to an approved spec directory |
 | Coordination is not a type | Sequencing uses official GitHub blocked-by edges between ordinary issues; there is no epic |
 | Preserve project ownership | Do not overwrite unrelated files, workflows, templates, history, or metadata |
@@ -75,7 +75,7 @@ Classify failures before repair. Fix plugin defects in the plugin; preserve and 
 | Pipeline continuity | Draft → spec → execute works end to end | Proves the workflow is practical |
 | Terminal delivery integrity | Success requires exact-head merge and issue closure | Prevents PR creation from being overstated as delivery |
 | Dependency integrity | Open official blockers, unreadable evidence, dangling targets, and open cycles keep an issue out of execute | Keeps sequencing fail-closed and consistent |
-| Gate integrity | Interactive skills wait in `/plan`; workers never call `ask` | Preserves user authority without blocking Herdr |
+| Gate integrity | Interactive skills wait in native plan mode; workers never call `AskUserQuestion` | Preserves user authority without blocking Herdr |
 | Exercise verification | Changed skills are exercised against disposable projects | Proves behavior, not just prose |
 | Live smoke integrity | Every verify delivers fresh smoke issues against `Nunley-Media-Group/nmg-sdlc-smoke` — provisioned by the gate itself unless an explicit queue is set — and passes only with exact-head merged-PR and closed-issue evidence | Proves real consumer delivery, not status-only discovery |
 | Managed-asset preservation | Unrelated project content remains byte-for-byte unchanged | Makes onboarding and upgrade safe |
@@ -138,9 +138,9 @@ Classify failures before repair. Fix plugin defects in the plugin; preserve and 
 
 ```text
 1. Define behavior in a feature or defect spec
-2. Resolve and read `skill://skill-creator` before editing skill-bundled paths
+2. Invoke the `skill-creator` skill with the `Skill` tool before editing skill-bundled paths
 3. Run static contract tests and plugin-surface validation
-4. Exercise changed skills with omp --print --no-session
+4. Exercise changed skills with `claude -p --plugin-dir <checkout>`
 5. Record local evidence separately from published-install evidence
 ```
 
@@ -152,8 +152,8 @@ Classify failures before repair. Fix plugin defects in the plugin; preserve and 
 |-------------------|---------------------|--------------------|
 | Stack-agnostic | Skill instructions defer project details to steering | Review changed contracts for hardcoded technology assumptions |
 | OS-agnostic | Paths and commands are cross-platform or explicitly scoped | Review path handling and platform dependencies |
-| Native plan for judgment | Interactive skills use `ask` + `xd://propose` inside `/plan` | Exercise draft/spec/onboard/upgrade outside `/plan` (print-and-stop) and inside `/plan` |
-| Workers never ask | Automated skills write failed handoffs instead of calling `ask` | Contract-test WORKFLOW.md files and exercise missing-precondition paths |
+| Native plan for judgment | Interactive skills use `AskUserQuestion` + `ExitPlanMode` inside native plan mode | Exercise draft/spec/onboard/upgrade under `claude -p` (print-and-stop) and inside plan mode in the TUI |
+| Workers never ask | Automated skills write failed handoffs instead of calling `AskUserQuestion` | Contract-test WORKFLOW.md files and exercise missing-precondition paths |
 | Spec as source of truth | Changed paths map to approved tasks or acceptance criteria | Compare diff with `tasks.md` and `requirements.md` |
 | Preserve project ownership | Managed paths and overwrite predicates are exact | Run collision, preservation, and repeat-run fixtures |
 | Dogfooding | Skill behavior is exercised, not inferred from text alone | Record fixture or live exercise evidence |
@@ -171,8 +171,6 @@ open-pr            → exact-head PR delivery, merge, and issue closure
 address-pr-comments→ focused review-loop utility or failed intervention handoff
 status             → read-only lifecycle report; recommend execute or write-spec
 ```
-```
-Each skill's postconditions must continue to satisfy its downstream consumer's preconditions.
 
 Each skill's postconditions must continue to satisfy its downstream consumer's preconditions.
 
@@ -194,7 +192,7 @@ Each skill's postconditions must continue to satisfy its downstream consumer's p
 | Data | Usage | Shared |
 |------|-------|--------|
 | GitHub issues/PRs | Read or write only for the requested workflow | Only within the user's authorized GitHub scope |
-| Source code | Analyzed in the active OMP / Herdr session | Per the user's host configuration |
+| Source code | Analyzed in the active Claude Code / Herdr session | Per the user's host configuration |
 | Steering/spec docs | Project context and committed history | At the user's discretion |
 
 ---

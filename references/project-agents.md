@@ -2,7 +2,7 @@
 
 **Consumed by**: `onboard-project` after steering bootstrap or verification succeeds, and `upgrade-project` when analyzing or applying managed project artifact findings.
 
-Use this reference to create or reconcile root `AGENTS.md` guidance that makes nmg-sdlc spec context available to general OMP prompts. This is project content, not plugin metadata. It must be additive, idempotent, and preserve every project-authored instruction outside the managed section.
+Use this reference to create or reconcile root `AGENTS.md` guidance that makes nmg-sdlc spec context available to general Claude Code prompts. This is project content, not plugin metadata. It must be additive, idempotent, and preserve every project-authored instruction outside the managed section.
 
 ## Preconditions
 

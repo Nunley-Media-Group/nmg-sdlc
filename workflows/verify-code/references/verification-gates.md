@@ -4,7 +4,7 @@
 
 `steering/manifest.json` declares validation records. The workflow never parses executable commands or pass criteria from prose.
 
-Run `scripts/sdlc-verify-steering.mjs` for the active issue and read `.omp/sdlc/verification/<issue>.json`. Core owns:
+Run `scripts/sdlc-verify-steering.mjs` for the active issue and read `.nmg-sdlc/verification/<issue>.json`. Core owns:
 
 - the closed `always`, `changed_paths`, `path_exists`, and `glob_exists` applicability grammar;
 - provider resolution and provider-specific configuration validation;

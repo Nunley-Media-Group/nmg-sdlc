@@ -1,4 +1,4 @@
-# Thread Classification (v3 bot only)
+# Thread Classification (v4 bot only)
 
 clear-fix: obvious local safe minimal edit that satisfies the bot comment exactly, with file/line/hunk.
 

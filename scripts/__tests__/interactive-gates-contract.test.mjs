@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { WRITE_SPEC_FINISHED_LABELS } from '../../src/host-events.mjs';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
@@ -16,16 +18,19 @@ function skillFiles() {
     .filter((relativePath) => fs.existsSync(path.join(REPO_ROOT, relativePath)));
 }
 
-describe('native /plan interactive contract', () => {
-  it('documents native /plan, ask, and xd://propose', () => {
+describe('native plan-mode interactive contract', () => {
+  it('documents hooks-module plan entry, AskUserQuestion, and ExitPlanMode', () => {
     const source = read('references/interactive-gates.md');
 
     expect(source).toContain('/sdlc-draft-issue');
     expect(source).toContain('/sdlc-write-spec #N');
     expect(source).toContain('/sdlc-execute');
-    expect(source).toContain('xd://propose');
-    expect(source).toContain('built-in `ask`');
-    expect(source).toContain('src/extension.ts');
+    expect(source).toContain('hooks/register.ts');
+    expect(source).toContain('runs builtin `/plan`');
+    expect(source).toContain('`AskUserQuestion`');
+    expect(source).toContain('`ExitPlanMode`');
+    expect(source).toContain('Run /sdlc-<command> in the TUI.');
+    expect(source).not.toMatch(/xd:\/\/|local:\/\/|built-in `ask`|src\/extension\.ts|nmg-pi/);
     expect(source).not.toContain('Run /plan /skill:<name>');
     expect(source).not.toContain('request_user_input');
     expect(source).not.toContain('<proposed_plan>');
@@ -34,9 +39,21 @@ describe('native /plan interactive contract', () => {
 
   it('returns every merged write-spec publication to native plan', () => {
     const source = read('references/interactive-gates.md');
-    expect(source).toContain('every selected continuation issue writes a distinct complete local plan');
-    expect(source).toContain('calls `xd://propose` before mutation');
-    expect(source).not.toContain('After write-spec approval, execution publishes then `ask` Continue/Finished');
+    expect(source).toContain('every selected continuation issue writes a distinct complete plan to the plan file and calls `ExitPlanMode` before mutation');
+    expect(source).toContain('merge --issue N --dir specs/N-slug');
+    expect(source).toContain('`published[]` survives because the hooks module holds it');
+  });
+
+  it('ends write-spec Finished with the approved ExitPlanMode call', () => {
+    const gates = read('references/interactive-gates.md');
+    const writeSpec = read('workflows/write-spec/WORKFLOW.md');
+    for (const label of WRITE_SPEC_FINISHED_LABELS) {
+      expect(gates).toContain(label);
+      expect(writeSpec).toContain(label);
+    }
+    expect(gates).toContain('ends the reply by calling `ExitPlanMode` as its last action');
+    expect(writeSpec).toContain('ExitPlanMode');
+    expect(writeSpec).not.toMatch(/xd:\/\/|local:\/\//);
   });
 
   it('has no plugin bypass reference', () => {
@@ -45,6 +62,7 @@ describe('native /plan interactive contract', () => {
     for (const relativePath of skillFiles()) {
       const source = read(relativePath);
       expect(`${relativePath}\n${source}`).not.toContain('Done. Awaiting orchestrator.');
+      expect(`${relativePath}\n${source}`).not.toMatch(/xd:\/\/propose|built-in `ask`/);
     }
   });
 });

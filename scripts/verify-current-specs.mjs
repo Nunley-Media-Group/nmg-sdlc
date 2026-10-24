@@ -57,7 +57,7 @@ const CAPABILITY_SPEC = new Map([
   ['verify-code', 7],
   ['write-code', 6],
   ['write-spec', 5],
-  ['omp-extension', 2],
+  ['claude-code-plugin', 2],
   ['contribution-gate', 125],
 ]);
 
@@ -82,7 +82,6 @@ const STALE_PATTERNS = [
   [/\$nmg-sdlc\b/g, 'legacy $nmg-sdlc invocation'],
   [/\.codex\//g, 'legacy .codex path'],
   [/\bCodex\b/g, 'Codex-only runtime'],
-  [/\bClaude Code\b/g, 'Claude Code-only runtime'],
   [/\bunattended mode\b/gi, 'removed unattended mode'],
 ];
 

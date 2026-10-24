@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * sdlc-upgrade.mjs
- * v3 upgrade detectors and apply (testable, no live GitHub).
+ * Upgrade detectors and apply, including the v3 (Oh My Pi) → v4 (Claude Code)
+ * runtime migration (testable, no live GitHub).
  *
  * Exports:
  *   detectUpgrade(root)
@@ -28,7 +29,7 @@ import {
 } from './issue-dependencies.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
 import { backfillSpecCreatedLabels } from './spec-created-label.mjs';
-import { hasOmpSdlcIgnore, writeOmpSdlcIgnore } from './omp-sdlc-ignore.mjs';
+import { NMG_SDLC_IGNORE_LINE } from './nmg-sdlc-ignore.mjs';
 import { canonicalSnippetRecord, createInitializePlan, steeringSourceDigest } from './sdlc-steering.mjs';
 import {
   parseDeliveryTaskFileLines,
@@ -149,6 +150,10 @@ function hasOmpExtensions(root) {
   } catch {
     return false;
   }
+}
+
+function hasClaudeCodePlugin(root) {
+  return isFile(path.join(root, '.claude-plugin', 'plugin.json'));
 }
 
 function hasLegacyCodexPlugin(root) {
@@ -887,6 +892,304 @@ function editGitignoreForV2(root) {
   return { changed: after !== before, status };
 }
 
+// v3 → v4 runtime migration (Oh My Pi → Claude Code). The `.omp/sdlc` names below
+// are legacy-detection input only; v4 writes runtime state under `.nmg-sdlc/`.
+const LEGACY_RUNTIME_SEGMENTS = ['.omp', 'sdlc'];
+const LEGACY_RUNTIME_REL = LEGACY_RUNTIME_SEGMENTS.join('/');
+const LEGACY_IGNORE_RULES = new Set(['.omp/sdlc/', '.omp/sdlc']);
+const RUNTIME_DIR = NMG_SDLC_IGNORE_LINE.replace(/\/$/, '');
+const RUNTIME_IGNORE_RULES = new Set([NMG_SDLC_IGNORE_LINE, RUNTIME_DIR]);
+// Legacy runtime files with no v4 equivalent (the OMP paste config). Approved migration deletes them.
+const LEGACY_RUNTIME_OBSOLETE = new Set(['omp-controller.yml']);
+const LEGACY_AGENTS_COMMENT_RE = /^(agents\/[ \t]+)# OMP task agents \(([^()\n]*)\)([ \t]*)$/gm;
+const V4_AGENTS_COMMENT = '# Claude Code plugin subagents';
+
+function gitignoreRuleLines(source) {
+  return String(source ?? '').split('\n').map((line) => line.replace(/\r$/, '').trim());
+}
+
+function hasRuntimeIgnore(source) {
+  return gitignoreRuleLines(source).some((line) => RUNTIME_IGNORE_RULES.has(line));
+}
+
+function hasLegacyRuntimeIgnore(source) {
+  return gitignoreRuleLines(source).some((line) => LEGACY_IGNORE_RULES.has(line));
+}
+
+function legacyRuntimePresent(root) {
+  return lstatOrNull(path.join(root, ...LEGACY_RUNTIME_SEGMENTS)) !== null;
+}
+
+function sameFileBytes(left, right) {
+  const a = safeReadBuffer(left);
+  const b = safeReadBuffer(right);
+  return a !== null && b !== null && a.equals(b);
+}
+
+// Returns null when every existing component of `.nmg-sdlc/<dirs>` is a real directory,
+// else the first unsafe repository-relative component.
+function unsafeRuntimeTargetComponent(root, relativeDirs) {
+  let cursor = root;
+  let rel = '';
+  for (const segment of [RUNTIME_DIR, ...relativeDirs]) {
+    cursor = path.join(cursor, segment);
+    rel = rel ? `${rel}/${segment}` : segment;
+    const stat = lstatOrNull(cursor);
+    if (stat === null) return null;
+    if (stat.isSymbolicLink() || !stat.isDirectory()) return rel;
+  }
+  return null;
+}
+
+function planRuntimeStateMigration(root) {
+  const legacyFull = path.join(root, ...LEGACY_RUNTIME_SEGMENTS);
+  const legacyStat = lstatOrNull(legacyFull);
+  if (legacyStat === null) return null;
+  const plan = { moves: [], duplicates: [], obsolete: [], conflicts: [] };
+  const omp = lstatOrNull(path.join(root, LEGACY_RUNTIME_SEGMENTS[0]));
+  if (omp?.isSymbolicLink() || legacyStat.isSymbolicLink() || !legacyStat.isDirectory()) {
+    plan.conflicts.push({ from: LEGACY_RUNTIME_REL, to: RUNTIME_DIR, reasonCode: 'runtime_state_unsafe_path' });
+    return plan;
+  }
+  const walk = (dirFull, relativeDirs) => {
+    const entries = listDir(dirFull).sort((left, right) => comparePublicationPaths(left.name, right.name));
+    for (const entry of entries) {
+      const sourceFull = path.join(dirFull, entry.name);
+      const relParts = [...relativeDirs, entry.name];
+      const from = [LEGACY_RUNTIME_REL, ...relParts].join('/');
+      const to = [RUNTIME_DIR, ...relParts].join('/');
+      const stat = lstatOrNull(sourceFull);
+      if (stat?.isDirectory() && !stat.isSymbolicLink()) {
+        walk(sourceFull, relParts);
+        continue;
+      }
+      if (!stat || !stat.isFile()) {
+        plan.conflicts.push({ from, to, reasonCode: 'runtime_state_unsafe_path' });
+        continue;
+      }
+      if (relativeDirs.length === 0 && LEGACY_RUNTIME_OBSOLETE.has(entry.name)) {
+        plan.obsolete.push({ path: from, reasonCode: 'runtime_state_obsolete' });
+        continue;
+      }
+      if (unsafeRuntimeTargetComponent(root, relativeDirs) !== null) {
+        plan.conflicts.push({ from, to, reasonCode: 'runtime_state_unsafe_path' });
+        continue;
+      }
+      const targetFull = path.join(root, ...to.split('/'));
+      const targetStat = lstatOrNull(targetFull);
+      if (targetStat === null) {
+        plan.moves.push({ from, to });
+      } else if (targetStat.isFile() && !targetStat.isSymbolicLink() && sameFileBytes(sourceFull, targetFull)) {
+        plan.duplicates.push({ from, to });
+      } else {
+        plan.conflicts.push({ from, to, reasonCode: 'runtime_state_conflict' });
+      }
+    }
+  };
+  walk(legacyFull, []);
+  return plan;
+}
+
+function detectRuntimeStateMigration(root) {
+  const plan = planRuntimeStateMigration(root);
+  if (plan === null) return null;
+  const actionable = plan.moves.length + plan.duplicates.length + plan.obsolete.length > 0;
+  const parts = [];
+  if (plan.moves.length) parts.push(`move ${plan.moves.length} file(s)`);
+  if (plan.duplicates.length) parts.push(`drop ${plan.duplicates.length} byte-identical legacy duplicate(s)`);
+  if (plan.obsolete.length) parts.push(`delete ${plan.obsolete.length} obsolete OMP-only file(s)`);
+  if (plan.conflicts.length) parts.push(`preserve ${plan.conflicts.length} conflicting file(s)`);
+  return {
+    id: 'runtime-state-v4',
+    kind: 'runtime-state-v4',
+    description: `Migrate legacy v3 runtime state ${LEGACY_RUNTIME_REL}/ into ${NMG_SDLC_IGNORE_LINE} (${parts.join(', ') || 'nothing to move'}). Existing ${NMG_SDLC_IGNORE_LINE} files are never overwritten.`,
+    from: LEGACY_RUNTIME_REL,
+    to: RUNTIME_DIR,
+    ...plan,
+    actionable,
+  };
+}
+
+function ensureRuntimeTargetDirs(root, relativeDirs) {
+  let cursor = root;
+  for (const segment of [RUNTIME_DIR, ...relativeDirs]) {
+    cursor = path.join(cursor, segment);
+    const stat = lstatOrNull(cursor);
+    if (stat === null) {
+      fs.mkdirSync(cursor);
+    } else if (stat.isSymbolicLink() || !stat.isDirectory()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Move one regular file without ever replacing an existing target: hard-link (fails on
+// EEXIST) then unlink the source; across devices, copy with COPYFILE_EXCL.
+function moveRuntimeFileExclusive(sourceFull, targetFull) {
+  try {
+    fs.linkSync(sourceFull, targetFull);
+  } catch (error) {
+    if (error?.code === 'EEXIST') return 'exists';
+    if (!['EXDEV', 'EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK'].includes(error?.code)) throw error;
+    try {
+      fs.copyFileSync(sourceFull, targetFull, fs.constants.COPYFILE_EXCL);
+    } catch (copyError) {
+      if (copyError?.code === 'EEXIST') return 'exists';
+      throw copyError;
+    }
+    if (!sameFileBytes(sourceFull, targetFull)) {
+      fs.rmSync(targetFull, { force: true });
+      throw new Error(`copy verification failed: ${targetFull}`);
+    }
+  }
+  fs.unlinkSync(sourceFull);
+  return 'moved';
+}
+
+function pruneEmptyLegacyRuntimeDirs(dirFull) {
+  const stat = lstatOrNull(dirFull);
+  if (!stat || stat.isSymbolicLink() || !stat.isDirectory()) return;
+  for (const entry of listDir(dirFull)) {
+    if (entry.isDirectory()) pruneEmptyLegacyRuntimeDirs(path.join(dirFull, entry.name));
+  }
+  if (listDir(dirFull).length === 0) fs.rmdirSync(dirFull);
+}
+
+function applyRuntimeStateMigration(root, item) {
+  // Re-plan from live state: preconditions are re-checked immediately before each mutation.
+  const plan = planRuntimeStateMigration(root);
+  const outcome = { id: item.id, moved: [], deduplicated: [], removedObsolete: [], conflicts: [] };
+  if (plan === null) return { ...outcome, status: 'already-current' };
+  outcome.conflicts.push(...plan.conflicts);
+  try {
+    for (const entry of plan.moves) {
+      const relParts = entry.to.split('/').slice(1);
+      const sourceFull = path.join(root, ...entry.from.split('/'));
+      const targetFull = path.join(root, ...entry.to.split('/'));
+      const source = lstatOrNull(sourceFull);
+      if (!source || source.isSymbolicLink() || !source.isFile()
+        || !ensureRuntimeTargetDirs(root, relParts.slice(0, -1))) {
+        outcome.conflicts.push({ ...entry, reasonCode: 'runtime_state_unsafe_path' });
+        continue;
+      }
+      const moved = moveRuntimeFileExclusive(sourceFull, targetFull);
+      if (moved === 'moved') {
+        outcome.moved.push(entry);
+      } else if (sameFileBytes(sourceFull, targetFull)) {
+        fs.unlinkSync(sourceFull);
+        outcome.deduplicated.push(entry);
+      } else {
+        outcome.conflicts.push({ ...entry, reasonCode: 'runtime_state_conflict' });
+      }
+    }
+    for (const entry of plan.duplicates) {
+      const sourceFull = path.join(root, ...entry.from.split('/'));
+      const targetFull = path.join(root, ...entry.to.split('/'));
+      if (sameFileBytes(sourceFull, targetFull) && lstatOrNull(sourceFull)?.isFile()) {
+        fs.unlinkSync(sourceFull);
+        outcome.deduplicated.push(entry);
+      } else {
+        outcome.conflicts.push({ ...entry, reasonCode: 'runtime_state_conflict' });
+      }
+    }
+    for (const entry of plan.obsolete) {
+      const full = path.join(root, ...entry.path.split('/'));
+      const stat = lstatOrNull(full);
+      if (stat?.isFile() && !stat.isSymbolicLink()) {
+        fs.unlinkSync(full);
+        outcome.removedObsolete.push(entry);
+      }
+    }
+    pruneEmptyLegacyRuntimeDirs(path.join(root, ...LEGACY_RUNTIME_SEGMENTS));
+  } catch (error) {
+    return { ...outcome, status: `failed:${error.message}`, reasonCode: 'runtime_state_move_failed' };
+  }
+  const changed = outcome.moved.length + outcome.deduplicated.length + outcome.removedObsolete.length > 0;
+  const status = changed ? 'applied' : outcome.conflicts.length > 0 ? 'skipped:collision' : 'already-current';
+  return { ...outcome, status };
+}
+
+function detectRuntimeIgnore(root, gitignoreText) {
+  const hasCurrent = hasRuntimeIgnore(gitignoreText);
+  const hasLegacy = hasLegacyRuntimeIgnore(gitignoreText);
+  const legacyRemains = legacyRuntimePresent(root);
+  const swap = hasLegacy && !legacyRemains;
+  if (hasCurrent && !swap) return null;
+  let description;
+  if (swap) {
+    description = hasCurrent
+      ? `Remove the legacy managed ${LEGACY_RUNTIME_REL}/ rule from .gitignore; ${NMG_SDLC_IGNORE_LINE} is already ignored.`
+      : `Replace the legacy managed ${LEGACY_RUNTIME_REL}/ rule in .gitignore with ${NMG_SDLC_IGNORE_LINE} so plugin runtime state is not committed.`;
+  } else {
+    description = `Add ${NMG_SDLC_IGNORE_LINE} to .gitignore so plugin runtime state is not committed.${hasLegacy ? ` The legacy ${LEGACY_RUNTIME_REL}/ rule stays while legacy runtime state remains.` : ''}`;
+  }
+  return {
+    id: 'nmg-sdlc-ignore',
+    kind: 'nmg-sdlc-ignore',
+    description,
+    swapLegacy: swap,
+    actionable: true,
+  };
+}
+
+function applyRuntimeIgnore(root, item) {
+  const gitignore = path.join(root, '.gitignore');
+  let before = '';
+  try {
+    before = fs.readFileSync(gitignore, 'utf8');
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      return { id: item.id, status: 'preserved (unmanaged)', reasonCode: 'gitignore_unwritable' };
+    }
+  }
+  const legacyRemains = legacyRuntimePresent(root);
+  let hasCurrent = hasRuntimeIgnore(before);
+  let lines = before.split('\n');
+  if (!legacyRemains) {
+    const out = [];
+    for (const line of lines) {
+      if (!LEGACY_IGNORE_RULES.has(line.replace(/\r$/, '').trim())) {
+        out.push(line);
+      } else if (!hasCurrent) {
+        out.push(`${NMG_SDLC_IGNORE_LINE}${line.endsWith('\r') ? '\r' : ''}`);
+        hasCurrent = true;
+      }
+    }
+    lines = out;
+  }
+  let after = lines.join('\n');
+  if (!hasCurrent) {
+    const separator = after.length > 0 && !after.endsWith('\n') ? '\n' : '';
+    after = `${after}${separator}${NMG_SDLC_IGNORE_LINE}\n`;
+  }
+  const retained = legacyRemains && hasLegacyRuntimeIgnore(after);
+  const detail = retained ? { legacyIgnoreRetained: true, reasonCode: 'runtime_state_legacy_present' } : {};
+  if (after === before) return { id: item.id, status: 'already-current', ...detail };
+  try {
+    fs.writeFileSync(gitignore, after);
+  } catch {
+    return { id: item.id, status: 'preserved (unmanaged)', reasonCode: 'gitignore_unwritable' };
+  }
+  return { id: item.id, status: 'applied', ...detail };
+}
+
+function agentsHasLegacyHostLanguage(agentsTxt) {
+  LEGACY_AGENTS_COMMENT_RE.lastIndex = 0;
+  return LEGACY_AGENTS_COMMENT_RE.test(agentsTxt);
+}
+
+function applyAgentsHostLanguage(root, item) {
+  const p = path.join(root, item.rel || 'AGENTS.md');
+  const txt = safeRead(p);
+  if (!txt) return { id: item.id, status: 'skipped:missing' };
+  LEGACY_AGENTS_COMMENT_RE.lastIndex = 0;
+  const updated = txt.replace(LEGACY_AGENTS_COMMENT_RE, (_match, lead, list, trail) => `${lead}${V4_AGENTS_COMMENT} (${list})${trail}`);
+  if (updated === txt) return { id: item.id, status: 'already-current' };
+  fs.writeFileSync(p, updated);
+  return { id: item.id, status: 'applied' };
+}
+
 function defaultRun(command, args, options = {}) {
   return spawnSync(command, args, { encoding: 'utf8', ...options });
 }
@@ -1099,7 +1402,7 @@ function detectSteeringRuntime(root) {
 }
 
 function applySteeringRuntime(root, item) {
-  const temporary = path.join(root, '.omp', 'sdlc', `steering-plan-${process.pid}.json`);
+  const temporary = path.join(root, RUNTIME_DIR, 'plans', `steering-plan-${process.pid}.json`);
   ensureDir(path.dirname(temporary));
   fs.writeFileSync(temporary, `${JSON.stringify(item.plan, null, 2)}\n`);
   try {
@@ -1909,12 +2212,14 @@ function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRu
   const items = [];
   const rootAbs = path.resolve(root);
 
-  // 1. Packaging
-  if (hasLegacyCodexPlugin(rootAbs) && !hasOmpExtensions(rootAbs)) {
+  // 1. Packaging (legacy Codex plugin manifest or v3 OMP extension manifest)
+  const legacyCodex = hasLegacyCodexPlugin(rootAbs);
+  const legacyOmp = hasOmpExtensions(rootAbs);
+  if ((legacyCodex || legacyOmp) && !hasClaudeCodePlugin(rootAbs)) {
     items.push({
-      id: 'packaging-v3-omp-herdr',
+      id: 'packaging-v4-claude-code-herdr',
       kind: 'packaging',
-      description: 'Project still references .codex-plugin. v3 installs as OMP plugin (omp plugin install / marketplace / omp plugin link) and requires Herdr. nmg-pi optional. Do not write ~/.codex/config.toml.',
+      description: `Project still references ${legacyCodex ? '.codex-plugin' : 'the v3 Oh My Pi extension manifest (package.json omp.extensions)'}. v4 installs nmg-sdlc as a Claude Code plugin (claude plugin marketplace add + claude plugin install, or claude --plugin-dir for a local checkout) and requires Herdr. Do not write ~/.codex/config.toml.`,
       actionable: true,
     });
   }
@@ -2140,6 +2445,15 @@ function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRu
       actionable: true,
     });
   }
+  if (agentsHasLegacyHostLanguage(agentsTxt)) {
+    items.push({
+      id: 'agents-v4-host-language',
+      kind: 'agents-host-language',
+      description: 'Rewrite the managed AGENTS.md `agents/` structure comment from OMP task agents to Claude Code plugin subagents.',
+      rel: 'AGENTS.md',
+      actionable: true,
+    });
+  }
 
   const dependencyItem = includeIssueDependencies
     ? detectIssueDependencyUpgrade({ cwd: rootAbs, run })
@@ -2189,15 +2503,11 @@ function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRu
       });
     }
   }
+  const runtimeState = detectRuntimeStateMigration(rootAbs);
+  if (runtimeState) items.push(runtimeState);
   const gitignoreText = isFile(gi) ? safeRead(gi) || '' : '';
-  if (!hasOmpSdlcIgnore(gitignoreText)) {
-    items.push({
-      id: 'omp-sdlc-ignore',
-      kind: 'omp-sdlc-ignore',
-      description: 'Add .omp/sdlc/ to .gitignore so plugin runtime state is not committed.',
-      actionable: true,
-    });
-  }
+  const runtimeIgnore = detectRuntimeIgnore(rootAbs, gitignoreText);
+  if (runtimeIgnore) items.push(runtimeIgnore);
 
   if (dependencyItem) {
     items.push(dependencyItem);
@@ -2450,6 +2760,7 @@ function applyAgentsSpikeLanguage(root, item) {
   if (!txt) return { id: item.id, status: 'skipped:missing' };
   const updated = txt
     .replace('# OMP task agents (starter, spec-implementer, architecture-reviewer, deliverer, spike-researcher)', '# OMP task agents (starter, spec-implementer, architecture-reviewer, deliverer)')
+    .replace(`${V4_AGENTS_COMMENT} (starter, spec-implementer, architecture-reviewer, deliverer, spike-researcher)`, `${V4_AGENTS_COMMENT} (starter, spec-implementer, architecture-reviewer, deliverer)`)
     .replace('# ADR directory (populated by write-spec for spikes)', '# ADR directory');
   if (/spike/i.test(updated)) return { id: item.id, status: 'skipped:unverifiable' };
   if (updated === txt) return { id: item.id, status: 'already-current' };
@@ -2497,7 +2808,7 @@ function applyUpgrade(root, approvedItemIds = [], run, {
 
   // Split cumulative packages before renaming their shared legacy source.
   const order = (a, b) => {
-    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'steering-runtime': 2, 'publication-files': 3, 'cumulative-split': 4, 'directory-rename': 5, 'epic-flatten': 6, 'spike-flatten': 7, 'spike-remove': 7, 'spike-issue-form': 7, 'agents-spike-language': 7, 'frontmatter-fix': 8, 'v2-cleanup': 9, 'omp-sdlc-ignore': 10, 'issue-dependencies': 11, 'already-current': 99 }[k] ?? 50);
+    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'steering-runtime': 2, 'publication-files': 3, 'cumulative-split': 4, 'directory-rename': 5, 'epic-flatten': 6, 'spike-flatten': 7, 'spike-remove': 7, 'spike-issue-form': 7, 'agents-spike-language': 7, 'agents-host-language': 7.5, 'frontmatter-fix': 8, 'v2-cleanup': 9, 'runtime-state-v4': 9.5, 'nmg-sdlc-ignore': 10, 'issue-dependencies': 11, 'already-current': 99 }[k] ?? 50);
     return pri(a.kind) - pri(b.kind);
   };
   const toApply = [...report.items].filter((it) => approvedSet.has(it.id)).sort(order);
@@ -2528,9 +2839,12 @@ function applyUpgrade(root, approvedItemIds = [], run, {
       res = applyAgentsSpikeLanguage(rootAbs, item);
     } else if (item.kind === 'v2-cleanup') {
       res = applyV2Cleanup(rootAbs, item);
-    } else if (item.kind === 'omp-sdlc-ignore') {
-      const ignored = writeOmpSdlcIgnore(rootAbs);
-      res = { id: item.id, status: ignored.ok ? 'applied' : ignored.status };
+    } else if (item.kind === 'agents-host-language') {
+      res = applyAgentsHostLanguage(rootAbs, item);
+    } else if (item.kind === 'runtime-state-v4') {
+      res = applyRuntimeStateMigration(rootAbs, item);
+    } else if (item.kind === 'nmg-sdlc-ignore') {
+      res = applyRuntimeIgnore(rootAbs, item);
     } else if (item.kind === 'issue-dependencies') {
       res = applyIssueDependencyUpgrade(item, { cwd: rootAbs, run });
     } else if (item.kind === 'packaging' || item.kind === 'legacy-layout' || item.kind === 'already-current') {

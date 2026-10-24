@@ -178,9 +178,9 @@ function handoffFor(issue, status, summary, artifacts, reasonCode, next = null) 
 function writeHandoff({
   cwd, fs, issue, status, summary, artifacts = [], reasonCode = null, next = null,
 }) {
-  const handoffPath = `.omp/sdlc/handoffs/${issue}-deliver.json`;
+  const handoffPath = `.nmg-sdlc/handoffs/${issue}-deliver.json`;
   const absolute = path.resolve(cwd, handoffPath);
-  ensureDirectoryChain(fs, cwd, ['.omp', 'sdlc', 'handoffs']);
+  ensureDirectoryChain(fs, cwd, ['.nmg-sdlc', 'handoffs']);
   if (fs.existsSync(absolute)) {
     const stat = fs.lstatSync(absolute);
     if (stat.isSymbolicLink() || !stat.isFile()) throw new Error('unsafe_handoff_path');
@@ -200,7 +200,7 @@ function writeSmokeDeliveryProof({ cwd, env, fs, issue, pullRequest, headSha }) 
   if (env.NMG_SDLC_SMOKE_OWNED !== '1') return;
   const invocationId = String(env.NMG_SDLC_SMOKE_RECOVERY ?? '').split('.')[0];
   if (!/^[a-f0-9]{64}$/i.test(invocationId)) throw new Error('smoke invocation identity is unavailable');
-  const directory = ensureDirectoryChain(fs, cwd, ['.omp', 'sdlc', 'smoke-deliveries']);
+  const directory = ensureDirectoryChain(fs, cwd, ['.nmg-sdlc', 'smoke-deliveries']);
   const receipt = path.join(directory, `${issue}.json`);
   if (fs.existsSync(receipt)) {
     const stat = fs.lstatSync(receipt);
@@ -573,7 +573,7 @@ function publishVersionChanges({ run, cwd, issue, issueData, changed, allowedPat
   if (changed.length === 0) return;
   const subject = `${issueLabels(issueData).includes('bug') ? 'fix' : 'feat'}: deliver issue #${issue}`;
   const dirty = parsePorcelain(command(run, cwd, 'git', ['status', '--porcelain=v1', '-z']).stdout)
-    .filter((entry) => !entry.startsWith('.omp/'));
+    .filter((entry) => !entry.startsWith('.nmg-sdlc/'));
   if (dirty.some((entry) => !changed.includes(entry) || !allowedPaths.includes(entry))) {
     throw new Error(`Unrelated delivery changes: ${dirty.join(', ')}`);
   }
@@ -602,7 +602,7 @@ function changedPathsForDelivery({ run, cwd, base }) {
 
 
 function evaluateContributionEvidenceAtRoot({ run, fs, cwd, issue, title, body, changedPaths }) {
-  const inputPath = path.join(ensureDirectoryChain(fs, cwd, ['.omp', 'sdlc']), `contribution-evidence-${issue}.json`);
+  const inputPath = path.join(ensureDirectoryChain(fs, cwd, ['.nmg-sdlc']), `contribution-evidence-${issue}.json`);
   fs.writeFileSync(inputPath, `${JSON.stringify({ title, body, changedPaths })}\n`, { flag: 'wx' });
   try {
     const { value } = jsonCommand(
@@ -682,7 +682,7 @@ function prEvidenceRequest({ issue, pr, spec, readiness }) {
     headSha: pr.headRefOid,
     specPath: spec.relative,
     evidence: (readiness.readiness?.pendingEvidence ?? []).map(evidenceIdentity),
-    handoffPath: `.omp/sdlc/handoffs/${issue}-deliver.json`,
+    handoffPath: `.nmg-sdlc/handoffs/${issue}-deliver.json`,
   };
   return {
     status: 3,
@@ -734,7 +734,7 @@ function evidenceForHead(readiness, observed, headSha) {
 
 
 function editPullRequestBody({ run, fs, cwd, issue, prNumber, body, name = 'pr-body' }) {
-  const bodyPath = path.join(ensureDirectoryChain(fs, cwd, ['.omp', 'sdlc']), `${name}-${issue}.md`);
+  const bodyPath = path.join(ensureDirectoryChain(fs, cwd, ['.nmg-sdlc']), `${name}-${issue}.md`);
   fs.writeFileSync(bodyPath, body, { flag: 'wx' });
   try {
     command(run, cwd, 'gh', ['pr', 'edit', String(prNumber), '--body-file', bodyPath]);
@@ -778,7 +778,7 @@ function writeDeliveryValidation({
 
 
 function createPullRequest({ run, fs, cwd, issue, issueData, branch, base, draft, body }) {
-  const bodyPath = path.join(ensureDirectoryChain(fs, cwd, ['.omp', 'sdlc']), `pr-body-${issue}.md`);
+  const bodyPath = path.join(ensureDirectoryChain(fs, cwd, ['.nmg-sdlc']), `pr-body-${issue}.md`);
   fs.writeFileSync(bodyPath, body, { flag: 'wx' });
   const args = ['pr', 'create', '--base', base, '--head', branch, '--title', issueData.title, '--body-file', bodyPath];
   if (draft) args.push('--draft');
@@ -1034,7 +1034,7 @@ function reconcileMergeability({ context, run, branch, observed, spec, publicati
   const { cwd, issue } = context;
   const headBefore = command(run, cwd, 'git', ['rev-parse', 'HEAD']).stdout.trim();
   const dirty = parsePorcelain(command(run, cwd, 'git', ['status', '--porcelain=v1', '-z']).stdout)
-    .filter((entry) => !entry.startsWith('.omp/'));
+    .filter((entry) => !entry.startsWith('.nmg-sdlc/'));
   if (dirty.length) return fail(context, 'dirty_tree', `Preserved local work: ${dirty.join(', ')}`);
   let conflicts = [];
   let inspection = '';
@@ -1080,7 +1080,7 @@ function reconcileMergeability({ context, run, branch, observed, spec, publicati
     if (command(run, cwd, 'git', ['branch', '--show-current']).stdout.trim() !== branch
       || command(run, cwd, 'git', ['rev-parse', 'HEAD']).stdout.trim() !== remoteHead
       || parsePorcelain(command(run, cwd, 'git', ['status', '--porcelain=v1', '-z']).stdout)
-        .some((entry) => !entry.startsWith('.omp/'))) throw new Error('local branch changed during inspection; preserved without merge');
+        .some((entry) => !entry.startsWith('.nmg-sdlc/'))) throw new Error('local branch changed during inspection; preserved without merge');
     mergeStarted = true;
     command(run, cwd, 'git', ['merge', '--no-ff', '--no-edit', baseSha]);
     mergeStarted = false;
@@ -1089,7 +1089,7 @@ function reconcileMergeability({ context, run, branch, observed, spec, publicati
     if (!SHA.test(head) || command(run, cwd, 'git', ['rev-parse', 'HEAD^{tree}']).stdout.trim() !== tree
       || command(run, cwd, 'git', ['rev-list', '--parents', '-n', '1', head]).stdout.trim() !== `${head} ${remoteHead} ${baseSha}`
       || parsePorcelain(command(run, cwd, 'git', ['status', '--porcelain=v1', '-z']).stdout)
-        .some((entry) => !entry.startsWith('.omp/'))) throw new Error('actual merge differs from the isolated clean trial; preserved without push');
+        .some((entry) => !entry.startsWith('.nmg-sdlc/'))) throw new Error('actual merge differs from the isolated clean trial; preserved without push');
     const pushed = command(run, cwd, 'git', ['push', 'origin', `HEAD:refs/heads/${branch}`], { allowFailure: true });
     const remote = command(run, cwd, 'git', ['ls-remote', '--exit-code', 'origin', `refs/heads/${branch}`]).stdout.trim().split(/\s+/);
     if (remote.length !== 2 || remote[0] !== head || remote[1] !== `refs/heads/${branch}`) {
@@ -1163,14 +1163,14 @@ function reconcilePostMerge({ context, run, sleep, expected }) {
 
 function registeredGate({ fs, cwd, run, issue, spec, head, report }) {
   let directory = cwd;
-  for (const segment of ['.omp', 'sdlc', 'verification']) {
+  for (const segment of ['.nmg-sdlc', 'verification']) {
     directory = path.join(directory, segment);
     const stat = fs.lstatSync(directory);
     if (!stat.isDirectory() || stat.isSymbolicLink()) {
       throw Object.assign(new Error('Verification artifact directory is unsafe'), { reasonCode: 'verification_recheck_invalid' });
     }
   }
-  const artifactPath = path.join(cwd, '.omp', 'sdlc', 'verification', `${issue}.json`);
+  const artifactPath = path.join(cwd, '.nmg-sdlc', 'verification', `${issue}.json`);
   const stat = fs.lstatSync(artifactPath);
   if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 512 * 1024) {
     throw Object.assign(new Error('Verification artifact must be a bounded regular file'), { reasonCode: 'verification_recheck_invalid' });
@@ -1212,7 +1212,7 @@ function exactRemoteHead({ run, cwd, branch, head }) {
 
 function cleanDeliveryTree({ run, cwd, allowedPaths = [] }) {
   const dirty = parsePorcelain(command(run, cwd, 'git', ['status', '--porcelain=v1', '-z']).stdout)
-    .filter((entry) => !entry.startsWith('.omp/'));
+    .filter((entry) => !entry.startsWith('.nmg-sdlc/'));
   const unexpected = dirty.filter((entry) => !allowedPaths.includes(entry));
   if (unexpected.length) throw Object.assign(new Error(`Preserved local work: ${unexpected.join(', ')}`), { reasonCode: 'dirty_tree' });
   return dirty;
@@ -1240,8 +1240,8 @@ function publishPendingReport({ run, cwd, issue, reportPath, branch }) {
 
 function remediationResult({ context, packet }) {
   const { cwd, fs, issue } = context;
-  const directory = ensureDirectoryChain(fs, cwd, ['.omp', 'sdlc', 'remediation']);
-  const relative = `.omp/sdlc/remediation/${issue}-deliver.json`;
+  const directory = ensureDirectoryChain(fs, cwd, ['.nmg-sdlc', 'remediation']);
+  const relative = `.nmg-sdlc/remediation/${issue}-deliver.json`;
   const absolute = path.join(directory, `${issue}-deliver.json`);
   if (fs.existsSync(absolute) && (fs.lstatSync(absolute).isSymbolicLink() || !fs.lstatSync(absolute).isFile())) {
     throw new Error('unsafe_remediation_path');
@@ -1452,7 +1452,7 @@ function runDeliverUnlocked({
         && ['checks_failed', 'changes_requested', 'review_threads_unresolved'].includes(classified.reasonCode)) {
         const packet = remediationPacket({
           issue: issueNumber, pr: observed.pr, classified, rawThreads: observed.rawThreads,
-          botLogins, handoffPath: `.omp/sdlc/handoffs/${issueNumber}-deliver.json`,
+          botLogins, handoffPath: `.nmg-sdlc/handoffs/${issueNumber}-deliver.json`,
         });
         if (packet.threads.some((thread) => !thread.path)) {
           return fail(context, 'automatic_review_unactionable', `PR #${current.number} has an automated review thread without an actionable path`);
@@ -1518,7 +1518,7 @@ export function runDeliver(options = {}) {
       stdout: '',
       stderr: `${error?.reasonCode || error?.message || 'delivery_scope_mismatch'}\n`,
       handoff: null,
-      handoffPath: `.omp/sdlc/handoffs/${options.issue}-deliver.json`,
+      handoffPath: `.nmg-sdlc/handoffs/${options.issue}-deliver.json`,
     };
   }
   if (leaseContext?.owned) {

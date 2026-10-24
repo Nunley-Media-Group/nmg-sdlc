@@ -4,6 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { AUTOMATED_COMMANDS, renderAutomatedCommandMarkdown } from '../../src/sdlc-commands.mjs';
+import { runClaudePluginValidate } from '../verify-plugin-surface.mjs';
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const validator = path.join(repoRoot, 'scripts', 'verify-plugin-surface.mjs');
 const temporaryRoots = [];
@@ -25,17 +28,31 @@ function writeJson(relativeRoot, relativePath, value) {
   return write(relativeRoot, relativePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
+function commandFrontmatter(name, skill, description) {
+  return renderAutomatedCommandMarkdown(name, skill, description).match(/^---\n[\s\S]*?\n---\n/)[0];
+}
+
 function scaffoldSurface(root = makeTemporaryRoot()) {
   fs.mkdirSync(root, { recursive: true });
-  writeJson(root, 'package.json', {
-    name: 'nmg-sdlc',
-    version: '9.9.9',
-    omp: {
-      extensions: ['./src/extension.ts'],
-    },
-  });
+  writeJson(root, '.claude-plugin/plugin.json', { name: 'nmg-sdlc', version: '9.9.9' });
+  writeJson(root, 'package.json', { name: 'nmg-sdlc', version: '9.9.9' });
   write(root, 'VERSION', '9.9.9\n');
-  write(root, 'src/extension.ts', 'export default function nmgSdlc() {}\n');
+  writeJson(root, 'hooks/hooks.json', { modules: ['./register.ts'] });
+  write(root, 'hooks/register.ts', 'export default function register() {}\n');
+  write(root, 'src/host-events.mjs', 'export const INTERACTIVE_COMMANDS = [];\n');
+  for (const [name, skill, description] of AUTOMATED_COMMANDS) {
+    write(root, `commands/${name}.md`, `${commandFrontmatter(name, skill, description)}\nRun node "\${CLAUDE_PLUGIN_ROOT}/scripts/${skill}.mjs".\n`);
+  }
+  write(root, 'agents/starter.md', [
+    '---',
+    'name: starter',
+    'description: Start a linked branch.',
+    'model: haiku',
+    '---',
+    '',
+    '# Starter',
+    '',
+  ].join('\n'));
   write(root, 'workflows/open-pr/WORKFLOW.md', [
     '---',
     'name: open-pr',
@@ -127,12 +144,36 @@ describe('plugin surface verification (issues #148 and #151)', () => {
     expect(result.stdout).toContain(`Plugin surface validation passed: repository (${repoRoot})`);
   });
 
+  it('dispatches the marketplace update with the version from .claude-plugin/plugin.json', () => {
+    const workflow = fs.readFileSync(
+      path.join(repoRoot, '.github', 'workflows', 'sync-marketplace-pointer.yml'),
+      'utf8',
+    );
+
+    expect(workflow).toContain('event_type: \'nmg-sdlc-main-updated\'');
+    expect(workflow).toContain('repos/Nunley-Media-Group/nmg-plugins/dispatches');
+    expect(workflow).toContain('require("./.claude-plugin/plugin.json").version');
+    expect(workflow).not.toContain('require("./package.json").version');
+  });
+
+  it('keeps the plugin manifest, package.json, and VERSION on one version', () => {
+    const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, '.claude-plugin', 'plugin.json'), 'utf8'));
+    const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+    const version = fs.readFileSync(path.join(repoRoot, 'VERSION'), 'utf8').trim();
+
+    expect(manifest.name).toBe('nmg-sdlc');
+    expect(pkg.name).toBe('nmg-sdlc');
+    expect(manifest.version).toBe(version);
+    expect(pkg.version).toBe(version);
+    expect(pkg).not.toHaveProperty('omp');
+    expect(pkg.keywords).not.toEqual(expect.arrayContaining(['omp-plugin', 'pi-extension']));
+  });
+
   it('accepts a staged release copied from the manifest-declared plugin tree', () => {
     const stagedRoot = makeTemporaryRoot('nmg-sdlc-staged-release-');
-    fs.cpSync(path.join(repoRoot, 'package.json'), path.join(stagedRoot, 'package.json'));
-    fs.cpSync(path.join(repoRoot, 'VERSION'), path.join(stagedRoot, 'VERSION'));
-    fs.cpSync(path.join(repoRoot, 'src'), path.join(stagedRoot, 'src'), { recursive: true });
-    fs.cpSync(path.join(repoRoot, 'workflows'), path.join(stagedRoot, 'workflows'), { recursive: true });
+    for (const entry of ['.claude-plugin', 'hooks', 'src', 'commands', 'agents', 'workflows', 'package.json', 'VERSION']) {
+      fs.cpSync(path.join(repoRoot, entry), path.join(stagedRoot, entry), { recursive: true });
+    }
     writeJson(stagedRoot, 'scripts/skill-inventory.baseline.json', {
       generated_at: 'staged-release',
       generator: 'fixture',
@@ -324,11 +365,76 @@ describe('plugin surface verification (issues #148 and #151)', () => {
       },
     },
     {
-      name: 'removed Claude plugin directory',
+      name: 'removed OMP extension factory',
       kind: 'removed-path',
-      relativePath: '.claude-plugin',
+      relativePath: 'src/extension.ts',
       mutate(root) {
-        write(root, '.claude-plugin/plugin.json', '{}\n');
+        write(root, 'src/extension.ts', 'export default function nmgSdlc() {}\n');
+      },
+    },
+    {
+      name: 'hand-edited command frontmatter',
+      kind: 'command-frontmatter',
+      relativePath: 'commands/sdlc-status.md',
+      mutate(root) {
+        write(root, 'commands/sdlc-status.md', '---\ndescription: "Status"\n---\n\nBody.\n');
+      },
+    },
+    {
+      name: 'unmaterialized plugin root in a command',
+      kind: 'command-plugin-root',
+      relativePath: 'commands/sdlc-status.md',
+      mutate(root) {
+        const [name, skill, description] = AUTOMATED_COMMANDS.find(([command]) => command === 'sdlc-status');
+        write(root, 'commands/sdlc-status.md', `${commandFrontmatter(name, skill, description)}\nRun node <plugin-root>/scripts/sdlc-status.mjs.\n`);
+      },
+    },
+    {
+      name: 'unexpected command file',
+      kind: 'unexpected-command',
+      relativePath: 'commands/sdlc-draft-issue.md',
+      mutate(root) {
+        write(root, 'commands/sdlc-draft-issue.md', '---\ndescription: "Draft"\n---\n');
+      },
+    },
+    {
+      name: 'subagent name not matching its file',
+      kind: 'agent-frontmatter',
+      relativePath: 'agents/starter.md',
+      mutate(root) {
+        write(root, 'agents/starter.md', '---\nname: begin\ndescription: Start.\n---\n');
+      },
+    },
+    {
+      name: 'subagent with an OMP model role',
+      kind: 'agent-model',
+      relativePath: 'agents/starter.md',
+      mutate(root) {
+        write(root, 'agents/starter.md', '---\nname: starter\ndescription: Start.\nmodel: "@fast"\n---\n');
+      },
+    },
+    {
+      name: 'workflow directory without an entrypoint',
+      kind: 'workflow-entrypoint',
+      relativePath: 'workflows/status/WORKFLOW.md',
+      mutate(root) {
+        write(root, 'workflows/status/references/notes.md', 'Notes.\n');
+      },
+    },
+    {
+      name: 'workflow entrypoint name mismatch',
+      kind: 'workflow-entrypoint',
+      relativePath: 'workflows/status/WORKFLOW.md',
+      mutate(root) {
+        write(root, 'workflows/status/WORKFLOW.md', '---\nname: state\ndescription: "Status."\n---\n');
+      },
+    },
+    {
+      name: 'marketplace without this plugin at the root',
+      kind: 'marketplace-entry',
+      relativePath: '.claude-plugin/marketplace.json',
+      mutate(root) {
+        writeJson(root, '.claude-plugin/marketplace.json', { name: 'nmg', owner: { name: 'NMG' }, plugins: [{ name: 'nmg-sdlc', source: './plugins/nmg-sdlc' }] });
       },
     },
   ])('reports $name with the selected root, path, and metadata kind', ({ kind, relativePath, mutate }) => {
@@ -363,6 +469,7 @@ describe('plugin surface verification (issues #148 and #151)', () => {
 
   it('allows exact obsolete artifact names only in upgrade migration documentation', () => {
     const root = scaffoldSurface();
+    write(root, 'workflows/upgrade-project/WORKFLOW.md', '---\nname: upgrade-project\ndescription: "Upgrade."\n---\n');
     write(root, 'workflows/upgrade-project/references/v2-cleanup.md', [
       'Propose deleting sdlc-config.json, .codex/unattended-mode, and .codex/sdlc-state.json.',
       '',
@@ -409,7 +516,7 @@ describe('plugin surface verification (issues #148 and #151)', () => {
     expect(historical.status).toBe(0);
   });
 
-  it('rejects a declared omp.skills key as stale content', () => {
+  it('rejects a leftover OMP manifest block in package.json as stale content', () => {
     const root = scaffoldSurface();
     writeJson(root, 'package.json', {
       name: 'nmg-sdlc',
@@ -420,12 +527,55 @@ describe('plugin surface verification (issues #148 and #151)', () => {
       },
     });
 
-    const result = runValidator(root, 'declared-skills');
+    const result = runValidator(root, 'declared-omp');
     const output = combinedOutput(result);
 
     expect(result.status).toBe(1);
-    expect(output).toContain('Plugin surface validation failed: declared-skills');
-    expect(output).toContain('- omp-skills-declared: package.json');
+    expect(output).toContain('Plugin surface validation failed: declared-omp');
+    expect(output).toContain('- omp-manifest-declared: package.json');
+  });
+
+  it('accepts a surface with a valid optional marketplace manifest', () => {
+    const root = scaffoldSurface();
+    writeJson(root, '.claude-plugin/marketplace.json', {
+      name: 'nmg-sdlc',
+      owner: { name: 'Nunley Media Group' },
+      plugins: [{ name: 'nmg-sdlc', source: './' }],
+    });
+
+    expect(runValidator(root, 'with-marketplace').status).toBe(0);
+  });
+
+  it('accepts a staged plugin tree without package.json', () => {
+    const root = scaffoldSurface();
+    fs.rmSync(path.join(root, 'package.json'));
+
+    expect(runValidator(root, 'no-package').status).toBe(0);
+  });
+
+  it('skips claude plugin validate cleanly when the claude CLI is absent', () => {
+    const root = scaffoldSurface();
+    const result = spawnSync(process.execPath, [validator, '--root', root, '--label', 'no-claude', '--claude-validate'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env: { ...process.env, PATH: makeTemporaryRoot('nmg-sdlc-empty-path-') },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('claude plugin validate skipped: claude CLI not on PATH');
+    expect(result.stdout).toContain('Plugin surface validation passed: no-claude');
+  });
+
+  it.each([
+    [{ error: Object.assign(new Error('spawn claude ENOENT'), { code: 'ENOENT' }) }, 'skipped'],
+    [{ status: 0, stdout: '✔ Validation passed\n', stderr: '' }, 'pass'],
+    [{ status: 1, stdout: '', stderr: '✘ Validation failed\n' }, 'fail'],
+  ])('maps claude plugin validate result %j to %s', (spawned, status) => {
+    const calls = [];
+    const outcome = runClaudePluginValidate('/plugin', { spawn: (...args) => { calls.push(args); return spawned; } });
+
+    expect(calls[0].slice(0, 2)).toEqual(['claude', ['plugin', 'validate', '/plugin']]);
+    expect(outcome.status).toBe(status);
   });
 
   it.each([
@@ -440,10 +590,82 @@ describe('plugin surface verification (issues #148 and #151)', () => {
       name: 'malformed manifest',
       prepare() {
         const root = makeTemporaryRoot();
-        write(root, 'package.json', '{not-json}\n');
+        write(root, '.claude-plugin/plugin.json', '{not-json}\n');
         return root;
       },
       expected: 'plugin manifest is malformed JSON',
+    },
+    {
+      name: 'wrong plugin name',
+      prepare() {
+        const root = scaffoldSurface();
+        writeJson(root, '.claude-plugin/plugin.json', { name: 'other', version: '9.9.9' });
+        return root;
+      },
+      expected: 'plugin manifest name "other" must equal "nmg-sdlc"',
+    },
+    {
+      name: 'manifest version drift from VERSION',
+      prepare() {
+        const root = scaffoldSurface();
+        writeJson(root, '.claude-plugin/plugin.json', { name: 'nmg-sdlc', version: '9.9.8' });
+        return root;
+      },
+      expected: 'plugin version "9.9.8" must equal VERSION "9.9.9"',
+    },
+    {
+      name: 'package.json version drift from VERSION',
+      prepare() {
+        const root = scaffoldSurface();
+        writeJson(root, 'package.json', { name: 'nmg-sdlc', version: '9.9.8' });
+        return root;
+      },
+      expected: 'package.json version "9.9.8" must equal VERSION "9.9.9"',
+    },
+    {
+      name: 'hooks manifest without the register module',
+      prepare() {
+        const root = scaffoldSurface();
+        writeJson(root, 'hooks/hooks.json', { modules: ['./other.ts'] });
+        return root;
+      },
+      expected: 'hooks/hooks.json modules must name "./register.ts"',
+    },
+    {
+      name: 'missing hooks module',
+      prepare() {
+        const root = scaffoldSurface();
+        fs.rmSync(path.join(root, 'hooks', 'register.ts'));
+        return root;
+      },
+      expected: 'hooks module is not readable',
+    },
+    {
+      name: 'missing host events module',
+      prepare() {
+        const root = scaffoldSurface();
+        fs.rmSync(path.join(root, 'src', 'host-events.mjs'));
+        return root;
+      },
+      expected: 'host events module is not readable',
+    },
+    {
+      name: 'missing automated command',
+      prepare() {
+        const root = scaffoldSurface();
+        fs.rmSync(path.join(root, 'commands', 'sdlc-open-pr.md'));
+        return root;
+      },
+      expected: 'automated command file is missing: commands/sdlc-open-pr.md',
+    },
+    {
+      name: 'missing agents',
+      prepare() {
+        const root = scaffoldSurface();
+        fs.rmSync(path.join(root, 'agents'), { recursive: true });
+        return root;
+      },
+      expected: 'agents directory is not readable',
     },
     {
       name: 'missing open-pr',

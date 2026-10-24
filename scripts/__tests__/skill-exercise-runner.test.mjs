@@ -1,10 +1,13 @@
-import { describe, expect, test } from '@jest/globals';
+import { afterEach, describe, expect, jest, test } from '@jest/globals';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import {
+  attemptClaudeExercise,
+  exercisePrompt,
+  frontmatterHostCheck,
   evaluateDraftIssueArtifact,
   evaluateWriteSpecArtifact,
   executeFeasibilityViolations,
@@ -324,5 +327,73 @@ Done.`);
   ])('%s fails closed without throwing', (_label, evaluate, artifact, rubricId) => {
     expect(() => evaluate(artifact)).not.toThrow();
     expect(evaluate(artifact).find((item) => item.id === rubricId)).toMatchObject({ status: 'fail' });
+  });
+});
+
+describe('Claude Code exercise surface', () => {
+  test.each([
+    ['name: status\ndescription: "Status."', 'pass'],
+    ['name: status\nmodel: haiku\ndescription: "Status."', 'pass'],
+    ['name: status\nmodel: claude-opus-4-1\ndescription: "Status."', 'pass'],
+    ['name: status\nmodel: gpt-5\ndescription: "Status."', 'fail'],
+    ['name: status\ndescription: "Run through Codex."', 'fail'],
+    ['name: status\ndescription: "Use the OMP ask tool."', 'fail'],
+    ['name: status\ndescription: "Completes the omputer."', 'pass'],
+  ])('D2 frontmatter %j is %s', (frontmatter, status) => {
+    expect(frontmatterHostCheck(frontmatter)).toMatchObject({ id: 'D2', status });
+  });
+
+  test('automated skills are exercised through their slash command', () => {
+    const prompt = exercisePrompt('status', { render: () => { throw new Error('not interactive'); } });
+    expect(prompt.split('\n')[0]).toBe('/sdlc-status');
+    expect(prompt).toContain('dry-run exercise');
+  });
+
+  test('interactive skills submit the rendered workflow the hooks module would submit', () => {
+    const calls = [];
+    const prompt = exercisePrompt('draft-issue', {
+      root: '/plugin',
+      render: (...args) => { calls.push(args); return 'RENDERED WORKFLOW'; },
+    });
+    expect(calls).toEqual([['sdlc-draft-issue', '/plugin', null]]);
+    expect(prompt.startsWith('RENDERED WORKFLOW\n\n')).toBe(true);
+    expect(prompt).not.toContain('/sdlc-draft-issue');
+  });
+
+  describe('live exercise', () => {
+    const saved = process.env.RUN_EXERCISE_TESTS;
+    afterEach(() => {
+      if (saved === undefined) delete process.env.RUN_EXERCISE_TESTS;
+      else process.env.RUN_EXERCISE_TESTS = saved;
+    });
+
+    test('is opt-in', async () => {
+      delete process.env.RUN_EXERCISE_TESTS;
+      const run = jest.fn();
+      await expect(attemptClaudeExercise('status', '/tmp/fixture', { run, probe: () => true }))
+        .resolves.toEqual({ output: null, reason: 'exercise-mode unavailable' });
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    test('reports a missing claude binary as environment unavailable', async () => {
+      process.env.RUN_EXERCISE_TESTS = '1';
+      await expect(attemptClaudeExercise('status', '/tmp/fixture', { run: jest.fn(), probe: () => false }))
+        .resolves.toEqual({ output: null, reason: 'environment unavailable' });
+    });
+
+    test('runs the headless Claude exercise in the fixture directory', async () => {
+      process.env.RUN_EXERCISE_TESTS = '1';
+      const run = jest.fn(async () => ({ text: 'ARTIFACT', stderr: '' }));
+      await expect(attemptClaudeExercise('status', '/tmp/fixture', { run, probe: () => true }))
+        .resolves.toEqual({ output: 'ARTIFACT', reason: null });
+      expect(run.mock.calls[0][0]).toMatchObject({ cwd: '/tmp/fixture', message: expect.stringMatching(/^\/sdlc-status\n/) });
+    });
+
+    test('maps the interactive-only refusal to an unsupported interactive gate', async () => {
+      process.env.RUN_EXERCISE_TESTS = '1';
+      const run = async () => { throw Object.assign(new Error('Run /sdlc-status in the TUI.'), { reasonCode: 'interactive_only' }); };
+      await expect(attemptClaudeExercise('status', '/tmp/fixture', { run, probe: () => true }))
+        .resolves.toEqual({ output: null, reason: 'unsupported interactive gate' });
+    });
   });
 });

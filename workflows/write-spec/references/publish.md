@@ -4,7 +4,7 @@
 
 ## Helper contract
 
-All six subcommands print exactly one JSON object to stdout. Success exits 0 with `ok: true`. Failure exits non-zero with `ok: false`, a stable `reasonCode`, and optional `detail`, `stdout`, or `stderr`. A `merge` failure after the PR was successfully merged also returns `merged: true` and `pr`; callers must record that publication instead of retrying it. The extension validates that exact materialized merge command and JSON result, so run `merge` verbatim as the whole bash command with nothing chained, piped, redirected, or echoed; it records the publication, and after the execution turn ends submits the Continue prompt into native plan mode.
+All six subcommands print exactly one JSON object to stdout. Success exits 0 with `ok: true`. Failure exits non-zero with `ok: false`, a stable `reasonCode`, and optional `detail`, `stdout`, or `stderr`. A `merge` failure after the PR was successfully merged also returns `merged: true` and `pr`; callers must record that publication instead of retrying it. The nmg-sdlc hooks module validates that exact materialized merge command and JSON result, so run `merge` verbatim as the whole `Bash` command with nothing chained, piped, redirected, or echoed; it records the publication, and after the execution turn ends with an empty prompt box runs `/plan` and submits the Continue prompt into native plan mode.
 
 ```text
 node "<plugin-root>/scripts/publish-approved-spec.mjs" discover --issue N
@@ -63,7 +63,7 @@ It drops published numbers and packages approved by shared `specStatus`, then re
 }
 ```
 
-Unreadable or malformed issue rows fail `issues_unreadable`; ambiguous status fails `spec_status_ambiguous`; an uninspectable worktree `specs/` path fails `spec_status_unreadable`. The helper does not truncate rows or author ask labels.
+Unreadable or malformed issue rows fail `issues_unreadable`; ambiguous status fails `spec_status_ambiguous`; an uninspectable worktree `specs/` path fails `spec_status_unreadable`. The helper does not truncate rows or author `AskUserQuestion` labels.
 
 ## Prepare
 
@@ -87,14 +87,14 @@ Failures before proven merge include `spec_not_approved`, `pr_create_failed`, an
 
 ## Native-plan continuation
 
-After each merged publication and its documented remediation, end the execution turn without calling `candidates` or `ask`. The extension then submits the post-publication continuation prompt, listing every published `N-slug`, into native plan mode in the same TUI session. It skips Initial issue selection and starts at the Continue loop.
+After each merged publication and its documented remediation, end the execution turn without calling `candidates` or `AskUserQuestion`. The nmg-sdlc hooks module then runs `/plan` and submits the post-publication continuation prompt, listing every published `N-slug`, into native plan mode in the same TUI session. It skips Initial issue selection and starts at the Continue loop. Plan approval may clear context; `published[]` survives because the hooks module holds it and lists it in that prompt.
 
-That plan-mode turn passes every in-memory published number to `candidates`. Present one `ask`, 2–4 options, recommended first. This ask does not consume the per-issue interview budget.
+That plan-mode turn passes every in-memory published number to `candidates`. Present one `AskUserQuestion` question, 2–4 options, recommended first with ` (Recommended)` appended to its label. This question does not consume the per-issue interview budget.
 
-- Rows returned: show at most the first three labels `#M — {title}`, then `Finished — stop writing specs`.
-- No rows: `Continue — enter another issue number`, then `Finished — stop writing specs`.
+- Rows returned: show at most the first three labels `#M — {title}` (the first labelled `#M — {title} (Recommended)`), then `Finished — stop writing specs`.
+- No rows: `Continue — enter another issue number (Recommended)`, then `Finished — stop writing specs`.
 
-Selecting M permits only read-only discovery and preference interview before writing M's distinct complete `local://spec-{M}-plan.md` with current `published[]` and calling `xd://propose`. Do not call `default-branch` or mutate a branch, file, commit, push, pull request, label, or merge for M before that proposal is approved.
+Selecting M permits only read-only discovery and preference interview before overwriting the plan file with M's distinct complete plan headed `# spec-{M}: <title>` with current `published[]` and calling `ExitPlanMode`. Do not call `default-branch` or mutate a branch, file, commit, push, pull request, label, or merge for M before that plan is approved.
 
 Finished prints:
 
@@ -103,4 +103,4 @@ Published specs: #<n> on <n>-<slug>[, ...]
 Next step: /sdlc-execute #<first-published>
 ```
 
-The successful publication session remains on the repository default branch. Both Finished choices (this one and the initial picker's `Finished — stop without writing a spec`) end the turn after their output without another `ask` or `xd://propose`. When that reply settles, native plan mode schedules a decision-reminder continuation; the extension then exits native plan mode fully by dispatching builtin `/plan` through the focused TUI editor, one awaited toggle at a time (`plan` → `plan_paused` → `none`), which aborts the continuation. When no UI, a non-empty draft, an unfocused editor, a submit failure, or a declined `Exit plan mode?` confirmation prevents that, it preserves the draft, warns once, and leaves `/plan` to the user.
+The successful publication session remains on the repository default branch. Both Finished choices (this one and the initial picker's `Finished — stop without writing a spec`) end the reply by calling `ExitPlanMode` as its last action, with no other output after it and without another `AskUserQuestion`. The nmg-sdlc hooks module recorded the Finished selection and approves that one `ExitPlanMode` call, so plan mode ends without an approval dialog and the Finished output stays the last reply. If the reply ends without that call, the hooks module sends one prompt asking for it, then warns once with `NMG SDLC: write-spec finished, but plan mode is still active; Shift+Tab exits it.`

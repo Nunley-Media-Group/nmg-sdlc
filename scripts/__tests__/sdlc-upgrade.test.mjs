@@ -344,27 +344,266 @@ describe('sdlc-upgrade AGENTS spike language', () => {
 });
 
 describe('sdlc-upgrade plugin runtime ignore', () => {
+  const detectItems = (root) => detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false }).items;
+
   it('detects, applies, preserves, and becomes non-actionable', () => {
     const root = makeRoot();
     write(root, '.gitignore', 'dist/\n');
 
-    expect(detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false }).items).toContainEqual(
-      expect.objectContaining({ id: 'omp-sdlc-ignore', kind: 'omp-sdlc-ignore', actionable: true }),
+    expect(detectItems(root)).toContainEqual(
+      expect.objectContaining({ id: 'nmg-sdlc-ignore', kind: 'nmg-sdlc-ignore', actionable: true, swapLegacy: false }),
     );
 
-    const result = applyUpgrade(root, ['omp-sdlc-ignore'], noNetworkRun, { includeIssueDependencies: false });
+    const result = applyUpgrade(root, ['nmg-sdlc-ignore'], noNetworkRun, { includeIssueDependencies: false });
 
-    expect(result.results).toContainEqual({ id: 'omp-sdlc-ignore', status: 'applied' });
-    expect(fs.readFileSync(path.join(root, '.gitignore'), 'utf8')).toBe('dist/\n.omp/sdlc/\n');
-    expect(detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false }).items)
-      .not.toContainEqual(expect.objectContaining({ id: 'omp-sdlc-ignore' }));
+    expect(result.results).toContainEqual({ id: 'nmg-sdlc-ignore', status: 'applied' });
+    expect(fs.readFileSync(path.join(root, '.gitignore'), 'utf8')).toBe('dist/\n.nmg-sdlc/\n');
+    expect(detectItems(root)).not.toContainEqual(expect.objectContaining({ id: 'nmg-sdlc-ignore' }));
   });
 
-  it.each(['.omp/sdlc/\n', '.omp/sdlc\n'])('does not detect an existing rule: %s', (source) => {
+  it('creates .gitignore when it is missing', () => {
+    const root = makeRoot();
+    const result = applyUpgrade(root, ['nmg-sdlc-ignore'], noNetworkRun, { includeIssueDependencies: false });
+    expect(result.results).toContainEqual({ id: 'nmg-sdlc-ignore', status: 'applied' });
+    expect(fs.readFileSync(path.join(root, '.gitignore'), 'utf8')).toBe('.nmg-sdlc/\n');
+  });
+
+  it.each(['.nmg-sdlc/\n', '.nmg-sdlc\n'])('does not detect an existing rule: %s', (source) => {
     const root = makeRoot();
     write(root, '.gitignore', source);
-    expect(detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false }).items)
-      .not.toContainEqual(expect.objectContaining({ id: 'omp-sdlc-ignore' }));
+    expect(detectItems(root)).not.toContainEqual(expect.objectContaining({ id: 'nmg-sdlc-ignore' }));
+  });
+
+  it.each(['.omp/sdlc/', '.omp/sdlc'])('swaps the legacy managed %s rule in place and preserves other rules', (legacy) => {
+    const root = makeRoot();
+    write(root, '.gitignore', `dist/\n${legacy}\n# keep\n.omp/plugins/\n`);
+
+    expect(detectItems(root)).toContainEqual(
+      expect.objectContaining({ id: 'nmg-sdlc-ignore', actionable: true, swapLegacy: true }),
+    );
+    const result = applyUpgrade(root, ['nmg-sdlc-ignore'], noNetworkRun, { includeIssueDependencies: false });
+
+    expect(result.results).toContainEqual({ id: 'nmg-sdlc-ignore', status: 'applied' });
+    expect(fs.readFileSync(path.join(root, '.gitignore'), 'utf8')).toBe('dist/\n.nmg-sdlc/\n# keep\n.omp/plugins/\n');
+    expect(detectItems(root)).not.toContainEqual(expect.objectContaining({ id: 'nmg-sdlc-ignore' }));
+  });
+
+  it('drops the legacy rule when the current rule already exists and keeps CRLF endings', () => {
+    const root = makeRoot();
+    write(root, '.gitignore', '.nmg-sdlc/\r\n.omp/sdlc/\r\ndist/\r\n');
+    expect(detectItems(root)).toContainEqual(expect.objectContaining({ id: 'nmg-sdlc-ignore', swapLegacy: true }));
+    applyUpgrade(root, ['nmg-sdlc-ignore'], noNetworkRun, { includeIssueDependencies: false });
+    expect(fs.readFileSync(path.join(root, '.gitignore'), 'utf8')).toBe('.nmg-sdlc/\r\ndist/\r\n');
+  });
+
+  it('retains the legacy rule while legacy runtime state remains', () => {
+    const root = makeRoot();
+    write(root, '.gitignore', '.omp/sdlc/\n');
+    write(root, '.omp/sdlc/run.json', '{"legacy":true}\n');
+    write(root, '.nmg-sdlc/run.json', '{"current":true}\n');
+
+    const item = detectItems(root).find(({ id }) => id === 'nmg-sdlc-ignore');
+    expect(item).toEqual(expect.objectContaining({ swapLegacy: false, actionable: true }));
+    const result = applyUpgrade(root, ['nmg-sdlc-ignore'], noNetworkRun, { includeIssueDependencies: false });
+
+    expect(result.results).toContainEqual({
+      id: 'nmg-sdlc-ignore',
+      status: 'applied',
+      legacyIgnoreRetained: true,
+      reasonCode: 'runtime_state_legacy_present',
+    });
+    expect(fs.readFileSync(path.join(root, '.gitignore'), 'utf8')).toBe('.omp/sdlc/\n.nmg-sdlc/\n');
+    expect(detectItems(root)).not.toContainEqual(expect.objectContaining({ id: 'nmg-sdlc-ignore' }));
+  });
+});
+
+describe('sdlc-upgrade v3 to v4 runtime state migration', () => {
+  const detectItems = (root) => detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false }).items;
+  const applyIds = (root, ids) => applyUpgrade(root, ids, noNetworkRun, { includeIssueDependencies: false });
+  const read = (root, rel) => fs.readFileSync(path.join(root, ...rel.split('/')), 'utf8');
+  const exists = (root, rel) => fs.existsSync(path.join(root, ...rel.split('/')));
+
+  function writeLegacyRuntime(root) {
+    write(root, '.omp/sdlc/handoffs/42-start.json', '{"issue":42}\n');
+    write(root, '.omp/sdlc/verification/42.json', '{"verified":true}\n');
+    write(root, '.omp/sdlc/run.json', '{"run":1}\n');
+    write(root, '.omp/sdlc/safe-recoveries.json', '{"recoveries":[]}\n');
+    write(root, '.omp/sdlc/prompt-provenance/42-implement.json', '{"prompt":"p"}\n');
+    write(root, '.omp/sdlc/smoke-deliveries/42.json', '{"smoke":true}\n');
+    write(root, '.omp/sdlc/omp-controller.yml', 'paste:\n  largeMenuThreshold: 9\n');
+  }
+
+  it('does not propose anything without legacy runtime state', () => {
+    const root = makeRoot();
+    expect(detectItems(root)).not.toContainEqual(expect.objectContaining({ kind: 'runtime-state-v4' }));
+  });
+
+  it('moves every legacy runtime file, deletes the OMP-only paste config, and swaps the ignore rule', () => {
+    const root = makeRoot();
+    writeLegacyRuntime(root);
+    write(root, '.omp/plugins/keep.txt', 'not nmg-sdlc state\n');
+    write(root, '.gitignore', 'dist/\n.omp/sdlc/\n');
+
+    const item = detectItems(root).find(({ kind }) => kind === 'runtime-state-v4');
+    expect(item).toEqual(expect.objectContaining({
+      id: 'runtime-state-v4',
+      from: '.omp/sdlc',
+      to: '.nmg-sdlc',
+      actionable: true,
+      conflicts: [],
+      duplicates: [],
+      obsolete: [{ path: '.omp/sdlc/omp-controller.yml', reasonCode: 'runtime_state_obsolete' }],
+    }));
+    expect(item.moves.map(({ to }) => to).sort()).toEqual([
+      '.nmg-sdlc/handoffs/42-start.json',
+      '.nmg-sdlc/prompt-provenance/42-implement.json',
+      '.nmg-sdlc/run.json',
+      '.nmg-sdlc/safe-recoveries.json',
+      '.nmg-sdlc/smoke-deliveries/42.json',
+      '.nmg-sdlc/verification/42.json',
+    ]);
+
+    const result = applyIds(root, ['runtime-state-v4', 'nmg-sdlc-ignore']);
+    const migrated = result.results.find(({ id }) => id === 'runtime-state-v4');
+
+    expect(migrated.status).toBe('applied');
+    expect(migrated.moved).toHaveLength(6);
+    expect(migrated.conflicts).toEqual([]);
+    expect(migrated.removedObsolete).toEqual([{ path: '.omp/sdlc/omp-controller.yml', reasonCode: 'runtime_state_obsolete' }]);
+    expect(result.results).toContainEqual({ id: 'nmg-sdlc-ignore', status: 'applied' });
+    expect(read(root, '.nmg-sdlc/handoffs/42-start.json')).toBe('{"issue":42}\n');
+    expect(read(root, '.nmg-sdlc/verification/42.json')).toBe('{"verified":true}\n');
+    expect(read(root, '.nmg-sdlc/run.json')).toBe('{"run":1}\n');
+    expect(read(root, '.nmg-sdlc/safe-recoveries.json')).toBe('{"recoveries":[]}\n');
+    expect(read(root, '.nmg-sdlc/prompt-provenance/42-implement.json')).toBe('{"prompt":"p"}\n');
+    expect(read(root, '.nmg-sdlc/smoke-deliveries/42.json')).toBe('{"smoke":true}\n');
+    expect(exists(root, '.nmg-sdlc/omp-controller.yml')).toBe(false);
+    expect(exists(root, '.omp/sdlc')).toBe(false);
+    expect(read(root, '.omp/plugins/keep.txt')).toBe('not nmg-sdlc state\n');
+    expect(read(root, '.gitignore')).toBe('dist/\n.nmg-sdlc/\n');
+  });
+
+  it('never overwrites an existing .nmg-sdlc file and reports a stable conflict reason', () => {
+    const root = makeRoot();
+    writeLegacyRuntime(root);
+    write(root, '.nmg-sdlc/run.json', '{"run":2}\n');
+    write(root, '.nmg-sdlc/verification/42.json', '{"verified":true}\n');
+    write(root, '.gitignore', '.omp/sdlc/\n');
+
+    const item = detectItems(root).find(({ kind }) => kind === 'runtime-state-v4');
+    expect(item.conflicts).toEqual([
+      { from: '.omp/sdlc/run.json', to: '.nmg-sdlc/run.json', reasonCode: 'runtime_state_conflict' },
+    ]);
+    expect(item.duplicates).toEqual([
+      { from: '.omp/sdlc/verification/42.json', to: '.nmg-sdlc/verification/42.json' },
+    ]);
+
+    const result = applyIds(root, ['runtime-state-v4', 'nmg-sdlc-ignore']);
+    const migrated = result.results.find(({ id }) => id === 'runtime-state-v4');
+
+    expect(migrated.status).toBe('applied');
+    expect(migrated.conflicts).toEqual([
+      { from: '.omp/sdlc/run.json', to: '.nmg-sdlc/run.json', reasonCode: 'runtime_state_conflict' },
+    ]);
+    expect(migrated.deduplicated).toEqual([
+      { from: '.omp/sdlc/verification/42.json', to: '.nmg-sdlc/verification/42.json' },
+    ]);
+    expect(read(root, '.nmg-sdlc/run.json')).toBe('{"run":2}\n');
+    expect(read(root, '.omp/sdlc/run.json')).toBe('{"run":1}\n');
+    expect(exists(root, '.omp/sdlc/verification')).toBe(false);
+    expect(read(root, '.gitignore')).toBe('.omp/sdlc/\n.nmg-sdlc/\n');
+
+    const rerun = detectItems(root).find(({ kind }) => kind === 'runtime-state-v4');
+    expect(rerun).toEqual(expect.objectContaining({ actionable: false, moves: [], duplicates: [], obsolete: [] }));
+    expect(applyIds(root, ['runtime-state-v4']).results).toContainEqual(expect.objectContaining({
+      id: 'runtime-state-v4',
+      status: 'skipped:collision',
+      conflicts: [{ from: '.omp/sdlc/run.json', to: '.nmg-sdlc/run.json', reasonCode: 'runtime_state_conflict' }],
+    }));
+    expect(read(root, '.nmg-sdlc/run.json')).toBe('{"run":2}\n');
+  });
+
+  it('is idempotent: a re-run after success proposes and changes nothing', () => {
+    const root = makeRoot();
+    writeLegacyRuntime(root);
+    write(root, '.gitignore', '.omp/sdlc/\n');
+    applyIds(root, ['runtime-state-v4', 'nmg-sdlc-ignore']);
+    const snapshot = read(root, '.gitignore');
+
+    const items = detectItems(root);
+    expect(items).not.toContainEqual(expect.objectContaining({ kind: 'runtime-state-v4' }));
+    expect(items).not.toContainEqual(expect.objectContaining({ kind: 'nmg-sdlc-ignore' }));
+    const rerun = applyIds(root, ['runtime-state-v4', 'nmg-sdlc-ignore']);
+    expect(rerun.results.filter(({ id }) => id !== 'spec-created-backfill')).toEqual([]);
+    expect(read(root, '.gitignore')).toBe(snapshot);
+    expect(read(root, '.nmg-sdlc/run.json')).toBe('{"run":1}\n');
+  });
+
+  it('preserves symlinks and refuses a symlinked runtime target', () => {
+    const root = makeRoot();
+    const outside = makeRoot();
+    write(root, '.omp/sdlc/run.json', '{"run":1}\n');
+    write(outside, 'secret.json', '{}\n');
+    fs.symlinkSync(path.join(outside, 'secret.json'), path.join(root, '.omp', 'sdlc', 'linked.json'));
+    fs.symlinkSync(outside, path.join(root, '.nmg-sdlc'));
+
+    const item = detectItems(root).find(({ kind }) => kind === 'runtime-state-v4');
+    expect(item.actionable).toBe(false);
+    expect(item.conflicts).toEqual([
+      { from: '.omp/sdlc/linked.json', to: '.nmg-sdlc/linked.json', reasonCode: 'runtime_state_unsafe_path' },
+      { from: '.omp/sdlc/run.json', to: '.nmg-sdlc/run.json', reasonCode: 'runtime_state_unsafe_path' },
+    ]);
+    const result = applyIds(root, ['runtime-state-v4']);
+    expect(result.results).toContainEqual(expect.objectContaining({ id: 'runtime-state-v4', status: 'skipped:collision' }));
+    expect(exists(outside, 'run.json')).toBe(false);
+    expect(read(root, '.omp/sdlc/run.json')).toBe('{"run":1}\n');
+  });
+
+  it('proposes the v4 packaging item for a v3 OMP extension manifest only until .claude-plugin exists', () => {
+    const root = makeRoot();
+    write(root, 'package.json', JSON.stringify({ name: 'x', omp: { extensions: ['src/extension.ts'] } }));
+    expect(detectItems(root)).toContainEqual(expect.objectContaining({ id: 'packaging-v4-claude-code-herdr', kind: 'packaging' }));
+    write(root, '.claude-plugin/plugin.json', '{"name":"x"}\n');
+    expect(detectItems(root)).not.toContainEqual(expect.objectContaining({ kind: 'packaging' }));
+  });
+});
+
+describe('sdlc-upgrade AGENTS v4 host language', () => {
+  it('rewrites only the managed agents/ structure comment and is idempotent', () => {
+    const root = makeRoot();
+    const source = [
+      'agents/                       # OMP task agents (starter, spec-implementer, architecture-reviewer, deliverer)',
+      'We still mention OMP task agents (starter) in project-authored prose.',
+      '<!-- nmg-sdlc-managed: spec-context -->',
+      '',
+    ].join('\n');
+    write(root, 'AGENTS.md', source);
+
+    expect(detectUpgrade(root).items).toContainEqual(
+      expect.objectContaining({ id: 'agents-v4-host-language', kind: 'agents-host-language', actionable: true }),
+    );
+    const result = applyUpgrade(root, ['agents-v4-host-language'], noNetworkRun);
+    const updated = fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
+
+    expect(result.results[0]).toEqual({ id: 'agents-v4-host-language', status: 'applied' });
+    expect(updated).toBe(source.replace(
+      '# OMP task agents (starter, spec-implementer, architecture-reviewer, deliverer)',
+      '# Claude Code plugin subagents (starter, spec-implementer, architecture-reviewer, deliverer)',
+    ));
+    expect(detectUpgrade(root).items).not.toContainEqual(expect.objectContaining({ id: 'agents-v4-host-language' }));
+  });
+
+  it('composes with the spike-language repair in one approved run', () => {
+    const root = makeRoot();
+    write(root, 'AGENTS.md', 'agents/                       # OMP task agents (starter, spec-implementer, architecture-reviewer, deliverer, spike-researcher)\n');
+    const ids = detectUpgrade(root).items.map(({ id }) => id);
+    expect(ids).toEqual(expect.arrayContaining(['agents-spike-language', 'agents-v4-host-language']));
+
+    applyUpgrade(root, ['agents-spike-language', 'agents-v4-host-language'], noNetworkRun);
+
+    expect(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8')).toBe(
+      'agents/                       # Claude Code plugin subagents (starter, spec-implementer, architecture-reviewer, deliverer)\n',
+    );
   });
 });
 
@@ -2643,6 +2882,6 @@ describe('managed steering migration', () => {
     expect(fs.readFileSync(manifestPath, 'utf8')).toBe(originalManifest);
     expect(fs.readFileSync(path.join(root, 'steering', 'product.md'), 'utf8')).toBe(originalLegacy);
     expect(fs.existsSync(path.join(root, 'steering', 'snippets', 'project-product.md'))).toBe(false);
-    expect(fs.existsSync(path.join(root, '.omp', 'sdlc'))).toBe(false);
+    expect(fs.existsSync(path.join(root, '.nmg-sdlc'))).toBe(false);
   });
 });

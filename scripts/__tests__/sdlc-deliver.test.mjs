@@ -28,7 +28,7 @@ function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'p
   git(root, 'init', '-q', '-b', 'main');
   git(root, 'config', 'user.name', 'Test Author');
   git(root, 'config', 'user.email', 'test@example.test');
-  fs.writeFileSync(path.join(root, '.gitignore'), '.omp/\n');
+  fs.writeFileSync(path.join(root, '.gitignore'), '.nmg-sdlc/\n');
   fs.writeFileSync(path.join(root, 'README.md'), '# Base\n');
   git(root, 'add', '.');
   git(root, 'commit', '-qm', 'chore: base');
@@ -116,8 +116,8 @@ function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'p
     coverage: { declared: 2, recorded: 2, complete: true, missing: [], duplicate: [], unknown: [] },
     ceiling: smokeStatus === 'passed' ? null : 'Fail',
   };
-  fs.mkdirSync(path.join(root, '.omp', 'sdlc', 'verification'), { recursive: true });
-  fs.writeFileSync(path.join(root, '.omp/sdlc/verification/42.json'), `${JSON.stringify(artifact)}\n`);
+  fs.mkdirSync(path.join(root, '.nmg-sdlc', 'verification'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.nmg-sdlc/verification/42.json'), `${JSON.stringify(artifact)}\n`);
   const calls = [];
   let issueState = remoteIssueState;
   let closing = closingReferences;
@@ -180,7 +180,7 @@ function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'p
     if (args[0] === 'pr' && args[1] === 'ready') { pr.isDraft = false; return { status: 0, stdout: '', stderr: '' }; }
     if (args[0] === 'pr' && args[1] === 'merge') {
       if (smokeOwned) {
-        const receipt = JSON.parse(fs.readFileSync(path.join(root, '.omp/sdlc/smoke-deliveries/42.json'), 'utf8'));
+        const receipt = JSON.parse(fs.readFileSync(path.join(root, '.nmg-sdlc/smoke-deliveries/42.json'), 'utf8'));
         if (receipt.pullRequest !== 77 || receipt.headSha !== git(root, 'rev-parse', 'HEAD')) {
           throw new Error('Smoke receipt was not written before exact-head merge');
         }
@@ -241,7 +241,7 @@ console.log(JSON.stringify(value));
     expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8')).toBe('3.5.0\n');
     expect(git(f.root, 'ls-remote', '--exit-code', 'origin', 'refs/heads/feature/42-delivery'))
       .toContain(f.currentHead);
-    expect(fs.existsSync(path.join(f.root, '.omp/sdlc/handoffs/42-deliver.json'))).toBe(false);
+    expect(fs.existsSync(path.join(f.root, '.nmg-sdlc/handoffs/42-deliver.json'))).toBe(false);
   });
 
   test('normal delivery uses live branch and full registered gate, merges exact head and closes linked issue', () => {
@@ -253,7 +253,7 @@ console.log(JSON.stringify(value));
     expect(deliveryCalls(f, 'merge')[0]).toContain(f.currentHead);
     expect(f.issueState).toBe('CLOSED');
     expect(f.calls.some((call) => call[0] === 'git' && call[1] === 'commit')).toBe(false);
-    expect(fs.existsSync(path.join(f.root, '.omp/sdlc/run.json'))).toBe(false);
+    expect(fs.existsSync(path.join(f.root, '.nmg-sdlc/run.json'))).toBe(false);
   });
 
   test('a required smoke failure prevents even draft creation and normal merge', () => {
@@ -309,7 +309,7 @@ console.log(JSON.stringify(value));
       .replace('PR Evidence Pending', 'Pass')
       .replace(`**Verification head**: ${f.sourceHead}`, `**Verification head**: ${h1}`)
       .replace(/<!-- nmg-sdlc-pr-readiness: .* -->/, `<!-- nmg-sdlc-pr-readiness: ${JSON.stringify(satisfied)} -->`));
-    const artifactPath = path.join(f.root, '.omp/sdlc/verification/42.json');
+    const artifactPath = path.join(f.root, '.nmg-sdlc/verification/42.json');
     const artifact = JSON.parse(fs.readFileSync(artifactPath, 'utf8'));
     artifact.identity.headSha = h1;
     for (const result of artifact.results) {
@@ -353,18 +353,18 @@ console.log(JSON.stringify(value));
       remediation: { headSha: f.currentHead, failingChecks: [{ name: 'contract-tests' }] },
     });
     expect(deliveryCalls(f, 'merge')).toHaveLength(0);
-    const packet = JSON.parse(fs.readFileSync(path.join(f.root, '.omp/sdlc/remediation/42-deliver.json'), 'utf8'));
+    const packet = JSON.parse(fs.readFileSync(path.join(f.root, '.nmg-sdlc/remediation/42-deliver.json'), 'utf8'));
     expect(packet.headSha).toBe(f.currentHead);
   });
 
   test('stale malformed cursors and consumed recovery ledgers cannot veto current live proof', () => {
     const f = fixture();
-    fs.writeFileSync(path.join(f.root, '.omp/sdlc/run.json'), '{broken tracking');
-    fs.writeFileSync(path.join(f.root, '.omp/sdlc/safe-recoveries.json'), '{broken ledger');
+    fs.writeFileSync(path.join(f.root, '.nmg-sdlc/run.json'), '{broken tracking');
+    fs.writeFileSync(path.join(f.root, '.nmg-sdlc/safe-recoveries.json'), '{broken ledger');
     const result = runDeliver({ cwd: f.root, issue: 42, run: f.run });
     expect(result).toMatchObject({ status: 0, handoff: { status: 'passed' } });
-    expect(fs.readFileSync(path.join(f.root, '.omp/sdlc/run.json'), 'utf8')).toBe('{broken tracking');
-    expect(fs.readFileSync(path.join(f.root, '.omp/sdlc/safe-recoveries.json'), 'utf8')).toBe('{broken ledger');
+    expect(fs.readFileSync(path.join(f.root, '.nmg-sdlc/run.json'), 'utf8')).toBe('{broken tracking');
+    expect(fs.readFileSync(path.join(f.root, '.nmg-sdlc/safe-recoveries.json'), 'utf8')).toBe('{broken ledger');
   });
 
   test('a remote branch not equal to local verified HEAD blocks PR creation', () => {
@@ -388,7 +388,7 @@ console.log(JSON.stringify(value));
     const f = fixture({ smokeOwned: true });
     const result = runDeliver({ cwd: f.root, issue: 42, run: f.run, env: f.env });
     expect(result).toMatchObject({ status: 0, handoff: { status: 'passed' } });
-    expect(JSON.parse(fs.readFileSync(path.join(f.root, '.omp/sdlc/smoke-deliveries/42.json'), 'utf8')))
+    expect(JSON.parse(fs.readFileSync(path.join(f.root, '.nmg-sdlc/smoke-deliveries/42.json'), 'utf8')))
       .toMatchObject({
         issue: 42, invocationId: 'a'.repeat(64), pullRequest: 77,
         headSha: f.currentHead, recordedBeforeMerge: true,

@@ -24,25 +24,25 @@ Inline architecture and acceptance review by the architecture-reviewer agent. No
 Before running verification, modifying code, or generating a report, bind the durable verify owner:
 
 ```bash
-node "${NMG_SDLC_PLUGIN_ROOT}/scripts/sdlc-safe-recoveries.mjs" bind --issue N --step verify --spec specs/N-SLUG [--controller-run-id R]
+node "<plugin-root>/scripts/sdlc-safe-recoveries.mjs" bind --issue N --step verify --spec specs/N-SLUG [--controller-run-id R]
 ```
 
 Use the exact worker-header invocation id when present; omit it only for standalone work. Require `NMG_SDLC_PUBLICATION` with `passed:true` from current issue, branch, Approved spec and publication scope. The lease is only a mutex; historical owner records and `run.json` never authorize or veto verification.
 Before prose review, run:
 
 ```bash
-node "${NMG_SDLC_PLUGIN_ROOT}/scripts/sdlc-verify-steering.mjs" --project . --issue N --spec specs/N-SLUG --base main [--controller-run-id R]
+node "<plugin-root>/scripts/sdlc-verify-steering.mjs" --project . --issue N --spec specs/N-SLUG --base main [--controller-run-id R]
 ```
 
 When the worker header provides a non-empty controller run id, replace the bracketed option with `--controller-run-id R` using that exact value. Omit the option only for standalone verification.
 
-Read `.omp/sdlc/verification/N.json`. The same runner is mandatory for interactive and execute verification. Use its `coverage` summary to distinguish zero declarations from missing evidence: `declared: 0`, `recorded: 0`, and `complete: true` is a complete gate with no project-specific validations, while `complete: false` means declared results are missing, duplicated, or unknown and caps overall status at `Incomplete`. A required `failed` result caps status at `Fail`; required `incomplete`, runtime/provider/config errors, crashes, explicit cancellation, confirmed process loss, malformed output, stale identities, or applicable provider self-skips cap it at `Incomplete`. `Pass` and `PR Evidence Pending` are forbidden unless coverage is complete and every applicable required validation has a terminal result.
+Read `.nmg-sdlc/verification/N.json`. The same runner is mandatory for interactive and execute verification. Use its `coverage` summary to distinguish zero declarations from missing evidence: `declared: 0`, `recorded: 0`, and `complete: true` is a complete gate with no project-specific validations, while `complete: false` means declared results are missing, duplicated, or unknown and caps overall status at `Incomplete`. A required `failed` result caps status at `Fail`; required `incomplete`, runtime/provider/config errors, crashes, explicit cancellation, confirmed process loss, malformed output, stale identities, or applicable provider self-skips cap it at `Incomplete`. `Pass` and `PR Evidence Pending` are forbidden unless coverage is complete and every applicable required validation has a terminal result.
 
 Run required local `builtin.command` validations first; if any fail/incomplete, record later project providers as required `incomplete` with summary `deferred until required local validations pass`.
 
 ## Run Reviews Inline
 
-- Acceptance: for each AC in requirements (delivery slice), locate code, mark Pass/Fail/Partial/Incomplete. Use grep/read/edit as needed for evidence. Map every approved AC and scenario.
+- Acceptance: for each AC in requirements (delivery slice), locate code, mark Pass/Fail/Partial/Incomplete. Use `Grep` / `Read` / `Edit` as needed for evidence. Map every approved AC and scenario.
 - Tasks: confirm listed tasks produced the files/changes expected.
 - Architecture (inline, this is the architecture-reviewer):
   Load each checklist:
@@ -53,10 +53,10 @@ Run required local `builtin.command` validations first; if any fail/incomplete, 
   - error-handling.md
   Score 1-5, note findings. Average reported.
 - Test / BDD: run the applicable commands registered by technical steering and the relevant test subsets. For plugin changes (detect via git diff on workflows/ and agents/):
-  Use updated exercise instructions (see exercise-testing.md): from a disposable project run `node "${NMG_SDLC_PLUGIN_ROOT}/scripts/exercise-omp.mjs" --cwd <project> -- /sdlc-NAME [args]` with this extension loaded by the harness. Do not use `omp --print --load`. Preserve the prior dry-run contract and use state-based termination without a wall-clock deadline. Record output vs ACs.
+  Use updated exercise instructions (see exercise-testing.md): from a disposable project run `node "<plugin-root>/scripts/exercise-claude.mjs" --cwd <project> -- /sdlc-NAME [args]`, which loads this checkout through `claude -p --plugin-dir <plugin-root>`. Preserve the prior dry-run contract and use state-based termination without a wall-clock deadline. Record output vs ACs.
 - PR-only obligations: if present use the readiness rules from references (PR Evidence Pending allowed only when all local pass).
 
-  Fix findings where safe and local: apply the smallest fix, resolving and reading `skill://skill-creator` before any skill-bundled edit. Re-run affected verification after fixes. Unfixable findings remain in the report.
+  Fix findings where safe and local: apply the smallest fix, invoking the `skill-creator` skill with the `Skill` tool before any skill-bundled edit. Re-run affected verification after fixes. Unfixable findings remain in the report.
 
 Include exactly one standalone `**Verification head**: <40-character current HEAD>` line for every newly generated report, including initial verification and mixed local/external failure.
 
@@ -81,7 +81,7 @@ The controller owns report publication and the verify handoff. Never write hando
 Run:
 
 ```bash
-node "${NMG_SDLC_PLUGIN_ROOT}/scripts/sdlc-finalize-verification.mjs" --issue N --spec specs/N-SLUG [--controller-run-id R]
+node "<plugin-root>/scripts/sdlc-finalize-verification.mjs" --issue N --spec specs/N-SLUG [--controller-run-id R]
 ```
 
 When the worker header provides a non-empty controller run id, replace the bracketed option with `--controller-run-id R` using that exact value. Omit the option only for standalone verification.

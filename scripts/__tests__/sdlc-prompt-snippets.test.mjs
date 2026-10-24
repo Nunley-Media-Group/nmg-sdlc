@@ -7,13 +7,14 @@ import { fileURLToPath } from 'node:url';
 import {
   createPromptSnippetRegistry,
   defaultPromptRegistry,
+  pluginPathsNote,
   pluginPromptFragments,
   registerPromptSnippet,
   registerValidatedProjectSnippets,
   renderPrompt,
   writePromptProvenance,
 } from '../../src/sdlc-prompt-snippets.mjs';
-import { rewriteInteractiveInput } from '../../src/sdlc-commands.mjs';
+import { renderInteractiveWorkflow } from '../../src/sdlc-commands.mjs';
 import { workflowBody } from '../../src/sdlc-workflows.mjs';
 import { applySteeringPlan, createInitializePlan } from '../sdlc-steering.mjs';
 
@@ -54,12 +55,17 @@ describe('prompt snippet registry', () => {
       ['sdlc-write-spec', 'write-spec'],
     ]) {
       const rendered = renderPrompt(registry, { consumer });
-      expect(rendered.text).toBe(`${workflowBody(workflow, repoRoot)}\n${executeContract}`);
+      expect(rendered.text).toBe(`${pluginPathsNote([workflow])}\n${workflowBody(workflow, repoRoot)}\n${executeContract}`);
       expect(rendered.provenance.fragments.map(({ id, source, order }) => ({
         id,
         source,
         order,
       }))).toEqual([
+        {
+          id: `plugin.paths.${consumer}`,
+          source: `builtin:plugin.paths.${consumer}`,
+          order: 50,
+        },
         {
           id: `plugin.workflow.${workflow}`,
           source: `workflows/${workflow}/WORKFLOW.md`,
@@ -71,7 +77,7 @@ describe('prompt snippet registry', () => {
           order: 150,
         },
       ]);
-      expect(rendered.provenance.fragments[1].byteCount)
+      expect(rendered.provenance.fragments[2].byteCount)
         .toBe(Buffer.byteLength(executeContract));
     }
 
@@ -89,27 +95,28 @@ describe('prompt snippet registry', () => {
         step: 'start',
         issue: '42',
         controllerRunId: 'run-42',
-        handoffPath: '.omp/sdlc/handoffs/42-start.json',
+        handoffPath: '.nmg-sdlc/handoffs/42-start.json',
       },
     });
     expect(rendered.text).toBe([
-      'nmg-sdlc start worker for #42.',
-      'Execute this inlined workflow for #42 without questions.',
+      'nmg-sdlc start worker for #42: a Herdr Claude worker started by /sdlc-execute.',
+      'Execute this inlined workflow for #42 without questions: never call AskUserQuestion, EnterPlanMode, or ExitPlanMode.',
       'Write and validate the handoff, then stop.',
       '',
       '$ARGUMENTS: #42',
       'Controller run id: run-42',
-      'Handoff path: .omp/sdlc/handoffs/42-start.json',
-      'Before printing the marker, run: node ' + '<plugin-root>' + '/scripts/sdlc-execute.mjs validate-handoff --file .omp/sdlc/handoffs/42-start.json',
-      'Only after validation succeeds print exactly: NMG_SDLC_HANDOFF: .omp/sdlc/handoffs/42-start.json',
+      'Handoff path: .nmg-sdlc/handoffs/42-start.json',
+      'Before printing the marker, run: node ' + '<plugin-root>' + '/scripts/sdlc-execute.mjs validate-handoff --file .nmg-sdlc/handoffs/42-start.json',
+      'Only after validation succeeds print exactly: NMG_SDLC_HANDOFF: .nmg-sdlc/handoffs/42-start.json',
       '',
+      pluginPathsNote(['start-issue']),
       workflowBody('start-issue', repoRoot),
     ].join('\n'));
   });
 
   it('renders the worker header for a production UUID and multi-digit issue', () => {
     const issue = '10000';
-    const handoffPath = `.omp/sdlc/handoffs/${issue}-implement.json`;
+    const handoffPath = `.nmg-sdlc/handoffs/${issue}-implement.json`;
     const rendered = renderPrompt(defaultPromptRegistry(repoRoot), {
       consumer: 'worker:implement',
       vars: {
@@ -123,18 +130,33 @@ describe('prompt snippet registry', () => {
   });
 
   it('renders and materializes the steering command controller paths', () => {
-    const rendered = rewriteInteractiveInput('/sdlc-steering', {
-      source: 'interactive',
-      sessionMode: 'plan',
-      root: repoRoot,
-      provenanceRoot: '',
-    });
-    expect(rendered.text).toContain(`node "${path.join(repoRoot, 'scripts', 'sdlc-steering.mjs')}" inspect --project .`);
-    expect(rendered.text).not.toContain('<plugin-root>');
-    expect(rendered.text).not.toContain('{{pluginRoot}}');
+    const text = renderInteractiveWorkflow('sdlc-steering', repoRoot, '');
+    expect(text).toContain(`node "${path.join(repoRoot, 'scripts', 'sdlc-steering.mjs')}" inspect --project .`);
+    expect(text).not.toContain('<plugin-root>/scripts/');
+    expect(text).not.toContain('{{pluginRoot}}');
   });
 
-  it('loads project snippets with Node when the extension host is not Node', async () => {
+  it('states where relative workflow and shared reference paths resolve', () => {
+    const note = pluginPathsNote(['write-code', 'simplify']);
+    expect(note).toContain('resolve under `<plugin-root>/workflows/write-code/`');
+    expect(note).toContain('resolve under `<plugin-root>/workflows/simplify/`');
+    expect(note).toContain('`../../references/...` resolves under `<plugin-root>/references/`');
+    expect(note).toContain('a path beginning `workflows/` resolves under `<plugin-root>/`');
+
+    const implement = renderPrompt(defaultPromptRegistry(repoRoot), {
+      consumer: 'worker:implement',
+      vars: { step: 'implement', issue: '7', controllerRunId: 'run-7', handoffPath: '.nmg-sdlc/handoffs/7-implement.json' },
+    }).text;
+    expect(implement).toContain(note);
+    expect(implement.indexOf(note)).toBeLessThan(implement.indexOf('# Write Code'));
+
+    const fragments = pluginPromptFragments();
+    for (const consumer of ['sdlc-draft-issue', 'sdlc-write-spec', 'sdlc-execute', 'sdlc-status', 'worker:start', 'worker:verify', 'worker:deliver']) {
+      expect(fragments.some(({ id }) => id === `plugin.paths.${consumer.replace(':', '-')}`)).toBe(true);
+    }
+  });
+
+  it('loads project snippets with Node when the plugin host is not Node', async () => {
     const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-compiled-host-'));
     const originalExecPath = process.execPath;
     const policy = 'Keep issue delivery scoped to the approved project contract.';
@@ -150,15 +172,10 @@ describe('prompt snippet registry', () => {
         }],
         validations: [],
       }));
-      process.execPath = path.join(os.tmpdir(), 'compiled-omp-host');
-      const rendered = rewriteInteractiveInput('/sdlc-draft-issue repair runtime loading', {
-        source: 'interactive',
-        sessionMode: 'none',
-        root: repoRoot,
-        provenanceRoot: projectRoot,
-      });
-      expect(rendered.text).toMatch(/^\/plan\n/);
-      expect(rendered.text).toContain(policy);
+      process.execPath = path.join(os.tmpdir(), 'compiled-claude-host');
+      const text = renderInteractiveWorkflow('sdlc-draft-issue', repoRoot, projectRoot);
+      expect(text).toContain('# Draft Issue');
+      expect(text).toContain(policy);
     } finally {
       process.execPath = originalExecPath;
       fs.rmSync(projectRoot, { recursive: true, force: true });
@@ -197,19 +214,10 @@ describe('prompt snippet registry', () => {
     fs.mkdirSync(path.join(projectRoot, 'steering'), { recursive: true });
     fs.writeFileSync(path.join(projectRoot, 'steering', 'manifest.json'), '{ invalid\n');
 
-    const repaired = rewriteInteractiveInput('/sdlc-steering', {
-      source: 'interactive',
-      sessionMode: 'plan',
-      root: repoRoot,
-      provenanceRoot: projectRoot,
-    });
-    expect(repaired.text).toContain('# Manage Steering');
-    expect(() => rewriteInteractiveInput('/sdlc-write-spec #42', {
-      source: 'interactive',
-      sessionMode: 'plan',
-      root: repoRoot,
-      provenanceRoot: projectRoot,
-    })).toThrow('project_runtime_invalid');
+    const repaired = renderInteractiveWorkflow('sdlc-steering', repoRoot, projectRoot);
+    expect(repaired).toContain('# Manage Steering');
+    expect(() => renderInteractiveWorkflow('sdlc-write-spec', repoRoot, projectRoot))
+      .toThrow('project_runtime_invalid');
   });
 
   it('sorts by order then id and records substituted fragment provenance', () => {
@@ -328,13 +336,13 @@ describe('prompt snippet registry', () => {
         step: 'start',
         issue: '42',
         controllerRunId: 'run-42',
-        handoffPath: '.omp/sdlc/handoffs/42-start.json',
+        handoffPath: '.nmg-sdlc/handoffs/42-start.json',
       },
     });
     writePromptProvenance(projectRoot, provenance);
     const sidecar = path.join(
       projectRoot,
-      '.omp/sdlc/prompt-provenance/worker-start.json',
+      '.nmg-sdlc/prompt-provenance/worker-start.json',
     );
     expect(JSON.parse(fs.readFileSync(sidecar, 'utf8'))).toEqual(provenance);
     expectReason('provenance_write_failed', () => writePromptProvenance(

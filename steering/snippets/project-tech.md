@@ -6,20 +6,20 @@ This document defines the technical architecture, development standards, verific
 
 ## Architecture Overview
 
-nmg-sdlc is an Oh My Pi extension with skills, agents, a Herdr CLI supervisor, and Node classifiers:
+nmg-sdlc is a Claude Code plugin with workflows, subagents, a hooks module, a Herdr CLI supervisor, and Node classifiers:
 
 ```text
-package.json + src/extension.ts
+.claude-plugin/plugin.json + hooks/hooks.json → hooks/register.ts
         │
         ▼
-Native /plan interactive skills
-draft-issue → write-spec → onboard-project / upgrade-project
+Native plan-mode interactive commands
+draft-issue → write-spec → onboard-project / upgrade-project / steering / run-retro
         │
         ▼
-/sdlc-execute (main Herdr pane)
+/sdlc-execute (commands/sdlc-execute.md, main Herdr pane)
         │
-        ├── herdr pane split + herdr agent start --kind omp
-        ├── .omp/sdlc/run.json + handoffs
+        ├── herdr pane split + herdr agent start --kind claude
+        ├── .nmg-sdlc/run.json + handoffs
         └── GitHub issue/PR evidence
 
 Contract scripts
@@ -31,7 +31,7 @@ Contract scripts
         └── deterministic exercise fixtures
 ```
 
-Interactive skills interview with built-in `ask` and finish at `xd://propose`. Scripts may inspect, classify, or validate contracts, but do not select product scope. Automated workers never call `ask`. Sequencing uses only GitHub's official blocked-by relation between ordinary issues.
+Interactive skills interview with `AskUserQuestion`, write the plan to the plan-mode plan file, and finish by calling `ExitPlanMode`. Scripts may inspect, classify, or validate contracts, but do not select product scope. Automated workers never call `AskUserQuestion` or `ExitPlanMode`. Sequencing uses only GitHub's official blocked-by relation between ordinary issues.
 
 ---
 
@@ -39,15 +39,18 @@ Interactive skills interview with built-in `ask` and finish at `xd://propose`. S
 
 | Component | Technology | Minimum |
 |-----------|------------|---------|
-| Extension factory | `src/extension.ts` default export | OMP `omp.extensions` |
-| Skill and reference contracts | Markdown + YAML frontmatter | OMP skill loader |
-| Task agents | `agents/*.md` | OMP `listOmpExtensionRoots` |
-| Delivery supervisor | Herdr CLI | Herdr 0.8.0 hook contract (`HERDR_ENV=1`, `HERDR_SOCKET_PATH`, `HERDR_PANE_ID`) |
+| Plugin manifest | `.claude-plugin/plugin.json` | Claude Code plugin loader |
+| Hooks module | `hooks/hooks.json` → `hooks/register.ts` | Claude Code plugin hooks modules |
+| Host event helpers | `src/host-events.mjs` (no Node imports) | Shared by the hooks module and Node scripts |
+| Workflow and reference contracts | Markdown + YAML frontmatter | Rendered by `src/sdlc-commands.mjs` and `scripts/sdlc-render-prompt.mjs` |
+| Automated commands | `commands/*.md` | Claude Code plugin commands |
+| Subagents | `agents/*.md` | Claude Code plugin subagents (`nmg-sdlc:<name>`) |
+| Delivery supervisor | Herdr CLI | Herdr 0.8.0 hook contract (`HERDR_ENV=1`, `HERDR_SOCKET_PATH`, `HERDR_PANE_ID`) and the Claude integration (`herdr integration install claude`) |
 | BDD specifications | Gherkin | Gherkin 6+ |
 | Contract and inspection scripts | Node.js ESM | Node.js 20+ |
 | Test suite | Jest ESM | Jest 29+ |
 | GitHub integration | `gh` CLI / GraphQL where required | Authenticated current CLI |
-| Plugin packaging | root `package.json` | `omp.extensions` = `["./src/extension.ts"]` |
+| Plugin packaging | `.claude-plugin/plugin.json` | Published through the `Nunley-Media-Group/nmg-plugins` marketplace as `nmg-sdlc@nmg-plugins` |
 
 ### Automated Review
 
@@ -75,7 +78,8 @@ Runtime scripts should remain zero-dependency outside Node built-ins. Jest is a 
 | File | Path | Notes |
 |------|------|-------|
 | `VERSION` | file text | Source of truth |
-| `package.json` | `version` | OMP plugin manifest version |
+| `package.json` | `version` | Node package metadata version |
+| `.claude-plugin/plugin.json` | `version` | Claude Code plugin manifest version |
 
 Never pin a live version number in this snippet. `open-pr` keeps `VERSION` and every declared stack-specific mirror synchronized.
 
@@ -98,13 +102,13 @@ Breaking changes still use the accepted bump unless the approved major note is p
 
 ---
 
-## OMP Extension Standards
+## Claude Code Plugin Standards
 
-Before introducing a new OMP-facing feature or changing model/tool behavior, verify current official Oh My Pi documentation.
+Before introducing a new Claude Code-facing feature or changing model/tool behavior, verify current official Claude Code documentation.
 
 ### Workflow Bundles
 
-**Authoring rule for workers:** Every file under `workflows/{name}/`, every root `references/*.md`, and every `agents/*.md` must be created or edited by first resolving and reading `skill://skill-creator`, then following that skill's editing procedure. There is no repository-local skill-creator prerequisite and no hand-edit fallback.
+**Authoring rule for workers:** Every file under `workflows/{name}/`, every root `references/*.md`, and every `agents/*.md` must be created or edited by first invoking the `skill-creator` skill with the `Skill` tool, then following that skill's editing procedure. There is no repository-local skill-creator prerequisite and no hand-edit fallback.
 
 WORKFLOW.md frontmatter declares only `name` and `description`.
 
@@ -113,38 +117,54 @@ WORKFLOW.md frontmatter declares only `name` and `description`.
 | Trigger description | State what the workflow does, when to use it, and important exclusions |
 | Entry size | Keep under 500 lines; move details to on-demand references |
 | Arguments | Treat `$ARGUMENTS` as untrusted data and validate accepted shapes |
-| Interactive decisions | Built-in `ask` inside native `/plan` only |
-| Worker decisions | Failed handoff; never `ask` |
+| Interactive decisions | `AskUserQuestion` inside native plan mode only; plans finish with `ExitPlanMode` |
+| Worker decisions | Failed handoff; never `AskUserQuestion` or `ExitPlanMode` |
 | Supporting content | Place single-skill details within that skill bundle |
 | Shared content | Use root `references/` only for contracts with multiple consumers |
 
 ### Agent Files
 
-Files under `agents/` are installable OMP task agents. Required frontmatter: `name` and `description`. Optional: `model`, `tools`.
+Files under `agents/` are installable Claude Code plugin subagents, addressed as `nmg-sdlc:<name>`. Required frontmatter: `name` and `description`. Optional: `model`, `tools`.
 
-`model` is only `@fast`, `@review`, or `@good` when those roles are documented as configured. If a role is unset, omit `model`. Never hardcode provider model ids.
+`model` is only `haiku`, `sonnet`, `opus`, or `inherit`. Omit `model` to inherit the session model. Never hardcode provider model ids.
 
 | File | `name` | `model` |
 |------|--------|---------|
-| `agents/starter.md` | `starter` | `@fast` |
+| `agents/starter.md` | `starter` | `haiku` |
 | `agents/spec-implementer.md` | `spec-implementer` | omit |
-| `agents/architecture-reviewer.md` | `architecture-reviewer` | `@review` |
+| `agents/architecture-reviewer.md` | `architecture-reviewer` | `opus` |
 | `agents/deliverer.md` | `deliverer` | omit |
 
-`execute` does not use the OMP `task` tool for pipeline steps. Herdr sessions are the isolation boundary.
+`execute` does not use the `Agent` tool for pipeline steps. Herdr sessions are the isolation boundary.
 
 ### Plugin Manifest
 
 | Aspect | Standard |
 |--------|----------|
-| Location | root `package.json` |
-| Extensions | `omp.extensions` is exactly `["./src/extension.ts"]` |
-| Workflows | package-root `workflows/` is bundled workflow files the extension and execute helper read; do not declare `omp.skills`; do not keep a `skills/` directory |
-| Agents | package-root `agents/*.md` via OMP `listOmpExtensionRoots` |
-| Version | Semver synchronized with `VERSION` by delivery |
+| Location | `.claude-plugin/plugin.json` with `name: "nmg-sdlc"` |
+| Marketplace | Listed in the separate `Nunley-Media-Group/nmg-plugins` marketplace repository; this repository ships no `marketplace.json` |
+| Hooks | `hooks/hooks.json` declares the single hooks module `./register.ts` |
+| Commands | `commands/*.md` are the four automated commands, generated by `renderAutomatedCommandMarkdown`; never hand-edit them; interactive commands are registered by the hooks module, never as command files |
+| Workflows | package-root `workflows/` is bundled workflow files the renderer and execute helper read; do not keep a `skills/` directory |
+| Agents | package-root `agents/*.md`, discovered as plugin subagents |
+| Version | Semver synchronized with `VERSION` by delivery in `package.json` and `.claude-plugin/plugin.json` |
 | Validation | `node scripts/verify-plugin-surface.mjs --root . --label repository` |
 
-Do not add `omp.agents`. Do not add `.omp-plugin/marketplace.json` in this repository.
+Do not add an `omp` key to `package.json` or restore `src/extension.ts`.
+
+### Hooks Module
+
+`hooks/register.ts` is the only code Claude Code loads in-process. It imports no Node built-ins: shared classification lives in `src/host-events.mjs`, and Node work (prompt rendering through `scripts/sdlc-render-prompt.mjs`) runs as a child process.
+
+| Responsibility | Behavior |
+|----------------|----------|
+| Interactive commands | Registers the six interactive `/sdlc-*` commands; running one renders its workflow, runs builtin `/plan`, then submits the workflow as the person's prompt. Without a UI (`claude -p`, the SDK) it prints `Run /<command> in the TUI.` and exits 2 |
+| Plugin root | Rewrites `<plugin-root>`, `${NMG_SDLC_PLUGIN_ROOT}`, and `$NMG_SDLC_PLUGIN_ROOT` in Bash commands, and a leading `<plugin-root>` in Read paths, to the installed plugin's absolute path |
+| write-spec Continue | Records each merged publication from the verbatim `publish-approved-spec.mjs merge` Bash result; once the turn ends with an empty prompt box it re-enters plan mode with the Continue prompt |
+| write-spec Finished | A Finished `AskUserQuestion` answer arms one approval of the reply's closing `ExitPlanMode` call, so plan mode ends with no dialog; a reply without that call gets one prompt, then a warning toast |
+| Autopilot | With `NMG_SDLC_AUTOPILOT=1` in the session environment, approves every `ExitPlanMode` and answers every `AskUserQuestion` with each question's `(Recommended)` option, else its first option |
+
+Workflow text names plugin scripts as `<plugin-root>/scripts/<name>.mjs`; the hooks module, the renderer, and `${CLAUDE_PLUGIN_ROOT}` in command files materialize it.
 
 ---
 
@@ -171,7 +191,7 @@ Do not add `omp.agents`. Do not add `.omp-plugin/marketplace.json` in this repos
 
 ### TypeScript
 
-- `src/extension.ts` uses a local structural `ExtensionAPI` type. Do not add an `@oh-my-pi` dependency.
+- `hooks/register.ts` takes its host types from the `claude-code` type declarations in the git-ignored `.claude-plugin/types/` (wired by root `tsconfig.json`). Do not add a runtime dependency for them, and do not import Node built-ins into the hooks module.
 
 ### JSON and YAML
 
@@ -192,7 +212,7 @@ Public skill behavior consists of:
 - trigger-oriented two-key frontmatter;
 - ordered workflow steps;
 - explicit preconditions and postconditions;
-- interactive `/plan` interview or automated handoff;
+- interactive plan-mode interview or automated handoff;
 - error states naming exact paths or remote objects;
 
 ### GitHub CLI
@@ -219,7 +239,7 @@ Onboarding owns managed assets for new projects. Upgrade owns reconciliation and
 
 ### Core Principle: Contract and Exercise Verification
 
-Skill Markdown is executable instruction content. Verification therefore combines static contract tests, deterministic fixture exercises, and live OMP / Herdr exercises where the acceptance criteria require actual tool behavior.
+Skill Markdown is executable instruction content. Verification therefore combines static contract tests, deterministic fixture exercises, and live Claude Code / Herdr exercises where the acceptance criteria require actual tool behavior.
 
 Every executable issue acceptance criterion has a corresponding Gherkin scenario or an explicit documented reason why runtime execution is the evidence source.
 
@@ -228,7 +248,7 @@ Every executable issue acceptance criterion has a corresponding Gherkin scenario
 | BDD design | Gherkin scenarios | `specs/*/feature.gherkin` |
 | Contract tests | Jest ESM | `scripts/__tests__/` |
 | Skill fixtures | Deterministic artifact/rubric runner | `scripts/__fixtures__/skill-exercise/` |
-| Live skill proof | Disposable project via `omp --print --no-session` | Verification evidence |
+| Live skill proof | Disposable project via `claude -p --plugin-dir <checkout>` | Verification evidence |
 | Installed-surface proof | Fresh install or actual upgrade root | Release verification evidence |
 | Consumer-project smoke | Clone `Nunley-Media-Group/nmg-sdlc-smoke`, provision a fresh issue with an Approved spec unless an explicit queue is set, and run this checkout's execute controller for that queue | Steering validation `repository.nmg-sdlc-smoke` |
 
@@ -236,14 +256,14 @@ Every executable issue acceptance criterion has a corresponding Gherkin scenario
 
 1. Create a temporary project with only the files required by the skill.
 2. Initialize git and, when necessary, a disposable GitHub repository or dry-run fixture.
-3. Load this repository's extension and skills.
-4. Invoke the changed skill with `omp --print --no-session`.
+3. Load this repository's plugin with `--plugin-dir <checkout>`.
+4. Invoke the changed command with `claude -p --plugin-dir <checkout>`, or in a TUI session for an interactive command.
 5. Compare filesystem, command, and rendered-output artifacts with the approved spec.
 6. Remove the temporary project after capturing evidence.
 
 Do not pollute production repositories to prove issue/PR content. When a remote mutation is not essential, evaluate the exact command/body artifact through a deterministic fixture.
 
-The live smoke gate may mutate only `Nunley-Media-Group/nmg-sdlc-smoke`, and only through the real `/sdlc-draft-issue`, `/sdlc-write-spec`, and `scripts/sdlc-execute.mjs run` workflows and their workers; the provider never performs ad-hoc GitHub writes. Without an explicit queue, the gate provisions one fresh issue itself, with no operator input: it drafts it with `config.provision.need` and writes its Approved spec in a provider-owned Herdr `omp` pane, answering every ask with its Recommended option and every plan approval with `Approve and execute`. It ends provisioning on GitHub publication evidence, then closes the pane. Operators never provision smoke issues or answer smoke gates. `NMG_SDLC_SMOKE_ISSUES` is only an optional explicit override. Delivered issues are terminal and must not be reused.
+The live smoke gate may mutate only `Nunley-Media-Group/nmg-sdlc-smoke`, and only through the real `/sdlc-draft-issue`, `/sdlc-write-spec`, and `scripts/sdlc-execute.mjs run` workflows and their workers; the provider never performs ad-hoc GitHub writes. Without an explicit queue, the gate provisions one fresh issue itself, with no operator input: it drafts it with `config.provision.need` and writes its Approved spec in a provider-owned Herdr Claude pane launched with `NMG_SDLC_AUTOPILOT=1`, so every `AskUserQuestion` takes its Recommended option and every `ExitPlanMode` plan is approved. It ends provisioning on GitHub publication evidence, then closes the pane. Operators never provision smoke issues or answer smoke gates. `NMG_SDLC_SMOKE_ISSUES` is only an optional explicit override. Delivered issues are terminal and must not be reused.
 
 ### Smoke Experiment Scope and Progress
 
@@ -280,13 +300,13 @@ Never infer a stronger layer from a weaker one.
 | Contract tests | `scripts/__tests__/` exists | `cd scripts && npm test` | Exit 0; no unexpected skips or orphaned imports |
 | Live smoke project | Always | Use the explicit queue in `NMG_SDLC_SMOKE_ISSUES` when set; otherwise provision one fresh issue with an Approved spec itself through the real draft-issue and write-spec workflows in a provider-owned Herdr pane; clone `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git` without shallow history; record each configured issue's exact closing-PR baseline; then run `node &lt;plugin-root&gt;/scripts/sdlc-execute.mjs run #N [...]` once for the configured issues in order (a rerun after execute delivered only a leading part of the queue resumes the undelivered remainder in the retained clone under the same invocation token), with cwd set to the clone and `NMG_SDLC_SMOKE_OWNED=1`; read each workflow-recorded pre-merge delivery proof before accepting controller success | For every configured issue, an exact closing PR outside the pre-run baseline is GitHub `MERGED`, its number and `headRefOid` exactly equal the invocation's pre-merge delivery proof, and the issue is GitHub `CLOSED`; a nonzero execute exit may pass only when all current-invocation proof is exact; pre-existing merged PRs and status JSON cannot pass |
 | Skill inventory | Skill/reference/agent surface changed | `node scripts/skill-inventory-audit.mjs --check` | Exit 0 and baseline current |
-| OMP plugin surface | Plugin surface changed | `node scripts/verify-plugin-surface.mjs --root . --label repository` | Exit 0 |
-| Skill creator validation | Skill-bundled files changed in a worker | Resolve and read `skill://skill-creator`, then validate each affected bundle as directed | All affected bundles satisfy the resolved skill-creator contract |
+| Claude Code plugin surface | Plugin surface changed | `node scripts/verify-plugin-surface.mjs --root . --label repository` | Exit 0 |
+| Skill creator validation | Skill-bundled files changed in a worker | Invoke the `skill-creator` skill with the `Skill` tool, then validate each affected bundle as directed | All affected bundles satisfy the skill-creator contract |
 | Skill exercise | Changed skill has a deterministic fixture | `node scripts/skill-exercise-runner.mjs --skill <name>` | Exit 0 and rubric satisfied |
 | Prompt quality | Skill contract changed | Review against Prompt Quality Criteria | Every criterion satisfied |
 | Git hygiene | Any tracked text changed | `git diff --check` | Exit 0 |
 
-Exercise live proof uses `omp --print --no-session` loading this repository's skills, not `codex exec`.
+Exercise live proof uses `claude -p --plugin-dir <checkout>` loading this repository's plugin, not a previously installed plugin version.
 
 ### Condition Evaluation
 
@@ -308,12 +328,12 @@ Exercise live proof uses `omp --print --no-session` loading this repository's sk
 ### Skill-Level Invariants
 
 - Stack-specific details come from project steering.
-- Interactive decisions wait inside native `/plan` with `ask`.
+- Interactive decisions wait inside native plan mode with `AskUserQuestion`.
 - Automated skills write failed handoffs instead of asking.
 - Skills do not mutate beyond their declared stage.
 - Pull-request delivery is incomplete until exact-head merge and issue closure are proven.
 - Dirty unrelated work is preserved.
-- Skill-bundled worker edits resolve and read `skill://skill-creator`; repository-local skill directories are not required.
+- Skill-bundled worker edits first invoke the `skill-creator` skill with the `Skill` tool; repository-local skill directories are not required.
 - Active spec context is bounded; historical specs are preserved.
 - Remote writes require the owning workflow and exact target.
 
@@ -323,9 +343,9 @@ Exercise live proof uses `omp --print --no-session` loading this repository's sk
 |-----------|-------|
 | Unambiguous instructions | Each step has one testable interpretation |
 | Complete paths | Success, empty, failure, and user-decline branches are covered |
-| Correct tool references | OMP-native tools and safe argument handling are used |
+| Correct tool references | Claude Code tools (`Read`, `Grep`, `Glob`, `Edit`, `Write`, `Bash`, `AskUserQuestion`, `ExitPlanMode`, `Skill`, `Agent`) and safe argument handling are used |
 | Logical ordering | Every step depends only on previously available evidence |
-| Gate integrity | Interactive skills wait in `/plan`; workers never call `ask` |
+| Gate integrity | Interactive skills wait in native plan mode; workers never call `AskUserQuestion` |
 | Output chain | Postconditions satisfy the downstream skill's preconditions |
 | Cross-reference validity | Every referenced file exists in the packaged surface |
 | Historical boundary | Active claims do not rewrite or load historical records as capability |
@@ -355,7 +375,14 @@ Exercise live proof uses `omp --print --no-session` loading this repository's sk
 | `NMG_SDLC_SMOKE_OWNED` | Must be `1` only while the verification-owned controller mutates `Nunley-Media-Group/nmg-sdlc-smoke`; it authorizes no other repository or mutation path |
 | `NMG_SDLC_SMOKE_ISSUES` | Optional explicit comma- or whitespace-separated smoke issue numbers with approved specs; when unset the always-on smoke gate provisions its own fresh issue. Never reuse delivered issues |
 
-No optional environment variable may change interactive `/plan` behavior or broaden mutation scope.
+### Optional
+
+| Variable | Purpose |
+|----------|---------|
+| `NMG_SDLC_WORKER_PERMISSION_MODE` | Herdr worker `--permission-mode`: one of `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`; any other value or unset means `auto` |
+| `NMG_SDLC_AUTOPILOT` | `1` only in a hands-off driver's Claude session (such as the smoke provider's provisioning pane): the hooks module approves every `ExitPlanMode` and answers every `AskUserQuestion` with its Recommended option |
+
+`NMG_SDLC_AUTOPILOT` is the only variable that changes interactive plan-mode behavior, and only for the session that sets it; never set it in a person's own session. No optional environment variable may broaden mutation scope.
 
 ---
 

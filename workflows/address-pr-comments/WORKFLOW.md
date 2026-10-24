@@ -15,7 +15,7 @@ Use only after `scripts/sdlc-deliver.mjs` exits 3 and emits an
 - Never edit for human threads, `CHANGES_REQUESTED`, ambiguous requests, or
   design-affecting requests.
 - Never resolve threads or merge a PR. The controller owns readiness and merge proof.
-- Never launch or prompt another OMP worker.
+- Never launch or prompt another Herdr Claude worker or `Agent` subagent.
 
 ## Clear Fix
 
@@ -26,8 +26,8 @@ and thread URLs.
 For an obvious, local, safe request:
 
 1. Read the packet's file and line context.
-2. Apply the smallest in-scope correction. Resolve and read
-   `skill://skill-creator` first for workflow-bundled targets.
+2. Apply the smallest in-scope correction. Invoke the
+   `skill-creator` skill with the `Skill` tool first for workflow-bundled targets.
 3. Run targeted verification.
 4. Stage only changed non-runtime paths.
 5. If the staged diff is empty, return to open-pr for a `human_review` result.

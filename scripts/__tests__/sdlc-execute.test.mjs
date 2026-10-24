@@ -4,7 +4,9 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { runExecute, parseArgs, validateHandoff, VALID_STEPS } from '../sdlc-execute.mjs';
+import { defaultHerdr, runExecute, parseArgs, validateHandoff, VALID_STEPS, WORKER_PERMISSION_MODES,
+  workerAgentArgs, workerPermissionMode } from '../sdlc-execute.mjs';
+import { packageRoot } from '../../src/sdlc-workflows.mjs';
 import { inspectIssueSpecScope } from '../issue-spec-scope.mjs';
 import { canonicalJson } from '../../src/sdlc-steering-runtime.mjs';
 
@@ -85,7 +87,7 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
   git(root, 'commit', '-m', 'feat: implement #42');
   git(root, 'push', '-u', 'origin', branch);
   if (dirty) fs.appendFileSync(path.join(root, 'helper.py'), '# preserved partial change\n');
-  const runtime = path.join(root, '.omp/sdlc');
+  const runtime = path.join(root, '.nmg-sdlc');
   fs.mkdirSync(runtime, { recursive: true });
   fs.writeFileSync(path.join(runtime, 'run.json'), '{stale corrupted checkpoint');
   fs.writeFileSync(path.join(runtime, 'safe-recoveries.json'), '{stale corrupted ledger');
@@ -178,7 +180,7 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
     return { status: 'passed', next: { start: 'implement', implement: 'verify', verify: 'deliver', deliver: null }[step] };
   };
   const herdr = {
-    integrationStatus: () => result('omp: installed\n'),
+    integrationStatus: () => result('claude: installed\n'),
     paneLayout: (pane) => result({ id: 'cli:pane:layout', result: { type: 'pane_layout', layout: {
       area: { width: 200, height: 10 },
       panes: [{ pane_id: 'other-pane', rect: { width: 200, height: 10 } }, { pane_id: pane, rect: { width: 40, height: 120 } }],
@@ -233,6 +235,105 @@ const mergedPr = (number, issue, headRefName) => ({ number, state: 'MERGED', hea
 
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 
+describe('Herdr Claude workers', () => {
+  const recordingRun = () => {
+    const calls = [];
+    const run = (command, args, options) => { calls.push({ command, args, options }); return { status: 0, stdout: '' }; };
+    return { calls, run };
+  };
+
+  it('selects the worker permission mode from NMG_SDLC_WORKER_PERMISSION_MODE', () => {
+    expect(WORKER_PERMISSION_MODES).toEqual(['default', 'acceptEdits', 'auto', 'dontAsk', 'bypassPermissions']);
+    for (const mode of WORKER_PERMISSION_MODES) {
+      expect(workerPermissionMode({ NMG_SDLC_WORKER_PERMISSION_MODE: mode })).toBe(mode);
+    }
+  });
+
+  it('falls back to auto when the permission mode override is missing or invalid', () => {
+    expect(workerPermissionMode({})).toBe('auto');
+    expect(workerPermissionMode(undefined)).toBe('auto');
+    for (const value of ['', 'plan', 'manual', 'AUTO', 'bypass', ' auto', 'auto ', 'acceptedits']) {
+      expect(workerPermissionMode({ NMG_SDLC_WORKER_PERMISSION_MODE: value })).toBe('auto');
+    }
+  });
+
+  it('loads the controller plugin root into every worker', () => {
+    expect(workerAgentArgs({ env: {} })).toEqual(['--plugin-dir', packageRoot, '--permission-mode', 'auto']);
+    expect(workerAgentArgs({ env: { NMG_SDLC_WORKER_PERMISSION_MODE: 'acceptEdits' }, pluginRoot: '/opt/nmg' }))
+      .toEqual(['--plugin-dir', '/opt/nmg', '--permission-mode', 'acceptEdits']);
+  });
+
+  it('starts claude-kind agents with --plugin-dir and --permission-mode after --', () => {
+    const { calls, run } = recordingRun();
+    defaultHerdr(run, '/repo', {}).agentStart({ name: 's42-verify-abcdef12', paneId: 'w1:p2' });
+    defaultHerdr(run, '/repo', { NMG_SDLC_WORKER_PERMISSION_MODE: 'dontAsk' })
+      .agentStart({ name: 's42-deliver-abcdef12', paneId: 'w1:p3' });
+    defaultHerdr(run, '/repo', { NMG_SDLC_WORKER_PERMISSION_MODE: 'yolo' })
+      .agentStart({ name: 's42-start-abcdef12', paneId: 'w1:p4' });
+    expect(calls.map(({ command, args, options }) => [command, args, options.cwd])).toEqual([
+      ['herdr', ['agent', 'start', 's42-verify-abcdef12', '--kind', 'claude', '--pane', 'w1:p2',
+        '--', '--plugin-dir', packageRoot, '--permission-mode', 'auto'], '/repo'],
+      ['herdr', ['agent', 'start', 's42-deliver-abcdef12', '--kind', 'claude', '--pane', 'w1:p3',
+        '--', '--plugin-dir', packageRoot, '--permission-mode', 'dontAsk'], '/repo'],
+      ['herdr', ['agent', 'start', 's42-start-abcdef12', '--kind', 'claude', '--pane', 'w1:p4',
+        '--', '--plugin-dir', packageRoot, '--permission-mode', 'auto'], '/repo'],
+    ]);
+    expect(calls.flatMap((call) => call.args)).not.toContain('--config');
+  });
+
+  it('defaults the worker environment to the process environment', () => {
+    const { calls, run } = recordingRun();
+    const previous = process.env.NMG_SDLC_WORKER_PERMISSION_MODE;
+    process.env.NMG_SDLC_WORKER_PERMISSION_MODE = 'bypassPermissions';
+    try { defaultHerdr(run, '/repo').agentStart({ name: 'w', paneId: 'p' }); } finally {
+      if (previous === undefined) delete process.env.NMG_SDLC_WORKER_PERMISSION_MODE;
+      else process.env.NMG_SDLC_WORKER_PERMISSION_MODE = previous;
+    }
+    expect(calls[0].args.slice(-2)).toEqual(['--permission-mode', 'bypassPermissions']);
+  });
+
+  it('submits prompts and waits through the agent surface without extra submit keys', () => {
+    const { calls, run } = recordingRun();
+    const api = defaultHerdr(run, '/repo', {});
+    const prompt = 'line one\n\nline "two" with $vars and `ticks`';
+    api.agentPrompt({ name: 'w', prompt });
+    api.agentWait({ name: 'w', until: 'working' });
+    api.agentWait({ name: 'w' });
+    api.agentGet('w');
+    expect(calls.map((call) => call.args)).toEqual([
+      ['agent', 'prompt', 'w', prompt],
+      ['agent', 'wait', 'w', '--until', 'working'],
+      ['agent', 'wait', 'w'],
+      ['agent', 'get', 'w'],
+    ]);
+  });
+
+  it('checks the claude integration through the default Herdr surface', () => {
+    const { calls, run } = recordingRun();
+    const response = runExecute({ args: '#42', cwd: '/nonexistent-nmg-sdlc-root', run,
+      env: { HERDR_ENV: '1', HERDR_SOCKET_PATH: '/tmp/s', HERDR_PANE_ID: 'c' } });
+    expect(response).toEqual({ status: 2, stdout: 'Run: herdr integration install claude\n', stderr: '' });
+    expect(calls[0].args).toEqual(['integration', 'status']);
+  });
+
+  it('requires a Herdr session and the claude integration', () => {
+    const integration = (stdout) => ({ integrationStatus: () => ({ status: 0, stdout }) });
+    expect(runExecute({ args: '#42', env: {} }))
+      .toEqual({ status: 2, stdout: 'execute requires a Herdr session\n', stderr: '' });
+    const base = { args: '#42', env, run: () => ({ status: 1, stdout: '', stderr: 'no auth' }) };
+    for (const stdout of ['claude: not installed (/h/.claude/hooks/herdr-agent-state.sh)\n',
+      'codex: current (v10)\nclaude: not installed\n', 'pi: current\n', '']) {
+      expect(runExecute({ ...base, herdr: integration(stdout) }))
+        .toEqual({ status: 2, stdout: 'Run: herdr integration install claude\n', stderr: '' });
+    }
+    for (const stdout of ['claude: current (v3) (/h/.claude/hooks/herdr-agent-state.sh)\n',
+      'codex: not installed\nclaude: outdated (v2 < v3)\n']) {
+      expect(runExecute({ ...base, herdr: integration(stdout) }))
+        .toEqual({ status: 1, stdout: '', stderr: 'gh auth status failed\n' });
+    }
+  });
+});
+
 describe('branch-first execute', () => {
   it('accepts only the four active stages and no stale recovery flag', () => {
     expect(VALID_STEPS).toEqual(['start', 'implement', 'verify', 'deliver']);
@@ -252,7 +353,7 @@ describe('branch-first execute', () => {
     expect(f.state.closedPanes).toEqual(f.state.owned);
     expect(f.state.directions).toEqual(['down', 'down']);
     expect(f.state.released).toEqual(f.state.owned);
-    expect(fs.readFileSync(path.join(f.root, '.omp/sdlc/run.json'), 'utf8')).toContain('stale corrupted');
+    expect(fs.readFileSync(path.join(f.root, '.nmg-sdlc/run.json'), 'utf8')).toContain('stale corrupted');
   });
 
   it('forwards the outer smoke invocation to verify and deliver workers', () => {
@@ -462,7 +563,7 @@ describe('branch-first execute', () => {
       if (step === 'verify') {
         passGate();
         if (verifications++ === 0) {
-          const artifactPath = path.join(root, '.omp/sdlc/verification/42.json');
+          const artifactPath = path.join(root, '.nmg-sdlc/verification/42.json');
           const artifact = JSON.parse(fs.readFileSync(artifactPath, 'utf8'));
           artifact.results[1].effectiveStatus = 'failed';
           artifact.results[1].result.status = 'failed';
@@ -489,13 +590,13 @@ describe('branch-first execute', () => {
   it('diagnoses a previously failed exact-source gate instead of rerunning unchanged smoke', () => {
     const f = fixture();
     f.passGate();
-    const artifactPath = path.join(f.root, '.omp/sdlc/verification/42.json');
+    const artifactPath = path.join(f.root, '.nmg-sdlc/verification/42.json');
     const artifact = JSON.parse(fs.readFileSync(artifactPath, 'utf8'));
     artifact.results[1].effectiveStatus = 'failed';
     artifact.results[1].result.status = 'failed';
     artifact.ceiling = 'Fail';
     fs.writeFileSync(artifactPath, JSON.stringify(artifact));
-    const oldHandoff = path.join(f.root, '.omp/sdlc/handoffs/42-verify.json');
+    const oldHandoff = path.join(f.root, '.nmg-sdlc/handoffs/42-verify.json');
     fs.mkdirSync(path.dirname(oldHandoff), { recursive: true });
     fs.writeFileSync(oldHandoff, JSON.stringify({ schemaVersion: 1, issue: 42, step: 'verify',
       status: 'failed', intervention: false, summary: 'old checkpoint narrative',

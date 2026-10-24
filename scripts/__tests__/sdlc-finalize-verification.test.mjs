@@ -48,7 +48,7 @@ function computeHash(files) {
 }
 
 function writeArtifact(root, headSha, ceiling = null, status = 'passed', runId = 'controller-R') {
-  const directory = path.join(root, '.omp/sdlc/verification');
+  const directory = path.join(root, '.nmg-sdlc/verification');
   fs.mkdirSync(directory, { recursive: true });
   const manifestPath = path.join(root, 'steering/manifest.json');
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
@@ -109,7 +109,7 @@ function gitInit(root) {
   run('git', ['init', '-b', '42-feature']);
   run('git', ['config', 'user.name', 't']);
   run('git', ['config', 'user.email', 't@t']);
-  fs.writeFileSync(path.join(root, '.gitignore'), '.omp/\n');
+  fs.writeFileSync(path.join(root, '.gitignore'), '.nmg-sdlc/\n');
   run('git', ['add', '.']);
   run('git', ['commit', '-m', 'chore: approved fixture']);
   const bare = path.join(root, '..', 'r.git');
@@ -132,7 +132,7 @@ describe('sdlc-finalize-verification focused fresh', () => {
     const out = finalizeVerification({ issue: 42, spec: SPEC, cwd: root, controllerRunId: 'R123' });
     expect(out.status).toBe(0);
     expect(out.handoff).toMatchObject({ status: 'passed', next: 'deliver' });
-    expect(fs.existsSync(path.join(root, '.omp/sdlc/run.json'))).toBe(false);
+    expect(fs.existsSync(path.join(root, '.nmg-sdlc/run.json'))).toBe(false);
     const publishedHead = spawnSync('git', ['rev-parse', 'origin/42-feature'], { cwd: root, encoding: 'utf8' }).stdout.trim();
     expect(publishedHead).not.toBe(head);
     expect(publishedHead).toBe(spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim());
@@ -149,7 +149,7 @@ describe('sdlc-finalize-verification focused fresh', () => {
     expect(out.status).toBe(1);
     expect(out.handoff).toMatchObject({
       status: 'failed', reasonCode: 'verification_not_ready', intervention: false, next: 'implement',
-      artifacts: [REPORT, '.omp/sdlc/verification/42.json'],
+      artifacts: [REPORT, '.nmg-sdlc/verification/42.json'],
     });
   });
 

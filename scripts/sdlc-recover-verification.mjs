@@ -63,7 +63,7 @@ function porcelainPaths(output) {
     paths.push(entry.slice(3));
     if (/[RC]/.test(entry.slice(0, 2)) && entries[index + 1]) paths.push(entries[index += 1]);
   }
-  return paths.filter((path) => !path.startsWith('.omp/'));
+  return paths.filter((path) => !path.startsWith('.nmg-sdlc/'));
 }
 
 function hashValue(value) {
@@ -82,14 +82,14 @@ function computeSpecHash(specDir) {
   return hashValue(joined);
 }
 function archiveFailedVerification(root, archive, reportBytes, artifactBytes, receiptBytes) {
-  const history = join(root, '.omp/sdlc/history');
+  const history = join(root, '.nmg-sdlc/history');
   const parent = join(history, 'verification-rechecks');
   for (const directory of [history, parent]) {
     if (!fs.existsSync(directory)) fs.mkdirSync(directory);
     const stat = fs.lstatSync(directory);
     if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('unsafe_archive');
   }
-  const expectedParent = join(fs.realpathSync(root), '.omp/sdlc/history/verification-rechecks');
+  const expectedParent = join(fs.realpathSync(root), '.nmg-sdlc/history/verification-rechecks');
   if (fs.realpathSync(parent) !== expectedParent) throw new Error('unsafe_archive');
   const parentStat = fs.lstatSync(parent);
   const target = join(root, archive);
@@ -126,7 +126,7 @@ export async function recoverVerification({
   const issueNumber = Number(issue);
   const specPath = String(spec ?? '').split('\\').join('/').replace(/\/$/, '');
   const reportPath = `${specPath}/verification-report.md`;
-  const artifactRelative = `.omp/sdlc/verification/${issueNumber}.json`;
+  const artifactRelative = `.nmg-sdlc/verification/${issueNumber}.json`;
 
   if (
     !Number.isInteger(issueNumber) ||
@@ -335,7 +335,7 @@ export async function recoverVerification({
         || porcelainPaths(currentStatus.stdout).some((path) => path !== reportPath)) {
         return { recover: false, reasonCode: 'repair_evidence_changed' };
       }
-      const archive = `.omp/sdlc/history/verification-rechecks/${issueNumber}-${oldHead}-${headSha}`;
+      const archive = `.nmg-sdlc/history/verification-rechecks/${issueNumber}-${oldHead}-${headSha}`;
       const ownerForReceipt = controllerRunId || 'fresh-evidence';
       const receipt = `${JSON.stringify({
         issue: issueNumber, ownerId: ownerForReceipt, oldHead, newHead: headSha,

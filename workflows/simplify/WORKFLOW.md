@@ -11,5 +11,5 @@ Review the files changed for issue N after all approved implementation tasks pas
 2. Keep the approved design, public APIs, error contracts, and task scope unchanged.
 3. Do not change generated artifacts.
 4. Do not add abstractions, dependencies, compatibility aliases, or unrelated cleanup.
-5. For workflow-bundled files, continue following the already loaded `skill://skill-creator` authoring contract.
+5. For workflow-bundled files, continue following the `skill-creator` skill authoring contract already loaded with the `Skill` tool.
 6. Rerun the narrow checks covering any simplification. Leave the implementation unchanged when no clear simplification exists.

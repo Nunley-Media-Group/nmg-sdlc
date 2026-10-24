@@ -1,4 +1,4 @@
-# Version Bump (v3 automatic)
+# Version Bump (v4 automatic)
 
 **Consumed by**: `prepare-version --issue N`, before the final verification gate.
 
@@ -18,4 +18,4 @@ Stage all configured version artifacts together. A single conventional version c
 
 BREAKING detection and the approved-major note check happen in the caller before the bump; a violation produces a `major_bump_required` failed handoff.
 
-No sibling/epic downgrade logic exists in v3.
+No sibling/epic downgrade logic exists since v3.

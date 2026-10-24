@@ -26,23 +26,55 @@ function frontmatterKeys(source) {
     .map((line) => line.slice(0, line.indexOf(':')));
 }
 
-describe('repo steering contract (v3)', () => {
-  test('uses the OMP extension identity and package manifest', () => {
+describe('repo steering contract (v4)', () => {
+  test('uses the Claude Code plugin identity and manifest', () => {
     const product = read('steering/snippets/project-product.md');
     const tech = read('steering/snippets/project-tech.md');
     const structure = read('steering/snippets/project-structure.md');
-    const manifest = JSON.parse(read('package.json'));
+    const packageManifest = JSON.parse(read('package.json'));
+    const pluginManifest = JSON.parse(read('.claude-plugin/plugin.json'));
+    const hooks = JSON.parse(read('hooks/hooks.json'));
 
     expect(product).toMatch(/^# nmg-sdlc Product Steering$/m);
-    expect(product).toContain('Oh My Pi extension and a Herdr workflow');
+    expect(product).toContain('Claude Code plugin and a Herdr workflow');
     expect(tech).toMatch(/^# nmg-sdlc Technical Steering$/m);
     expect(structure).toMatch(/^# nmg-sdlc Code Structure Steering$/m);
-    expect(manifest.name).toBe('nmg-sdlc');
-    expect(manifest.omp.extensions).toEqual(['./src/extension.ts']);
-    expect(structure).toContain('package.json');
-    expect(structure).toContain('src/extension.ts');
+    expect(pluginManifest.name).toBe('nmg-sdlc');
+    expect(packageManifest.name).toBe('nmg-sdlc');
+    expect(packageManifest.omp).toBeUndefined();
+    expect(hooks.modules).toEqual(['./register.ts']);
+    expect(structure).toContain('.claude-plugin/');
+    expect(structure).toContain('hooks/register.ts');
+    expect(structure).toContain('src/host-events.mjs');
+    expect(structure).not.toContain('src/extension.ts');
     expect(structure).not.toContain('.codex-plugin/');
-    expect(structure).not.toContain('.claude-plugin/');
+  });
+
+  test('declares every version mirror delivery synchronizes', () => {
+    const tech = read('steering/snippets/project-tech.md');
+    const versioning = tech.slice(tech.indexOf('## Versioning'), tech.indexOf('### Version Bump Classification'));
+
+    expect(versioning).toContain('| `VERSION` | file text |');
+    expect(versioning).toContain('| `package.json` | `version` |');
+    expect(versioning).toContain('| `.claude-plugin/plugin.json` | `version` |');
+  });
+
+  test('describes Claude Code tools instead of Oh My Pi surfaces', () => {
+    const steering = ['project-product.md', 'project-tech.md', 'project-structure.md']
+      .map((name) => read(`steering/snippets/${name}`))
+      .join('\n');
+
+    for (const stale of ['xd://propose', 'local://', 'skill://skill-creator', 'omp --print', '--kind omp', '.omp/sdlc', 'OMP task agent', 'listOmpExtensionRoots', 'omp.extensions']) {
+      expect(steering).not.toContain(stale);
+    }
+    expect(steering).not.toMatch(/`ask`/);
+    expect(steering).toContain('AskUserQuestion');
+    expect(steering).toContain('ExitPlanMode');
+    expect(steering).toContain('invoke the `skill-creator` skill with the `Skill` tool');
+    expect(steering).toContain('claude -p --plugin-dir <checkout>');
+    expect(steering).toContain('--kind claude');
+    expect(steering).toContain('NMG_SDLC_WORKER_PERMISSION_MODE');
+    expect(steering).toContain('NMG_SDLC_AUTOPILOT');
   });
 
   test('contains no unresolved repo-specific database or UI placeholders', () => {
@@ -63,7 +95,7 @@ describe('repo steering contract (v3)', () => {
       .map((name) => path.join(agentDirectory, name));
 
     expect(tech).toContain('WORKFLOW.md frontmatter declares only `name` and `description`');
-    expect(tech).toContain('installable OMP task agents');
+    expect(tech).toContain('installable Claude Code plugin subagents');
     expect(tech).not.toContain('allowedTools');
     expect(tech).not.toContain('disallowedTools');
     expect(tech).not.toContain('maxTurns');
@@ -75,7 +107,9 @@ describe('repo steering contract (v3)', () => {
     for (const filePath of agentFiles) {
       const keys = frontmatterKeys(fs.readFileSync(filePath, 'utf8'));
       expect(keys).toEqual(expect.arrayContaining(['name', 'description']));
-      expect(keys.every((key) => ['name', 'description', 'model', 'autoloadSkills', 'tools'].includes(key))).toBe(true);
+      expect(keys.every((key) => ['name', 'description', 'model', 'tools'].includes(key))).toBe(true);
+      const model = fs.readFileSync(filePath, 'utf8').match(/^model:\s*"?([^"\n]+)"?$/m)?.[1];
+      if (model !== undefined) expect(['haiku', 'sonnet', 'opus', 'inherit']).toContain(model);
     }
   });
 

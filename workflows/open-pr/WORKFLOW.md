@@ -5,7 +5,7 @@ description: "Deliver verified work through exact-head PR merge and issue closur
 
 # Open PR
 
-Resolve issue N from `$ARGUMENTS` or the current issue branch. Resolve `<plugin-root>` from the active installed extension. Operate on the live issue branch and its exact remote branch; `.omp/sdlc/run.json`, session tokens, and old handoffs are not authority.
+Resolve issue N from `$ARGUMENTS` or the current issue branch. Controller paths (`<plugin-root>/scripts/...`) name the installed nmg-sdlc plugin: the command file and the nmg-sdlc hooks module materialize them, so invoke controllers exactly as written. Operate on the live issue branch and its exact remote branch; `.nmg-sdlc/run.json`, session tokens, and old handoffs are not authority.
 
 Run `node <plugin-root>/scripts/sdlc-deliver.mjs --issue N`. The controller checks the singular Approved spec, passing exact-source registered verification, live PR-only evidence, CI, review, exact-head merge, and linked CLOSED issue. Exit 0 is delivery only when its validated passed handoff proves the expected PR head is MERGED and issue N is CLOSED.
 

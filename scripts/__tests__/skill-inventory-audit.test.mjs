@@ -229,7 +229,7 @@ describe('scan', () => {
     ]);
   });
 
-  test('finds package-root OMP agent files', () => {
+  test('finds package-root Claude Code subagent files', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'inventory-agents-'));
     try {
       fs.mkdirSync(path.join(tmpDir, 'workflows', 'status'), { recursive: true });
@@ -324,7 +324,7 @@ describe('validateSkillMetadata', () => {
 
 
 // ---------------------------------------------------------------------------
-// Canary fixture viacodex exec (exit codes)
+// Canary fixture via the CLI (exit codes)
 // ---------------------------------------------------------------------------
 
 describe('CLI canary fixture', () => {

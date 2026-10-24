@@ -85,14 +85,34 @@ describe("plugin controller path resolution", () => {
     }
   });
 
-  test("resolves the delivery controller from an installed extension layout and rejects omission", () => {
+  test("resolves a root identified only by its Claude Code plugin manifest", () => {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "nmg-sdlc-controller-"));
+    try {
+      const root = disposablePackage(fixture);
+      fs.rmSync(path.join(root, "package.json"));
+      expect(() => resolvePluginRoot({ env: { NMG_SDLC_PLUGIN_ROOT: root } })).toThrow("controller unresolved");
+
+      fs.mkdirSync(path.join(root, ".claude-plugin"));
+      fs.writeFileSync(path.join(root, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "other-plugin" }));
+      expect(() => resolvePluginRoot({ env: { NMG_SDLC_PLUGIN_ROOT: root } })).toThrow("controller unresolved");
+
+      fs.writeFileSync(path.join(root, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "nmg-sdlc", version: "4.0.0" }));
+      expect(resolvePluginRoot({ env: { NMG_SDLC_PLUGIN_ROOT: root } })).toBe(root);
+      expect(resolvePluginController("probe.mjs", { env: { NMG_SDLC_PLUGIN_ROOT: root } }))
+        .toBe(path.join(root, "scripts", "probe.mjs"));
+    } finally {
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  test("resolves the delivery controller from an installed plugin src module and rejects omission", () => {
     const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "nmg-sdlc-controller-"));
     try {
       const root = disposablePackage(fixture);
       const sourceDir = path.join(root, "src");
-      const extension = path.join(sourceDir, "extension.ts");
+      const extension = path.join(sourceDir, "host-events.mjs");
       fs.mkdirSync(sourceDir, { recursive: true });
-      fs.writeFileSync(extension, "export default function extension() {}\n");
+      fs.writeFileSync(extension, "export const INTERACTIVE_COMMANDS = [];\n");
       const options = { env: {}, importMetaUrl: pathToFileURL(extension).href };
       expect(() => resolvePluginController("sdlc-deliver.mjs", options))
         .toThrow("controller unresolved: sdlc-deliver.mjs");
@@ -124,6 +144,8 @@ describe("plugin controller path resolution", () => {
           "node <plugin-root>/scripts/a.mjs one",
           ...projectCommands,
           'node "/Users/rnunley/.omp/plugins/node_modules/nmg-sdlc/scripts/sdlc-execute.mjs" --issue 19',
+          'node "/Users/rnunley/.claude/plugins/cache/nmg-plugins/nmg-sdlc/4.0.0/scripts/sdlc-execute.mjs" --issue 23',
+          'node "/opt/cache/nmg-sdlc/latest/scripts/sdlc-execute.mjs" --issue 24',
           String.raw`node "C:\\Users\\other\\.omp\\plugins\\node_modules\\nmg-sdlc\\scripts\\sdlc-execute.mjs" --issue 20`,
           String.raw`node "\\\\server\\plugins\\nmg-sdlc\\scripts\\sdlc-execute.mjs" --issue 21`,
           String.raw`node "C:\Users/other\plugins/nmg-sdlc\scripts/sdlc-execute.mjs" --issue 22`,
@@ -139,6 +161,8 @@ describe("plugin controller path resolution", () => {
       expect(output).toContain(`node ${controller} --issue 20`);
       expect(output).toContain(`node ${controller} --issue 21`);
       expect(output).toContain(`node ${controller} --issue 22`);
+      expect(output).toContain(`node ${controller} --issue 23`);
+      expect(output).toContain('node "/opt/cache/nmg-sdlc/latest/scripts/sdlc-execute.mjs" --issue 24');
       expect(output).toContain(`run(node ${controller}); next`);
       expect(output).toContain(`["node",${canonicalArgv},"apply"]`);
       expect(output).toContain(`["node",${canonicalArgv},"verify"]`);

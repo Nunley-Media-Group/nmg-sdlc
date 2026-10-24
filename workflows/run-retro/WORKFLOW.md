@@ -7,7 +7,7 @@ description: "Analyze defect specs for gaps, produce steering/retrospective.md. 
 
 ## Flow
 
-Glob specs/*-*/requirements.md , filter # Defect Report: first line.
+Find specs/*-*/requirements.md (`Glob`, or `find` through `Bash`), filter # Defect Report: first line.
 
 State in steering/retrospective-state.json for incremental (hash).
 
@@ -23,18 +23,16 @@ ADR aging scan if docs/decisions/ .
 
 At most 3: e.g. "Defect specs can be filtered by date or re-read in full. Include only defects after YYYY?" or "Cached retrospective hashes already exist. Force full reanalysis?"
 
-Use ask rec first.
+Use `AskUserQuestion`, recommended option first with ` (Recommended)` appended to its label.
 
 Each preference question includes a short paragraph stating the situation and the facts needed to choose among the shown options.
 
-## Plan + Propose
+## Plan + Approval
 
-After analysis (or decision), write the retrospective content + state plan to local://run-retro-plan.md
+After analysis (or decision), write the complete plan to the plan-mode plan file (its path is in plan mode's system reminder): the full planned `steering/retrospective.md` content and the state update, with the first line:
 
-Write to xd://propose:
+```text
+# run-retro: Update retrospective
+```
 
-run-retro
-
-Update retrospective
-
-Plan execution applies the write if approved.
+Then call `ExitPlanMode`. Plan execution applies the writes if approved in the approval dialog.

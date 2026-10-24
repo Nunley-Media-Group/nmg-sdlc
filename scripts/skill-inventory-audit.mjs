@@ -122,7 +122,7 @@ export function extractClauses(source) {
   return out;
 }
 
-/** Extract inventory clauses from an OMP agent file: every non-empty body line. */
+/** Extract inventory clauses from a Claude Code plugin subagent file (agents/*.md): every non-empty body line. */
 export function extractAgentClauses(source) {
   const lines = source.split('\n');
   const out = [];

@@ -10,8 +10,8 @@ Use this reference to install or reconcile the nmg-sdlc-managed GitHub Actions c
 |------|-------|
 | Approved workflow path | `.github/workflows/nmg-sdlc-contribution-gate.yml` |
 | Managed marker | `# nmg-sdlc-managed: contribution-gate` |
-| Managed version | `# nmg-sdlc-managed-version: 7` |
-| Current numeric version | `7` |
+| Managed version | `# nmg-sdlc-managed-version: 8` |
+| Current numeric version | `8` |
 | Maximum selected spec directories | `5` |
 | Expected artifacts per selected spec | `requirements.md`, `design.md`, `tasks.md`, `feature.gherkin` |
 | Maximum paths per diagnostic | `20` |
@@ -38,7 +38,7 @@ Write this exact workflow to the approved path when the gate is missing or when 
 
 ```yaml
 # nmg-sdlc-managed: contribution-gate
-# nmg-sdlc-managed-version: 7
+# nmg-sdlc-managed-version: 8
 name: nmg-sdlc contribution gate
 
 on:
@@ -297,19 +297,18 @@ jobs:
               'VERSION',
               'README.md',
               'CONTRIBUTING.md',
-              'steering/manifest.json',
-              'steering/modules/product.mjs',
-              'steering/modules/tech.mjs',
-              'steering/modules/structure.mjs',
               '.github/workflows/nmg-sdlc-contribution-gate.yml',
-              'steering/modules/verification.mjs',
               'references/rewrite-contract.json',
               'references/rewrite-contract.md',
               'references/rewrite-verification.md',
             ];
+            // Steering templates are pinned by the steering writer; a rewrite must
+            // change at least one steering/ path (for example steering/snippets/).
+            const rewriteSteeringChanged = changedPaths.some((path) => path.startsWith('steering/'));
             const rewriteEligible = Boolean(rewriteReason)
               && /^feat!:/i.test(String(pr.title || '').trim())
-              && rewriteRequiredPaths.every((path) => changedPaths.includes(path));
+              && rewriteRequiredPaths.every((path) => changedPaths.includes(path))
+              && rewriteSteeringChanged;
             if (docsMarkerPresent && rewriteMarkerPresent) {
               failures.push('Invalid SDLC exception: declare exactly one reduced-evidence mode.');
             } else if (docsMarkerPresent && !docsReason) {
@@ -320,7 +319,10 @@ jobs:
             } else if (rewriteMarkerPresent && !rewriteReason) {
               failures.push('Invalid repository-rewrite exception: provide a non-empty rationale after `SDLC-Exception: repository-rewrite —`.');
             } else if (rewriteReason && !rewriteEligible) {
-              const missing = rewriteRequiredPaths.filter((path) => !changedPaths.includes(path));
+              const missing = [
+                ...rewriteRequiredPaths.filter((path) => !changedPaths.includes(path)),
+                ...(rewriteSteeringChanged ? [] : ['steering/**']),
+              ];
               failures.push(`Invalid repository-rewrite exception: require a feat!: PR and all rewrite contract paths; missing paths: ${summarizePaths(missing) || 'none'}.`);
             }
 
@@ -395,7 +397,7 @@ Path diagnostics show at most 20 paths and append the remaining count so large p
 | Mode | Predicate | Reduced checks | Invalidating paths |
 |------|-----------|----------------|--------------------|
 | Documentation-only | Current PR text contains `SDLC-Exception: docs-only — <non-empty reason>` and every changed path is project documentation | Spec correlation, relevant-path mapping, and specific verification are not required | Any source, workflow, script, skill, template, shared reference, spec, ADR, or other non-documentation path |
-| Repository rewrite | Current PR text contains `SDLC-Exception: repository-rewrite — <non-empty reason>`; title starts `feat!:`; `package.json`, `VERSION`, public guides, all steering files, the managed gate, and `references/rewrite-contract.{json,md}` and `references/rewrite-verification.md` change | Current issue/spec identity only | Missing rewrite contract path, non-breaking title, unmatched relevant path, missing steering, or missing specific verification |
+| Repository rewrite | Current PR text contains `SDLC-Exception: repository-rewrite — <non-empty reason>`; title starts `feat!:`; `package.json`, `VERSION`, public guides, a steering change (any `steering/**` path), the managed gate, and `references/rewrite-contract.{json,md}` and `references/rewrite-verification.md` change | Current issue/spec identity only | Missing rewrite contract path, non-breaking title, unmatched relevant path, missing steering, or missing specific verification |
 | Spec-only write-spec | Title matches `^docs: approve spec for #(\d+)$`; that issue number appears in current PR text; every changed path is class `spec` under exactly one `specs/{N}-{slug}/` whose leading number is that issue | Steering alignment text and specific verification are not required | Any non-spec path; title mismatch; multiple spec directories; issue number mismatch |
 
 There is no spike/ADR reduced-evidence mode. Leftover `spike` labels do not waive verification.

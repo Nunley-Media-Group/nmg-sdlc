@@ -12,7 +12,7 @@ When reusing an old issue branch after a squash-merged approved spec, require th
 
 The invocation must supply an explicit issue number in the form `#N` or `N` matching `^#?([1-9]\d*)$`.
 
-If the argument is missing or does not match, write failed handoff at the worker header `Handoff path:` (`.omp/sdlc/handoffs/<N>-start.json`) with reasonCode `no_issue_number`, summary `start-issue requires explicit #N argument`, step `start`, intervention true, status `failed`, next null. Print `NMG_SDLC_HANDOFF: .omp/sdlc/handoffs/<N>-start.json` and stop.
+If the argument is missing or does not match, write failed handoff at the worker header `Handoff path:` (`.nmg-sdlc/handoffs/<N>-start.json`) with reasonCode `no_issue_number`, summary `start-issue requires explicit #N argument`, step `start`, intervention true, status `failed`, next null. Print `NMG_SDLC_HANDOFF: .nmg-sdlc/handoffs/<N>-start.json` and stop.
 
 ## Execution
 

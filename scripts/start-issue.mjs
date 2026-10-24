@@ -11,9 +11,9 @@ import {
 } from './issue-dependencies.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
 import {
-  isAuthorizedOmpSdlcUntrackTransition,
-  untrackOmpSdlcRuntime,
-} from './omp-sdlc-ignore.mjs';
+  isAuthorizedNmgSdlcUntrackTransition,
+  untrackNmgSdlcRuntime,
+} from './nmg-sdlc-ignore.mjs';
 
 const USAGE = 'Usage: node scripts/start-issue.mjs --issue N';
 
@@ -233,12 +233,12 @@ export function startIssue({
     return handoffFor(issueNumber, 'failed', 'start-issue requires explicit #N argument', 'no_issue_number');
   }
 
-  const handoffPath = join(cwd, '.omp', 'sdlc', 'handoffs', `${issueNumber}-start.json`);
+  const handoffPath = join(cwd, '.nmg-sdlc', 'handoffs', `${issueNumber}-start.json`);
   const writeHandoff = (handoff) => {
     const directory = dirname(handoffPath);
     if (!fs.existsSync(directory)) fs.mkdirSync(directory, { recursive: true });
     fs.writeFileSync(handoffPath, `${JSON.stringify(handoff, null, 2)}\n`);
-    return { handoff, handoffPath: `.omp/sdlc/handoffs/${issueNumber}-start.json` };
+    return { handoff, handoffPath: `.nmg-sdlc/handoffs/${issueNumber}-start.json` };
   };
   const fail = (summary, reasonCode) => writeHandoff(handoffFor(issueNumber, 'failed', summary, reasonCode));
 
@@ -265,9 +265,9 @@ export function startIssue({
       dependency.reasonCode || 'dependency_unreadable',
     );
   }
-  const untrack = untrackOmpSdlcRuntime({ cwd, run, fs });
+  const untrack = untrackNmgSdlcRuntime({ cwd, run, fs });
   if (!untrack.ok) {
-    return fail('Failed to untrack plugin runtime under .omp/sdlc', 'runtime_untrack_failed');
+    return fail('Failed to untrack plugin runtime under .nmg-sdlc', 'runtime_untrack_failed');
   }
 
 
@@ -277,7 +277,7 @@ export function startIssue({
   const dirtyResult = run('git', ['status', '--porcelain', '-z'], { cwd });
   const currentBranch = branchResult?.status === 0 ? String(branchResult.stdout || '').trim() : '';
   const dirty = String(dirtyResult?.stdout || '');
-  const authorizedUntrack = isAuthorizedOmpSdlcUntrackTransition(dirty, untrack);
+  const authorizedUntrack = isAuthorizedNmgSdlcUntrackTransition(dirty, untrack);
   if (dirtyResult?.status !== 0 || (dirty && !authorizedUntrack && currentBranch !== expectedBranch)) {
     return fail(`Working tree is dirty and current branch is not ${expectedBranch}`, 'dirty_tree');
   }

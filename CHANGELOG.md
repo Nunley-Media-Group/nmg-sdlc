@@ -8,9 +8,39 @@ This project uses semantic versioning with a deliberate convention: **bug fixes 
 
 Major-version bumps are reserved for an approved spec line matching `**Version bump**: major`. If an issue title or body contains `BREAKING` and that line is absent, delivery fails closed with `reasonCode: major_bump_required`.
 
+The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0.0). Each is recorded in `references/rewrite-contract.{json,md}` and delivered under the contribution gate's `repository-rewrite` exception, not through ordinary issue delivery.
+
 ## [Unreleased]
 
+## [4.0.0] - 2026-10-24
+
+### Changed (BREAKING)
+
+- **BREAKING CHANGE (4.0.0):** nmg-sdlc is now a Claude Code plugin; the Oh My Pi extension is removed. Every 3.x capability keeps its behavior under the new host. The plugin manifest is `.claude-plugin/plugin.json`. The hooks module `hooks/register.ts` (declared by `hooks/hooks.json`) registers the six interactive `/sdlc-*` commands. The four automated commands remain plugin command files in `commands/`. Herdr workers are Claude Code sessions. Runtime state moves from `.omp/sdlc/` to `.nmg-sdlc/`.
+- This release follows the repository-rewrite precedent of 3.1.0 rather than the major-bump rule in the Versioning Policy. The host cutover changes every public surface at once and has no single issue owner, so there is no approved `**Version bump**: major` spec line. `references/rewrite-contract.{json,md}` is now the nmg-sdlc 4.0 Repository Rewrite Contract (Release 4.0.0, Runtime Claude Code, Orchestration Herdr Claude workers). It records the 16 current capabilities without a synthetic issue number.
+
+### Changed
+
+- Interactive commands (`/sdlc-draft-issue`, `/sdlc-write-spec`, `/sdlc-onboard-project`, `/sdlc-upgrade-project`, `/sdlc-steering`, `/sdlc-run-retro`) enter native plan mode through the hooks module. The module renders the workflow with `scripts/sdlc-render-prompt.mjs`, runs builtin `/plan`, and then submits the workflow as the person's prompt. Under `claude -p` or the Agent SDK they print `Run /<command> in the TUI.` and exit 2.
+- Interviews use `AskUserQuestion`: 1–4 questions per call, 2–4 options each, the recommended option first and labelled ` (Recommended)`, an automatic typed Other answer, and `multiSelect` for multi-choice questions. Plans are written to the plan-mode plan file headed `# <slug>: <title>` and finished with `ExitPlanMode`, then approved in Claude Code's plan dialog. This replaces OMP `ask` and `xd://propose`. Payloads that must become files after approval, such as steering apply plans, are fenced blocks in the plan file, written under `.nmg-sdlc/plans/` after approval.
+- `/sdlc-write-spec` Continue: the hooks module records each merged publication from the Bash result of the verbatim `publish-approved-spec.mjs merge` call. Once the turn ends with an empty prompt box, it re-enters plan mode with the Continue prompt. Finished: an `AskUserQuestion` answer with a Finished label lets the module approve the reply's closing `ExitPlanMode` call, so plan mode ends with no dialog. If the reply ends without that call, the module asks for it once and then shows a warning toast.
+- The hooks module rewrites `<plugin-root>`, `${NMG_SDLC_PLUGIN_ROOT}`, and `$NMG_SDLC_PLUGIN_ROOT` in Bash commands, and a leading `<plugin-root>` in Read paths, to the installed plugin's absolute path. Command files use `${CLAUDE_PLUGIN_ROOT}`.
+- New `NMG_SDLC_AUTOPILOT=1` session variable for unattended drivers: the hooks module approves every `ExitPlanMode` and answers every `AskUserQuestion` with each question's `(Recommended)` option, else its first option. It replaces OMP pane screen-scraping. The `repository.nmg-sdlc-smoke` provider launches its provisioning Claude pane with it.
+- `/sdlc-execute` workers start as `herdr agent start <name> --kind claude --pane <id> -- --plugin-dir <plugin-root> --permission-mode <mode>`. `--plugin-dir` makes every worker run the controller's own plugin version. `<mode>` is `auto` unless `NMG_SDLC_WORKER_PERMISSION_MODE` names one of `default`, `acceptEdits`, `auto`, `dontAsk`, or `bypassPermissions`. The Herdr integration check now expects a `claude:` integration (`herdr integration install claude`).
+- `agents/*.md` are Claude Code plugin subagents (`nmg-sdlc:<name>`). Model roles map `@fast` → `haiku` and `@review` → `opus`.
+- Workflows invoke the `skill-creator` skill with the `Skill` tool before editing skill-bundled files, replacing `skill://skill-creator`. Live exercises use `claude -p --plugin-dir <checkout>` through `scripts/exercise-claude.mjs` (renamed from `scripts/exercise-omp.mjs`); an interactive command there reports `interactive_only` and exits 2. The managed ignore line is `.nmg-sdlc/` (`scripts/nmg-sdlc-ignore.mjs`, `NMG_SDLC_IGNORE_LINE`).
+- `/sdlc-upgrade-project` adds the `runtime-state-v4`, `nmg-sdlc-ignore`, `agents-v4-host-language`, and `packaging-v4-claude-code-herdr` migration groups, and removes `omp-sdlc-ignore` and `packaging-v3-omp-herdr`.
+- Delivery keeps `VERSION`, `package.json`, and `.claude-plugin/plugin.json` synchronized; technical steering declares `.claude-plugin/plugin.json` as a version mirror.
+- The tool map moves from `references/codex-tooling.md` to `references/claude-code-tooling.md`.
+
+### Removed
+
+- The OMP extension factory `src/extension.ts`, the `omp.extensions` manifest in `package.json`, the TUI `input` rewrite, `rewriteInteractiveInput`, `sessionModeFromEntries`, `isInteractiveHeadless`, and `materializeRuntimeMessages`.
+- OMP `ask`, `xd://propose`, `local://` plan payloads, the `/plan` toggle exit after write-spec Finished, `omp --print`/RPC exercise paths, `--kind omp`/`--kind pi` workers, `herdr integration install omp`, and the OMP paste configuration (`.omp/sdlc/omp-controller.yml`, `paste.largeMenuThreshold`), which Claude Code does not need.
+
 ### Fixed
+
+These fixes landed after 3.26.0 on the Oh My Pi runtime and ship in 4.0.0. Where an entry describes OMP mechanics (TUI editor `/plan`, `ask`, `xd://propose`, `omp` panes), the Claude Code equivalent above now applies.
 
 - `/sdlc-execute` recognizes an already-delivered issue from a non-issue branch (#447). Before admission, the controller reads the issue's live state and closing pull requests. A CLOSED issue with exactly one same-repository MERGED closing pull request (with `mergedAt`, a merge commit, a closing reference to the issue, and a head branch that belongs to the issue) prints `#N: MERGED and CLOSED`, dispatches no worker, and lets the queue continue. A CLOSED issue without that proof stops with `issue_closed_undelivered: #N`, several merged closing pull requests stop with `merged_pr_ambiguous: #N`, and a failed or malformed read stops with `delivery_evidence_unavailable: #N`. None of these starts a worker. OPEN issues still go through label, dependency, and Approved-spec admission.
 - Exit native plan mode when `/sdlc-write-spec` Finished is selected (#444): either Finished choice now ends the turn after its output. Native plan mode never ends that text-only turn terminally; it schedules a decision-reminder continuation, so the extension exits there (or at a terminal turn end) by awaiting builtin `/plan` through the focused TUI editor until the session mode is `none`, which also aborts the forced continuation. Other non-terminal turn ends still wait. A draft, missing or unfocused editor, submit failure, or declined `Exit plan mode?` confirmation keeps the draft and warns once that `/plan` exits plan mode.
@@ -20,6 +50,15 @@ Major-version bumps are reserved for an approved spec line matching `**Version b
 - Ordinary delivery no longer merges a pull request that GitHub has not linked to the issue (#448). After the registered gate and immediately before the exact-head merge, delivery reads the pull request's live `closingIssuesReferences` and requires an entry with the issue number and the same-repository issue URL. When that entry is absent, delivery issues no merge and fails `closing_linkage_unobserved` (`PR #P does not link issue #N; exact-head merge not attempted`), leaving the pull request open and the issue branch intact. The open-pr deliver worker treats this as non-terminal: it waits for CI and the pull request's other checks and processes, re-observes linkage, diagnoses repository-specific causes, and reruns ordinary delivery with no numeric observation limit. Post-merge reconciliation of an already-MERGED pull request, including `delivery_linkage_unproven`, is unchanged.
 - START reports a closed issue as `issue_closed` instead of `issue_unreadable` (#449). When `gh issue view` succeeds and returns `state: CLOSED`, the start controller writes a failed handoff with `reasonCode: "issue_closed"` and summary `GitHub issue #N is CLOSED` before any dependency read, runtime untracking, or git command. Failed, unparseable, number-mismatched, and unknown-state reads still fail `issue_unreadable`; OPEN issues start unchanged.
 - `/sdlc-status` reports the branch pull request again with GitHub CLI 2.97.0 (#458). The status query no longer requests `reviewThreads`, which `gh pr view --json` rejects with `Unknown JSON field`, so `pullRequest` is populated and `/sdlc-execute` verify observes a draft pull request at the current head instead of repeating `pr_evidence_pending`. A pull-request query that fails for any reason other than `no pull requests found for branch` adds one bounded `pull request fetch failed: …` gap, and unparseable output adds `pull request parse failed: …`.
+
+### Migration Notes
+
+- Install with `/plugin marketplace add Nunley-Media-Group/nmg-plugins` and `/plugin install nmg-sdlc@nmg-plugins`, or load a checkout with `claude --plugin-dir <checkout>`. Run `herdr integration install claude` once per machine, then open a fresh Claude Code session.
+- Run `/sdlc-upgrade-project` in each consumer project. Approve `runtime-state-v4` to move `.omp/sdlc/` into `.nmg-sdlc/` (existing `.nmg-sdlc/` files are never overwritten, and conflicts are preserved). Approve `nmg-sdlc-ignore` for the `.nmg-sdlc/` ignore rule and `agents-v4-host-language` for the managed `AGENTS.md` comment.
+- Workers run with `--permission-mode auto`. Set `NMG_SDLC_WORKER_PERMISSION_MODE` in the controller's environment to choose another supported mode.
+- Herdr workers are `--kind claude`. Scripts or drivers that passed `--kind omp`/`--kind pi`, used `omp --print`, or scraped OMP panes must switch to `--kind claude`, `claude -p`, and `NMG_SDLC_AUTOPILOT=1` respectively.
+- Interactive gates are `AskUserQuestion` and `ExitPlanMode`. Approve plans in Claude Code's plan dialog; never set `NMG_SDLC_AUTOPILOT` in a session you use yourself.
+- Repository maintainers: version bumps update `VERSION`, `package.json`, and `.claude-plugin/plugin.json`. See the updated `README.md`, `AGENTS.md`, `CONTRIBUTING.md`, and `docs/decisions/2026-10-24-claude-code-cutover.md`.
 
 ## [3.26.0] - 2026-09-26
 
