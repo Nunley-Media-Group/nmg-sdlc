@@ -668,8 +668,10 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           if (dirty || needsImplement || unimplemented || (!published && !green)) step = 'implement';
           else step = green && published && !dirtyReport ? 'deliver' : 'verify';
           // The version commit lands before verification, so the registered gate runs at the
-          // head delivery merges; a new commit is verified before anything is delivered.
-          if (['verify', 'deliver'].includes(step) && !dirty && !dirtyReport && published && !evidence.pullRequest
+          // head delivery merges; a new commit is verified before anything is delivered. The
+          // issue branch's merged spec PR shares its name, so only an open PR stops preparation.
+          if (['verify', 'deliver'].includes(step) && !dirty && !dirtyReport && published
+            && evidence.pullRequest?.state !== 'OPEN'
             && prepareVersion(cwd, run, issue, invocationId) !== current.head) continue;
         }
         if (step === 'implement') inspectPublicationScope({ cwd, issue, spec: evidence.spec.path, step, run });

@@ -125,6 +125,9 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
     if (args[0] === 'pr' && args[1] === 'view') {
       const unknownField = ghPrViewUnknownField(args);
       if (unknownField) return { status: 1, stdout: '', stderr: unknownField };
+      // /sdlc-write-spec publishes the spec PR from the issue branch, so `gh pr view` may report it.
+      if (state.specPr && !state.merged && !state.draft) return result({ number: 8, state: 'MERGED', isDraft: false,
+        headRefName: '42-example', headRefOid: 'b'.repeat(40), closingIssuesReferences: [] });
       if (!state.merged && !state.draft) return { status: 1, stdout: '', stderr: 'no pull requests found for branch "42-example"\n' };
       if (state.draft && !state.merged) return result({ number: 9, state: 'OPEN',
         isDraft: true, headRefName: '42-example', headRefOid: git(root, 'rev-parse', 'HEAD') });
@@ -441,6 +444,27 @@ describe('branch-first execute', () => {
     // Every later preparation found the version synchronized and made no second commit.
     expect(f.state.versionPreparations.length).toBeGreaterThan(1);
     expect(git(f.root, 'log', '--format=%s', '--grep=deliver issue #42').split('\n')).toHaveLength(1);
+  });
+
+  it('prepares the version although the merged spec PR shares the issue branch name', () => {
+    const f = fixture();
+    f.state.specPr = true;
+    const heads = [];
+    f.setPrepareVersion(({ root, publish, state }) => {
+      if (state.versionPreparations.length > 1) return null;
+      fs.writeFileSync(path.join(root, 'VERSION'), '1.1.0\n');
+      publish('feat: deliver issue #42');
+      return null;
+    });
+    f.setWorker(({ step, state, passGate }) => {
+      heads.push(git(f.root, 'rev-parse', 'HEAD'));
+      if (step === 'verify') passGate();
+      if (step === 'deliver') { state.merged = true; state.closed = true; }
+      return { status: 'passed', next: { verify: 'deliver', deliver: null }[step] };
+    });
+    expect(f.execute('#42')).toMatchObject({ status: 0 });
+    expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['verify', 'deliver']);
+    expect(git(f.root, 'log', '-1', '--format=%s', heads[0])).toBe('feat: deliver issue #42');
   });
 
   it('stops with the preparation reason and starts no worker when the version cannot be prepared', () => {

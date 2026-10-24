@@ -50,7 +50,7 @@
 
 ### AC5: The controller prepares the version before verification
 
-**Given** a clean, published issue branch with no pull request
+**Given** a clean, published issue branch with no open pull request, including one whose only pull request is the merged spec PR that `/sdlc-write-spec` published from the same branch name
 **When** `/sdlc-execute` is about to dispatch verify or deliver
 **Then** it runs `sdlc-deliver.mjs prepare-version --issue N --controller-run-id <id>` first
 **And** when that changes the source head, the next dispatch is verify at the new head
@@ -75,7 +75,7 @@
 |----|-------------|----------|
 | FR1 | `SDLC_EFFORTS` in `src/host-events.mjs` is the only source of effort levels | Must |
 | FR2 | `stageEffort(step, failure)` returns `undefined` for a repair re-dispatch and for a stage without an effort | Must |
-| FR3 | Version preparation runs only on a clean, published branch with no pull request, and is idempotent | Must |
+| FR3 | Version preparation runs only on a clean, published branch with no open pull request, and is idempotent | Must |
 | FR4 | The registered gate always runs at the head that delivery merges | Must |
 
 ## Out of Scope

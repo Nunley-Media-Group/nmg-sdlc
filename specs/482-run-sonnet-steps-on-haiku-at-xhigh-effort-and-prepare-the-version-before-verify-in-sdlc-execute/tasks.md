@@ -38,7 +38,7 @@
 **Type**: Modify
 **Depends**: none
 **Acceptance**:
-- AC5/FR3/FR4: `prepare-version` runs before verify and deliver on a clean, published branch with no PR. A changed head is verified first, a repeat makes no second commit, and a failure stops the run
+- AC5/FR3/FR4: `prepare-version` runs before verify and deliver on a clean, published branch with no open PR, even when the merged spec PR shares the branch name. A changed head is verified first, a repeat makes no second commit, and a failure stops the run
 
 ### T005: Delivery backstop
 

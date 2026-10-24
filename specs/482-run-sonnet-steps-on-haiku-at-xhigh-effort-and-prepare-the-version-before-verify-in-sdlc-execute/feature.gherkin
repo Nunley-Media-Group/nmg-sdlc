@@ -40,6 +40,14 @@ Feature: Run Sonnet steps on Haiku at xhigh effort and prepare the version befor
     And the verify worker sees the "deliver issue #N" version commit
     And later preparations make no second version commit
 
+  @SCN008
+  Scenario: a merged spec PR on the issue branch does not stop preparation
+    Given the merged spec PR shares the issue branch name
+    And the branch is clean and published with no open pull request
+    When /sdlc-execute is about to dispatch verify
+    Then it runs prepare-version first
+    And the verify worker sees the version commit
+
   @SCN006
   Scenario: a failing preparation stops the run
     Given prepare-version fails with "major_bump_required"

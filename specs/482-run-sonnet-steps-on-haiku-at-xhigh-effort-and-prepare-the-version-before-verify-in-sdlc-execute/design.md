@@ -40,11 +40,12 @@ export const SDLC_EFFORTS = Object.freeze({
 Version preparation runs after the controller decides the next step, before it dispatches:
 
 ```js
-if (['verify', 'deliver'].includes(step) && !dirty && !dirtyReport && published && !evidence.pullRequest
+if (['verify', 'deliver'].includes(step) && !dirty && !dirtyReport && published
+  && evidence.pullRequest?.state !== 'OPEN'
   && prepareVersion(cwd, run, issue, invocationId) !== current.head) continue;
 ```
 
-`prepareVersion` runs `node <packageRoot>/scripts/sdlc-deliver.mjs prepare-version --issue N --controller-run-id <id>` and returns `headSha` from `NMG_SDLC_VERSION_PREPARED`. When the head changes, the loop re-observes the branch. The old gate no longer matches the new head, so the next dispatch is verify. `prepare-version` already returns the current head unchanged once `hasSynchronizedDeliveryState` holds, so repair loops never bump twice. On failure it throws `version_preparation_failed: <reason>`, taking the reason from the deliver handoff when the script wrote one and from stderr otherwise.
+The status evidence's `pullRequest` comes from `gh pr view` on the branch, and `/sdlc-write-spec` publishes the spec PR from the same branch name. So only an open PR stops preparation; a merged spec PR does not. `prepareVersion` runs `node <packageRoot>/scripts/sdlc-deliver.mjs prepare-version --issue N --controller-run-id <id>` and returns `headSha` from `NMG_SDLC_VERSION_PREPARED`. When the head changes, the loop re-observes the branch. The old gate no longer matches the new head, so the next dispatch is verify. `prepare-version` already returns the current head unchanged once `hasSynchronizedDeliveryState` holds, so repair loops never bump twice. On failure it throws `version_preparation_failed: <reason>`, taking the reason from the deliver handoff when the script wrote one and from stderr otherwise.
 
 ### Delivery backstop (`scripts/sdlc-deliver.mjs`)
 
