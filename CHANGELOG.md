@@ -17,6 +17,7 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 ### Fixed
 
 - Live smoke provisioning no longer loses its Claude Code agent at the workspace-trust dialog (#473). In the provider's narrow provisioning pane, Herdr reports the trust dialog as a ready agent, and the `/sdlc-draft-issue` prompt's Enter confirmed its preselected `No, exit`. The readiness loop now accepts a visible trust dialog for the owned clone before it trusts readiness. `claudeDialog` now matches dialog labels that wrap across lines.
+- `NMG_SDLC_AUTOPILOT=1` and the write-spec Finished approval now end plan mode without Claude Code's plan-approval dialog (#474). The hooks module's `ExitPlanMode` allow now carries the tool input back as `updatedInput`, which Claude Code requires before it settles a tool that needs the person.
 
 ## [4.2.1] - 2026-10-24
 

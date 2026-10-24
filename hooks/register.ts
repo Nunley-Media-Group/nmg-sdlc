@@ -233,15 +233,20 @@ export const register: Register = on => {
     return ran
   })
 
+  // Claude Code settles a plan approval only from an allow that carries the
+  // tool's input back; a bare allow leaves the approval dialog up.
+  const approvePlan = (input: unknown) =>
+    ({ behavior: 'allow', updatedInput: (input ?? {}) as Record<string, unknown> }) as const
+
   // After a write-spec Finished selection the workflow's last act is
   // ExitPlanMode; that one call is approved here, so plan mode ends with no
   // dialog and the session returns to the mode it had before plan mode.
   on('classic.PermissionRequest', async ($, e, next) => {
     if (e.tool_name === 'ExitPlanMode' && writeSpec.active && writeSpec.exitPending) {
       Object.assign(writeSpec, { active: false, exitPending: false })
-      return { decision: { behavior: 'allow' } }
+      return { decision: approvePlan(e.tool_input) }
     }
-    if (e.tool_name === 'ExitPlanMode' && autopilot) return { decision: { behavior: 'allow' } }
+    if (e.tool_name === 'ExitPlanMode' && autopilot) return { decision: approvePlan(e.tool_input) }
     if (autopilot && e.tool_name === 'AskUserQuestion') {
       const input = (e.tool_input ?? {}) as { questions?: unknown }
       return {
