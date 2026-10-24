@@ -14,7 +14,8 @@ import {
   renderWriteSpecContinuation,
   withArguments,
   writeSpecFinishedSelection,
-  writeSpecMergeCommand,
+  writeSpecMergeIssue,
+  writeSpecMergeResult,
   writeSpecPublication,
 } from '../../src/sdlc-commands.mjs';
 import {
@@ -117,18 +118,20 @@ describe('sdlc-render-prompt CLI', () => {
 
 describe('write-spec publication', () => {
   const helper = JSON.stringify(`${repoRoot}/scripts/publish-approved-spec.mjs`);
-  const command = `node ${helper} merge --issue 400 --dir specs/400-restore-per-spec-plan-approval-and-ci-gated-merge-waiting`;
-  const call = (overrides = {}) => ({ toolUseId: 'call-400', command, stdout: '{"ok":true,"merged":true,"pr":401}\n\nWall time: 1 second', ...overrides });
+  const slug = 'restore-per-spec-plan-approval-and-ci-gated-merge-waiting';
+  const command = `node ${helper} merge --issue 400 --dir specs/400-${slug}`;
+  const merged = (fields = {}) => JSON.stringify({ ok: true, merged: true, pr: 401, issue: 400, dir: `specs/400-${slug}`, ...fields });
+  const call = (overrides = {}) => ({ toolUseId: 'call-400', command, stdout: `${merged()}\n\nWall time: 1 second`, ...overrides });
 
   it.each([
     ['successful publication', call()],
-    ['post-merge helper failure', call({ stdout: 'Exit code 1\n{"ok":false,"reasonCode":"default_checkout_failed","merged":true,"pr":401}' })],
+    ['post-merge helper failure', call({ stdout: `Exit code 1\n${merged({ ok: false, reasonCode: 'default_checkout_failed' })}` })],
+    ['a trailing-slash root', call({ command: `node "${repoRoot}//scripts/publish-approved-spec.mjs" merge --issue 400 --dir specs/400-${slug}` })],
+    ['a single-quoted helper path', call({ command: `node '${repoRoot}/scripts/publish-approved-spec.mjs' merge --issue 400 --dir specs/400-${slug}` })],
+    ['an unmaterialized plugin root', call({ command: `node <plugin-root>/scripts/publish-approved-spec.mjs merge --issue 400 --dir specs/400-${slug}` })],
+    ['a chained command with a sole valid result', call({ command: `${command} && echo done` })],
   ])('records the merged publication for %s', (_label, input) => {
-    expect(writeSpecPublication(input, repoRoot)).toEqual({
-      issue: 400,
-      slug: 'restore-per-spec-plan-approval-and-ci-gated-merge-waiting',
-      pr: 401,
-    });
+    expect(writeSpecPublication(input)).toEqual({ issue: 400, slug, pr: 401 });
   });
 
   it('renders the complete workflow entered at the Continue loop with every published issue', () => {
@@ -148,24 +151,41 @@ describe('write-spec publication', () => {
   it.each([
     ['pre-merge failure', call({ stdout: '{"ok":false,"reasonCode":"pr_merge_failed"}' })],
     ['malformed output', call({ stdout: '{"merged":true' })],
-    ['multiple JSON objects', call({ stdout: '{"merged":true,"pr":401}\n{"merged":true,"pr":402}' })],
+    ['multiple JSON objects', call({ stdout: `${merged()}\n${merged({ pr: 402 })}` })],
     ['unrelated command', call({ command: 'printf done' })],
-    ['a chained command', call({ command: `${command} && echo done` })],
-    ['mismatched directory issue', call({ command: `node ${helper} merge --issue 400 --dir specs/401-wrong` })],
-    ['non-materialized helper path', call({ command: 'node <plugin-root>/scripts/publish-approved-spec.mjs merge --issue 400 --dir specs/400-slug' })],
-    ['non-positive PR', call({ stdout: '{"merged":true,"pr":0}' })],
+    ['a result without issue', call({ stdout: merged({ issue: undefined }) })],
+    ['a result without merged true', call({ stdout: merged({ merged: false }) })],
+    ['a directory issue that disagrees with the result issue', call({ stdout: merged({ dir: `specs/401-${slug}` }) })],
+    ['a result issue that disagrees with the command', call({ stdout: merged({ issue: 401, dir: `specs/401-${slug}` }) })],
+    ['a non-positive PR', call({ stdout: merged({ pr: 0 }) })],
     ['a missing tool_use_id', call({ toolUseId: '' })],
   ])('rejects %s', (_label, input) => {
-    expect(writeSpecPublication(input, repoRoot)).toBeNull();
+    expect(writeSpecPublication(input)).toBeNull();
   });
 
-  it('parses only the verbatim helper command', () => {
-    expect(writeSpecMergeCommand(command, repoRoot)).toEqual({ issue: 400, slug: 'restore-per-spec-plan-approval-and-ci-gated-merge-waiting' });
-    expect(writeSpecMergeCommand(command, `${repoRoot}/`)).toEqual({ issue: 400, slug: 'restore-per-spec-plan-approval-and-ci-gated-merge-waiting' });
-    expect(writeSpecMergeCommand(` ${command}`, repoRoot)).toBeNull();
+  it('recognizes the merge command by its --issue, whatever its spelling', () => {
+    expect(writeSpecMergeIssue(command)).toBe(400);
+    expect(writeSpecMergeIssue(`node ${helper} merge --issue "400" --dir specs/400-${slug}`)).toBe(400);
+    expect(writeSpecMergeIssue(`node ${helper} commit-push --issue 400 --dir specs/400-${slug}`)).toBeNull();
+    expect(writeSpecMergeIssue(`node ${helper} merge --issues 400`)).toBeNull();
+    expect(writeSpecMergeIssue(undefined)).toBeNull();
+  });
+
+  it('accepts only a sole merged JSON object whose dir leads with its issue', () => {
+    expect(writeSpecMergeResult(merged())).toEqual({ issue: 400, slug, pr: 401 });
+    expect(writeSpecMergeResult(merged({ dir: 'specs/400-Bad_Slug' }))).toBeNull();
     expect(soleJsonObject('text\n{"a":1}\nmore')).toEqual({ a: 1 });
     expect(soleJsonObject('{"a":1}\n{"b":2}')).toBeNull();
     expect(soleJsonObject('[1]')).toBeNull();
+  });
+
+  it('runs the merge step in the background and waits for its completion without a timeout', () => {
+    const text = renderInteractiveWorkflow('sdlc-write-spec', repoRoot, provenanceRoot());
+    const step = text.split('\n').find((line) => line.startsWith('4. ') && line.includes('merge --issue N'));
+    expect(step).toBeDefined();
+    expect(step).toContain('run_in_background: true');
+    expect(step).toContain("task's completion notification");
+    expect(step).toContain('no timeout, polling, or stall rule');
   });
 });
 

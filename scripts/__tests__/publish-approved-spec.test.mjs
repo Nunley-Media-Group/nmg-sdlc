@@ -928,6 +928,8 @@ describe('publish-approved-spec', () => {
       merged: true,
       squash: true,
       labeled: true,
+      issue: 42,
+      dir: 'specs/42-add-x',
     });
     expect(git(root, ['branch', '--show-current']).trim()).toBe('main');
     expect(git(root, ['ls-tree', '-r', '--name-only', 'origin/main'])).toContain('specs/42-add-x/requirements.md');
@@ -1088,6 +1090,8 @@ describe('publish-approved-spec', () => {
       reasonCode: 'spec_created_label_failed',
       merged: true,
       pr: 99,
+      issue: 42,
+      dir: 'specs/42-add-x',
     });
     expect(git(root, ['branch', '--show-current']).trim()).toBe('main');
     expect(git(root, ['ls-tree', '-r', '--name-only', 'origin/main'])).toContain('specs/42-add-x/requirements.md');
@@ -1111,6 +1115,8 @@ describe('publish-approved-spec', () => {
       reasonCode: 'default_checkout_failed',
       merged: true,
       pr: 99,
+      issue: 42,
+      dir: 'specs/42-add-x',
     });
     expect(git(root, ['ls-tree', '-r', '--name-only', 'origin/main'])).toContain('specs/42-add-x/requirements.md');
   });
@@ -1136,7 +1142,7 @@ describe('publish-approved-spec', () => {
     expect(result.status).not.toBe(0);
     if (proven) {
       expect(parse(result)).toMatchObject({
-        reasonCode: 'default_checkout_failed', merged: true, pr: 99,
+        reasonCode: 'default_checkout_failed', merged: true, pr: 99, issue: 42, dir: 'specs/42-add-x',
       });
       expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).toContain('issue edit 42 --add-label spec-created');
       expect(git(root, ['branch', '--show-current']).trim()).toBe('42-add-x');
@@ -1208,7 +1214,7 @@ describe('publish-approved-spec', () => {
 
     function expectExactHeadMerge({ head, result, log }) {
       expect(result.status).toBe(0);
-      expect(parse(result)).toEqual({ ok: true, branch: 'main', pr: 99, merged: true, squash: true, labeled: true });
+      expect(parse(result)).toEqual({ ok: true, branch: 'main', pr: 99, merged: true, squash: true, labeled: true, issue: 42, dir: 'specs/42-add-x' });
       expect(log.match(/pr merge 99 /g)).toHaveLength(1);
       expect(log).toContain(`pr merge 99 --squash --match-head-commit ${head} --delete-branch`);
       const lines = log.trim().split('\n');

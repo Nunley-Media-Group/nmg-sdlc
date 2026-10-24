@@ -89,22 +89,21 @@ export function interactiveHeadlessMessage(commandName) {
   return `Run /${commandName} in the TUI.\n`;
 }
 
+const WRITE_SPEC_MERGE_RE = /publish-approved-spec\.mjs["']?\s+merge\s[^\n]*?--issue\s+["']?([1-9]\d*)/;
+const WRITE_SPEC_DIR_RE = /^specs\/([1-9]\d*)-([a-z0-9]+(?:-[a-z0-9]+)*)$/;
+
+const isPositiveSafeInteger = (value) => Number.isSafeInteger(value) && value > 0;
+
 /**
- * The `{ issue, slug }` a write-spec merge command publishes, or null. The
- * command must be the helper invocation verbatim: no prefix, suffix, chaining,
- * pipe, or redirection.
+ * The `--issue` number of a write-spec merge command, or null. Root spelling,
+ * quoting, chaining, and surrounding text do not matter: the helper's result
+ * decides whether the publication happened.
  */
-export function writeSpecMergeCommand(command, root) {
-  const helper = JSON.stringify(joinRoot(root, "scripts", "publish-approved-spec.mjs"));
-  const prefix = `node ${helper} merge --issue `;
-  if (typeof command !== "string" || !command.startsWith(prefix)) return null;
-  const match = /^([1-9]\d*) --dir specs\/([1-9]\d*)-([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(
-    command.slice(prefix.length),
-  );
+export function writeSpecMergeIssue(command) {
+  const match = typeof command === "string" ? WRITE_SPEC_MERGE_RE.exec(command) : null;
   if (!match) return null;
   const issue = Number(match[1]);
-  if (!Number.isSafeInteger(issue) || issue !== Number(match[2])) return null;
-  return { issue, slug: match[3] };
+  return isPositiveSafeInteger(issue) ? issue : null;
 }
 
 /** The single JSON object line in `text`, or null when there is none or several. */
@@ -127,17 +126,29 @@ export function soleJsonObject(text) {
 }
 
 /**
- * Classifies a finished Bash call: `{ issue, slug, pr }` when it is the
- * authoritative write-spec merge and its sole JSON result reports
- * `merged: true` with a positive PR number; otherwise null.
+ * `{ issue, slug, pr }` when `text` holds a sole JSON object reporting
+ * `merged: true` with a positive `pr` and `issue`, and a `dir` whose leading
+ * number is that issue; otherwise null.
  */
-export function writeSpecPublication({ toolUseId, command, stdout }, root) {
+export function writeSpecMergeResult(text) {
+  const result = soleJsonObject(text);
+  if (result?.merged !== true || !isPositiveSafeInteger(result.pr) || !isPositiveSafeInteger(result.issue)) return null;
+  const match = typeof result.dir === "string" ? WRITE_SPEC_DIR_RE.exec(result.dir) : null;
+  if (!match || Number(match[1]) !== result.issue) return null;
+  return { issue: result.issue, slug: match[2], pr: result.pr };
+}
+
+/**
+ * Classifies a finished Bash call: `{ issue, slug, pr }` when its command
+ * invokes the write-spec merge and its sole JSON result reports the same
+ * issue merged; otherwise null.
+ */
+export function writeSpecPublication({ toolUseId, command, stdout }) {
   if (typeof toolUseId !== "string" || toolUseId.length === 0) return null;
-  const parsed = writeSpecMergeCommand(command, root);
-  if (!parsed) return null;
-  const result = soleJsonObject(stdout);
-  if (result?.merged !== true || !Number.isSafeInteger(result.pr) || result.pr <= 0) return null;
-  return { issue: parsed.issue, slug: parsed.slug, pr: result.pr };
+  const issue = writeSpecMergeIssue(command);
+  const result = writeSpecMergeResult(stdout);
+  if (issue === null || result === null || result.issue !== issue) return null;
+  return { issue, slug: result.slug, pr: result.pr };
 }
 
 /**
