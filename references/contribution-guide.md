@@ -37,7 +37,10 @@ Classify the current guide state:
 |-------|-----------|--------|
 | Missing guide | `CONTRIBUTING.md` does not exist | Create the default guide |
 | Incomplete guide | Guide exists but lacks nmg-sdlc issue/spec/steering coverage, automated delivery, PR readiness, evidence-consistency examples, validated exceptions, or managed contribution-gate remediation coverage | Append or extend targeted nmg-sdlc guidance |
+| Stale v3 wording | Guide contains the exact v3 worker-pane sentence that `contributing-v4-host-language` replaces | Not complete; `upgrade-project` refreshes it through `contributing-v4-host-language` |
 | Complete guide | Guide has equivalent issue/spec/steering coverage plus automated delivery, terminal delivery, PR readiness, evidence-consistency examples, validated exceptions, and contribution-gate remediation coverage | Report already present |
+
+The project instructions file the guide points contributors to is root `CLAUDE.md`, never `AGENTS.md`.
 
 Equivalent issue/spec/steering coverage is present when either condition is true:
 

@@ -26,5 +26,8 @@ describe('bounded spec context contract', () => {
     expect(contract).toContain('<!-- nmg-sdlc-managed: spec-context -->');
     expect(contract).toContain('<!-- /nmg-sdlc-managed -->');
     expect(contract).toContain('specs/{N}-{slug}');
+    expect(contract).toContain('root `CLAUDE.md`');
+    expect(contract).toContain('- CLAUDE.md: created');
+    expect(contract).toContain('agents-to-claude-md');
   });
 });

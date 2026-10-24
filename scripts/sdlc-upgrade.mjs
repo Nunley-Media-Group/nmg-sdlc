@@ -1190,6 +1190,237 @@ function applyAgentsHostLanguage(root, item) {
   return { id: item.id, status: 'applied' };
 }
 
+// Longest-first, so `.omp/sdlc/` is consumed before `.omp/sdlc`.
+const V3_STEERING_TOKEN_MAP = [
+  ['herdr integration install omp', 'herdr integration install claude'],
+  ['omp-sdlc-ignore.mjs', 'nmg-sdlc-ignore.mjs'],
+  ['exercise-omp.mjs', 'exercise-claude.mjs'],
+  ['omp --print', 'claude -p'],
+  ['--kind omp', '--kind claude'],
+  ['--kind pi', '--kind claude'],
+  ['.omp/sdlc/', '.nmg-sdlc/'],
+  ['.omp/sdlc', '.nmg-sdlc'],
+];
+const V3_STEERING_TOKEN_RE = new RegExp(
+  V3_STEERING_TOKEN_MAP.map(([from]) => from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'),
+  'g',
+);
+const V3_STEERING_PROSE_RE = /Oh My Pi|\bOMP\b/g;
+const V3_CONTRIBUTING_SENTENCE = 'drives Herdr omp worker panes through implementation, verification, and delivery';
+const V4_CONTRIBUTING_SENTENCE = 'drives Herdr Claude worker panes through implementation, verification, and delivery';
+const SPEC_CONTEXT_OPEN = '<!-- nmg-sdlc-managed: spec-context -->';
+const SPEC_CONTEXT_CLOSE = '<!-- /nmg-sdlc-managed -->';
+
+function rewriteV3HostTokens(text) {
+  const tokens = new Map(V3_STEERING_TOKEN_MAP);
+  return text.replace(V3_STEERING_TOKEN_RE, (match) => tokens.get(match));
+}
+
+function rewriteV3SnippetText(text) {
+  return rewriteV3HostTokens(text).replace(V3_STEERING_PROSE_RE, 'Claude Code');
+}
+
+function isSafeRegularFile(target) {
+  const stat = lstatOrNull(target);
+  return !!stat && stat.isFile() && !stat.isSymbolicLink();
+}
+
+function planSteeringHostLanguage(root) {
+  const manifestPath = path.join(root, 'steering', 'manifest.json');
+  if (!isSafeRegularFile(manifestPath)) return null;
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  } catch {
+    return null;
+  }
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) return null;
+  const occurrences = [];
+  const unverifiable = [];
+  const actions = [];
+  for (const snippet of Array.isArray(manifest.snippets) ? manifest.snippets : []) {
+    const rel = snippet?.path;
+    if (typeof rel !== 'string') continue;
+    const target = path.join(root, rel);
+    let text = null;
+    if (rel.startsWith('steering/snippets/') && !rel.split('/').includes('..') && isSafeRegularFile(target)) {
+      text = safeRead(target);
+    }
+    if (text === null) {
+      unverifiable.push({ path: rel, reasonCode: 'steering_host_language_unsafe_path' });
+      continue;
+    }
+    let changed = false;
+    const rewritten = text.split(/(?<=\n)/).map((line, index) => {
+      const after = rewriteV3SnippetText(line);
+      if (after === line) return line;
+      changed = true;
+      occurrences.push({ file: rel, line: index + 1, before: line.replace(/\r?\n$/, ''), after: after.replace(/\r?\n$/, '') });
+      return after;
+    }).join('');
+    if (changed) actions.push({ op: 'write', path: rel, content: rewritten });
+  }
+  let manifestChanged = false;
+  for (const validation of Array.isArray(manifest.validations) ? manifest.validations : []) {
+    const config = validation?.config;
+    if (!config || typeof config !== 'object' || Array.isArray(config)) continue;
+    const validationId = validation.id;
+    const wasOmp = config.program === 'omp';
+    if (wasOmp) {
+      config.program = 'claude';
+      occurrences.push({ validationId, field: 'config.program', before: 'omp', after: 'claude' });
+      manifestChanged = true;
+    } else if (typeof config.program === 'string') {
+      const after = rewriteV3HostTokens(config.program);
+      if (after !== config.program) {
+        occurrences.push({ validationId, field: 'config.program', before: config.program, after });
+        config.program = after;
+        manifestChanged = true;
+      }
+    }
+    if (Array.isArray(config.args)) {
+      config.args = config.args.map((arg, index) => {
+        if (typeof arg !== 'string') return arg;
+        const after = wasOmp && arg === '--print' ? '-p' : rewriteV3HostTokens(arg);
+        if (after === arg) return arg;
+        occurrences.push({ validationId, field: `config.args[${index}]`, before: arg, after });
+        manifestChanged = true;
+        return after;
+      });
+    }
+  }
+  if (occurrences.length === 0) return null;
+  if (manifestChanged) {
+    actions.push({ op: 'write', path: 'steering/manifest.json', content: `${JSON.stringify(manifest, null, 2)}\n` });
+  }
+  return {
+    occurrences,
+    unverifiable,
+    plan: { schemaVersion: 1, mode: 'update', sourceDigest: steeringSourceDigest(root), actions },
+  };
+}
+
+function detectSteeringHostLanguage(root) {
+  const planned = planSteeringHostLanguage(root);
+  if (!planned) return null;
+  const { occurrences, unverifiable } = planned;
+  return {
+    id: 'steering-v4-host-language',
+    kind: 'steering-v4-host-language',
+    description: `Rewrite ${occurrences.length} v3 Oh My Pi host reference(s) in registered steering snippets and validations to Claude Code.`,
+    occurrences,
+    unverifiable,
+    actionable: true,
+  };
+}
+
+function applySteeringHostLanguage(root, item) {
+  const planned = planSteeringHostLanguage(root);
+  if (!planned) return { id: item.id, status: 'already-current' };
+  if (planned.unverifiable.length > 0) {
+    return { id: item.id, status: 'skipped:unverifiable', reasonCode: 'steering_host_language_unsafe_path' };
+  }
+  try {
+    return applySteeringRuntime(root, { id: item.id, plan: planned.plan });
+  } catch (error) {
+    return { id: item.id, status: `failed:${error.message}`, reasonCode: error.reasonCode ?? 'steering_apply_failed' };
+  }
+}
+
+function detectContributingHostLanguage(root) {
+  const target = path.join(root, 'CONTRIBUTING.md');
+  if (!isSafeRegularFile(target)) return null;
+  const text = safeRead(target);
+  if (!text || !text.includes(V3_CONTRIBUTING_SENTENCE)) return null;
+  const occurrences = text.split(V3_CONTRIBUTING_SENTENCE).length - 1;
+  return {
+    id: 'contributing-v4-host-language',
+    kind: 'contributing-v4-host-language',
+    description: 'Rewrite the v3 Herdr omp worker-pane sentence in CONTRIBUTING.md to Claude.',
+    rel: 'CONTRIBUTING.md',
+    occurrences,
+    actionable: true,
+  };
+}
+
+function applyContributingHostLanguage(root, item) {
+  const target = path.join(root, 'CONTRIBUTING.md');
+  const text = isSafeRegularFile(target) ? safeRead(target) : null;
+  if (text === null) return { id: item.id, status: 'skipped:unverifiable', reasonCode: 'contributing_unsafe_path' };
+  const updated = text.split(V3_CONTRIBUTING_SENTENCE).join(V4_CONTRIBUTING_SENTENCE);
+  if (updated === text) return { id: item.id, status: 'already-current' };
+  fs.writeFileSync(target, updated);
+  return { id: item.id, status: 'applied' };
+}
+
+function detectAgentsToClaudeMd(root) {
+  if (!lstatOrNull(path.join(root, 'AGENTS.md'))) return null;
+  return {
+    id: 'agents-to-claude-md',
+    kind: 'agents-to-claude-md',
+    description: 'Move root AGENTS.md to CLAUDE.md (rename, or append into the existing CLAUDE.md).',
+    mode: lstatOrNull(path.join(root, 'CLAUDE.md')) ? 'merge' : 'rename',
+    actionable: true,
+  };
+}
+
+function gitTracks(root, rel) {
+  return spawnSync('git', ['ls-files', '--error-unmatch', '--', rel], { cwd: root, encoding: 'utf8', shell: false }).status === 0;
+}
+
+function gitCommand(root, args) {
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', shell: false });
+  if (result.error || result.status !== 0) throw new Error(result.error?.message || result.stderr || `git ${args[0]} failed`);
+}
+
+function stripManagedSection(buffer) {
+  const open = buffer.indexOf(SPEC_CONTEXT_OPEN);
+  if (open === -1) return buffer;
+  const close = buffer.indexOf(SPEC_CONTEXT_CLOSE, open + SPEC_CONTEXT_OPEN.length);
+  if (close === -1) return buffer;
+  let end = close + SPEC_CONTEXT_CLOSE.length;
+  if (buffer[end] === 0x0d && buffer[end + 1] === 0x0a) end += 2;
+  else if (buffer[end] === 0x0a) end += 1;
+  return Buffer.concat([buffer.subarray(0, open), buffer.subarray(end)]);
+}
+
+function hasManagedSection(buffer) {
+  const open = buffer.indexOf(SPEC_CONTEXT_OPEN);
+  return open !== -1 && buffer.indexOf(SPEC_CONTEXT_CLOSE, open + SPEC_CONTEXT_OPEN.length) !== -1;
+}
+
+function applyAgentsToClaudeMd(root, item) {
+  const agents = path.join(root, 'AGENTS.md');
+  const claude = path.join(root, 'CLAUDE.md');
+  const agentsStat = lstatOrNull(agents);
+  if (!agentsStat) return { id: item.id, status: 'skipped:missing' };
+  const claudeStat = lstatOrNull(claude);
+  const collision = { id: item.id, status: 'skipped:collision' };
+  if (!agentsStat.isFile() || agentsStat.isSymbolicLink()) return collision;
+  if (claudeStat && (!claudeStat.isFile() || claudeStat.isSymbolicLink())) return collision;
+  const agentsBytes = safeReadBuffer(agents);
+  const claudeBytes = claudeStat ? safeReadBuffer(claude) : null;
+  if (!agentsBytes || (claudeStat && !claudeBytes)) return collision;
+  try {
+    if (!claudeStat) {
+      if (gitTracks(root, 'AGENTS.md')) gitCommand(root, ['mv', '--', 'AGENTS.md', 'CLAUDE.md']);
+      else fs.renameSync(agents, claude);
+      return { id: item.id, status: 'applied', mode: 'rename' };
+    }
+    const appended = hasManagedSection(agentsBytes) && hasManagedSection(claudeBytes)
+      ? stripManagedSection(agentsBytes)
+      : agentsBytes;
+    const tail = claudeBytes.subarray(Math.max(0, claudeBytes.length - 2)).toString('latin1');
+    const separator = tail.endsWith('\n\n') ? '' : tail.endsWith('\n') ? '\n' : '\n\n';
+    fs.writeFileSync(claude, Buffer.concat([claudeBytes, Buffer.from(separator), appended]));
+    if (gitTracks(root, 'AGENTS.md')) gitCommand(root, ['rm', '-q', '--', 'AGENTS.md']);
+    else fs.unlinkSync(agents);
+    return { id: item.id, status: 'applied', mode: 'merge' };
+  } catch (error) {
+    return { id: item.id, status: `failed:${error.message}` };
+  }
+}
+
 // A repository's paginated issue listing alone passes spawnSync's 1 MiB default
 // buffer at about two hundred issues; an overflow would read as an unreadable listing.
 const MAX_COMMAND_OUTPUT_BYTES = 256 * 1024 * 1024;
@@ -1416,8 +1647,10 @@ function applySteeringRuntime(root, item) {
       shell: false,
     });
     if (result.error || result.status !== 0) {
-      const error = new Error(result.error?.message || result.stdout || result.stderr || 'steering apply failed');
-      error.reasonCode = 'steering_apply_failed';
+      let reported = null;
+      try { reported = JSON.parse(result.stdout); } catch { /* non-JSON failure output */ }
+      const error = new Error(result.error?.message || reported?.message || result.stdout || result.stderr || 'steering apply failed');
+      error.reasonCode = reported?.reasonCode ?? 'steering_apply_failed';
       throw error;
     }
     return { id: item.id, status: 'applied', result: JSON.parse(result.stdout) };
@@ -2459,6 +2692,9 @@ function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRu
     });
   }
 
+  const agentsMove = detectAgentsToClaudeMd(rootAbs);
+  if (agentsMove) items.push(agentsMove);
+
   const dependencyItem = includeIssueDependencies
     ? detectIssueDependencyUpgrade({ cwd: rootAbs, run })
     : null;
@@ -2512,6 +2748,10 @@ function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRu
   const gitignoreText = isFile(gi) ? safeRead(gi) || '' : '';
   const runtimeIgnore = detectRuntimeIgnore(rootAbs, gitignoreText);
   if (runtimeIgnore) items.push(runtimeIgnore);
+  const steeringHostLanguage = detectSteeringHostLanguage(rootAbs);
+  if (steeringHostLanguage) items.push(steeringHostLanguage);
+  const contributingHostLanguage = detectContributingHostLanguage(rootAbs);
+  if (contributingHostLanguage) items.push(contributingHostLanguage);
 
   if (dependencyItem) {
     items.push(dependencyItem);
@@ -2812,7 +3052,7 @@ function applyUpgrade(root, approvedItemIds = [], run, {
 
   // Split cumulative packages before renaming their shared legacy source.
   const order = (a, b) => {
-    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'steering-runtime': 2, 'publication-files': 3, 'cumulative-split': 4, 'directory-rename': 5, 'epic-flatten': 6, 'spike-flatten': 7, 'spike-remove': 7, 'spike-issue-form': 7, 'agents-spike-language': 7, 'agents-host-language': 7.5, 'frontmatter-fix': 8, 'v2-cleanup': 9, 'runtime-state-v4': 9.5, 'nmg-sdlc-ignore': 10, 'issue-dependencies': 11, 'already-current': 99 }[k] ?? 50);
+    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'steering-runtime': 2, 'publication-files': 3, 'cumulative-split': 4, 'directory-rename': 5, 'epic-flatten': 6, 'spike-flatten': 7, 'spike-remove': 7, 'spike-issue-form': 7, 'agents-spike-language': 7, 'agents-host-language': 7.5, 'agents-to-claude-md': 7.75, 'frontmatter-fix': 8, 'v2-cleanup': 9, 'runtime-state-v4': 9.5, 'nmg-sdlc-ignore': 10, 'steering-v4-host-language': 10.5, 'contributing-v4-host-language': 10.5, 'issue-dependencies': 11, 'already-current': 99 }[k] ?? 50);
     return pri(a.kind) - pri(b.kind);
   };
   const toApply = [...report.items].filter((it) => approvedSet.has(it.id)).sort(order);
@@ -2845,6 +3085,12 @@ function applyUpgrade(root, approvedItemIds = [], run, {
       res = applyV2Cleanup(rootAbs, item);
     } else if (item.kind === 'agents-host-language') {
       res = applyAgentsHostLanguage(rootAbs, item);
+    } else if (item.kind === 'agents-to-claude-md') {
+      res = applyAgentsToClaudeMd(rootAbs, item);
+    } else if (item.kind === 'steering-v4-host-language') {
+      res = applySteeringHostLanguage(rootAbs, item);
+    } else if (item.kind === 'contributing-v4-host-language') {
+      res = applyContributingHostLanguage(rootAbs, item);
     } else if (item.kind === 'runtime-state-v4') {
       res = applyRuntimeStateMigration(rootAbs, item);
     } else if (item.kind === 'nmg-sdlc-ignore') {

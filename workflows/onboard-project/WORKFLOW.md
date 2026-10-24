@@ -31,7 +31,7 @@ Build an exact initialize plan JSON for `node <plugin-root>/scripts/sdlc-steerin
 
 Initialize VERSION (0.1.0 or from manifest), create specs/ empty.
 
-Install managed assets: update CONTRIBUTING.md , AGENTS.md , .github/... using the v4 snippets (see references/).
+Install managed assets: update CONTRIBUTING.md , CLAUDE.md , .github/... using the v4 snippets (see references/).
 
 Seed v1 milestone (ask with `AskUserQuestion` only if VERSION semver leaves a real choice; greenfield usually v1).
 
@@ -57,7 +57,7 @@ Do not mutate specs here.
 
 ## Generate Snippets (v4 list)
 
-CONTRIBUTING / AGENTS / gates must emit:
+CONTRIBUTING / CLAUDE.md / gates must emit:
 
 - /sdlc-draft-issue [need]
 
