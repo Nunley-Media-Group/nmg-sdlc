@@ -2,28 +2,30 @@
 
 **Date**: 2026-10-24
 **Issue**: #464
-**Reviewer**: Claude Code (nmg-sdlc:architecture-reviewer, verify worker)
+**Reviewer**: Claude Code (manual verification at the owner's request; not an nmg-sdlc verify worker)
 **Scope**: Implementation verification against spec
-**Verification head**: 9220afd304fc60dd65802afa5bf68349bb02ad7a
+**Verification head**: a5e7ee1 (source tree identical to the implementation commit c8a8a1e)
 
 ---
 
 ## Executive Summary
 
-The branch `464-run-each-nmg-sdlc-step-on-its-assigned-claude-code-model` is at `9220afd`, which is also `main` and `origin/main`. `git log main..HEAD` is empty and `git diff main...HEAD` is empty. The only commit for #464 on this line is the spec replacement (#468). None of tasks T001–T006 has been implemented, so no acceptance criterion is met.
+The implementation in c8a8a1e meets all seven acceptance criteria and all seven functional requirements, and tasks T001–T006 are complete. A verify-stage commit (24df307) added a steering line that misdiagnosed a cancelled gate. It was reverted in a5e7ee1, so the source tree under review is exactly c8a8a1e. The earlier Fail report in this file was written on the empty branch at 9220afd, before anything was implemented. It is replaced here.
+
+This verification was done by hand because the `/sdlc-execute` controller cancelled the registered gate (#470). The contract suite, the plugin tests, the surface and spec audits, and a live model-routing exercise all pass. **The registered live smoke gate (`repository.nmg-sdlc-smoke`) was not run.** It drives `/sdlc-execute` in the smoke repository, which is the path #470 breaks, and the owner asked for delivery without nmg-sdlc.
 
 | Category | Score (1-5) |
 |----------|-------------|
-| Spec Compliance | 1 |
-| Architecture (SOLID) | N/A (no change) |
-| Security | N/A (no change) |
-| Performance | N/A (no change) |
-| Testability | N/A (no change) |
-| Error Handling | N/A (no change) |
-| **Overall** | 1 |
+| Spec Compliance | 5 |
+| Architecture (SOLID) | 5 |
+| Security | 5 |
+| Performance | 5 |
+| Testability | 5 |
+| Error Handling | 4 |
+| **Overall** | 5 |
 
-### Implementation Status: Fail
-**Total Issues**: 6 (one per unimplemented task)
+### Implementation Status: Pass
+**Total Issues**: 0 blocking; 1 gate not run (live smoke, see Test Results)
 
 ---
 
@@ -40,17 +42,8 @@ The branch `464-run-each-nmg-sdlc-step-on-its-assigned-claude-code-model` is at 
 
 ## Delivery Validation
 
-- Local verification: Not complete
-- PR evidence: Not required
-
----
-
-## Deterministic Steering Artifact and Ceiling
-
-- `steering/manifest.json` loads: modules `product`, `tech`, `structure`, `verification`, extension `project.nmg-sdlc-smoke`. Registered validations are `repository.tests` (builtin.command, required) and `repository.nmg-sdlc-smoke` (required, always).
-- `repository.tests` (`cd scripts && CI=1 npm test -- --runInBand`): **passed**, 50 suites passed and 1 skipped; 1038 tests passed and 2 skipped (373 s). This proves only that the unchanged `main` tree is green. No #464 assertion exists yet.
-- `repository.nmg-sdlc-smoke`: **not run**. The branch has no plugin change, so a live smoke experiment would have no #464 hypothesis to test (steering, Smoke Experiment Scope §3). Running it would also use up a smoke issue. The gate stays non-passing.
-- Ceiling: **Fail**, because no acceptance criterion is implemented.
+- Local verification: contract tests, plugin tests, and audits pass; live smoke not run
+- PR evidence: CI on the delivery pull request
 
 ---
 
@@ -58,13 +51,25 @@ The branch `464-run-each-nmg-sdlc-step-on-its-assigned-claude-code-model` is at 
 
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
-| AC1 | Fresh stage workers start on their stage model | Fail | `scripts/sdlc-execute.mjs` `workerAgentArgs` has no `--model`; no `stageModel` export (`grep stageModel` finds nothing) |
-| AC2 | Repair re-dispatch escalates to opus | Fail | No `stageModel` failure rule exists |
-| AC3 | Automated command files declare their model | Fail | `commands/sdlc-status.md`, `sdlc-verify-code.md`, `sdlc-open-pr.md` have no `model:` frontmatter |
-| AC4 | Hooks-registered commands run on their model | Fail | `hooks/register.ts` has no `turn.step` model rewrite |
-| AC5 | Override ends when the user moves on or picks a model | Fail | No override or `prompt.submit` clearing exists |
-| AC6 | Packaged agents and steering declare the same models | Fail | `agents/spec-implementer.md` and `agents/deliverer.md` omit `model` (spec requires `sonnet`); steering table still says "omit" |
-| AC7 | Worker start failure on a model-routed launch | Fail | No model-routed launch path exists to test |
+| AC1 | Fresh stage workers start on their stage model | Pass | `stageModel` and `workerAgentArgs` in `scripts/sdlc-execute.mjs` append `--model` after `--plugin-dir <root> --permission-mode <mode>`. Tests `starts each fresh stage on its model and a repair re-dispatch on opus` and `passes the stage model to claude after the permission mode` in `scripts/__tests__/sdlc-execute.test.mjs` pass: start `haiku`, implement `sonnet`, verify `opus`, deliver `sonnet` |
+| AC2 | Repair re-dispatch escalates to opus | Pass | A recorded failure other than `pr_evidence_pending` or `mergeability_reverification_required` returns `SDLC_MODELS.repair` (`opus`) for implement, verify, and deliver, and never for start. `preserves dirty partial work and repairs more than two distinct failures without an attempt cap` asserts the models `sonnet, opus, opus, opus, opus, opus, sonnet`, so the deliver after the pass is back on `sonnet` |
+| AC3 | Automated command files declare their model | Pass | `commands/sdlc-status.md` `model: haiku`, `sdlc-verify-code.md` `model: opus`, `sdlc-open-pr.md` `model: sonnet`, all rendered by `renderAutomatedCommandMarkdown`. Live run from this checkout with a sonnet session (`claude -p --model sonnet --plugin-dir <checkout>`): `/nmg-sdlc:sdlc-status --json` used only `claude-haiku-5-5`, `/nmg-sdlc:sdlc-verify-code` used only `claude-opus-5-5`, and a plain prompt in the same configuration used `claude-sonnet-5-5` |
+| AC4 | Hooks-registered commands run on their model | Pass | `hooks/register.ts` `turn.step` rewrites the model of main-loop requests only (no `agentId`). `claude plugin test .` test `hooks-registered commands run on their model without changing the session model` covers the workflow, the write-spec Continue, and the Finished nudge (`opus`), `/sdlc-execute` (`haiku`), an unchanged subagent request, an unchanged effort, and no `/model` run or settings write |
+| AC5 | Override ends when the user moves on or picks a model | Pass | `prompt.submit` clears the override on a non-meta `composer` or `bridge` submission. `overrideStep` clears it when `$.session.model()` differs from the recorded model. Test `the override ends when the user moves on or picks a model` covers meta and task-notification prompts keeping it, typed and bridge prompts ending it, a session-model change ending it, and a render failure setting none |
+| AC6 | Packaged agents and steering declare the same models | Pass | `agents/starter.md` `haiku`, `spec-implementer.md` `sonnet`, `architecture-reviewer.md` `opus`, `deliverer.md` `sonnet`. The Agent Files table in `steering/snippets/project-tech.md` matches. Test `agents and steering declare the stage models` in `scripts/__tests__/steering-contract.test.mjs` passes |
+| AC7 | Worker start failure on a model-routed launch | Pass | `stops with agent_start_failed on a model-routed launch and sends no prompt` passes for both `#42` (pane closed) and `#42 --retain-worker` (pane kept), with no prompt sent |
+
+## Functional Requirements
+
+| FR | Status | Evidence |
+|----|--------|----------|
+| FR1 | Pass | `SDLC_MODELS` in `src/host-events.mjs` is frozen at every level and Node-free. The controller, the command renderer, the hooks module, and the contract tests import it, and no model is defined anywhere else |
+| FR2 | Pass | `api.agentStart({ ..., model: stageModel(step, failure) })` runs on every dispatch |
+| FR3 | Pass | Checked-in `commands/*.md` match the renderer (`plugin-commands.test.mjs`) |
+| FR4 | Pass | `hooks/register.ts` only returns `{ ...e, model }` from `turn.step`, and never sets the session model or writes settings |
+| FR5 | Pass | See AC5 |
+| FR6 | Pass | `assigns one model alias to every interactive and automated command` limits every value to `haiku`, `sonnet`, and `opus` |
+| FR7 | Pass | The agents, steering table, `README.md` Model Map, and `CHANGELOG.md` all document the map |
 
 ---
 
@@ -72,18 +77,18 @@ The branch `464-run-each-nmg-sdlc-step-on-its-assigned-claude-code-model` is at 
 
 | Task | Description | Status | Notes |
 |------|-------------|--------|-------|
-| T001 | Define the step model map (`SDLC_MODELS`) | Incomplete | No `SDLC_MODELS` export in `src/host-events.mjs` |
-| T002 | Launch stage workers on their model | Incomplete | `scripts/sdlc-execute.mjs` unchanged |
-| T003 | Declare models in automated command files | Incomplete | `src/sdlc-commands.mjs` and `commands/*.md` unchanged |
-| T004 | Route hooks-registered commands through `turn.step` | Incomplete | `hooks/register.ts` unchanged |
-| T005 | Sync agents, steering, and README | Incomplete | Agents, `steering/snippets/project-tech.md`, README, and CHANGELOG unchanged |
-| T006 | Test coverage | Incomplete | No `stageModel`, `step models`, or model-frontmatter tests |
+| T001 | Define the step model map | Complete | `src/host-events.mjs`, `src/host-events.d.mts` |
+| T002 | Launch stage workers on their model | Complete | `scripts/sdlc-execute.mjs` |
+| T003 | Declare models in the automated command files | Complete | `src/sdlc-commands.mjs`, `commands/*.md` |
+| T004 | Route hooks-registered commands through `turn.step` | Complete | `hooks/register.ts` |
+| T005 | Sync agents, steering, and README | Complete | `agents/spec-implementer.md`, `agents/deliverer.md`, `steering/snippets/project-tech.md`, `README.md`, `CHANGELOG.md` |
+| T006 | Test coverage | Complete | `scripts/__tests__/sdlc-execute.test.mjs`, `plugin-commands.test.mjs`, `steering-contract.test.mjs`, `sdlc-commands.test.mjs`, `hooks/register.test.ts` |
 
 ---
 
 ## Architecture Assessment
 
-There is no implementation diff to review, so SOLID, security, performance, testability, and error-handling checklists were not scored against any change. The design in `design.md` was not re-reviewed here; it was approved in #468.
+There is one source of truth for every model. The override is per-request: the hooks module rewrites only the outgoing main-loop request and never touches session state. A failed `$.session.model()` read fails open, so the request goes out unchanged and nothing is blocked. Model values are tier aliases, never pinned model ids. Error handling scores 4 because a failed session-model read at command start silently drops the override rather than reporting it. The spec accepts that, and it is covered by `a failing session model read never blocks or rewrites a request`.
 
 ---
 
@@ -91,32 +96,28 @@ There is no implementation diff to review, so SOLID, security, performance, test
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| Contract tests (`repository.tests`) | Pass | 1038 passed / 2 skipped, exit 0. Unchanged `main` tree only |
-| Live smoke (`repository.nmg-sdlc-smoke`) | Incomplete | Not run: no plugin change to exercise |
-| Skill inventory / plugin surface | Not applicable | No surface change in diff |
-| Git hygiene (`git diff --check main...HEAD`) | Pass | Exit 0 (empty diff) |
+| Contract tests (`repository.tests`) | Pass | `cd scripts && CI=1 npm test -- --runInBand` exited 0: 50 suites passed and 1 skipped; 1045 tests passed and 2 skipped (382 s) |
+| Hooks module (`claude plugin test .`) | Pass | 20 passed, 0 failed |
+| Plugin surface | Pass | `node scripts/verify-plugin-surface.mjs --root . --label repository --claude-validate` exited 0 |
+| Current specs | Pass | `node scripts/verify-current-specs.mjs` exited 0 |
+| Skill inventory | Pass | `node scripts/skill-inventory-audit.mjs --check`: clean (90 items) |
+| Git hygiene | Pass | `git diff --check main...HEAD` exited 0 |
+| Live smoke (`repository.nmg-sdlc-smoke`) | Not run | It drives `/sdlc-execute` in the smoke repository, the path #470 breaks, and the owner asked for delivery without nmg-sdlc |
 
-**Gate Summary**: 2/4 passed, 0 failed, 1 incomplete, 1 not applicable
-
-BDD coverage: 0/7 scenarios have implementing tests.
+BDD coverage: 7/7 scenarios have implementing tests (SCN001–SCN002 and SCN007 in `sdlc-execute.test.mjs`, SCN003 in `plugin-commands.test.mjs`, SCN004–SCN005 in `hooks/register.test.ts`, SCN006 in `steering-contract.test.mjs`).
 
 ---
 
 ## Fixes Applied
 
-None. The verify publication scope allows writing only this report, and implementing the whole feature is implementation-stage work, not a small local fix.
+- Reverted 24df307 (a steering line that blamed a foreground `Bash` timeout for the cancelled gate; the actual cause is #470).
 
 ## Remaining Issues
 
 | Severity | Category | Location | Issue | Reason Not Fixed |
 |----------|----------|----------|-------|------------------|
-| Critical | Spec compliance | `src/host-events.mjs` | T001 `SDLC_MODELS` map missing | Implementation stage not run |
-| Critical | Spec compliance | `scripts/sdlc-execute.mjs` | T002 `--model` worker routing missing | Implementation stage not run |
-| Critical | Spec compliance | `src/sdlc-commands.mjs`, `commands/*.md` | T003 command `model` frontmatter missing | Implementation stage not run |
-| Critical | Spec compliance | `hooks/register.ts` | T004 `turn.step` override missing | Implementation stage not run |
-| High | Documentation | `agents/*.md`, steering, README, CHANGELOG | T005 sync missing | Implementation stage not run |
-| High | Test coverage | `scripts/__tests__/`, `hooks/register.test.ts` | T006 tests missing | Implementation stage not run |
+| Medium | Verification | `repository.nmg-sdlc-smoke` | Live smoke not run for this head | Blocked on #470; owner-directed manual delivery |
 
 ## Recommendation
 
-Major rework needed: run the implement stage for #464 (T001–T006), then verify again with the full registered gate, including live smoke.
+Ready to merge on CI evidence. Run the live smoke gate once #470 lands.

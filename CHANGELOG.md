@@ -12,6 +12,8 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.2.0] - 2026-10-24
+
 ### Added
 
 - Each nmg-sdlc step runs on its assigned Claude Code model, and the session model is never changed (#464). `SDLC_MODELS` in `src/host-events.mjs` defines the one map. Execute stage workers start with `--model`: `haiku` for start, `sonnet` for implement and deliver, `opus` for verify, and `opus` for a repair re-dispatch. `commands/sdlc-status.md`, `sdlc-verify-code.md`, and `sdlc-open-pr.md` declare `model` frontmatter (`haiku`, `opus`, `sonnet`). The hooks module rewrites main-loop `turn.step` models for `/sdlc-execute` (`haiku`) and the six interactive commands (`opus`) until you submit your own prompt or change the session model. `agents/spec-implementer.md` and `agents/deliverer.md` now declare `model: sonnet`.
