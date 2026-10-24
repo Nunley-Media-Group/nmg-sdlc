@@ -3092,6 +3092,55 @@ describe('agents-to-claude-md', () => {
     expect(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')).toBe(`# Claude\n\n# Agents\n${section}`);
   });
 
+  it('merges a tracked AGENTS.md that has local modifications and removes it', () => {
+    const root = makeRoot();
+    initGit(root);
+    write(root, 'CLAUDE.md', '# Claude\n');
+    write(root, 'AGENTS.md', '# Agents\n');
+    gitIn(root, 'add', 'AGENTS.md', 'CLAUDE.md');
+    gitIn(root, 'commit', '-q', '-m', 'init');
+    write(root, 'AGENTS.md', '# Agents\nlocal edit\n');
+    const result = applyIds(root, ['agents-to-claude-md']);
+    expect(result.results).toContainEqual({ id: 'agents-to-claude-md', status: 'applied', mode: 'merge' });
+    expect(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')).toBe('# Claude\n\n# Agents\nlocal edit\n');
+    expect(fs.existsSync(path.join(root, 'AGENTS.md'))).toBe(false);
+    expect(gitIn(root, 'ls-files', '--', 'AGENTS.md').stdout).toBe('');
+    expect(detectItems(root).some((candidate) => candidate.kind === 'agents-to-claude-md')).toBe(false);
+  });
+
+  it('merges once after agents-v4-host-language rewrites a tracked AGENTS.md in the same run', () => {
+    const root = makeRoot();
+    initGit(root);
+    write(root, 'CLAUDE.md', '# Claude\n');
+    write(root, 'AGENTS.md', 'agents/  # OMP task agents (a, b)\nnotes\n');
+    gitIn(root, 'add', 'AGENTS.md', 'CLAUDE.md');
+    gitIn(root, 'commit', '-q', '-m', 'init');
+    const result = applyIds(root, ['agents-v4-host-language', 'agents-to-claude-md']);
+    expect(result.results).toContainEqual({ id: 'agents-v4-host-language', status: 'applied' });
+    expect(result.results).toContainEqual({ id: 'agents-to-claude-md', status: 'applied', mode: 'merge' });
+    expect(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')).toBe('# Claude\n\nagents/  # Claude Code plugin subagents (a, b)\nnotes\n');
+    expect(fs.existsSync(path.join(root, 'AGENTS.md'))).toBe(false);
+    const again = applyIds(root, ['agents-v4-host-language', 'agents-to-claude-md']);
+    expect(again.results.some((entry) => String(entry.status).startsWith('failed'))).toBe(false);
+    expect(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')).toBe('# Claude\n\nagents/  # Claude Code plugin subagents (a, b)\nnotes\n');
+  });
+
+  it('restores CLAUDE.md when AGENTS.md cannot be removed', () => {
+    const root = makeRoot();
+    write(root, 'CLAUDE.md', '# Claude\n');
+    write(root, 'AGENTS.md', '# Agents\n');
+    fs.chmodSync(root, 0o555);
+    let result;
+    try {
+      result = applyIds(root, ['agents-to-claude-md']);
+    } finally {
+      fs.chmodSync(root, 0o755);
+    }
+    expect(result.results.find((entry) => entry.id === 'agents-to-claude-md').status).toMatch(/^failed:/);
+    expect(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')).toBe('# Claude\n');
+    expect(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8')).toBe('# Agents\n');
+  });
+
   it('fails closed with skipped:collision on a symlinked file', () => {
     const root = makeRoot();
     write(root, 'real.md', 'real\n');

@@ -1413,8 +1413,15 @@ function applyAgentsToClaudeMd(root, item) {
     const tail = claudeBytes.subarray(Math.max(0, claudeBytes.length - 2)).toString('latin1');
     const separator = tail.endsWith('\n\n') ? '' : tail.endsWith('\n') ? '\n' : '\n\n';
     fs.writeFileSync(claude, Buffer.concat([claudeBytes, Buffer.from(separator), appended]));
-    if (gitTracks(root, 'AGENTS.md')) gitCommand(root, ['rm', '-q', '--', 'AGENTS.md']);
-    else fs.unlinkSync(agents);
+    // AGENTS.md is now captured in CLAUDE.md, so force removal past local or earlier-group
+    // edits; if removal still fails, restore CLAUDE.md so a retry cannot append twice.
+    try {
+      if (gitTracks(root, 'AGENTS.md')) gitCommand(root, ['rm', '-q', '-f', '--', 'AGENTS.md']);
+      else fs.unlinkSync(agents);
+    } catch (error) {
+      fs.writeFileSync(claude, claudeBytes);
+      throw error;
+    }
     return { id: item.id, status: 'applied', mode: 'merge' };
   } catch (error) {
     return { id: item.id, status: `failed:${error.message}` };
