@@ -10,6 +10,7 @@ export { packageRoot, workflowBody } from "./sdlc-workflows.mjs";
 export { materializeControllerPaths } from "../scripts/plugin-controller-path.mjs";
 export {
   AUTOMATED_COMMANDS,
+  DIRECT_COMMANDS,
   INTERACTIVE_COMMANDS,
   WRITE_SPEC_FINISHED_LABELS,
   interactiveHeadlessMessage,
@@ -23,7 +24,6 @@ export {
 } from "./host-events.mjs";
 
 export const AUTOMATED_ARGUMENT_HINTS = Object.freeze({
-  "sdlc-execute": "[--retain-worker] [#N ...]",
   "sdlc-status": "[--json]",
   "sdlc-verify-code": "[#N]",
   "sdlc-open-pr": "[#N]",

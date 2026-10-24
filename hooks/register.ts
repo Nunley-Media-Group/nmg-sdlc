@@ -1,5 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
 import {
+  DIRECT_COMMANDS,
   INTERACTIVE_COMMANDS,
   WRITE_SPEC_FINISHED_LABELS,
   interactiveHeadlessMessage,
@@ -23,6 +24,7 @@ const ARGUMENT_HINTS: Record<string, string> = {
   'sdlc-upgrade-project': '',
   'sdlc-steering': '[request]',
   'sdlc-run-retro': '',
+  'sdlc-execute': '[--retain-worker] [#N ...]',
 }
 
 const PENDING_CONTINUATION_NOTICE =
@@ -135,8 +137,12 @@ export const register: Register = on => {
       const rendered = await render($, ['--consumer', name, '--args', e.args])
       if (!rendered.ok) return { text: `NMG SDLC: /${name} could not render its workflow: ${rendered.message}` }
       startInteractiveCommand(name)
-      // `/plan` cannot run from inside this command's own dispatch; a timer
-      // starts it once the dispatch has settled.
+      // Neither `/plan` nor the workflow prompt can start from inside this
+      // command's own dispatch; a timer starts them once it has settled.
+      if (DIRECT_COMMANDS.includes(name)) {
+        $.clock.after(1, () => { void $.prompt.submit({ text: rendered.text, asUser: true }) })
+        return {}
+      }
       $.clock.after(1, async () => {
         if (!(await submitInPlanMode($, rendered.text))) {
           $.ui.toast(`NMG SDLC: /${name} could not enter plan mode; run it again.`)

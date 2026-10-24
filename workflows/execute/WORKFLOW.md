@@ -15,7 +15,7 @@ Automated orchestrator. Runs only in the main Herdr pane. Never edits product co
 
 Trim `$ARGUMENTS`. Accept `--retain-worker` at most once. Absent `--retain-worker` means the controller closes its owned worker panes on every terminal stop or cancellation.
 
-Controller paths (`<plugin-root>/scripts/...`) name the installed nmg-sdlc plugin: the command file materializes them, and the nmg-sdlc hooks module materializes them in `Bash` commands, so invoke controllers exactly as written.
+Controller paths (`<plugin-root>/scripts/...`) name the installed nmg-sdlc plugin: the rendered workflow materializes them, and the nmg-sdlc hooks module materializes them in `Bash` commands, so invoke controllers exactly as written.
 
 With issue tokens (after trimming), invoke `node "<plugin-root>/scripts/sdlc-execute.mjs" run` with every trimmed token.
 

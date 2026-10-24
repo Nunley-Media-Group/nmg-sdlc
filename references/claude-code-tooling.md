@@ -2,7 +2,7 @@
 
 **Consumed by**: every interactive and automated workflow.
 
-nmg-sdlc runs as a Claude Code plugin. Its hooks module (`hooks/register.ts`) registers the interactive `/sdlc-*` commands, enters native plan mode for them, and materializes `<plugin-root>` in Bash commands and Read paths. Automated commands are plugin command files under `commands/`. Workers are Claude Code sessions in sibling Herdr panes.
+nmg-sdlc runs as a Claude Code plugin. Its hooks module (`hooks/register.ts`) registers the interactive `/sdlc-*` commands, enters native plan mode for them, registers `/sdlc-execute` outside plan mode, and materializes `<plugin-root>` in Bash commands and Read paths. The other automated commands are plugin command files under `commands/`. Workers are Claude Code sessions in sibling Herdr panes.
 
 | Need | Tool |
 |------|------|

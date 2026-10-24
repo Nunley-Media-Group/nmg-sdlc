@@ -77,7 +77,7 @@ describe('sdlc-render-prompt CLI', () => {
   });
 
   it.each([
-    ['an automated command', ['--consumer', 'sdlc-execute', '--project', '.']],
+    ['an automated command', ['--consumer', 'sdlc-status', '--project', '.']],
     ['a missing project', ['--consumer', 'sdlc-write-spec']],
     ['an unknown flag', ['--consumer', 'sdlc-write-spec', '--project', '.', '--bogus']],
   ])('rejects %s with a usage error', (_label, argv) => {

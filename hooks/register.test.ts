@@ -119,6 +119,24 @@ describe('interactive commands', () => {
     }
   })
 
+  test('sdlc-execute submits its workflow as the person without entering plan mode', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    await run($, world, 'sdlc-execute', '#7 --retain-worker')
+    expect(world.renders.at(-1)).toEqual(expect.arrayContaining(['--consumer', 'sdlc-execute', '--args', '#7 --retain-worker', '--project', '/project']))
+    expect(world.plans).toEqual([])
+    expect(world.prompts).toEqual([{ text: '# sdlc-execute workflow', asUser: true }])
+  })
+
+  test('a headless sdlc-execute fails closed without rendering', async ($, on) => {
+    const world = engine(on, { interactive: false })
+    await start($, world, false)
+    const result = await run($, world, 'sdlc-execute')
+    expect(result).toEqual(expect.objectContaining({ text: 'Run /sdlc-execute in the TUI.', exitCode: 2 }))
+    expect(world.renders).toEqual([])
+    expect(world.prompts).toEqual([])
+  })
+
   test('a render failure reports its reason and leaves the mode alone', async ($, on) => {
     const world = engine(on)
     await start($, world)

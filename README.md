@@ -17,7 +17,7 @@ Run from the root of the GitHub repository you intend to change.
 | Authenticated GitHub CLI (`gh`) | `gh auth status`; account needs the repository permissions required to create issues/PRs, push branches, read checks, and merge |
 | Configured project toolchain | Install the dependencies and tools used by the project's steering validations |
 
-Interactive commands need a Claude Code **TUI** session. Under `claude -p` or the Agent SDK they print `Run /<command> in the TUI.` and exit 2. Automated `/sdlc-execute` additionally requires a Claude Code session in a Herdr-managed pane with `HERDR_ENV=1`, `HERDR_SOCKET_PATH`, and `HERDR_PANE_ID`; Herdr supplies these. Do not invent these values to run outside Herdr.
+Interactive commands need a Claude Code **TUI** session. Under `claude -p` or the Agent SDK they print `Run /<command> in the TUI.` and exit 2. `/sdlc-execute` additionally requires a Claude Code session in a Herdr-managed pane with `HERDR_ENV=1`, `HERDR_SOCKET_PATH`, and `HERDR_PANE_ID`; Herdr supplies these. Do not invent these values to run outside Herdr.
 
 Private-repository access must work for both Git transport and `gh`. A token with read-only access is not sufficient for delivery. Repository rules, required checks, and human-review permissions remain authoritative.
 
@@ -72,7 +72,9 @@ Replace `42` with the actual GitHub issue number. Review and approve the interac
 
 ### Automated commands and workers
 
-`/sdlc-execute`, `/sdlc-status`, `/sdlc-verify-code`, and `/sdlc-open-pr` are plugin command files (`commands/*.md`). They expand in the TUI and under `claude -p`, and they never call `AskUserQuestion` or `ExitPlanMode`.
+`/sdlc-execute` is registered by the hooks module like the interactive commands, so it runs as plain `/sdlc-execute`. It renders its workflow and submits it as your prompt without entering plan mode, because its controller mutates the repository. Like the interactive commands it is TUI-only: under `claude -p` it prints `Run /sdlc-execute in the TUI.` and exits 2.
+
+`/sdlc-status`, `/sdlc-verify-code`, and `/sdlc-open-pr` are plugin command files (`commands/*.md`). They expand in the TUI and under `claude -p`, and they never call `AskUserQuestion` or `ExitPlanMode`.
 
 `/sdlc-execute` runs its stages in sibling Herdr panes, each a Claude Code session started as:
 
@@ -379,7 +381,7 @@ Status is read-only: current branch/spec, verification, GitHub issue/PR state, a
 | `/sdlc-open-pr #N` | Deliver an already-verified issue branch through merge and closure |
 | `/sdlc-run-retro` | Interactive retrospective from defect specs into project learnings |
 
-`start-issue`, `write-code`, `simplify`, and `address-pr-comments` are internal workflow stages/guidance, not additional public slash commands. Interactive commands are registered by the hooks module `hooks/register.ts`; automated commands are the plugin command files in `commands/`. Workflow bundles are rendered from the plugin's `workflows/` directory.
+`start-issue`, `write-code`, `simplify`, and `address-pr-comments` are internal workflow stages/guidance, not additional public slash commands. Interactive commands and `/sdlc-execute` are registered by the hooks module `hooks/register.ts`; the other automated commands are the plugin command files in `commands/`. Workflow bundles are rendered from the plugin's `workflows/` directory.
 
 ## Versioning and contribution gates
 
