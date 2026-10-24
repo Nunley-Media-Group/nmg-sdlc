@@ -1,0 +1,77 @@
+**Issue**: #469
+**Date**: 2026-10-24
+**Status**: Approved
+**Author**: Rich Nunley
+
+# File: scripts/__tests__/sdlc-upgrade.test.mjs
+# Generated from: specs/469-migrate-v3-oh-my-pi-references-and-move-agents-md-to-claude-md-during-sdlc-upgrade-project/requirements.md
+Feature: Migrate v3 Oh My Pi references and move AGENTS.md to CLAUDE.md during /sdlc-upgrade-project
+
+  @SCN001
+  Scenario: Steering host tokens are proposed and rewritten
+    Given a project whose registered snippets contain "omp --print", "--kind omp", "--kind pi", ".omp/sdlc/", "exercise-omp.mjs", "omp-sdlc-ignore.mjs", and "herdr integration install omp"
+    And a manifest validation with program "omp" and args "--print" and "scripts/exercise-omp.mjs"
+    When upgrade detect runs
+    Then one actionable "steering-v4-host-language" item lists every occurrence with its exact before and after text
+    And approved apply writes exactly the mapped replacements through the steering writer in update mode
+    And the steering runtime validates afterward
+
+  @SCN002
+  Scenario: Steering host prose is proposed and rewritten
+    Given a registered snippet containing "Oh My Pi", the whole word "OMP", the word "OMPX", and lowercase "omp"
+    When the "steering-v4-host-language" group is approved
+    Then "Oh My Pi" and "OMP" become "Claude Code"
+    And "OMPX", lowercase "omp", and every other byte are unchanged
+
+  @SCN003
+  Scenario: v3 CONTRIBUTING.md wording is refreshed
+    Given a CONTRIBUTING.md containing "drives Herdr omp worker panes through implementation, verification, and delivery" under a heading other than "nmg-sdlc Contribution Workflow"
+    When upgrade detect runs and "contributing-v4-host-language" is approved
+    Then the sentence becomes "drives Herdr Claude worker panes through implementation, verification, and delivery"
+    And every other byte of the file is unchanged
+
+  @SCN004
+  Scenario: The new groups are idempotent and declinable
+    Given a project where both groups were applied
+    When upgrade detect runs again
+    Then neither "steering-v4-host-language" nor "contributing-v4-host-language" is reported
+    And a project whose approved ids exclude both groups keeps its steering and CONTRIBUTING.md bytes unchanged
+
+  @SCN005
+  Scenario: Unsafe or invalid steering fails closed
+    Given a project with a mapped token and a registered snippet that is a symlink
+    When apply runs for "steering-v4-host-language"
+    Then the outcome is "skipped:unverifiable" with reason code "steering_host_language_unsafe_path" and no steering file changes
+    And a project whose managed module was tampered with gets a "failed:" outcome with reason code "steering_module_invalid" and no steering file changes
+
+  @SCN006
+  Scenario: Documentation and this repository match the new groups
+    Given this repository after the change
+    When the upgrade documentation contract test runs
+    Then the upgrade workflow, its v3-detectors, detection, and upgrade-procedures references, and README name all three groups
+    And the contribution guide, project instructions contract, and onboarding workflow name CLAUDE.md
+    And the repository has CLAUDE.md, has no AGENTS.md, and its .gitignore has no ".omp/sdlc/" rule
+
+  @SCN007
+  Scenario: AGENTS.md is renamed to CLAUDE.md
+    Given a git-tracked regular root AGENTS.md and no CLAUDE.md
+    When the "agents-to-claude-md" group is approved
+    Then CLAUDE.md has the original AGENTS.md bytes
+    And git records a rename from AGENTS.md to CLAUDE.md
+    And no AGENTS.md remains
+
+  @SCN008
+  Scenario: AGENTS.md is merged into an existing CLAUDE.md
+    Given regular root AGENTS.md and CLAUDE.md files that both contain the spec-context managed section
+    When the "agents-to-claude-md" group is approved
+    Then CLAUDE.md starts with its original bytes followed by one blank line and the AGENTS.md content
+    And the spec-context managed section appears exactly once, as the copy from CLAUDE.md
+    And AGENTS.md is deleted
+    And a symlinked AGENTS.md instead reports "skipped:collision" with nothing changed
+
+  @SCN009
+  Scenario: Managed-section reconciliation uses CLAUDE.md
+    Given a project with no AGENTS.md
+    When the managed spec-context section is created or refreshed
+    Then root CLAUDE.md holds the section and no AGENTS.md is created
+    And a repeat upgrade detect reports no "agents-to-claude-md" item
