@@ -12,6 +12,12 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.3.1] - 2026-10-24
+
+### Changed
+
+- Fix write-spec stopping silently after a spec merge that outlasts the Bash timeout (#489)
+
 ## [4.3.0] - 2026-10-24
 
 ### Added
