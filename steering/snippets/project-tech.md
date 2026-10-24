@@ -315,6 +315,7 @@ Exercise live proof uses `claude -p --plugin-dir <checkout>` loading this reposi
 - A command pass must include exit status and relevant output summary.
 - Published-install acceptance criteria remain incomplete until the published artifact exists.
 - Clone, cancellation, process-loss, launch, or cleanup failure on the live smoke gate is `Incomplete`; policy failures or missing delivery proof are `Fail`, and `/sdlc-status --json` output is never pass evidence.
+- Run `sdlc-verify-steering.mjs` with the `Bash` tool's `run_in_background: true` and read `.nmg-sdlc/verification/<issue>.json` only after its completion notification. Contract tests alone take about six minutes and live smoke takes longer, while a foreground `Bash` call is killed at its timeout (120 s by default, 600 s at most). That kill sends SIGTERM to the runner, which records `command cancelled`. A cancelled gate still ends with a written verify handoff.
 
 ### Contract Framework
 
