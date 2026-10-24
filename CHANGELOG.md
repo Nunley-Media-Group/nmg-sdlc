@@ -12,6 +12,12 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.2.1] - 2026-10-24
+
+### Fixed
+
+- `/sdlc-execute` no longer closes a worker's pane while that worker waits on its own background command, so the registered gate is no longer cancelled partway through (#470). A worker that ends a turn while a `run_in_background` command for its step still runs writes `.nmg-sdlc/handoffs/<N>-<step>.json.waiting`. The controller then polls `herdr agent wait --until working --timeout` until the worker resumes. A settled worker with neither a handoff nor that marker gets one reminder before it counts as stopped. A branch with no commits relative to the default branch is now implemented before it is verified, and a verify worker that stops without a handoff is retried as verify instead of becoming an implement repair.
+
 ## [4.2.0] - 2026-10-24
 
 ### Added
