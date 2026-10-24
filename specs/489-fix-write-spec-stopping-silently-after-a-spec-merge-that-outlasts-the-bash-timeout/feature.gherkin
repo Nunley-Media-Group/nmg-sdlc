@@ -1,0 +1,77 @@
+**Issue**: #489
+**Date**: 2026-10-24
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/438-return-write-spec-to-native-plan-mode-after-merged-publication/
+
+# File: hooks/register.test.ts, scripts/__tests__/sdlc-commands.test.mjs, scripts/__tests__/publish-approved-spec.test.mjs
+# Generated from: specs/489-fix-write-spec-stopping-silently-after-a-spec-merge-that-outlasts-the-bash-timeout/requirements.md
+Feature: Write-spec continues after a spec merge that outlasts the Bash timeout
+
+  @SCN001 @regression
+  Scenario: A merged publication is recognized from the helper result
+    Given a write-spec session
+    And a Bash command invoking publish-approved-spec.mjs merge --issue 489 with single quotes and a trailing-slash plugin root
+    When the call returns a sole JSON object with merged true, pr 490, issue 489, and dir "specs/489-slug"
+    Then published[] contains issue 489 with slug "slug" exactly once
+    And the continuation is pending
+
+  @SCN002 @regression
+  Scenario: The merge helper reports the published issue and directory
+    Given an approved spec package for issue 42 on branch 42-add-x
+    When publish-approved-spec.mjs merge --issue 42 --dir specs/42-add-x merges the PR, including when checkout or labeling fails afterward
+    Then its JSON result has merged true, issue 42, and dir "specs/42-add-x"
+
+  @SCN003 @regression
+  Scenario: The session returns to the picker in plan mode
+    Given a recognized merged publication for issue 489
+    When the main-session turn ends with an empty prompt box
+    Then the hooks module runs /plan
+    And submits one continuation prompt listing issue 489
+
+  @SCN004 @regression
+  Scenario: An unsubmitted continuation stays pending and is retried
+    Given a recognized merged publication for issue 489
+    And the prompt box holds a draft
+    When the main-session turn ends
+    Then a toast names "#489" and says the Continue picker opens after the next turn that ends with an empty prompt box
+    And no continuation is submitted
+    When a later main-session turn ends with an empty prompt box
+    Then the continuation prompt is submitted into plan mode
+
+  @SCN005 @regression
+  Scenario: Non-publication Bash calls are not treated as publications
+    Given a write-spec session with no backgrounded merge outstanding
+    When an unrelated Bash call returns merged JSON, or a merge call returns several JSON objects, no merged flag, or an issue that disagrees with dir or --issue
+    Then published[] is unchanged
+    And no continuation is submitted when the turn ends
+
+  @SCN006 @regression
+  Scenario: Existing Finished and explicit-number behavior is preserved
+    Given a write-spec session started with /sdlc-write-spec #489
+    When its publication merges and the person later selects "Finished — stop writing specs"
+    Then a continuation was submitted after the publication
+    And the reply's ExitPlanMode is approved without a dialog
+
+  @SCN007 @regression
+  Scenario: The loop continues until Finished
+    Given a write-spec session that published issue 489
+    When issue 491's publication merges and the main-session turn ends with an empty prompt box
+    Then a continuation prompt listing issues 489 and 491 is submitted into plan mode
+    And after a Finished answer no further continuation is submitted
+
+  @SCN008 @regression
+  Scenario: A background merge is recognized when it completes
+    Given a write-spec merge Bash call for issue 489 run with run_in_background true
+    And its result has a backgroundTaskId and empty stdout
+    When a later Bash cat call returns the sole merged JSON with issue 489 and dir "specs/489-slug"
+    And the main-session turn ends with an empty prompt box
+    Then published[] contains issue 489 exactly once
+    And the continuation prompt is submitted into plan mode
+
+  @SCN009 @regression
+  Scenario: The workflow waits for CI success or failure without a timeout
+    Given the rendered write-spec workflow
+    When its Approval Behavior merge step is read
+    Then it runs publish-approved-spec.mjs merge with run_in_background true
+    And it waits for the task's completion notification with no timeout or stall rule before reading the complete output
