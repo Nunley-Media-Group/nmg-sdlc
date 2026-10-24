@@ -576,27 +576,6 @@ describe('publish-approved-spec', () => {
     expect(git(root, ['branch', '--show-current']).trim()).toBe('main');
   });
 
-  it('prepare ignores the plugin runtime state under .nmg-sdlc/ (#475)', () => {
-    const { root, env } = makeRepo();
-    fs.mkdirSync(path.join(root, '.nmg-sdlc', 'prompt-provenance'), { recursive: true });
-    fs.writeFileSync(path.join(root, '.nmg-sdlc', 'prompt-provenance', 'sdlc-write-spec.json'), '{}\n');
-    const result = run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env);
-    expect(result.status).toBe(0);
-    expect(parse(result)).toEqual({ ok: true, branch: '42-add-x' });
-    expect(git(root, ['branch', '--show-current']).trim()).toBe('42-add-x');
-  });
-
-  it('prepare reports only non-runtime changes as dirty_tree (#475)', () => {
-    const { root, env } = makeRepo();
-    fs.mkdirSync(path.join(root, '.nmg-sdlc'), { recursive: true });
-    fs.writeFileSync(path.join(root, '.nmg-sdlc', 'run.json'), '{}\n');
-    fs.writeFileSync(path.join(root, 'dirty.txt'), 'nope\n');
-    const result = run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env);
-    expect(result.status).not.toBe(0);
-    expect(parse(result)).toMatchObject({ ok: false, reasonCode: 'dirty_tree', porcelain: '?? dirty.txt\n' });
-    expect(git(root, ['branch', '--show-current']).trim()).toBe('main');
-  });
-
   it('prepare checks out {N}-{slug} from a clean tree', () => {
     const { root, env } = makeRepo();
     const result = run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env);

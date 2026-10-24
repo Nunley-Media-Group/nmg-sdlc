@@ -223,14 +223,8 @@ function currentBranch() {
   return git(['branch', '--show-current']).stdout.trim();
 }
 
-// Plugin runtime state under `.nmg-sdlc/` (prompt provenance, handoffs) is
-// never committed, so it never makes the tree dirty for publication.
 function porcelain() {
-  return git(['status', '--porcelain']).stdout
-    .split('\n')
-    .filter((line) => line && !line.slice(3).startsWith('.nmg-sdlc/'))
-    .map((line) => `${line}\n`)
-    .join('');
+  return git(['status', '--porcelain']).stdout;
 }
 
 function readDefaultBranch() {
