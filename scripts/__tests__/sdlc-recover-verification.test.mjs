@@ -28,7 +28,7 @@ function fixture() {
   git('init', '-b', '42-feature');
   git('config', 'user.name', 'Fixture');
   git('config', 'user.email', 'fixture@example.test');
-  fs.writeFileSync(path.join(root, '.gitignore'), '.omp/\n');
+  fs.writeFileSync(path.join(root, '.gitignore'), '.nmg-sdlc/\n');
   fs.mkdirSync(path.join(root, spec), { recursive: true });
   const header = '**Issue**: #42\n**Status**: Approved\n';
   for (const name of ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']) {
@@ -62,8 +62,8 @@ function fixture() {
       `# Verification\n\n## Implementation Status: **${status}**\n\n<!-- nmg-sdlc-issue-scope: ${JSON.stringify(marker)} -->\n**Verification head**: ${verificationHead}\n\n## Remaining Issues\nsrc/fix.js\n`);
   };
   const writeArtifact = (sourceHead, effectiveStatus, ceiling) => {
-    fs.mkdirSync(path.join(root, '.omp/sdlc/verification'), { recursive: true });
-    fs.writeFileSync(path.join(root, '.omp/sdlc/verification/42.json'), JSON.stringify({
+    fs.mkdirSync(path.join(root, '.nmg-sdlc/verification'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.nmg-sdlc/verification/42.json'), JSON.stringify({
       schemaVersion: 1, issue: 42, identity: { headSha: sourceHead, steeringHash, specHash }, ceiling,
       coverage: { complete: true, declared: 1, recorded: 1, missing: [], duplicate: [], unknown: [] },
       results: [{ id: 'repository.tests', provider: 'builtin.command', required: true,
@@ -83,8 +83,8 @@ describe('verification recheck from live steering and branch evidence', () => {
     f.writeArtifact(f.head, 'incomplete', 'Incomplete');
     expect(await f.recover()).toEqual({ recover: true });
     expect(await f.recover()).toEqual({ recover: true });
-    expect(fs.existsSync(path.join(f.root, '.omp/sdlc/run.json'))).toBe(false);
-    expect(fs.existsSync(path.join(f.root, '.omp/sdlc/safe-recoveries.json'))).toBe(false);
+    expect(fs.existsSync(path.join(f.root, '.nmg-sdlc/run.json'))).toBe(false);
+    expect(fs.existsSync(path.join(f.root, '.nmg-sdlc/safe-recoveries.json'))).toBe(false);
   });
 
   test('a published substantive repair produces a fresh-head recheck but not a false Pass', async () => {
@@ -100,7 +100,7 @@ describe('verification recheck from live steering and branch evidence', () => {
     const probe = await f.recover({ probe: true });
     expect(probe).toMatchObject({ recover: false, eligible: true, kind: 'changed_head_failed_report', oldHead: f.head });
     expect(await f.recover()).toEqual({ recover: true, kind: 'changed_head_failed_report' });
-    expect(fs.existsSync(path.join(f.root, `.omp/sdlc/history/verification-rechecks/42-${f.head}-${f.git('rev-parse', 'HEAD')}/receipt.json`))).toBe(true);
+    expect(fs.existsSync(path.join(f.root, `.nmg-sdlc/history/verification-rechecks/42-${f.head}-${f.git('rev-parse', 'HEAD')}/receipt.json`))).toBe(true);
   });
 
   test('rejects a symlinked report without reading its target', async () => {

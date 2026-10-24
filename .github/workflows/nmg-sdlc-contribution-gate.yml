@@ -1,5 +1,5 @@
 # nmg-sdlc-managed: contribution-gate
-# nmg-sdlc-managed-version: 7
+# nmg-sdlc-managed-version: 8
 name: nmg-sdlc contribution gate
 
 on:
@@ -258,19 +258,18 @@ jobs:
               'VERSION',
               'README.md',
               'CONTRIBUTING.md',
-              'steering/manifest.json',
-              'steering/modules/product.mjs',
-              'steering/modules/tech.mjs',
-              'steering/modules/structure.mjs',
               '.github/workflows/nmg-sdlc-contribution-gate.yml',
-              'steering/modules/verification.mjs',
               'references/rewrite-contract.json',
               'references/rewrite-contract.md',
               'references/rewrite-verification.md',
             ];
+            // Steering templates are pinned by the steering writer; a rewrite must
+            // change at least one steering/ path (for example steering/snippets/).
+            const rewriteSteeringChanged = changedPaths.some((path) => path.startsWith('steering/'));
             const rewriteEligible = Boolean(rewriteReason)
               && /^feat!:/i.test(String(pr.title || '').trim())
-              && rewriteRequiredPaths.every((path) => changedPaths.includes(path));
+              && rewriteRequiredPaths.every((path) => changedPaths.includes(path))
+              && rewriteSteeringChanged;
             if (docsMarkerPresent && rewriteMarkerPresent) {
               failures.push('Invalid SDLC exception: declare exactly one reduced-evidence mode.');
             } else if (docsMarkerPresent && !docsReason) {
@@ -281,7 +280,10 @@ jobs:
             } else if (rewriteMarkerPresent && !rewriteReason) {
               failures.push('Invalid repository-rewrite exception: provide a non-empty rationale after `SDLC-Exception: repository-rewrite —`.');
             } else if (rewriteReason && !rewriteEligible) {
-              const missing = rewriteRequiredPaths.filter((path) => !changedPaths.includes(path));
+              const missing = [
+                ...rewriteRequiredPaths.filter((path) => !changedPaths.includes(path)),
+                ...(rewriteSteeringChanged ? [] : ['steering/**']),
+              ];
               failures.push(`Invalid repository-rewrite exception: require a feat!: PR and all rewrite contract paths; missing paths: ${summarizePaths(missing) || 'none'}.`);
             }
 

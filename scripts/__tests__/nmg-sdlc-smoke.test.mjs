@@ -5,15 +5,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-// review removed
-// import { inspectReviewReceipts } from "../../src/sdlc-review-isolation.mjs";
-import { 
+import {
+  claudeDialog,
+  createHerdrAdapter,
   createSmokeProvider,
   createSmokeRecoveryStore,
   inspectRecoveredDeliveryHandoff,
   inspectRecoveredVerificationEvidence,
   resolveSmokeRecoveryScope,
   validNestedOwnership,
+  workerPermissionMode,
 } from '../../steering/extensions/nmg-sdlc-smoke.mjs';
 
 const SOURCE_ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -54,7 +55,6 @@ function harness(options = {}) {
   const deliveryHead = (issue) => `${issue}`.repeat(40).slice(0, 40);
   const configured = Array.isArray(config?.issues) ? config.issues : [11, 12];
   const readFileSync = jest.fn((file) => {
-    if (String(file).endsWith('.jsonl')) return fs.readFileSync(file, 'utf8');
     if (options.readFile) return options.readFile(file, { configured, deliveryHead });
     const text = String(file);
     if (text.includes('/smoke-deliveries/') && options.proofAvailable?.value === false) return '{}';
@@ -401,7 +401,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
   it('accepts only a current deterministic verification artifact on a recovered main checkout', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-smoke-verification-'));
     commandFixtures.push({ root, marker: path.join(root, 'absent-marker') });
-    const directory = path.join(root, '.omp/sdlc/verification');
+    const directory = path.join(root, '.nmg-sdlc/verification');
     fs.mkdirSync(directory, { recursive: true });
     const verifiedHead = '23f5f71'.padEnd(40, '0');
     const finalHead = '044365a'.padEnd(40, '0');
@@ -506,8 +506,8 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
   it('validates the propagated token from the outer invocation without reading nested run state', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-smoke-owner-'));
     commandFixtures.push({ root, marker: path.join(root, 'absent-marker') });
-    fs.mkdirSync(path.join(root, '.omp/sdlc'), { recursive: true });
-    fs.writeFileSync(path.join(root, '.omp/sdlc/run.json'), JSON.stringify({
+    fs.mkdirSync(path.join(root, '.nmg-sdlc'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.nmg-sdlc/run.json'), JSON.stringify({
       schemaVersion: 1,
       projectRoot: fs.realpathSync(root),
       runId: 'nested-run',
@@ -542,7 +542,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
   it('accepts only the invocation-bound pre-merge receipt for retained delivery', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-smoke-receipt-'));
     commandFixtures.push({ root, marker: path.join(root, 'absent-marker') });
-    const receipt = path.join(root, '.omp/sdlc/smoke-deliveries/7.json');
+    const receipt = path.join(root, '.nmg-sdlc/smoke-deliveries/7.json');
     fs.mkdirSync(path.dirname(receipt), { recursive: true });
     const expected = {
       issue: 7, invocationId: TEST_SCOPE.recoveryKey, pullRequest: 7, headSha: '7'.repeat(40),
@@ -1190,143 +1190,150 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
 const NEED = 'Add one small new capability.';
 const PROVISION_CONFIG = Object.freeze({ issuesEnv: 'NMG_SDLC_SMOKE_ISSUES', provision: { need: NEED } });
 
-function askCall(id, questions) {
-  return { type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall', id, name: 'ask', arguments: { questions } }] } };
-}
-function askResult(id) {
-  return { type: 'message', message: { role: 'toolResult', toolCallId: id, toolName: 'ask', content: [] } };
-}
-function proposeResult(id) {
-  return {
-    type: 'message',
-    message: {
-      role: 'toolResult', toolCallId: id, toolName: 'write', content: [{ type: 'text', text: 'Plan ready for review.' }],
-      details: { xdev: { tool: 'propose', mode: 'execute', inner: { planFilePath: 'local://plan.md', title: 'plan', planExists: true } } },
-    },
-  };
-}
-function question(labels, recommended = 0) {
-  return { id: labels[0], question: 'Pick', options: labels.map((label) => ({ label })), recommended };
-}
-
-// The plan-approval selector as captured from a live ~19-column Herdr split pane.
-const NARROW_PLAN_SCREEN = [
-  '╭─ Plan Review ─────╮',
-  '│  Add nmg-smoke  │ │',
-  '├───────────────────┤',
-  '│ Plan mode - next… │',
-  '│ continue with  ◂… │',
-  '│ ▸ Approve and ex… │',
-  '│   Refine plan     │',
-  '├───────────────────┤',
-  '│ ↑↓ select · ⏎ co… │',
-  '╰───────────────────╯',
+// Claude Code dialog text as painted in a Herdr pane.
+const TRUST_SCREEN = [
+  ' Do you trust the files in this folder?',
+  ' /tmp/nmg-sdlc-smoke-provision-abc',
+  ' ❯ 1. Yes, proceed',
+  '   2. No, exit',
+].join('\n');
+// Captured live from a fresh clone; `No, exit` is preselected.
+const LIVE_TRUST_SCREEN = [
+  ' Accessing workspace:',
+  ' /private/tmp/nmg-sdlc-smoke-provision-abc',
+  ' Quick safety check: Is this a project you created or one you trust?',
+  ' ❯ No, exit',
+  '   Yes, I trust this folder',
+  ' Enter to confirm · Esc to cancel',
+].join('\n');
+const PERMISSION_SCREEN = [
+  ' Bash command',
+  '   gh issue create -R Nunley-Media-Group/nmg-sdlc-smoke',
+  ' Do you want to proceed?',
+  ' ❯ 1. Yes',
+  "   2. Yes, and don't ask again for gh issue create commands",
+  '   3. No, and tell Claude what to do differently (esc)',
+].join('\n');
+const PLAN_APPROVAL_SCREEN = [
+  ' Ready to code?',
+  ' Would you like to proceed?',
+  ' ❯ 1. Yes, and auto-accept edits',
+  '   2. Yes, and manually approve edits',
+  '   3. No, keep planning',
+].join('\n');
+const QUESTION_SCREEN = [
+  ' Which type of issue is this?',
+  ' ❯ 1. Enhancement (Recommended)',
+  '   2. Bug',
+  ' Enter to select · ↑/↓ to navigate · Esc to cancel',
 ].join('\n');
 
-// The spec-phase screen captured live when OMP left the focused plan-approval selector unpainted.
-const UNPAINTED_PLAN_SCREEN = [
-  ' • propose',
-  '  └─',
-  ' title="spec-184\\',
-  ' n…"',
-  ' Plan ready for …',
-  ' ⟨Ctrl+O: Expand⟩',
-  '',
-  '╭── …RBe1T ───╮',
-  '╰─              ─╯',
-].join('\n');
-
-// A scripted OMP TUI behind a fake Herdr adapter. Each phase lists gates in order; an ask gate
-// needs one `enter` per question plus a submit, a plan gate needs one `enter`.
-function fakeProvisioningTui({
+// A Claude Code session behind a fake Herdr adapter. With autopilot (NMG_SDLC_AUTOPILOT=1 in the
+// pane) every plan approval and question resolves inside the session, so each phase is only a
+// run of `working` polls followed by its GitHub side effect, unless a dialog autopilot cannot
+// answer is scripted for that phase.
+function fakeClaudePane({
   baseline = 178,
   created = [179],
-  draftGates = [{ ask: [question(['greeting_has_hyphen', 'greeting_has_apostrophe']), question(['Enhancement', 'Bug']), question(['v3 (current)', 'v4 (next)'])] }, { plan: true }],
-  specGates = [{ ask: [question(['Keep scope minimal', 'Broaden'])] }, { plan: true }],
-  afterPublish = { ask: [question(['#30 — Unrelated marker', '#143 — Other helper', 'Finished — stop writing specs'])] },
-  unknownBlocked = false,
-  planScreen = 'plan text\nPlan mode - next step\nApprove and execute',
-  specPlanScreen = planScreen,
-  planStatus = 'idle',
-  planEvidence = true,
+  draftPolls = 3,
+  specPolls = 3,
+  draftPublishes = true,
+  specPublishes = true,
+  dialog = null, // { phase, screen, polls = Infinity, status = 'blocked' }
+  afterPublishStatus = 'working',
+  settledStatus = 'idle',
+  startResult = null,
+  readyScreen = null,
+  notReadyPolls = 0,
+  trustAccepts = false, // the trust dialog clears when `down enter` is keyed
+  paneCwd = '/tmp/nmg-sdlc-smoke-fixture',
 } = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-smoke-session-'));
-  commandFixtures.push({ root: dir, marker: path.join(dir, 'absent-marker') });
-  const session = path.join(dir, 'session.jsonl');
-  fs.writeFileSync(session, '');
-  const tui = {
-    prompts: [], keys: [], splits: [], closed: [], phase: 'idle', gates: [], gate: null, pressed: 0,
-    issueCreated: false, published: false, askSeq: 0, session,
+  const pane = {
+    keys: [], trustCleared: false,
+    prompts: [], splits: [], closed: [], starts: [], phase: 'idle', remaining: 0,
+    issueCreated: false, published: false, dialogPolls: 0, gets: 0, notReady: notReadyPolls,
   };
-  const append = (entry) => fs.appendFileSync(session, `${JSON.stringify(entry)}\n`);
-  const openGate = () => {
-    tui.gate = tui.gates.shift() ?? null;
-    tui.pressed = 0;
-    if (tui.gate?.ask) {
-      tui.gate.id = `toolu_${tui.askSeq += 1}`;
-      append(askCall(tui.gate.id, tui.gate.ask));
-    }
-    if (tui.gate?.plan && planEvidence) {
-      append(proposeResult(`toolu_propose_${tui.askSeq += 1}`));
-      append({ type: 'mode_change', mode: 'plan' });
-    }
-    if (!tui.gate) {
-      if (tui.phase === 'draft') tui.issueCreated = true;
-      if (tui.phase === 'spec') {
-        tui.published = true;
-        tui.gate = afterPublish ? { ...afterPublish, id: 'toolu_after' } : null;
-        if (tui.gate?.ask) append(askCall(tui.gate.id, tui.gate.ask));
-      }
-    }
-  };
-  const status = () => {
-    if (unknownBlocked && tui.phase !== 'idle') return 'blocked';
-    if (tui.gate?.ask) return 'blocked';
-    if (tui.gate?.plan) return planStatus;
-    return 'idle';
-  };
-  const screen = () => (tui.gate?.plan ? (tui.phase === 'spec' ? specPlanScreen : planScreen) : 'Working…');
   const ok = (value) => result(0, JSON.stringify({ result: value }));
-  tui.herdr = {
-    paneSplit: async (cwd) => { tui.splits.push(cwd); return ok({ pane: { pane_id: 'wF:p99' } }); },
-    paneClose: async (pane) => { tui.closed.push(pane); return result(); },
-    agentStart: async () => ok({ agent: { interactive_ready: true } }),
-    agentGet: async () => ok({ agent: { interactive_ready: true, agent_status: status(), agent_session: { value: session } } }),
+  const trustGone = (candidate) => pane.trustCleared && candidate === TRUST_SCREEN;
+  const activeDialog = () => (dialog && dialog.phase === pane.phase && pane.remaining === 0
+    && !trustGone(dialog.screen)
+    && pane.dialogPolls < (dialog.polls ?? Infinity) ? dialog : null);
+  const advance = () => {
+    if (pane.phase === 'idle') return 'idle';
+    if (pane.remaining > 0) {
+      pane.remaining -= 1;
+      return 'working';
+    }
+    const current = activeDialog();
+    if (current) {
+      pane.dialogPolls += 1;
+      return current.status ?? 'blocked';
+    }
+    if (dialog && dialog.phase === pane.phase && (dialog.resume || trustGone(dialog.screen)) && !pane.resumed) {
+      // The transient dialog cleared; the session continues working.
+      pane.resumed = true;
+      pane.remaining = dialog.resume ?? 1;
+      return 'working';
+    }
+    if (pane.phase === 'draft' && draftPublishes) pane.issueCreated = true;
+    if (pane.phase === 'spec' && specPublishes) {
+      pane.published = true;
+      // write-spec's Continue loop keeps the session working after publication.
+      return afterPublishStatus;
+    }
+    return settledStatus;
+  };
+  const screen = () => {
+    const current = dialog && dialog.phase === pane.phase && pane.dialogPolls > 0
+      && pane.dialogPolls <= (dialog.polls ?? Infinity) && !pane.resumed && !trustGone(dialog.screen) ? dialog : null;
+    if (pane.phase === 'idle' && readyScreen && !trustGone(readyScreen)) return readyScreen;
+    return current ? current.screen : '✻ Working…';
+  };
+  pane.herdr = {
+    paneSplit: async (cwd) => { pane.splits.push(cwd); return ok({ pane: { pane_id: 'wF:p99' } }); },
+    paneClose: async (id) => { pane.closed.push(id); return result(); },
+    agentStart: async (name, id, options) => {
+      pane.starts.push({ name, pane: id, ...options });
+      return startResult ?? ok({ agent: { interactive_ready: true } });
+    },
+    agentGet: async () => {
+      pane.gets += 1;
+      if (pane.notReady > 0) {
+        pane.notReady -= 1;
+        return ok({ agent: { interactive_ready: false, agent_status: 'idle' } });
+      }
+      return ok({ agent: { interactive_ready: true, agent_status: advance() } });
+    },
     agentPrompt: async (_name, text) => {
-      tui.prompts.push(text);
-      tui.phase = text.startsWith('/sdlc-draft-issue') ? 'draft' : 'spec';
-      tui.gates = structuredClone(tui.phase === 'draft' ? draftGates : specGates);
-      openGate();
+      pane.prompts.push(text);
+      pane.phase = text.startsWith('/sdlc-draft-issue') ? 'draft' : 'spec';
+      pane.remaining = pane.phase === 'draft' ? draftPolls : specPolls;
+      pane.dialogPolls = 0;
+      pane.resumed = false;
       return result();
     },
-    agentRead: async () => result(0, screen()),
-    agentSendKeys: async (_name, keys) => {
-      tui.keys.push(...keys);
-      if (!tui.gate) return result();
-      tui.pressed += 1;
-      const needed = tui.gate.ask ? tui.gate.ask.length + (tui.gate.ask.length > 1 ? 1 : 0) : 1;
-      if (tui.pressed >= needed) {
-        if (tui.gate.ask) append(askResult(tui.gate.id));
-        if (tui.gate.plan && planEvidence) append({ type: 'mode_change', mode: 'none' });
-        openGate();
-      }
+    paneRead: async () => result(0, screen()),
+    paneGet: async (id) => ok({ pane: { pane_id: id, cwd: paneCwd, foreground_cwd: paneCwd } }),
+    paneSendKeys: async (_id, keys) => {
+      pane.keys.push(keys);
+      if (trustAccepts && screen() === TRUST_SCREEN) pane.trustCleared = true;
       return result();
     },
   };
-  tui.github = (program, args) => {
+  pane.github = (program, args) => {
     if (program !== 'gh') return null;
     if (args[0] === 'issue' && args[1] === 'list' && args.includes('--author')) {
-      return result(0, JSON.stringify(tui.issueCreated ? created.map((number) => ({ number })) : []));
+      return result(0, JSON.stringify(pane.issueCreated ? created.map((number) => ({ number })) : []));
     }
     if (args[0] === 'issue' && args[1] === 'list') return result(0, JSON.stringify([{ number: baseline }]));
     if (args[0] === 'issue' && args[1] === 'view') {
       return result(0, JSON.stringify({
         url: `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/${args[2]}`,
-        labels: tui.published ? [{ name: 'enhancement' }, { name: 'spec-created' }] : [{ name: 'enhancement' }],
+        labels: pane.published ? [{ name: 'enhancement' }, { name: 'spec-created' }] : [{ name: 'enhancement' }],
       }));
     }
     if (args[0] === 'pr' && args[1] === 'list') {
-      return result(0, JSON.stringify(tui.published ? [{
+      return result(0, JSON.stringify(pane.published ? [{
         number: 180,
         title: `docs: approve spec for #${created[0]}`,
         url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull/180',
@@ -1334,98 +1341,273 @@ function fakeProvisioningTui({
     }
     return null;
   };
-  return tui;
+  return pane;
 }
 
-function provisioningHarness(tui, options = {}) {
+function provisioningHarness(pane, options = {}) {
   return harness({
     config: PROVISION_CONFIG,
-    herdr: tui.herdr,
+    herdr: pane.herdr,
     ...options,
-    override: (program, args, commandOptions, calls) => tui.github(program, args)
+    override: (program, args, commandOptions, calls) => pane.github(program, args)
       ?? options.override?.(program, args, commandOptions, calls),
   });
 }
 
+describe('nmg-sdlc smoke provisioning Claude pane', () => {
+  it('splits the pane with autopilot and starts Claude Code with the candidate plugin and permission mode', async () => {
+    const calls = [];
+    const runCommand = async (program, args, options) => {
+      calls.push({ program, args, options });
+      return result();
+    };
+    const herdr = createHerdrAdapter(runCommand, { HERDR_ENV: '1' }, undefined);
+    await herdr.paneSplit('/tmp/clone');
+    await herdr.agentStart('smoke-provision-0001', 'wF:p99', { pluginRoot: '/repo/nmg-sdlc', permissionMode: 'auto' });
+    await herdr.agentPrompt('smoke-provision-0001', '/sdlc-draft-issue need');
+    await herdr.agentRead('smoke-provision-0001');
+    await herdr.paneGet('wF:p99');
+    await herdr.paneRead('wF:p99');
+    await herdr.paneSendKeys('wF:p99', ['down', 'enter']);
+
+    expect(calls.every(({ program }) => program === 'herdr')).toBe(true);
+    expect(calls.slice(4).map(({ args }) => args)).toEqual([
+      ['pane', 'get', 'wF:p99'],
+      ['pane', 'read', 'wF:p99', '--source', 'visible', '--format', 'text'],
+      ['pane', 'send-keys', 'wF:p99', 'down', 'enter'],
+    ]);
+    expect(calls[0].args).toEqual([
+      'pane', 'split', '--current', '--direction', 'right', '--cwd', '/tmp/clone', '--no-focus',
+      '--env', 'NMG_SDLC_AUTOPILOT=1',
+    ]);
+    expect(calls[1].args).toEqual([
+      'agent', 'start', 'smoke-provision-0001', '--kind', 'claude', '--pane', 'wF:p99',
+      '--timeout', '120000',
+      '--', '--plugin-dir', '/repo/nmg-sdlc', '--permission-mode', 'auto',
+    ]);
+    expect(calls[2].args).toEqual(['agent', 'prompt', 'smoke-provision-0001', '/sdlc-draft-issue need']);
+    expect(calls[3].args).toEqual(['agent', 'read', 'smoke-provision-0001', '--source', 'visible', '--format', 'text']);
+    expect(calls.flatMap(({ args }) => args)).not.toContain('omp');
+    expect(Object.keys(herdr)).not.toContain('agentSendKeys');
+  });
+
+  it.each([
+    [undefined, 'auto'],
+    ['', 'auto'],
+    ['default', 'default'],
+    ['acceptEdits', 'acceptEdits'],
+    ['auto', 'auto'],
+    ['dontAsk', 'dontAsk'],
+    ['bypassPermissions', 'bypassPermissions'],
+    ['plan', 'auto'],
+    ['BYPASSPERMISSIONS', 'auto'],
+  ])('selects worker permission mode %p as %p like /sdlc-execute', (value, mode) => {
+    const env = value === undefined ? {} : { NMG_SDLC_WORKER_PERMISSION_MODE: value };
+    expect(workerPermissionMode(env)).toBe(mode);
+  });
+
+  it.each([
+    ['workspace trust', TRUST_SCREEN, 'workspace_trust'],
+    ['workspace trust (newer wording)', 'Quick safety check: Is this a project you created or one you trust?\n❯ 1. Yes, I trust this folder', 'workspace_trust'],
+    ['workspace trust (live capture)', LIVE_TRUST_SCREEN, 'workspace_trust'],
+    ['a permission ask', PERMISSION_SCREEN, 'permission'],
+    ['an edit permission ask', 'Do you want to make this edit to README.md?\n❯ 1. Yes', 'permission'],
+    ['plan approval without autopilot', PLAN_APPROVAL_SCREEN, 'plan_approval'],
+    ['a question without autopilot', QUESTION_SCREEN, 'question'],
+  ])('classifies %s from pane text', (_label, screen, kind) => {
+    expect(claudeDialog(screen)?.kind).toBe(kind);
+  });
+
+  it('does not classify ordinary working output as a dialog', () => {
+    expect(claudeDialog('✻ Working… (esc to interrupt)\n⏺ Bash(gh issue list)')).toBeNull();
+    expect(claudeDialog('')).toBeNull();
+    expect(claudeDialog(undefined)).toBeNull();
+  });
+});
+
 describe('nmg-sdlc smoke gate self-provisioning', () => {
-  it('SCN006/SCN007: drafts and specifies a fresh issue, answering every gate, then delivers it', async () => {
-    const tui = fakeProvisioningTui();
-    const fixture = provisioningHarness(tui);
+  it('SCN006/SCN007: drafts and specifies a fresh issue in an autopilot Claude pane, then delivers it', async () => {
+    const pane = fakeClaudePane();
+    const fixture = provisioningHarness(pane);
     const outcome = await fixture.provider(fixture.request);
 
     expect(outcome.status).toBe('passed');
-    expect(tui.prompts).toEqual([`/sdlc-draft-issue ${NEED}`, '/sdlc-write-spec 179']);
-    // Draft: three questions + submit, plan approval. Spec: one question, plan approval.
-    expect(tui.keys).toEqual(['enter', 'enter', 'enter', 'enter', 'enter', 'enter', 'enter']);
-    expect(tui.closed).toEqual(['wF:p99']);
+    expect(pane.prompts).toEqual([`/sdlc-draft-issue ${NEED}`, '/sdlc-write-spec 179']);
+    expect(pane.splits).toEqual(['/tmp/nmg-sdlc-smoke-fixture']);
+    expect(pane.starts).toEqual([{
+      name: expect.stringMatching(/^smoke-provision-[0-9a-f]{8}$/),
+      pane: 'wF:p99',
+      pluginRoot: path.resolve(SOURCE_ROOT),
+      permissionMode: 'auto',
+    }]);
+    expect(pane.closed).toEqual(['wF:p99']);
     const execute = fixture.calls.filter((call) => call.program === process.execPath);
     expect(execute).toHaveLength(1);
     expect(execute[0].args.slice(1)).toEqual(['run', '#179']);
     expect(outcome.evidence).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'github', artifact: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull/180' }),
       expect.objectContaining({ kind: 'github', summary: expect.stringContaining('issue #179') }),
+      expect.objectContaining({ kind: 'command', summary: expect.stringContaining('--kind claude -- --plugin-dir') }),
     ]));
     const gh = fixture.calls.filter((call) => call.program === 'gh' && ['issue', 'pr'].includes(call.args[0]));
     expect(gh.every((call) => call.args.includes('Nunley-Media-Group/nmg-sdlc-smoke'))).toBe(true);
     expect(fixture.states.get(TEST_SCOPE.recoveryKey)).toMatchObject({ issues: [179], provisioned: { issue: 179, published: true } });
   });
 
+  it('starts the provisioning pane with the configured worker permission mode', async () => {
+    const pane = fakeClaudePane();
+    const fixture = provisioningHarness(pane, { env: { ...VALID_ENV, NMG_SDLC_WORKER_PERMISSION_MODE: 'bypassPermissions' } });
+    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({ status: 'passed' });
+    expect(pane.starts).toEqual([expect.objectContaining({ permissionMode: 'bypassPermissions' })]);
+  });
+
+  it('starts the provisioning pane with the verified checkout as --plugin-dir, not an installed NMG_SDLC_PLUGIN_ROOT', async () => {
+    const installed = commandFixture();
+    const checkout = path.resolve(SOURCE_ROOT);
+    const pane = fakeClaudePane();
+    const fixture = provisioningHarness(pane, { env: { ...VALID_ENV, NMG_SDLC_PLUGIN_ROOT: installed.root } });
+    fixture.request.projectRoot = checkout;
+    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({ status: 'passed' });
+    expect(pane.starts).toEqual([expect.objectContaining({ pluginRoot: checkout })]);
+  });
+
   it.each([
     ['idle', 'idle'],
-    ['blocked without a pending ask', 'blocked'],
+    ['blocked without a dialog', 'blocked'],
     ['done in an unfocused pane', 'done'],
-  ])('SCN007: approves a plan selector truncated by a narrow pane while %s', async (_label, planStatus) => {
-    const tui = fakeProvisioningTui({ planScreen: NARROW_PLAN_SCREEN, planStatus, planEvidence: false });
-    const fixture = provisioningHarness(tui);
-    const outcome = await fixture.provider(fixture.request);
-
-    expect(outcome.status).toBe('passed');
-    expect(tui.keys).toEqual(['enter', 'enter', 'enter', 'enter', 'enter', 'enter', 'enter']);
+  ])('SCN007: accepts draft publication while the settled pane is %s', async (_label, settledStatus) => {
+    const pane = fakeClaudePane({ settledStatus });
+    const fixture = provisioningHarness(pane);
+    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({ status: 'passed' });
   });
 
-  it('SCN007: approves a spec-phase plan gate that OMP left unpainted, from session evidence', async () => {
-    const tui = fakeProvisioningTui({ specPlanScreen: UNPAINTED_PLAN_SCREEN, planStatus: 'done' });
-    const fixture = provisioningHarness(tui);
-    const outcome = await fixture.provider(fixture.request);
-
-    expect(outcome.status).toBe('passed');
-    expect(tui.prompts).toEqual([`/sdlc-draft-issue ${NEED}`, '/sdlc-write-spec 179']);
-    expect(tui.keys).toEqual(['enter', 'enter', 'enter', 'enter', 'enter', 'enter', 'enter']);
+  it('SCN007: a transient dialog that clears does not stall provisioning', async () => {
+    const pane = fakeClaudePane({ dialog: { phase: 'spec', screen: PERMISSION_SCREEN, polls: 2, resume: 2 } });
+    const fixture = provisioningHarness(pane);
+    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({ status: 'passed' });
   });
 
-  it('SCN009: an unpainted plan gate without propose evidence stalls and records the agent status', async () => {
-    const tui = fakeProvisioningTui({ planScreen: UNPAINTED_PLAN_SCREEN, planEvidence: false });
-    const fixture = provisioningHarness(tui);
+  it('SCN009: a settled pane without progress stalls and records the agent status', async () => {
+    const pane = fakeClaudePane({ draftPublishes: false });
+    const fixture = provisioningHarness(pane);
     const outcome = await fixture.provider(fixture.request);
 
     expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning stalled during draft' });
-    expect(tui.keys).toHaveLength(4);
     expect(outcome.evidence).toEqual(expect.arrayContaining([
       { kind: 'artifact', summary: 'provisioning agent status', artifact: 'idle' },
+      { kind: 'artifact', summary: 'provisioning screen', artifact: '✻ Working…' },
     ]));
+    expect(pane.closed).toEqual(['wF:p99']);
   });
 
-  it('SCN008: closes the pane on publication without answering the continuation picker', async () => {
-    const tui = fakeProvisioningTui();
-    const fixture = provisioningHarness(tui);
+  it.each([
+    ['a permission ask the permission mode refuses', 'spec', PERMISSION_SCREEN, 'permission', 'permission prompt'],
+    ['a workspace trust prompt', 'draft', TRUST_SCREEN, 'workspace_trust', 'workspace trust prompt'],
+    ['a plan approval dialog (autopilot inactive)', 'draft', PLAN_APPROVAL_SCREEN, 'plan_approval', 'plan approval dialog (autopilot inactive)'],
+    ['a question dialog (autopilot inactive)', 'spec', QUESTION_SCREEN, 'question', 'question dialog (autopilot inactive)'],
+  ])('SCN009: stalls early on %s and records the dialog and agent status', async (_label, phase, screen, kind, label) => {
+    const pane = fakeClaudePane({ dialog: { phase, screen } });
+    const fixture = provisioningHarness(pane);
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(outcome).toMatchObject({ status: 'failed', summary: `nmg-sdlc-smoke provisioning stalled during ${phase} at ${label}` });
+    expect(outcome.evidence).toEqual(expect.arrayContaining([
+      { kind: 'artifact', summary: 'provisioning agent status', artifact: 'blocked' },
+      { kind: 'artifact', summary: 'provisioning dialog', artifact: kind },
+      { kind: 'artifact', summary: 'provisioning screen', artifact: screen },
+    ]));
+    // Three dialog polls, well under the twenty-poll silent stall bound.
+    expect(pane.dialogPolls).toBe(3);
+    // Only the workspace-trust dialog is ever keyed, and only once.
+    expect(pane.keys).toEqual(kind === 'workspace_trust' ? [['down', 'enter']] : []);
+    expect(pane.closed).toEqual(['wF:p99']);
+    expect(fixture.calls.some((call) => call.program === process.execPath)).toBe(false);
+  });
+
+  it('SCN009: a workspace trust prompt that blocks Claude Code startup fails with dialog evidence', async () => {
+    const pane = fakeClaudePane({ startResult: result(1, '', { stderr: 'agent not ready' }), readyScreen: TRUST_SCREEN });
+    const fixture = provisioningHarness(pane);
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning stalled at workspace trust prompt' });
+    expect(outcome.evidence).toEqual(expect.arrayContaining([
+      { kind: 'artifact', summary: 'provisioning dialog', artifact: 'workspace_trust' },
+    ]));
+    // One acceptance attempt; the dialog is still showing afterwards.
+    expect(pane.keys).toEqual([['down', 'enter']]);
+    expect(pane.prompts).toEqual([]);
+    expect(pane.closed).toEqual(['wF:p99']);
+    expect(retained(outcome)).toBe(true);
+  });
+
+  it('SCN009: a workspace trust prompt while waiting for readiness fails without prompting', async () => {
+    const pane = fakeClaudePane({ notReadyPolls: 5, readyScreen: TRUST_SCREEN });
+    const fixture = provisioningHarness(pane);
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning stalled at workspace trust prompt' });
+    expect(pane.prompts).toEqual([]);
+    expect(pane.closed).toEqual(['wF:p99']);
+  });
+
+  it.each([
+    ['blocks Claude Code startup', { startResult: result(1, '', { stderr: 'agent not ready' }), readyScreen: TRUST_SCREEN }],
+    ['shows while waiting for readiness', { notReadyPolls: 3, readyScreen: TRUST_SCREEN }],
+    ['shows during the draft phase', { dialog: { phase: 'draft', screen: TRUST_SCREEN } }],
+  ])('accepts the owned clone workspace trust prompt once when it %s, then provisions', async (_label, paneOptions) => {
+    const pane = fakeClaudePane({ trustAccepts: true, ...paneOptions });
+    const fixture = provisioningHarness(pane);
     const outcome = await fixture.provider(fixture.request);
 
     expect(outcome.status).toBe('passed');
-    const continuation = fs.readFileSync(tui.session, 'utf8');
-    expect(continuation).toContain('toolu_after');
-    expect(continuation).not.toContain('"toolCallId":"toolu_after"');
-    expect(tui.keys).toHaveLength(7);
-    expect(tui.closed).toEqual(['wF:p99']);
+    expect(pane.keys).toEqual([['down', 'enter']]);
+    expect(pane.prompts).toEqual([`/sdlc-draft-issue ${NEED}`, '/sdlc-write-spec 179']);
+    expect(outcome.evidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'command', summary: 'herdr pane send-keys wF:p99 down enter (accept workspace trust for owned clone)' }),
+    ]));
   });
 
-  it('SCN008: never answers an unpublished picker that recommends another issue', async () => {
-    const tui = fakeProvisioningTui({ specGates: [{ ask: [question(['#30 — Unrelated marker', 'Finished — stop writing specs'])] }] });
-    const fixture = provisioningHarness(tui);
+  it('SCN009: a trust prompt still showing after one acceptance attempt stalls without keying again', async () => {
+    const pane = fakeClaudePane({ notReadyPolls: 5, readyScreen: TRUST_SCREEN });
+    const fixture = provisioningHarness(pane);
     const outcome = await fixture.provider(fixture.request);
 
-    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning stalled during spec' });
-    expect(tui.keys).toHaveLength(5);
-    expect(fixture.calls.some((call) => call.program === process.execPath)).toBe(false);
+    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning stalled at workspace trust prompt' });
+    expect(pane.keys).toEqual([['down', 'enter']]);
+  });
+
+  it.each([
+    ['another directory', '/Users/someone/project'],
+    ['an unknown directory', null],
+  ])('SCN009: never keys a trust prompt when the pane cwd is %s instead of the owned clone', async (_label, paneCwd) => {
+    const pane = fakeClaudePane({ trustAccepts: true, paneCwd, startResult: result(1, ''), readyScreen: TRUST_SCREEN });
+    const fixture = provisioningHarness(pane);
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning stalled at workspace trust prompt' });
+    expect(pane.keys).toEqual([]);
+    expect(outcome.evidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ summary: 'workspace trust not accepted: pane wF:p99 cwd is not the owned clone' }),
+    ]));
+  });
+
+  it('SCN009: an agent start failure without a dialog is incomplete', async () => {
+    const pane = fakeClaudePane({ startResult: result(1, '', { stderr: 'timeout' }) });
+    const fixture = provisioningHarness(pane);
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(outcome).toMatchObject({ status: 'incomplete', summary: 'nmg-sdlc-smoke provisioning agent start failed' });
+    expect(pane.closed).toEqual(['wF:p99']);
+  });
+
+  it('SCN008: closes the pane on publication while write-spec Continue is still working', async () => {
+    const pane = fakeClaudePane({ afterPublishStatus: 'working' });
+    const fixture = provisioningHarness(pane);
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(outcome.status).toBe('passed');
+    expect(pane.prompts).toHaveLength(2);
+    expect(pane.closed).toEqual(['wF:p99']);
   });
 
   const createdIssueUrls = (outcome) => outcome.evidence
@@ -1435,15 +1617,14 @@ describe('nmg-sdlc smoke gate self-provisioning', () => {
   it.each([
     ['zero new issues', { created: [] }, 'nmg-sdlc-smoke provisioning stalled during draft', []],
     ['multiple new issues', { created: [179, 181] }, 'nmg-sdlc-smoke provisioning created multiple issues #179, #181', [179, 181]],
-    ['an unrecognized blocked gate', { unknownBlocked: true, draftGates: [], created: [] }, 'nmg-sdlc-smoke provisioning stalled during draft', []],
-    ['a free-form ask', { draftGates: [{ ask: [{ id: 'need', question: 'What?', options: [] }] }] }, 'nmg-sdlc-smoke provisioning free-form ask', []],
-  ])('SCN009: fails closed on %s, closes the pane, and retains the clone', async (_label, tuiOptions, summary, created) => {
-    const tui = fakeProvisioningTui(tuiOptions);
-    const fixture = provisioningHarness(tui);
+    ['an unrecognized blocked state', { created: [], settledStatus: 'blocked' }, 'nmg-sdlc-smoke provisioning stalled during draft', []],
+  ])('SCN009: fails closed on %s, closes the pane, and retains the clone', async (_label, paneOptions, summary, created) => {
+    const pane = fakeClaudePane(paneOptions);
+    const fixture = provisioningHarness(pane);
     const outcome = await fixture.provider(fixture.request);
 
     expect(outcome).toMatchObject({ status: 'failed', summary });
-    expect(tui.closed).toEqual(['wF:p99']);
+    expect(pane.closed).toEqual(['wF:p99']);
     expect(retained(outcome)).toBe(true);
     expect(createdIssueUrls(outcome)).toEqual(
       created.map((number) => `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/${number}`),
@@ -1452,8 +1633,8 @@ describe('nmg-sdlc smoke gate self-provisioning', () => {
   });
 
   it('SCN009: a spec-phase failure after the issue is created returns its URL as evidence', async () => {
-    const tui = fakeProvisioningTui({ specGates: [{ ask: [question(['#30 — Unrelated marker'])] }] });
-    const fixture = provisioningHarness(tui);
+    const pane = fakeClaudePane({ specPublishes: false });
+    const fixture = provisioningHarness(pane);
     const outcome = await fixture.provider(fixture.request);
 
     expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning stalled during spec' });
@@ -1462,43 +1643,71 @@ describe('nmg-sdlc smoke gate self-provisioning', () => {
 
   it('SCN009: a retry of the same identity reuses the recorded issue and only finishes its spec', async () => {
     const states = new Map();
-    const failing = fakeProvisioningTui({ specGates: [{ ask: [question(['#30 — Unrelated marker'])] }] });
+    const failing = fakeClaudePane({ specPublishes: false });
     const first = provisioningHarness(failing, { states });
     await expect(first.provider(first.request)).resolves.toMatchObject({ status: 'failed' });
     expect(states.get(TEST_SCOPE.recoveryKey)).toMatchObject({ phase: 'provisioning', provisioned: { issue: 179, published: false } });
 
-    const tui = fakeProvisioningTui();
-    const retry = provisioningHarness(tui, { states });
+    const pane = fakeClaudePane();
+    const retry = provisioningHarness(pane, { states });
     const outcome = await retry.provider(retry.request);
 
     expect(outcome.status).toBe('passed');
-    expect(tui.prompts).toEqual(['/sdlc-write-spec 179']);
+    expect(pane.prompts).toEqual(['/sdlc-write-spec 179']);
     expect(retry.calls.find((call) => call.program === process.execPath).args.slice(1)).toEqual(['run', '#179']);
   });
 
   it('SCN009: a changed identity after a delivered provisioned issue provisions a fresh issue', async () => {
     const states = new Map();
-    const first = provisioningHarness(fakeProvisioningTui(), { states });
+    const first = provisioningHarness(fakeClaudePane(), { states });
     await expect(first.provider(first.request)).resolves.toMatchObject({ status: 'passed' });
     expect(states.get(TEST_SCOPE.recoveryKey)).toMatchObject({ phase: 'terminal', provisioned: { issue: 179, published: true } });
 
-    const tui = fakeProvisioningTui({ baseline: 179, created: [182] });
-    const retry = provisioningHarness(tui, { states });
+    const pane = fakeClaudePane({ baseline: 179, created: [182] });
+    const retry = provisioningHarness(pane, { states });
     const outcome = await retry.provider({ ...retry.request, identity: { ...retry.request.identity, headSha: 'b'.repeat(40) } });
 
     expect(outcome).toMatchObject({ status: 'passed', summary: 'nmg-sdlc-smoke delivered #182' });
-    expect(tui.prompts).toEqual([`/sdlc-draft-issue ${NEED}`, '/sdlc-write-spec 182']);
+    expect(pane.prompts).toEqual([`/sdlc-draft-issue ${NEED}`, '/sdlc-write-spec 182']);
     expect(retry.calls.find((call) => call.program === process.execPath).args.slice(1)).toEqual(['run', '#182']);
     expect(states.get(TEST_SCOPE.recoveryKey)).toMatchObject({ phase: 'terminal', provisioned: { issue: 182, published: true } });
   });
 
+  it('SCN009: the same identity after a delivered provisioned issue replays terminal proof without provisioning', async () => {
+    const states = new Map();
+    const first = provisioningHarness(fakeClaudePane(), { states });
+    await expect(first.provider(first.request)).resolves.toMatchObject({ status: 'passed' });
+
+    const pane = fakeClaudePane({ baseline: 179, created: [182] });
+    const replay = provisioningHarness(pane, {
+      states,
+      // Terminal replay checks GitHub only; the closing-PR proof must still show the delivered PR.
+      override: (program, args) => (program === 'gh' && args[0] === 'api' ? result(0, JSON.stringify({
+        data: { repository: { issue: {
+          state: 'CLOSED',
+          url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/179',
+          closedByPullRequestsReferences: {
+            nodes: [{ number: 179, state: 'MERGED', url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull/179', headRefOid: '179'.repeat(14).slice(0, 40) }],
+            pageInfo: { hasNextPage: false },
+          },
+        } } },
+      })) : null),
+    });
+    const outcome = await replay.provider(replay.request);
+
+    expect(outcome).toMatchObject({ status: 'passed', summary: 'nmg-sdlc-smoke delivered #179' });
+    expect(pane.splits).toEqual([]);
+    expect(pane.prompts).toEqual([]);
+    expect(replay.calls.some((call) => call.program === process.execPath)).toBe(false);
+  });
+
   const DEAD_PANE = { pane: 'wF:p42', agent: 'smoke-provision-dead0000' };
-  const withDeadAgent = (tui, paneId = DEAD_PANE.pane) => {
-    const base = tui.herdr.agentGet;
-    tui.herdr.agentGet = async (name) => (name === DEAD_PANE.agent
+  const withDeadAgent = (pane, paneId = DEAD_PANE.pane) => {
+    const base = pane.herdr.agentGet;
+    pane.herdr.agentGet = async (name) => (name === DEAD_PANE.agent
       ? result(0, JSON.stringify({ result: { agent: { pane_id: paneId } } }))
       : base(name));
-    return tui;
+    return pane;
   };
   const interruptedState = (extra = {}) => ({
     schemaVersion: 1,
@@ -1519,48 +1728,48 @@ describe('nmg-sdlc smoke gate self-provisioning', () => {
 
   it('SCN009: an interrupted provisioning without a recorded issue fails closed for the same identity', async () => {
     const states = new Map([[TEST_SCOPE.recoveryKey, interruptedState({ provisionPane: DEAD_PANE })]]);
-    const tui = withDeadAgent(fakeProvisioningTui());
-    const fixture = provisioningHarness(tui, { states });
+    const pane = withDeadAgent(fakeClaudePane());
+    const fixture = provisioningHarness(pane, { states });
     const outcome = await fixture.provider(fixture.request);
 
     expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning interrupted' });
-    expect(tui.prompts).toEqual([]);
-    expect(tui.splits).toEqual([]);
-    expect(tui.closed).toEqual(['wF:p42']);
+    expect(pane.prompts).toEqual([]);
+    expect(pane.splits).toEqual([]);
+    expect(pane.closed).toEqual(['wF:p42']);
     expect(retained(outcome)).toBe(true);
   });
 
   it('SCN009: a changed identity closes the abandoned provisioning pane, removes its clone, and provisions fresh', async () => {
     const states = new Map([[TEST_SCOPE.recoveryKey, interruptedState({ provisionPane: DEAD_PANE })]]);
-    const tui = withDeadAgent(fakeProvisioningTui());
-    const fixture = provisioningHarness(tui, { states });
+    const pane = withDeadAgent(fakeClaudePane());
+    const fixture = provisioningHarness(pane, { states });
     const outcome = await fixture.provider({ ...fixture.request, identity: { ...fixture.request.identity, headSha: 'b'.repeat(40) } });
 
     expect(outcome.status).toBe('passed');
-    expect(tui.closed).toEqual(['wF:p42', 'wF:p99']);
+    expect(pane.closed).toEqual(['wF:p42', 'wF:p99']);
     expect(fixture.rmSync).toHaveBeenCalledWith('/tmp/nmg-sdlc-smoke-provision-old', { recursive: true, force: true });
   });
 
   it('SCN009: never closes a recorded pane id now owned by another agent', async () => {
     const states = new Map([[TEST_SCOPE.recoveryKey, interruptedState({ provisionPane: DEAD_PANE })]]);
-    const tui = withDeadAgent(fakeProvisioningTui(), 'wF:p7');
-    const fixture = provisioningHarness(tui, { states });
+    const pane = withDeadAgent(fakeClaudePane(), 'wF:p7');
+    const fixture = provisioningHarness(pane, { states });
     const outcome = await fixture.provider(fixture.request);
 
     expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning interrupted' });
-    expect(tui.closed).toEqual([]);
+    expect(pane.closed).toEqual([]);
   });
 
   it('SCN009: persists the owned pane before starting the agent and clears it once closed', async () => {
     const states = new Map();
-    const tui = fakeProvisioningTui();
-    const start = tui.herdr.agentStart;
+    const pane = fakeClaudePane();
+    const start = pane.herdr.agentStart;
     let recordedAtStart;
-    tui.herdr.agentStart = async (...args) => {
+    pane.herdr.agentStart = async (...args) => {
       recordedAtStart = structuredClone(states.get(TEST_SCOPE.recoveryKey).provisionPane);
       return start(...args);
     };
-    const fixture = provisioningHarness(tui, { states });
+    const fixture = provisioningHarness(pane, { states });
     const outcome = await fixture.provider(fixture.request);
 
     expect(recordedAtStart).toEqual({ pane: 'wF:p99', agent: expect.stringMatching(/^smoke-provision-[0-9a-f]{8}$/) });
@@ -1572,24 +1781,24 @@ describe('nmg-sdlc smoke gate self-provisioning', () => {
   });
 
   it('SCN010: an explicit queue never provisions', async () => {
-    const tui = fakeProvisioningTui();
-    const fixture = provisioningHarness(tui, { env: { ...VALID_ENV, NMG_SDLC_SMOKE_ISSUES: '#11, 12' } });
+    const pane = fakeClaudePane();
+    const fixture = provisioningHarness(pane, { env: { ...VALID_ENV, NMG_SDLC_SMOKE_ISSUES: '#11, 12' } });
     const outcome = await fixture.provider(fixture.request);
 
     expect(outcome.status).toBe('passed');
-    expect(tui.splits).toEqual([]);
-    expect(tui.prompts).toEqual([]);
+    expect(pane.splits).toEqual([]);
+    expect(pane.prompts).toEqual([]);
     expect(fixture.calls.find((call) => call.program === process.execPath).args.slice(1)).toEqual(['run', '#11', '#12']);
   });
 
   it('SCN010: an invalid non-blank explicit value still fails without provisioning', async () => {
-    const tui = fakeProvisioningTui();
-    const fixture = provisioningHarness(tui, { env: { ...VALID_ENV, NMG_SDLC_SMOKE_ISSUES: '#7 nope' } });
+    const pane = fakeClaudePane();
+    const fixture = provisioningHarness(pane, { env: { ...VALID_ENV, NMG_SDLC_SMOKE_ISSUES: '#7 nope' } });
 
     await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
       status: 'failed',
       summary: 'nmg-sdlc-smoke issues config invalid',
     });
-    expect(tui.splits).toEqual([]);
+    expect(pane.splits).toEqual([]);
   });
 });

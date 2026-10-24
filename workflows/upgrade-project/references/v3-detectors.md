@@ -1,8 +1,8 @@
-# v3 Upgrade Detectors
+# Upgrade Detectors (v3 contract + v4 migration)
 
 **Consumed by**: `upgrade-project` (via `scripts/sdlc-upgrade.mjs`).
 
-This reference documents the read-only detectors and apply contract implemented in `scripts/sdlc-upgrade.mjs`. The skill keeps interactive `/plan` + `ask` + `xd://propose` and calls these after approval. Detectors never mutate.
+This reference documents the read-only detectors and apply contract implemented in `scripts/sdlc-upgrade.mjs`, including the v3 (Oh My Pi) → v4 (Claude Code) migration in "v4 Detectors" below. The workflow stays in native plan mode, interviews with `AskUserQuestion`, writes the plan file, and calls `ExitPlanMode`; approved plan execution then calls these helpers. Detectors never mutate.
 
 ## Exported API
 
@@ -51,8 +51,8 @@ The unbounded `detectUpgrade` / `applyUpgrade` API and `detect` / `apply` CLI re
 ## Detectors (all read-only; report actionable items)
 
 1. **Packaging**
-   - Signal: `.codex-plugin/plugin.json` exists AND root `package.json` has no `omp.extensions`.
-   - Item: report that v3 installs via `omp plugin install`, marketplace, or `omp plugin link`; requires Herdr; nmg-pi optional.
+   - Signal: `.codex-plugin/plugin.json` exists, or root `package.json` declares the v3 `omp.extensions` manifest, AND `.claude-plugin/plugin.json` is absent.
+   - Item `packaging-v4-claude-code-herdr` (detector-only): report that v4 installs as a Claude Code plugin (`claude plugin marketplace add` + `claude plugin install`, or `claude --plugin-dir <checkout>`) and requires Herdr.
    - Never writes `~/.codex/config.toml` or any Codex config.
 
 2. **Legacy layout**
@@ -102,6 +102,29 @@ The unbounded `detectUpgrade` / `applyUpgrade` API and `detect` / `apply` CLI re
    - All specs are issue-owned and no approved official dependency additions remain.
 10. **v2 runner cleanup**
    - Delete only exact regular files and owned entries inside recognized blocks; never follow symlinks or remove unknown content.
+
+## v4 Detectors (v3 Oh My Pi → v4 Claude Code)
+
+v3 kept plugin runtime state under `.omp/sdlc/` and ignored it with the managed `.omp/sdlc/` rule. v4 keeps it under `.nmg-sdlc/` (`handoffs/`, `verification/`, `run.json`, `safe-recoveries.json`, `prompt-provenance/`, `smoke-deliveries/`, `plans/`, …). The `.omp/sdlc` names here are legacy-detection input only.
+
+11. **Runtime state** (`id: runtime-state-v4`, `kind: runtime-state-v4`)
+   - Signal: `.omp/sdlc` exists (any entry type).
+   - Walks `.omp/sdlc/` without following symlinks, in locale-independent sorted order, and classifies every entry:
+     - `moves`: regular file whose `.nmg-sdlc/<same relative path>` is absent.
+     - `duplicates`: target is a regular file with identical bytes; apply deletes only the legacy copy.
+     - `obsolete`: top-level `omp-controller.yml` (the OMP paste config, which has no v4 equivalent), reason `runtime_state_obsolete`; apply deletes it.
+     - `conflicts`: target exists with different bytes or is not a regular file → `runtime_state_conflict`; legacy entry is a symlink or non-regular file, `.omp` / `.omp/sdlc` is a symlink, or a `.nmg-sdlc/` target component is a symlink or non-directory → `runtime_state_unsafe_path`.
+   - `actionable` is true when `moves`, `duplicates`, or `obsolete` is non-empty; conflicts alone are reported with `actionable: false`.
+   - Apply re-plans from live state, creates target directories one segment at a time (refusing symlinks), and moves each file with an exclusive hard link (or `COPYFILE_EXCL` copy plus byte check across devices) before unlinking the source, so an existing `.nmg-sdlc/` file is never overwritten, even one created after approval. It then prunes emptied directories under `.omp/sdlc/`, including `.omp/sdlc/` itself; `.omp/` and its other contents are never touched.
+   - Result: `{ id, status, moved, deduplicated, removedObsolete, conflicts }` with `status` `applied` (something changed), `skipped:collision` (only conflicts remain), `already-current`, or `failed:<message>` with `reasonCode: runtime_state_move_failed`.
+12. **Runtime ignore** (`id: nmg-sdlc-ignore`, `kind: nmg-sdlc-ignore`)
+   - Signal: `.gitignore` lacks an exact non-comment `.nmg-sdlc/` or `.nmg-sdlc` rule, or carries the legacy managed `.omp/sdlc/` / `.omp/sdlc` rule while `.omp/sdlc` no longer exists (`swapLegacy: true`).
+   - Apply (after `v2-cleanup` and `runtime-state-v4`): when `.omp/sdlc` is gone, replace the first legacy rule in place with `.nmg-sdlc/` (or drop it when `.nmg-sdlc/` is already present) and drop any repeats, preserving CRLF endings; otherwise append `.nmg-sdlc/`. While legacy runtime files remain, the legacy rule is retained and the result carries `legacyIgnoreRetained: true` and `reasonCode: runtime_state_legacy_present`. Every unrelated rule is preserved. An unreadable or unwritable `.gitignore` returns `preserved (unmanaged)` with `gitignore_unwritable`.
+13. **Host language** (`id: agents-v4-host-language`, `kind: agents-host-language`)
+   - Signal: root `AGENTS.md` has a line matching the managed structure comment `agents/<spaces># OMP task agents (<list>)`.
+   - Apply rewrites only that comment to `# Claude Code plugin subagents (<list>)`, keeping the column and agent list. Other text that mentions OMP is project-authored and is never rewritten. `agents-spike-language` runs first and strips `spike-researcher` from either the OMP or the Claude Code form.
+
+Re-running detect after a successful v4 apply reports none of these items.
 
 ## Apply contract
 

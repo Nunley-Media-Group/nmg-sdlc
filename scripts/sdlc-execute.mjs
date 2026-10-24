@@ -4,8 +4,8 @@
  * the Approved spec and registered verification are the only lifecycle evidence. */
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { closeSync, constants as fsConstants, fstatSync, lstatSync, openSync, readFileSync, realpathSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
 import { defaultPromptRegistry, renderPrompt, writePromptProvenance } from '../src/sdlc-prompt-snippets.mjs';
 import { packageRoot } from '../src/sdlc-workflows.mjs';
 import { collectEvidence, parseIssueBranch } from './sdlc-status.mjs';
@@ -21,9 +21,8 @@ import { isCliEntry, materializeControllerPaths } from './plugin-controller-path
 export const VALID_STEPS = ['start', 'implement', 'verify', 'deliver'];
 export const REMEDIABLE_STEPS = ['implement', 'verify', 'deliver'];
 const SKILLS = { start: 'start-issue', implement: 'write-code', verify: 'verify-code', deliver: 'open-pr' };
-const HANDOFF_DIR = '.omp/sdlc/handoffs';
+const HANDOFF_DIR = '.nmg-sdlc/handoffs';
 const MAX_HANDOFF_BYTES = 256 * 1024;
-const OMP_CONFIG = '.omp/sdlc/omp-controller.yml';
 const SHA = /^[0-9a-f]{40}$/;
 
 function defaultRun(command, args, options = {}) {
@@ -135,14 +134,19 @@ export function remediationPrompt({ issue, failedStep, evidence, cwd, controller
   if (!evidence || !REMEDIABLE_STEPS.includes(failedStep)) throw new Error('remediation_evidence_missing');
   return `Diagnose ${failedStep} for #${issue} at ${evidence.head ?? 'current HEAD'}: ${evidence.reasonCode ?? 'failed'}: ${evidence.summary}.\nArtifacts: ${(evidence.artifacts ?? []).join(', ') || '(none)'}.\nExplain the prior failure and make a different measurable repair; never repeat unchanged smoke inputs.\n${workerPrompt({ issue, step: failedStep, cwd, controllerRunId })}`;
 }
-function ensureControllerOmpConfig(cwd) {
-  const file = resolve(realpathSync(cwd), OMP_CONFIG);
-  mkdirSync(dirname(file), { recursive: true });
-  const config = 'paste:\n  largeMenuThreshold: 0\n';
-  if (!existsSync(file) || readFileSync(file, 'utf8') !== config) writeFileSync(file, config);
-  return file;
+export const WORKER_PERMISSION_MODES = ['default', 'acceptEdits', 'auto', 'dontAsk', 'bypassPermissions'];
+const DEFAULT_WORKER_PERMISSION_MODE = 'auto';
+/** Claude Code permission mode for Herdr Claude workers: NMG_SDLC_WORKER_PERMISSION_MODE when it
+ * names a supported mode, otherwise `auto`. */
+export function workerPermissionMode(env = process.env) {
+  const value = env?.NMG_SDLC_WORKER_PERMISSION_MODE;
+  return WORKER_PERMISSION_MODES.includes(value) ? value : DEFAULT_WORKER_PERMISSION_MODE;
 }
-export function defaultHerdr(run, cwd) {
+/** Claude Code argv after `--`: every worker loads the controller's own plugin checkout. */
+export function workerAgentArgs({ env = process.env, pluginRoot = packageRoot } = {}) {
+  return ['--plugin-dir', pluginRoot, '--permission-mode', workerPermissionMode(env)];
+}
+export function defaultHerdr(run, cwd, env = process.env) {
   const invoke = (args) => run('herdr', args, { cwd });
   return {
     integrationStatus: () => invoke(['integration', 'status']),
@@ -154,8 +158,8 @@ export function defaultHerdr(run, cwd) {
     paneClose: (pane) => invoke(['pane', 'close', pane]),
     listPanes: () => invoke(['pane', 'list']),
     listAgents: () => invoke(['agent', 'list']),
-    agentStart: ({ name, paneId }) => invoke(['agent', 'start', name, '--kind', 'omp', '--pane', paneId,
-      '--', '--config', ensureControllerOmpConfig(cwd)]),
+    agentStart: ({ name, paneId }) => invoke(['agent', 'start', name, '--kind', 'claude', '--pane', paneId,
+      '--', ...workerAgentArgs({ env })]),
     agentPrompt: ({ name, prompt }) => invoke(['agent', 'prompt', name, prompt]),
     agentWait: ({ name, until }) => invoke(['agent', 'wait', name, ...(until ? ['--until', until] : [])]),
     agentGet: (name) => invoke(['agent', 'get', name]),
@@ -240,12 +244,12 @@ function closedIssueDelivery(cwd, run, issue) {
   return 'delivered';
 }
 // Another issue's branch is left for the default branch only when that issue is delivered at
-// this head and the worktree is clean outside .omp/; otherwise the caller keeps it (returns false).
+// this head and the worktree is clean outside .nmg-sdlc/; otherwise the caller keeps it (returns false).
 function leaveDeliveredBranch(cwd, run, current, branchIssue) {
   const status = run('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd });
   if (!succeeded(status)) throw new Error('worktree_status_unavailable');
   const dirty = String(status.stdout ?? '').split(/\r?\n/).filter(Boolean)
-    .some((line) => !line.slice(3).startsWith('.omp/'));
+    .some((line) => !line.slice(3).startsWith('.nmg-sdlc/'));
   if (dirty || !completed(cwd, run, branchIssue.issueNumber, current.branch, current.head)) return false;
   const base = run('gh', ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'], { cwd });
   const defaultBranch = succeeded(base) ? String(base.stdout ?? '').trim() : '';
@@ -324,7 +328,7 @@ function registeredGateStatus(cwd, run, issue, head, snapshot, { allowPending = 
     if (!succeeded(tracked) || !succeeded(status) || String(status.stdout ?? '').trim()) return null;
   }
   try {
-    const gate = readRegularEvidence(cwd, join(cwd, '.omp/sdlc/verification', `${issue}.json`), 512 * 1024);
+    const gate = readRegularEvidence(cwd, join(cwd, '.nmg-sdlc/verification', `${issue}.json`), 512 * 1024);
     const report = readRegularEvidence(cwd, join(cwd, reportPath), MAX_VERIFICATION_REPORT_BYTES);
     if (!gate || !report) return null;
     const artifact = JSON.parse(gate.bytes.toString('utf8'));
@@ -393,12 +397,12 @@ function observedSource(cwd, run) {
   return {
     tree: String(tree.stdout ?? '').trim(),
     worktree: String(status.stdout ?? '').split(/\r?\n/).filter((line) =>
-      line && !line.slice(3).startsWith('.omp/')),
+      line && !line.slice(3).startsWith('.nmg-sdlc/')),
   };
 }
 function currentGateFailure(cwd, run, issue, head, report) {
   try {
-    const path = `.omp/sdlc/verification/${issue}.json`;
+    const path = `.nmg-sdlc/verification/${issue}.json`;
     const snapshot = readRegularEvidence(cwd, join(cwd, path), 512 * 1024);
     if (!snapshot) return null;
     const artifact = JSON.parse(snapshot.bytes.toString('utf8'));
@@ -421,16 +425,16 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
   onOwnedPane = () => {}, onPaneClosed = () => {}, onLeaseAcquired = () => {} } = {}) {
   const fail = (reason, status = 1) => ({ status, stdout: '', stderr: `${reason}\n` });
   if (env.HERDR_ENV !== '1' || !env.HERDR_SOCKET_PATH || !env.HERDR_PANE_ID) {
-    return { status: 2, stdout: 'execute requires a Herdr OMP session\n', stderr: '' };
+    return { status: 2, stdout: 'execute requires a Herdr session\n', stderr: '' };
   }
   let selected;
   try { selected = parseArgs(args); } catch { return fail(usage(), 2); }
-  const api = herdr ?? defaultHerdr(run, cwd);
+  const api = herdr ?? defaultHerdr(run, cwd, env);
   let integration;
   try { integration = api.integrationStatus(); } catch { integration = null; }
-  if (!succeeded(integration) || !/^omp:\s+(?!not installed)/m.test(
+  if (!succeeded(integration) || !/^claude:\s+(?!not installed)/m.test(
     typeof integration === 'string' ? integration : String(integration?.stdout ?? ''),
-  )) return { status: 2, stdout: 'Run: herdr integration install omp\n', stderr: '' };
+  )) return { status: 2, stdout: 'Run: herdr integration install claude\n', stderr: '' };
   if (!succeeded(run('gh', ['auth', 'status'], { cwd }))) return fail('gh auth status failed');
 
   const invocationId = randomUUID();
@@ -536,7 +540,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           const status = run('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd });
           if (!succeeded(status)) throw new Error('worktree_status_unavailable');
           if (String(status.stdout ?? '').split(/\r?\n/).filter(Boolean).some(
-            (line) => !line.slice(3).startsWith('.omp/'),
+            (line) => !line.slice(3).startsWith('.nmg-sdlc/'),
           )) throw new Error('active_issue_conflict: preserve dirty worktree');
           step = 'start';
         } else {
@@ -551,7 +555,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           if (!succeeded(status)) throw new Error('worktree_status_unavailable');
           const changedPaths = String(status.stdout ?? '').split(/\r?\n/).filter(Boolean)
             .map((line) => line.slice(3).split(' -> ').at(-1))
-            .filter((path) => !path.startsWith('.omp/'));
+            .filter((path) => !path.startsWith('.nmg-sdlc/'));
           const dirtyReport = changedPaths.includes(evidence.verification?.path);
           const dirty = changedPaths.some((path) => path !== evidence.verification?.path);
           const published = remoteHead(cwd, run, current.branch) === current.head;
@@ -671,7 +675,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
                   : unpublished
                     ? 'verification report is not committed; publish the current passing gate and report without replaying unchanged smoke'
                     : 'passed handoff has no current full-green registered gate; diagnose the result before another invocation',
-                artifacts: [`.omp/sdlc/verification/${issue}.json`, ...(report ? [report] : [])] });
+                artifacts: [`.nmg-sdlc/verification/${issue}.json`, ...(report ? [report] : [])] });
               needsImplement = !requiresPrEvidence && !unpublished;
               continue;
             }
@@ -699,7 +703,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
             requiresPrEvidence = true;
             recordFailure({ step, head: after.head, reasonCode: 'pr_evidence_pending',
               summary: 'local registered gate passed; collect exact-head draft PR evidence before final Pass',
-              artifacts: [afterEvidence.verification.path, `.omp/sdlc/verification/${issue}.json`] });
+              artifacts: [afterEvidence.verification.path, `.nmg-sdlc/verification/${issue}.json`] });
             needsImplement = false;
             continue;
           }

@@ -10,7 +10,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 
-const LEASE_FILE = join('.omp', 'sdlc', 'controller.lock');
+const LEASE_FILE = join('.nmg-sdlc', 'controller.lock');
 
 function leaseError() {
   const error = new Error('controller_lease_held');

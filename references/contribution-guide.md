@@ -70,7 +70,7 @@ Generated content must cover:
 - Feature and bug implementation should flow through nmg-sdlc specs in `specs/`.
 - Contributors should consult the manifest-registered product, technical, and structure snippets before drafting issues, writing specs, or implementing code.
 - Interactive work uses `/sdlc-draft-issue [need]` and `/sdlc-write-spec #N`.
-- Automated delivery after an approved spec uses `/sdlc-execute [#N …]` which drives Herdr omp worker panes through implementation, verification, and delivery.
+- Automated delivery after an approved spec uses `/sdlc-execute [#N …]` which drives Herdr Claude worker panes through implementation, verification, and delivery.
 - `/sdlc-execute` continues through exact-head merge and issue closure.
 - `/sdlc-upgrade-project` reconciles contracts and proposes legacy layout repairs (never silently).
 - PRs should include a readiness checklist covering issue linkage, spec artifacts, steering alignment, implementation scope, verification evidence, and review readiness.

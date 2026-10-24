@@ -5,16 +5,16 @@ description: "Upgrade an existing project to the latest contract: detect and pro
 
 # Upgrade Project
 
-Interactive detect + propose only. Mutators in scripts/sdlc-upgrade.mjs (called by approved plan execution).
+Interactive detect + propose only, in native plan mode. Mutators in scripts/sdlc-upgrade.mjs (called by approved plan execution). Tool names follow `../../references/claude-code-tooling.md`.
 
 
-## Detectors (read only, glob/read/gh)
+## Detectors (read only: `Read`, `Grep`, `Glob`, `gh` through `Bash`)
 
-1. Packaging: if .codex-plugin/plugin.json and no root package.json with omp.extensions → propose OMP plugin install + herdr. Note nmg-pi optional.
+1. Packaging: if `.codex-plugin/plugin.json` exists, or root `package.json` still declares the v3 `omp.extensions` manifest, and `.claude-plugin/plugin.json` is absent → propose installing nmg-sdlc as a Claude Code plugin (`claude plugin marketplace add` + `claude plugin install`, or `claude --plugin-dir <checkout>`) plus Herdr.
 
 2. Legacy layout: .codex/steering/ or .codex/specs/ → propose relocate to root steering/ specs/ (git mv).
 
-3. Directory rename: specs/feature-*/ bug-*/ or {N}-old → specs/{primaryN}-slug/ (from **Issue** or **Issues** first num). Collision ask.
+3. Directory rename: specs/feature-*/ bug-*/ or {N}-old → specs/{primaryN}-slug/ (from **Issue** or **Issues** first num). Collision → `AskUserQuestion`.
 
 4. Cumulative split: plural **Issues** or issue-scope.json multi → per-N dirs, copy owned, add Related Spec pointers, remove manifest.
 
@@ -28,19 +28,23 @@ Interactive detect + propose only. Mutators in scripts/sdlc-upgrade.mjs (called 
 
 9. v2 cleanup: sdlc-config.json, legacy runner indicator/state files, and managed .gitignore blocks → propose exact deletion.
 
-10. Plugin runtime ignore: if `.gitignore` lacks an exact `.omp/sdlc/` or `.omp/sdlc` rule, propose adding `.omp/sdlc/` after v2 cleanup.
+10. v3 → v4 runtime state: if legacy `.omp/sdlc/` exists, propose the `runtime-state-v4` category. Approval moves every legacy runtime file (handoffs, verification, `run.json`, `safe-recoveries.json`, prompt-provenance, smoke-deliveries, and any other file) to the same relative path under `.nmg-sdlc/`, drops byte-identical legacy duplicates, and deletes the OMP-only `omp-controller.yml` paste config. It never overwrites an existing `.nmg-sdlc/` file: conflicts stay in `.omp/sdlc/` with `runtime_state_conflict`, symlinks and unsafe targets with `runtime_state_unsafe_path`. Show every conflict in the category question.
 
-11. This repository's specs/ are handled identically. Also read CHANGELOG/VERSION/CONTRIBUTING/AGENTS/gates/issue-form and propose current-contract reconciliation.
+11. Plugin runtime ignore: if `.gitignore` lacks an exact `.nmg-sdlc/` or `.nmg-sdlc` rule, or still carries the legacy managed `.omp/sdlc/` rule after the legacy directory is gone, propose `nmg-sdlc-ignore` after v2 cleanup and the runtime-state move. Apply swaps the legacy rule in place for `.nmg-sdlc/` (or appends `.nmg-sdlc/`); the legacy rule stays, with `runtime_state_legacy_present`, while legacy runtime files remain.
 
-12. Publication File(s): inspect issue-owned `specs/{N}-{slug}/tasks.md` declarations with the shared `publicationFileEntries` grammar. Propose the exact `publication-files:<digest>` rewrites only when rejected lines contain exclusively valid backtick-quoted repository-relative paths plus surrounding prose. Report mixed unsafe quoted spans and unquoted prose-only lines without extracting them. Approved apply must reject a changed source tree with `publication_files_plan_stale` before mutation.
+12. v4 host language: if root `AGENTS.md` carries the managed structure comment `agents/ … # OMP task agents (…)`, propose `agents-v4-host-language`, which rewrites only that comment to `# Claude Code plugin subagents (…)`. Project-authored prose is never rewritten.
+
+13. This repository's specs/ are handled identically. Also read CHANGELOG/VERSION/CONTRIBUTING/AGENTS/gates/issue-form and propose current-contract reconciliation.
+
+14. Publication File(s): inspect issue-owned `specs/{N}-{slug}/tasks.md` declarations with the shared `publicationFileEntries` grammar. Propose the exact `publication-files:<digest>` rewrites only when rejected lines contain exclusively valid backtick-quoted repository-relative paths plus surrounding prose. Report mixed unsafe quoted spans and unquoted prose-only lines without extracting them. Approved apply must reject a changed source tree with `publication_files_plan_stale` before mutation.
 
 When authorization is bounded to one issue-owned package, do not use repository-wide `detect` or `apply`. Run `detect-publication --root <real-project-root> --spec specs/N-slug`, then `apply-publication` with that same single spec and exact approved id. Resolve with the pre-#388 legacy command set first: if `detect` or `apply` resolves, publication-command positional tokens remain ignored; strict publication parsing applies only when no legacy command resolves. Apply uses one exclusive fsynced root lock and one fsynced root stage. Authorized nmg-sdlc invocations honor the lock. Under that cooperative model every inventory directory is identity-bound around its captured deterministic listing, and selected planning uses the descriptor-carried tasks Buffer. The uninterrupted final boundary completes descriptor-bound authority and exact approval equality, then proves target, stage, and lock through descriptor identity/exact-byte checks before immediate atomic rename. Every observed pre-boundary change fails closed. Node has no portable identity-conditional rename or unlink; non-target inventory mutation after authority completion, and non-cooperative same-credential mutation after a target, stage, or lock proof inside the immediately following pathname syscall gap, are undefined external interference outside this contract. Failed lock cleanup after commit reports `applied: true` and retains validated evidence. No dependencies, backfill, GitHub, or other phase runs.
 
-Read references/detection.md etc for details (update in tree).
+Read references/detection.md and references/v3-detectors.md (including its v4 section) for details.
 
-## Ask ( <=3 total )
+## Interview (`AskUserQuestion`, at most 3 calls)
 
-Use ask for choices on each category group or conflicts (rec first, 2-4 opts):
+Use `AskUserQuestion` for choices on each category group or conflict: 2-4 options per question, the recommended option first with its label ending in ` (Recommended)`, at most 4 questions per call. Never add Other, Cancel, or Skip options; the typed Other answer is automatic.
 
 Each category-group or collision question includes a short paragraph stating the situation and the facts needed to choose among the shown options.
 
@@ -51,14 +55,15 @@ For splits/renames: approve group or preserve per item.
 For epic: explicit per group "The detector found an epic group whose child specs can become ordinary issue-owned packages. Flatten this epic group?"
 
 Runner cleanup: approve batch or narrow.
-Official dependency reconciliation is one category-group ask showing the exact proposed edges and evidence. Approval authorizes those writes; do not ask per edge.
-Steering-runtime migration or update is one category-group ask showing the exact source digest, writes, registrations, preserved paths, and legacy deletions. Approval authorizes only that plan.
+v3 → v4 runtime state and the ignore-rule swap are one category-group question showing the exact moves, duplicates, obsolete deletions, and preserved conflicts with their reason codes.
+Official dependency reconciliation is one category-group question showing the exact proposed edges and evidence. Approval authorizes those writes; do not ask per edge.
+Steering-runtime migration or update is one category-group question showing the exact source digest, writes, registrations, preserved paths, and legacy deletions. Approval authorizes only that plan.
 
 No silent apply.
 
 ## Plan
 
-Write local://upgrade-{slug or date}-plan.md with:
+Write the plan to the plan-mode plan file (its path is in plan mode's system reminder), headed `# upgrade-{slug or date}: Upgrade plan for current layout/packaging`, with:
 
 - findings per category
 
@@ -69,11 +74,11 @@ Write local://upgrade-{slug or date}-plan.md with:
 
 ## After Propose
 
-xd://propose the slug + "Upgrade plan for current layout/packaging"
+Call `ExitPlanMode`. The person approves, edits, or rejects the plan in Claude Code's approval dialog; never ask for approval in prose or with `AskUserQuestion`.
 
 Approved plan execution runs the helper script with the chosen scope (the skill does not call it directly; the plan does).
 Full `apply` always backfills `spec-created` for unique complete issue-owned spec packages; this is not a declineable category and has no per-issue prompt. Selected `apply-publication` never backfills labels or runs any other upgrade phase.
 
 ## Generated
 
-Assets use exact v3 invocations list.
+Assets use the exact v4 invocations list.

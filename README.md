@@ -1,6 +1,6 @@
 # nmg-sdlc
 
-Spec-driven delivery for Oh My Pi and Herdr: GitHub issue → approved BDD spec → implementation → verification → exact-head merge → issue closure.
+Spec-driven delivery for Claude Code and Herdr: GitHub issue → approved BDD spec → implementation → verification → exact-head merge → issue closure.
 
 The plugin is stack-agnostic. Your project's registered steering supplies its product constraints, engineering conventions, version files, and verification commands. The plugin does not replace CI or human review.
 
@@ -10,49 +10,47 @@ Run from the root of the GitHub repository you intend to change.
 
 | Requirement | Purpose / check |
 |---|---|
-| Node.js 20 or newer | Runs the packaged controllers and validation scripts; `node --version` |
-| Oh My Pi (`omp`) | Interactive TUI, native `/plan`, model/tool access, and plugin loading |
-| Herdr with OMP integration | Owns automated worker panes; `herdr integration status` |
+| Node.js 20 or newer | Runs the packaged controllers, prompt renderer, and validation scripts; `node --version` |
+| Claude Code with plugin hooks-module support | Interactive TUI, native plan mode, `AskUserQuestion`, `ExitPlanMode`, model/tool access, and plugin loading; `claude --version` |
+| Herdr with the Claude integration | Owns automated worker panes for `/sdlc-execute`; install once per machine with `herdr integration install claude`, check with `herdr integration status` (expects a `claude:` line that is not `not installed`) |
 | Git and an `origin` remote | Linked issue branches, commits, non-force pushes, default-branch synchronization |
 | Authenticated GitHub CLI (`gh`) | `gh auth status`; account needs the repository permissions required to create issues/PRs, push branches, read checks, and merge |
 | Configured project toolchain | Install the dependencies and tools used by the project's steering validations |
 
-Interactive commands need an OMP **TUI** session. They do not run in print/RPC mode. Automated `/sdlc-execute` additionally requires a Herdr-managed OMP pane with `HERDR_ENV=1`, `HERDR_SOCKET_PATH`, and `HERDR_PANE_ID`; Herdr supplies these. Do not invent these values to run outside Herdr.
+Interactive commands need a Claude Code **TUI** session. Under `claude -p` or the Agent SDK they print `Run /<command> in the TUI.` and exit 2. Automated `/sdlc-execute` additionally requires a Claude Code session in a Herdr-managed pane with `HERDR_ENV=1`, `HERDR_SOCKET_PATH`, and `HERDR_PANE_ID`; Herdr supplies these. Do not invent these values to run outside Herdr.
 
 Private-repository access must work for both Git transport and `gh`. A token with read-only access is not sufficient for delivery. Repository rules, required checks, and human-review permissions remain authoritative.
 
 ## Install and update
 
-Install this repository through OMP's plugin manager. For SSH-authenticated GitHub access:
+nmg-sdlc is published through the `Nunley-Media-Group/nmg-plugins` marketplace. In Claude Code:
 
-```bash
-omp plugin install git@github.com:Nunley-Media-Group/nmg-sdlc
-herdr integration install omp
-omp plugin list --json
+```text
+/plugin marketplace add Nunley-Media-Group/nmg-plugins
+/plugin install nmg-sdlc@nmg-plugins
 ```
 
-A local checkout is also a supported plugin target:
+Then, once per machine, in a shell:
 
 ```bash
-omp plugin install /absolute/path/to/nmg-sdlc
+herdr integration install claude
 ```
 
-For an existing installation:
+To update, refresh the marketplace with `/plugin marketplace update nmg-plugins` and update `nmg-sdlc` from the `/plugin` menu. Open a **fresh Claude Code session** after changing the installed plugin so the hooks module, command registration, and rendered workflows use the new version. Do not stop an active Herdr server to update this plugin.
+
+For development, load a local checkout directly instead of the installed copy:
 
 ```bash
-omp plugin upgrade nmg-sdlc
-omp plugin doctor
+claude --plugin-dir /absolute/path/to/nmg-sdlc
 ```
 
-If the installation is pinned to a commit, deliberately install the desired newer ref rather than assuming a pinned source moves. Open a **fresh OMP session** after changing the installed package so command registration and loaded prompts use the new version. Do not stop an active Herdr server to update this plugin.
+Workers started by `/sdlc-execute` receive `--plugin-dir` for the controller's own plugin root, so a controller and its workers always run the same plugin version. Before verifying a development candidate against a consumer project, start the controller session from that exact candidate; check `/plugin` to see which installation is active and avoid having an older installed copy and the checkout enabled at once.
 
-Before verifying a development candidate against a consumer project, install that exact candidate and use fresh OMP workers. Running a controller from a source checkout alone is not enough: workers can still load the older installed extension and its controller paths. Check the installed path with `omp plugin list --json` and exercise the installed validator on the retained evidence before retrying a failed smoke run. When switching an existing package installation to a local link, remove the existing installation through OMP's plugin manager first; do not repeat a failed link unchanged.
-
-Then, in every existing consumer project, run `/sdlc-upgrade-project` and approve the relevant migrations before further SDLC work. For a project not yet using nmg-sdlc, use `/sdlc-onboard-project` first.
+Then, in every existing consumer project, run `/sdlc-upgrade-project` and approve the relevant migrations before further SDLC work (see [Upgrading from 3.x](#upgrading-from-3x)). For a project not yet using nmg-sdlc, use `/sdlc-onboard-project` first.
 
 ## Quick start
 
-In a Herdr OMP TUI, from your project root:
+In a Claude Code TUI running in a Herdr pane, from your project root:
 
 ```text
 /sdlc-onboard-project
@@ -63,6 +61,34 @@ In a Herdr OMP TUI, from your project root:
 ```
 
 Replace `42` with the actual GitHub issue number. Review and approve the interactive plans; do not skip directly from a drafted issue to execute. After spec approval, execute owns the automated lifecycle. Opening a PR is intermediate, not completion.
+
+## How it runs in Claude Code
+
+### Interactive commands and plan mode
+
+`/sdlc-draft-issue`, `/sdlc-write-spec`, `/sdlc-onboard-project`, `/sdlc-upgrade-project`, `/sdlc-steering`, and `/sdlc-run-retro` are registered by the plugin's hooks module (`hooks/register.ts`). Running one renders its workflow, switches the session into native plan mode (builtin `/plan`; a session already in plan mode stays there), and submits the workflow as your prompt. The workflow investigates read-only, asks only the decisions repository evidence cannot answer through `AskUserQuestion` (recommended option first, labelled `(Recommended)`; a typed Other answer is always available), writes its plan to the plan-mode plan file, and calls `ExitPlanMode`. You approve, edit, or reject the plan in Claude Code's approval dialog; nothing is mutated before approval.
+
+`/sdlc-write-spec` loops in plan mode. After each spec publication merges, the plugin waits for the turn to end and, when the prompt box is empty, re-enters plan mode with the Continue prompt so you can pick the next issue or finish. A draft in the prompt box keeps the Continue prompt pending. Choosing **Finished** ends the reply with an `ExitPlanMode` call that the plugin approves, so plan mode ends without a dialog. If the reply ends without that call, the plugin asks for it once, then warns that Shift+Tab exits plan mode.
+
+### Automated commands and workers
+
+`/sdlc-execute`, `/sdlc-status`, `/sdlc-verify-code`, and `/sdlc-open-pr` are plugin command files (`commands/*.md`). They expand in the TUI and under `claude -p`, and they never call `AskUserQuestion` or `ExitPlanMode`.
+
+`/sdlc-execute` runs its stages in sibling Herdr panes, each a Claude Code session started as:
+
+```text
+herdr agent start <name> --kind claude --pane <id> -- --plugin-dir <plugin-root> --permission-mode <mode>
+```
+
+`<mode>` defaults to `auto`. Set `NMG_SDLC_WORKER_PERMISSION_MODE` in the controller's environment to `default`, `acceptEdits`, `auto`, `dontAsk`, or `bypassPermissions` to override it; any other value falls back to `auto`. Workers inherit your Claude Code settings and permission rules, so a stricter mode can stop a worker at a permission prompt.
+
+### Autopilot for hands-off drivers
+
+With `NMG_SDLC_AUTOPILOT=1` in a Claude session's environment, the plugin approves every `ExitPlanMode` plan and answers every `AskUserQuestion` with each question's `(Recommended)` option (else its first option). It exists for hands-off drivers such as the live smoke provider, which launches its provisioning pane with it. Never set it in a session you use yourself: it approves plans on your behalf.
+
+### Runtime state
+
+The plugin keeps runtime state in `.nmg-sdlc/` at the project root: `handoffs/`, `verification/`, `run.json`, `controller.lock`, `safe-recoveries.json`, `prompt-provenance/`, `plans/`, and `smoke-deliveries/`. Onboarding and upgrade add `.nmg-sdlc/` to `.gitignore`. These files are evidence and coordination state, never commit material.
 
 ## Set up or upgrade a project
 
@@ -76,7 +102,7 @@ Replace `42` with the actual GitHub issue number. Review and approve the interac
 - **Brownfield:** reconciles existing code, closed issues, and merged-PR evidence with current capability contracts.
 - **Already initialized:** routes contract reconciliation through project upgrade.
 
-Interactive commands enter native `/plan`, use built-in questions for decisions that repository evidence cannot answer, and propose a plan before mutation. Approve only the scope you intend to authorize.
+Interactive commands enter native plan mode, use `AskUserQuestion` for decisions that repository evidence cannot answer, and finish with a plan in the `ExitPlanMode` approval dialog before mutation. Approve only the scope you intend to authorize.
 
 ### Existing projects
 
@@ -95,9 +121,23 @@ Onboarding/upgrade manage:
 - The bounded spec-context section in root `AGENTS.md`.
 - `.github/workflows/nmg-sdlc-contribution-gate.yml`.
 - `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml`.
-- The `.omp/sdlc/` ignore rule. Start/execute may untrack previously committed runtime files without deleting their working-tree contents.
+- The `.nmg-sdlc/` ignore rule. Start/execute may untrack previously committed runtime files without deleting their working-tree contents.
 
-Do not replace user-authored assets or delete `.omp/sdlc/` just to bypass a failed preflight.
+Do not replace user-authored assets or delete `.nmg-sdlc/` just to bypass a failed preflight.
+
+### Upgrading from 3.x
+
+nmg-sdlc 4.0 replaces the Oh My Pi extension with a Claude Code plugin. Projects and specs carry over unchanged; the host and runtime-state location change.
+
+1. Install the plugin in Claude Code (see [Install and update](#install-and-update)) and run `herdr integration install claude`. Remove the old Oh My Pi installation when you no longer need it.
+2. In each consumer project, open a fresh Claude Code session and run `/sdlc-upgrade-project`. Its 4.0 migration groups, each approved separately, are:
+   - `runtime-state-v4`: moves legacy `.omp/sdlc/` runtime state into `.nmg-sdlc/`. Byte-identical duplicates are dropped, the obsolete OMP-only `omp-controller.yml` paste configuration is deleted, and existing `.nmg-sdlc/` files are never overwritten; conflicts are preserved for you to resolve.
+   - `nmg-sdlc-ignore`: adds the `.nmg-sdlc/` ignore rule.
+   - `agents-v4-host-language`: rewrites the managed `AGENTS.md` structure comment from OMP task agents to Claude Code plugin subagents.
+   - `packaging-v4-claude-code-herdr`: reports leftover v3 OMP packaging references and the Claude Code install steps.
+3. Hands-off drivers that answered OMP prompts by reading the pane now launch their Claude session with `NMG_SDLC_AUTOPILOT=1` instead.
+
+Interactive behavior maps one to one: OMP `ask` chips are `AskUserQuestion` questions, `xd://propose` is the plan-mode plan file plus `ExitPlanMode`, `omp --print` is `claude -p`, and `--kind omp` workers are `--kind claude` workers.
 
 ## Configure steering and verification
 
@@ -142,7 +182,7 @@ GitHub's **official blocked-by relation** is the sole sequencing authority. Body
 /sdlc-write-spec
 ```
 
-The numbered form selects that issue. The bare form offers open issues missing the exact `spec-created` label. Every selected issue gets a distinct complete local plan and native-plan approval before any issue-specific mutation. Publication uses a spec-only PR, squash-merges it into the default branch, applies `spec-created` without closing the implementation issue, completes any post-merge remediation, then returns the same TUI session to native plan for Continue/Finished. A continuation issue repeats that approval boundary instead of inheriting the first issue's approval. Selecting Finished in either picker ends the turn and then leaves native plan mode completely without a typed command; if the editor holds a draft or the host's `Exit plan mode?` confirmation is declined, the draft is kept and a warning says `/plan` exits it.
+The numbered form selects that issue. The bare form offers open issues missing the exact `spec-created` label. Every selected issue gets a distinct complete local plan and native-plan approval before any issue-specific mutation. Publication uses a spec-only PR, squash-merges it into the default branch, applies `spec-created` without closing the implementation issue, completes any post-merge remediation, then returns the same TUI session to native plan mode for Continue/Finished. A continuation issue repeats that approval boundary instead of inheriting the first issue's approval. Selecting Finished in either picker ends the reply with an `ExitPlanMode` call that the plugin approves, leaving plan mode completely without a typed command or dialog; if the reply ends without that call, the plugin asks for it once, then warns that Shift+Tab exits plan mode.
 
 The spec-only publication helper waits for configured required status contexts and all reported PR checks on the exact head, including checks not yet registered after PR creation. It waits through stale `UNSTABLE` mergeability without treating it alone as a policy block, then requires two fresh passing `CLEAN` observations before squash-merging that head. Terminal failed checks and draft PRs stop publication; `BLOCKED` is a terminal policy block only once checks are complete, not while they are absent or pending. Missing or pending checks and `UNKNOWN` never permit a merge.
 
@@ -162,7 +202,7 @@ Every file declares singular `**Issue**: #42` and `**Status**: Draft` or `**Stat
 
 `**File(s)**:` is optional outcome-planning metadata. When present, use canonical repository-relative paths as backtick-quoted entries (for example, `` `src/auth.ts` ``), separate multiple entries with commas or semicolons, and use only bounded repository-relative directory or glob entries. A glob must start with a non-magic prefix such as `` `tests/generated/**/*.mjs` ``; repository-wide patterns such as `` `*` ``, `` `**` ``, and `` `**/*` `` are invalid. An optional parenthetical operation note may follow an entry. Canonical declarations remain useful to contribution evidence and `/sdlc-upgrade-project` hint normalization, but missing, incomplete, near-miss, duplicate, or malformed File(s) never blocks implement/fix executability.
 
-Execute implement uses outcome mutation policy. Workers may publish any repository-relative path required by Acceptance unless `validPublicationPath` rejects it, it is one of the current spec's four Approved inputs, or it is under `specs/`. The sole `specs/` exception is the current issue's `verification-report.md`. `.omp/`, URL-like, absolute, backslash, parent-traversal, and other invalid publication paths remain denied. Verify stays closed to the current verification report; deliver keeps its explicit version and PR-evidence artifact lists.
+Execute implement uses outcome mutation policy. Workers may publish any repository-relative path required by Acceptance unless `validPublicationPath` rejects it, it is one of the current spec's four Approved inputs, or it is under `specs/`. The sole `specs/` exception is the current issue's `verification-report.md`. `.nmg-sdlc/`, URL-like, absolute, backslash, parent-traversal, and other invalid publication paths remain denied. Verify stays closed to the current verification report; deliver keeps its explicit version and PR-evidence artifact lists.
 
 ### Read-only implementation scope probe
 
@@ -238,7 +278,7 @@ Successful implement always hands off next=verify.
 | `verify` | Run registered gate at exact source HEAD (incl. required smoke); review every approved AC/scenario inline; truthful report. Full green (Pass) or PR Evidence Pending advances to deliver. Fail/Partial/Incomplete route back to implement for repair then re-verify |
 | `deliver` | Synchronize release artifacts, create/resume the exact PR, handle eligible automated feedback, prove required checks at exact head, merge, prove issue closure |
 
-Workers are sibling Herdr `--kind omp` panes. Execute owns orchestration, not product edits in the main pane. Worker success is determined by validated handoffs, not terminal prose or an exit code alone. Only host-captured final assistant output supplies findings.
+Workers are sibling Herdr `--kind claude` panes running Claude Code with this plugin (see [Automated commands and workers](#automated-commands-and-workers)). Execute owns orchestration, not product edits in the main pane. Worker success is determined by validated handoffs, not terminal prose or an exit code alone. Only host-captured final assistant output supplies findings.
 
 ### Branch-first resume, repair and full-green verification
 
@@ -277,7 +317,7 @@ Cancel the owning execute job through the host's cancellation surface or send it
 
 Normally execute runs these stages. Use standalone verification only on an already-implemented issue branch; use standalone delivery only when that branch has valid verification evidence. Neither command replaces the approved issue/spec or publication gates.
 
-Verification records identity-bound deterministic results in `.omp/sdlc/verification/42.json` and a committed `verification-report.md` in the issue spec. Missing, duplicate, unknown, failed, incomplete, stale, or improperly skipped required results cannot pass. A project that deliberately declares zero validations has complete zero-result coverage, not an invented test pass. `PR Evidence Pending` is permitted only when local obligations pass and explicitly declared PR-only evidence remains.
+Verification records identity-bound deterministic results in `.nmg-sdlc/verification/42.json` and a committed `verification-report.md` in the issue spec. Missing, duplicate, unknown, failed, incomplete, stale, or improperly skipped required results cannot pass. A project that deliberately declares zero validations has complete zero-result coverage, not an invented test pass. `PR Evidence Pending` is permitted only when local obligations pass and explicitly declared PR-only evidence remains.
 
 Delivery rechecks immutable evidence at the exact head. It uses non-force pushes and retains both required and unfiltered checks. Missing, registering, queued, or pending required/declared checks—including `BLOCKED` attributable to that incomplete CI evidence—remain in an unbounded 30-second observation loop. Explicit check failure and proven human-review, mergeability, or non-CI policy blockers take their existing remediation or failure routes. Merge occurs only after a fresh exact-head snapshot has terminal-successful checks and `CLEAN` merge readiness. Unexpected PR/head identity is a reconciliation failure, not permission to open another PR or merge a different commit.
 
@@ -288,7 +328,7 @@ Delivery rechecks immutable evidence at the exact head. It uses non-force pushes
 This repository registers the required `repository.nmg-sdlc-smoke` provider against `Nunley-Media-Group/nmg-sdlc-smoke`. It is **not** a mandatory dependency of every consumer project; consumer gates come from their own manifests.
 
 1. Identify the nmg-sdlc behavior being proved and the observable success/failure conditions.
-2. Run normal nmg-sdlc verification; no operator setup or selection is needed. Without an explicit queue, the provider clones the allowlisted smoke repository and provisions one fresh issue itself. It runs the real `/sdlc-draft-issue` with the manifest's `config.provision.need`, then `/sdlc-write-spec <N>`, in a provider-owned Herdr `omp` pane. It answers every ask with its Recommended option and every plan approval with `Approve and execute`. It ends provisioning once issue N has `spec-created` and a merged `docs: approve spec for #N` PR, then closes the pane. It then records linked-PR baselines and invokes this candidate's execute controller for that issue. A failed provisioning retains its clone and screen/session evidence; a retry of the same verification identity reuses the recorded issue instead of drafting another.
+2. Run normal nmg-sdlc verification; no operator setup or selection is needed. Without an explicit queue, the provider clones the allowlisted smoke repository and provisions one fresh issue itself. It runs the real `/sdlc-draft-issue` with the manifest's `config.provision.need`, then `/sdlc-write-spec <N>`, in a provider-owned Herdr Claude pane launched with `NMG_SDLC_AUTOPILOT=1`, so every `AskUserQuestion` takes its Recommended option and every plan is approved. It ends provisioning once issue N has `spec-created` and a merged `docs: approve spec for #N` PR, then closes the pane. It then records linked-PR baselines and invokes this candidate's execute controller for that issue. A failed provisioning retains its clone and screen/session evidence; a retry of the same verification identity reuses the recorded issue instead of drafting another.
 3. To prove specific issues instead, set `NMG_SDLC_SMOKE_ISSUES` to fresh explicit numbers with approved specs in the environment of the **nmg-sdlc controller/verification process** before launch (for example `export NMG_SDLC_SMOKE_ISSUES="65,66"`). Existing retained workers do not gain environment changes retroactively. Only the enclosing provider sets its nested-execution ownership marker; do not set `NMG_SDLC_SMOKE_OWNED` to bypass verification.
 4. Accept success only with this invocation's pre-merge delivery proof, an exact matching PR that was not already merged at baseline, and closed issue evidence for each queued issue. An open PR left by an earlier receipt-less attempt may be resumed. When execute stops after delivering a leading part of the queue, rerunning the same verification resumes only the undelivered remainder in the retained clone under the same invocation; delivered issues keep their original receipts and are never dispatched again. Status output is not smoke proof.
 
@@ -307,13 +347,15 @@ Status is read-only: current branch/spec, verification, GitHub issue/PR state, a
 
 | Artifact | Purpose |
 |---|---|
-| `.omp/sdlc/controller.lock` | Exclusive controller identity |
-| `.omp/sdlc/handoffs/<N>-<step>.json` | Validated stage outcome and referenced evidence |
-| `.omp/sdlc/verification/<N>.json` | Deterministic gate results, coverage, and identity |
-| `.omp/sdlc/prompt-provenance/` | Recorded prompt composition |
+| `.nmg-sdlc/controller.lock` | Exclusive controller identity |
+| `.nmg-sdlc/handoffs/<N>-<step>.json` | Validated stage outcome and referenced evidence |
+| `.nmg-sdlc/verification/<N>.json` | Deterministic gate results, coverage, and identity |
+| `.nmg-sdlc/prompt-provenance/` | Recorded prompt composition |
 | `specs/<N>-<slug>/verification-report.md` | Durable acceptance and verification report |
 
-- **Commands missing or controller paths unresolved:** inspect `omp plugin list --json` and `omp plugin doctor`; use a fresh session with the intended installed version, then apply project upgrades.
+- **Commands missing or controller paths unresolved:** check in `/plugin` that `nmg-sdlc` is installed and enabled (or that the session was started with `claude --plugin-dir <checkout>`); use a fresh session with the intended version, then apply project upgrades.
+- **`Run /sdlc-… in the TUI.`:** an interactive command was run under `claude -p` or the SDK; run it in a Claude Code TUI session.
+- **Herdr integration missing:** run `herdr integration install claude` and confirm with `herdr integration status`.
 - **No eligible issue / unapproved spec:** finish issue/spec publication and inspect official blockers; do not manually apply labels as a substitute for approval.
 - **Dirty tree / branch mismatch:** preserve the work and restore the correct issue context. Do not reset or stash unrelated changes automatically.
 - **Controller lease held:** check whether its owner is still active.
@@ -337,11 +379,11 @@ Status is read-only: current branch/spec, verification, GitHub issue/PR state, a
 | `/sdlc-open-pr #N` | Deliver an already-verified issue branch through merge and closure |
 | `/sdlc-run-retro` | Interactive retrospective from defect specs into project learnings |
 
-`start-issue`, `write-code`, `simplify`, and `address-pr-comments` are internal workflow stages/guidance, not additional public slash commands. Public commands are registered by `src/extension.ts`; workflow bundles are loaded from the package's `workflows/` directory.
+`start-issue`, `write-code`, `simplify`, and `address-pr-comments` are internal workflow stages/guidance, not additional public slash commands. Interactive commands are registered by the hooks module `hooks/register.ts`; automated commands are the plugin command files in `commands/`. Workflow bundles are rendered from the plugin's `workflows/` directory.
 
 ## Versioning and contribution gates
 
-`VERSION` is the source of truth. Delivery synchronizes the version mirrors declared by the project's registered technical steering, not an assumed language-specific manifest. JSON/TOML mirrors use declared field paths; text mirrors require an unambiguous locator. In this repository the mirror is `package.json`.
+`VERSION` is the source of truth. Delivery synchronizes the version mirrors declared by the project's registered technical steering, not an assumed language-specific manifest. JSON/TOML mirrors use declared field paths; text mirrors require an unambiguous locator. In this repository the mirrors are `package.json` and `.claude-plugin/plugin.json`.
 
 | Issue label | Default bump |
 |---|---|

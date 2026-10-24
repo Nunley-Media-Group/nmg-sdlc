@@ -23,11 +23,17 @@ describe('current release specs and rewrite contract', () => {
     expect(verifyCurrentSpecs(repoRoot)).toEqual([]);
   });
 
-  test('keeps historical rewrite release independent from current package version', () => {
+  test('keeps the rewrite release a valid version no newer than the current package version', () => {
     const rewriteContract = JSON.parse(fs.readFileSync(path.join(repoRoot, 'references/rewrite-contract.json'), 'utf8'));
     const packageVersion = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).version;
+    const parts = (version) => version.split('.').map(Number);
 
-    expect(rewriteContract.release).not.toBe(packageVersion);
+    expect(rewriteContract.release).toMatch(/^\d+\.\d+\.\d+$/);
+    const [release, current] = [parts(rewriteContract.release), parts(packageVersion)];
+    const order = release.map((value, index) => value - current[index]).find((delta) => delta !== 0) ?? 0;
+    // The rewrite release may equal the package version (the v4.0.0 Claude Code
+    // rewrite ships as 4.0.0) and stays fixed as later releases move ahead.
+    expect(order).toBeLessThanOrEqual(0);
     expect(verifyCurrentSpecs(repoRoot)).toEqual([]);
   });
 
@@ -66,6 +72,20 @@ describe('current release specs and rewrite contract', () => {
       const errors = verifySpecArchive(specsRoot, []);
       expect(errors).toContain('2-wrong-owner/feature.gherkin lacks singular **Issue**: #2');
       expect(errors).toContain('Duplicate spec directories for issue #1: 1-duplicate, 1-foo');
+    } finally {
+      fs.rmSync(specsRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('accepts Claude Code as the current host but still rejects Codex-only runtime', () => {
+    const specsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-specs-'));
+    try {
+      writeSpecPackage(specsRoot, '1-foo', 1);
+      fs.appendFileSync(path.join(specsRoot, '1-foo', 'design.md'), '\nThe Claude Code plugin registers the commands.\n');
+      expect(verifySpecArchive(specsRoot, ['1-foo'])).toEqual([]);
+
+      fs.appendFileSync(path.join(specsRoot, '1-foo', 'design.md'), '\nRun it under Codex.\n');
+      expect(verifySpecArchive(specsRoot, ['1-foo'])).toContain('1-foo/design.md contains Codex-only runtime');
     } finally {
       fs.rmSync(specsRoot, { recursive: true, force: true });
     }

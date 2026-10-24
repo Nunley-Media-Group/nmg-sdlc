@@ -22,7 +22,8 @@ function read(relativePath) {
 describe('skill creator resolution contract', () => {
   test.each(contractPaths)('%s resolves the installed skill instead of a repository-local file', (relativePath) => {
     const source = read(relativePath);
-    expect(source).toContain('skill://skill-creator');
+    expect(source).toContain('the `skill-creator` skill with the `Skill` tool');
+    expect(source).not.toContain('skill://');
     expect(source).not.toContain('skills/skill-creator/SKILL.md');
   });
 
@@ -30,6 +31,6 @@ describe('skill creator resolution contract', () => {
     const source = read('workflows/write-code/WORKFLOW.md');
     expect(source).not.toContain('skill_creator_missing');
     expect(source).not.toContain('Check if the skill-creator file is present on disk');
-    expect(source).toContain('Resolve and read `skill://skill-creator`');
+    expect(source).toContain('Invoke the `skill-creator` skill with the `Skill` tool');
   });
 });

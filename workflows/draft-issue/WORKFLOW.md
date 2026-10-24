@@ -5,13 +5,13 @@ description: "Interview user about a feature need, create groomed GitHub issue w
 
 # Draft Issue
 
-Read `../../references/codex-tooling.md` when mapping the workflow's read, grep, glob, ask, local-file, and proposal operations to current OMP tools.
+Read `../../references/claude-code-tooling.md` when mapping the workflow's read, search, interview, plan-file, and plan-approval operations to Claude Code tools.
 
-Read `../../references/interactive-gates.md` when applying the native `/plan`, `ask`, and `xd://propose` contract.
+Read `../../references/interactive-gates.md` when applying the native plan-mode, `AskUserQuestion`, and `ExitPlanMode` contract.
 
 ## Core Flow
 
-1. Gather need: if `$ARGUMENTS` is present, use it as `initialDescription`. Otherwise use one `ask` for the need (free-form through automatic Other when needed, but prefer short).
+1. Gather need: if `$ARGUMENTS` is present, use it as `initialDescription`. Otherwise use one `AskUserQuestion` for the need (free-form through automatic Other when needed, but prefer short).
 
 2. Immediately apply the rendered `/sdlc-execute` eligibility algorithm before multi-issue detection:
    - Extract only functional software behavior and implementation-relevant technical constraints that execute can realize through permitted repository mutation and prove through accepted evidence.
@@ -19,28 +19,28 @@ Read `../../references/interactive-gates.md` when applying the native `/plan`, `
    - Ask only for missing observable software behavior that execute could implement. Never ask for legal interpretation, ownership proof, authority, sign-off, credentials, or live operations.
    - If no eligible software behavior is supplied, print exactly `No software requirements executable by /sdlc-execute remain after excluding non-software obligations.` and stop before plan creation, proposal, or GitHub mutation.
 
-3. If the eligible slice has multi-issue signals (see `references/multi-issue.md`), run detection, then use one `ask` to confirm split with approve split, adjust, or single options.
+3. If the eligible slice has multi-issue signals (see `references/multi-issue.md`), run detection, then use one `AskUserQuestion` to confirm split with approve split, adjust, or single options.
 
-4. Ask for classification with exactly these two options, recommended first from the eligible behavior:
+4. Ask for classification with exactly these two options, recommended first from the eligible behavior, appending ` (Recommended)` to the recommended label:
    - `Enhancement — New capability or improvement to existing behavior (recommended for most)`
    - `Bug — Something is broken or behaving incorrectly`
 
    Map to `feature | bug`. Never epic. Never spike.
 
-5. If root `VERSION` parses as semver `X.Y.Z`, read it, extract the major, and ask once for `v${major} (current)` or `v${major+1} (next)`, recommended first. Record the milestone or `null`. Approved plan execution ensures a selected milestone exists before issue creation.
+5. If root `VERSION` parses as semver `X.Y.Z`, read it, extract the major, and ask once with `AskUserQuestion` for `v${major} (current)` or `v${major+1} (next)`, recommended first with ` (Recommended)` appended to its label. Record the milestone or `null`. Approved plan execution ensures a selected milestone exists before issue creation.
 
-6. Investigate with `glob`, `grep`, and `read`; do not use subagents unless scoped:
+6. Investigate with `Glob`, `Grep`, and `Read` (or `rg` / `find` through `Bash`); do not use subagents unless scoped:
    - For enhancement/feature, read relevant steering and search bounded source/spec patterns to summarize Current State.
    - For bug, search the error or symbol, read relevant files, and form a root-cause hypothesis.
    - Record signals for interview depth.
    - Reapply the execute eligibility gate to every discovered candidate. Steering may resolve paths, interfaces, validation identities, and project conventions, but its process, release, ownership, or verification-policy prose is not issue content.
 
 7. Interview until every material undiscoverable preference, observable acceptance criterion, and adjacent-software scope boundary is gathered:
-   - Use focused asks only for preferences and tradeoffs. Each call has 2–4 options, recommended first, and at most three questions.
+   - Use focused `AskUserQuestion` calls only for preferences and tradeoffs. Each call has 2–4 options per question, recommended first with ` (Recommended)` appended, and at most three questions.
    - Each question includes a short paragraph stating the situation and facts needed to choose without relying on past chat.
    - Cover persona/outcome, key ACs, adjacent software scope, and bug reproduction/expected behavior.
    - Ask only about behavior execute can implement and verify. Do not ask for repository facts discoverable by tools or any excluded authority/evidence burden.
-   - Do not use `ask` for final approval. Synthesize only after the interview is complete, then propose.
+   - Do not use `AskUserQuestion` for final approval. Synthesize only after the interview is complete, then propose.
    - Reapply the eligibility gate after the interview. If no eligible behavior remains, emit the exact empty-result diagnostic from step 2 and stop.
 
 8. Synthesize per classification:
@@ -64,18 +64,13 @@ Read `../../references/interactive-gates.md` when applying the native `/plan`, `
 
 10. Before creating the plan file, audit every complete issue-body section and the exact `ghCreateArgs.body` against the rendered contract. Only `retain` or rewritten content may appear. Excluded material must not be relocated into Background, Current State, Root Cause, Environment, Technical Notes, Out of Scope, design suggestions, or other context. Out of Scope contains only adjacent software behavior. Reject any retained feasibility row with blank or unresolved ownership, mutation authority, proof, or prerequisite.
 
-11. Derive `slug = "draft-" + kebab(need or first title)` and write the full structured entry list to `local://draft-<slug>-plan.md` only after the final audit passes. Then write this plain text to `xd://propose`:
+11. Derive `slug = "draft-" + kebab(need or first title)`. Only after the final audit passes, write the complete plan to the plan-mode plan file (its path is in plan mode's system reminder): its first line is the heading `# <slug>: <chosen primary title>`, followed by the full structured entry list. Then call `ExitPlanMode`; the person approves, edits, or rejects the plan in the approval dialog.
 
-    ```text
-    draft-<slug>
-    <chosen primary title>
-    ```
-
-Approved execution creates all issues, captures returned numbers, resolves plan-local references, reads numeric REST database ids, preflights the complete official graph through `scripts/issue-dependencies.mjs`, and only then applies approved blocked-by edges. The split and final plan approval authorize those exact writes; do not ask again. After execution, emit `/sdlc-write-spec #N` for each created issue.
+Plan approval in the `ExitPlanMode` dialog starts execution. Approval may clear context; the approved plan file still holds the complete entry list, so execution reads it from the plan file when the entries are no longer in context. Approved execution creates all issues, captures returned numbers, resolves plan-local references, reads numeric REST database ids, preflights the complete official graph through `scripts/issue-dependencies.mjs`, and only then applies approved blocked-by edges. The split and final plan approval authorize those exact writes; do not ask again. After execution, emit `/sdlc-write-spec #N` for each created issue.
 
 ## Multi-Issue Notes
 
-- One ask only for split confirm (see references/multi-issue.md for updated rules).
+- One `AskUserQuestion` only for split confirm (see references/multi-issue.md for updated rules).
 
 - One plan file covers all; lists in topo order.
 

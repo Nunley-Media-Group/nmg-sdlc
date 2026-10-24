@@ -1,6 +1,6 @@
 ---
 name: write-code
-description: "Load specs/{N}-{slug}/ only. Execute tasks.md in declared order. Map every Approved Acceptance bullet before editing. Resolve and read skill://skill-creator before skill-bundled edits. Use from /sdlc-execute for approved spec. Handoff next verify."
+description: "Load specs/{N}-{slug}/ only. Execute tasks.md in declared order. Map every Approved Acceptance bullet before editing. Invoke the `skill-creator` skill with the `Skill` tool before skill-bundled edits. Use from /sdlc-execute for approved spec. Handoff next verify."
 ---
 
 # Write Code
@@ -38,7 +38,7 @@ Before implementation edits, reports, or commits, run the native read-only owner
 node <plugin-root>/scripts/sdlc-safe-recoveries.mjs probe --issue N --step implement --spec specs/N-SLUG --controller-run-id R
 ```
 
-Use the exact controller run id from the worker header; it is required for this probe. Require `NMG_SDLC_PUBLICATION` with `passed:true` and `scope.mutationPolicy:"outcome"`. The helper validates the exact singular Approved spec, actual Git branch, active run identity/state, and unique matching incomplete recovery owner without acquiring the controller lock or writing run, handoff, recovery, spec, product, or `.pi-glla` state. `scope.allowedPaths` contains optional task `File(s)` hints; it is not mutation authority or a ceiling. Mutate any repository-relative path needed to satisfy Acceptance when `publicationPathDenied(path, { spec, readOnlyPaths: scope.readOnlyPaths })` is false. Never edit a `scope.readOnlyPaths` entry, another spec path, `.omp/`, or any path rejected by the publication-path validator. The current spec's `verification-report.md` is the only writable `specs/` exception.
+Use the exact controller run id from the worker header; it is required for this probe. Require `NMG_SDLC_PUBLICATION` with `passed:true` and `scope.mutationPolicy:"outcome"`. The helper validates the exact singular Approved spec, actual Git branch, active run identity/state, and unique matching incomplete recovery owner without acquiring the controller lock or writing run, handoff, recovery, spec, or product state. `scope.allowedPaths` contains optional task `File(s)` hints; it is not mutation authority or a ceiling. Mutate any repository-relative path needed to satisfy Acceptance when `publicationPathDenied(path, { spec, readOnlyPaths: scope.readOnlyPaths })` is false. Never edit a `scope.readOnlyPaths` entry, another spec path, `.nmg-sdlc/`, or any path rejected by the publication-path validator. The current spec's `verification-report.md` is the only writable `specs/` exception.
 
 ## Execute Tasks in Order
 
@@ -52,9 +52,9 @@ For each task in sequence (lowest to highest T number, follow declared Depends o
 - Use design.md + requirements.md + feature.gherkin + the injected `project.tech` and `project.structure` snippets as context.
 - Implement every path needed to satisfy Acceptance when the outcome-policy deny check permits it. Do not limit work to listed File(s).
 - For each required skill-bundled path (matching **/workflows/**/WORKFLOW.md or **/workflows/**/references/** or **/workflows/**/scripts/** or **/workflows/**/templates/** or **/workflows/**/checklists/** or **/workflows/**/assets/** or root references/** or agents/*.md ):
-  - Resolve and read `skill://skill-creator`.
+  - Invoke the `skill-creator` skill with the `Skill` tool.
   - Follow its editing procedure with the task title, acceptance bullets, target path, existing file content, and steering context. Never bypass the resolved skill for skill-bundled paths.
-- For other permitted paths, use edit/write/read/glob/grep/bash tools to implement the change that satisfies Acceptance, following design.md architecture and the injected technical conventions. Make the smallest correct change.
+- For other permitted paths, use the `Edit` / `Write` / `Read` / `Glob` / `Grep` / `Bash` tools to implement the change that satisfies Acceptance, following design.md architecture and the injected technical conventions. Make the smallest correct change.
 - When an in-scope implementation detail is missing or an edit/test fails, follow Repair and Reverify below before deciding whether to hand off.
 - After change for the task, self-verify its Acceptance bullets.
 - Run the narrow check from technical steering when obvious for the changed behavior. Report the outcome.
@@ -89,7 +89,7 @@ Complete this boundary before writing a passed handoff:
 
 ## Write Handoff
 
-Write `.omp/sdlc/handoffs/N-implement.json` :
+Write `.nmg-sdlc/handoffs/N-implement.json` :
 
 {
   "schemaVersion": 1,
@@ -104,7 +104,7 @@ Write `.omp/sdlc/handoffs/N-implement.json` :
 }
 
 Print exactly:
-NMG_SDLC_HANDOFF: .omp/sdlc/handoffs/N-implement.json
+NMG_SDLC_HANDOFF: .nmg-sdlc/handoffs/N-implement.json
 
 Summary output:
 Implementation complete for issue #N.

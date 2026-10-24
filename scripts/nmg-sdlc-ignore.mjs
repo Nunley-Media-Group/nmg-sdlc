@@ -6,7 +6,7 @@ import { join } from 'node:path';
 
 import { isCliEntry } from './plugin-controller-path.mjs';
 
-export const OMP_SDLC_IGNORE_LINE = '.omp/sdlc/';
+export const NMG_SDLC_IGNORE_LINE = '.nmg-sdlc/';
 
 const defaultFs = { readFileSync, writeFileSync };
 
@@ -14,16 +14,16 @@ function defaultRun(command, args, options = {}) {
   return spawnSync(command, args, { encoding: 'utf8', ...options });
 }
 
-export function hasOmpSdlcIgnore(source) {
+export function hasNmgSdlcIgnore(source) {
   return String(source ?? '')
     .split(/\r?\n/)
     .some((line) => {
       const trimmed = line.trim();
-      return trimmed === OMP_SDLC_IGNORE_LINE || trimmed === '.omp/sdlc';
+      return trimmed === NMG_SDLC_IGNORE_LINE || trimmed === '.nmg-sdlc';
     });
 }
 
-export function writeOmpSdlcIgnore(root, { fs = defaultFs } = {}) {
+export function writeNmgSdlcIgnore(root, { fs = defaultFs } = {}) {
   const gitignore = join(root, '.gitignore');
   let before = '';
   try {
@@ -39,13 +39,13 @@ export function writeOmpSdlcIgnore(root, { fs = defaultFs } = {}) {
     }
   }
 
-  if (hasOmpSdlcIgnore(before)) {
+  if (hasNmgSdlcIgnore(before)) {
     return { ok: true, changed: false, status: 'already present', reasonCode: null };
   }
 
   const separator = before.length > 0 && !before.endsWith('\n') ? '\n' : '';
   try {
-    fs.writeFileSync(gitignore, `${before}${separator}${OMP_SDLC_IGNORE_LINE}\n`);
+    fs.writeFileSync(gitignore, `${before}${separator}${NMG_SDLC_IGNORE_LINE}\n`);
     return { ok: true, changed: true, status: 'written', reasonCode: null };
   } catch {
     return {
@@ -57,16 +57,16 @@ export function writeOmpSdlcIgnore(root, { fs = defaultFs } = {}) {
   }
 }
 
-export function ensureOmpSdlcIgnore(root, options = {}) {
-  return writeOmpSdlcIgnore(root, options);
+export function ensureNmgSdlcIgnore(root, options = {}) {
+  return writeNmgSdlcIgnore(root, options);
 }
 
-export function isAuthorizedOmpSdlcUntrackTransition(status, untrack) {
+export function isAuthorizedNmgSdlcUntrackTransition(status, untrack) {
   const paths = untrack?.untrackedPaths;
   if (!untrack?.changed || !Array.isArray(paths) || paths.length === 0) return false;
 
   const expected = new Set(paths);
-  if (expected.size !== paths.length || paths.some((path) => !path.startsWith(OMP_SDLC_IGNORE_LINE))) {
+  if (expected.size !== paths.length || paths.some((path) => !path.startsWith(NMG_SDLC_IGNORE_LINE))) {
     return false;
   }
 
@@ -81,7 +81,7 @@ export function isAuthorizedOmpSdlcUntrackTransition(status, untrack) {
   return expected.size === 0;
 }
 
-export function untrackOmpSdlcRuntime({
+export function untrackNmgSdlcRuntime({
   cwd = process.cwd(),
   run = defaultRun,
   fs = defaultFs,
@@ -95,11 +95,11 @@ export function untrackOmpSdlcRuntime({
     }
     return { ok: false, changed: false, status: 'failed', reasonCode: 'runtime_untrack_failed' };
   }
-  if (!hasOmpSdlcIgnore(gitignore)) {
+  if (!hasNmgSdlcIgnore(gitignore)) {
     return { ok: true, changed: false, status: 'ignore absent', reasonCode: null };
   }
 
-  const listed = run('git', ['ls-files', '-z', '--', '.omp/sdlc'], { cwd });
+  const listed = run('git', ['ls-files', '-z', '--', '.nmg-sdlc'], { cwd });
   if (listed?.status !== 0) {
     return { ok: false, changed: false, status: 'failed', reasonCode: 'runtime_untrack_failed' };
   }
@@ -118,11 +118,11 @@ export function untrackOmpSdlcRuntime({
   }
   const untrackedPaths = listedOutput.slice(0, -1).split('\0');
   if (new Set(untrackedPaths).size !== untrackedPaths.length
-    || untrackedPaths.some((path) => !path.startsWith(OMP_SDLC_IGNORE_LINE))) {
+    || untrackedPaths.some((path) => !path.startsWith(NMG_SDLC_IGNORE_LINE))) {
     return { ok: false, changed: false, status: 'failed', reasonCode: 'runtime_untrack_failed' };
   }
 
-  const removed = run('git', ['rm', '--cached', '-r', '--', '.omp/sdlc'], { cwd });
+  const removed = run('git', ['rm', '--cached', '-r', '--', '.nmg-sdlc'], { cwd });
   if (removed?.status !== 0) {
     return { ok: false, changed: false, status: 'failed', reasonCode: 'runtime_untrack_failed' };
   }
@@ -142,7 +142,7 @@ function runCli(argv = process.argv.slice(2)) {
     console.log(JSON.stringify({ ok: false, changed: false, status: 'invalid arguments', reasonCode: 'invalid_arguments' }));
     return 2;
   }
-  const result = ensureOmpSdlcIgnore(root);
+  const result = ensureNmgSdlcIgnore(root);
   console.log(JSON.stringify(result));
   return result.ok ? 0 : 1;
 }

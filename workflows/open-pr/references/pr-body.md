@@ -1,4 +1,4 @@
-# PR Body Templates (v3)
+# PR Body Templates (v4)
 
 **Consumed by**: open-pr.
 

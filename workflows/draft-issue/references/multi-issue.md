@@ -1,16 +1,16 @@
 # Multi-Issue Split
 
-v3 supports proposing multiple executable issues (feature/bug) from one description. No Epic type, no spike type, no coordination aggregates, no child fan-out, no native sub-issue links, no coordinationParentNumber.
+v4 supports proposing multiple executable issues (feature/bug) from one description. No Epic type, no spike type, no coordination aggregates, no child fan-out, no native sub-issue links, no coordinationParentNumber.
 
 Relations use only GitHub's official blocked-by relation. Each plan entry has a stable `planId` and a `blockedBy` array containing `{ "planId": "..." }` for another planned issue or `{ "issue": N }` for an explicitly named existing repository issue.
 
-Use ask with 2-4 options, recommended first:
+Use one `AskUserQuestion` with 2–4 options, recommended first:
 
 question: "Create separate issues for this split?"
 
 options:
 
-- "Yes — create the listed issues in dependency order (recommended)"
+- "Yes — create the listed issues in dependency order (Recommended)"
 - "Adjust the split"
 - "Keep a single issue"
 
@@ -18,7 +18,7 @@ On adjust: take Other text, re-segment simply (one re-ask max), re-render, ask a
 
 On single: collapse.
 
-Only this one ask for the split decision. The split ask and final plan approval authorize the exact proposed graph. Do not add a dependency-specific confirmation.
+Only this one `AskUserQuestion` for the split decision. The split ask and final plan approval authorize the exact proposed graph. Do not add a dependency-specific confirmation.
 
 ## Official Edge Derivation
 
@@ -32,7 +32,7 @@ Feature/bug templates are used as payload for body synthesis regardless of singl
 
 ## State for Plan Emission
 
-- DAG or ordered list of ask entries.
+- DAG or ordered list of plan entries.
 - Per entry: `planId`, description, classification, milestone, investigation, interview, body, title, and `blockedBy`.
 - A resolved execution map records each plan id's created issue number and numeric REST database id.
 

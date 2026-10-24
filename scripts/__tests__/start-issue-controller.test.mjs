@@ -45,13 +45,13 @@ function fixture({
   roots.push(cwd);
   if (gitignore !== null) fs.writeFileSync(path.join(cwd, '.gitignore'), gitignore);
   if (integratedRuntimeMigration) {
-    const runtimePath = path.join(cwd, '.omp/sdlc/run.json');
+    const runtimePath = path.join(cwd, '.nmg-sdlc/run.json');
     fs.mkdirSync(path.dirname(runtimePath), { recursive: true });
     fs.writeFileSync(runtimePath, '{}\n');
     runGit(cwd, ['init', '-b', 'main']);
     runGit(cwd, ['config', 'user.name', 'Test']);
     runGit(cwd, ['config', 'user.email', 'test@example.com']);
-    runGit(cwd, ['add', '-f', '.gitignore', '.omp/sdlc/run.json']);
+    runGit(cwd, ['add', '-f', '.gitignore', '.nmg-sdlc/run.json']);
     runGit(cwd, ['commit', '-m', 'track runtime']);
   }
   const calls = [];
@@ -179,7 +179,7 @@ function fixture({
 }
 
 function handoff(cwd) {
-  return JSON.parse(fs.readFileSync(path.join(cwd, '.omp/sdlc/handoffs/42-start.json'), 'utf8'));
+  return JSON.parse(fs.readFileSync(path.join(cwd, '.nmg-sdlc/handoffs/42-start.json'), 'utf8'));
 }
 
 describe('startIssue controller', () => {
@@ -201,7 +201,7 @@ describe('startIssue controller', () => {
       intervention: true,
       step: 'start',
     });
-    expect(fs.existsSync(path.join(cwd, '.omp'))).toBe(false);
+    expect(fs.existsSync(path.join(cwd, '.nmg-sdlc'))).toBe(false);
   });
 
   const ISSUE_VIEW_CALL = ['gh', 'issue', 'view', '42', '--json', 'number,title,body,labels,state'];
@@ -271,15 +271,15 @@ describe('startIssue controller', () => {
   });
   it('proceeds from main when untracking runtime stages its deletion', () => {
     const f = fixture({
-      gitignore: '.omp/sdlc/\n',
+      gitignore: '.nmg-sdlc/\n',
       integratedRuntimeMigration: true,
     });
-    const runtimePath = path.join(f.cwd, '.omp/sdlc/run.json');
+    const runtimePath = path.join(f.cwd, '.nmg-sdlc/run.json');
 
     const result = startIssue({ issue: 42, cwd: f.cwd, run: f.run });
 
     expect(result.handoff.status).toBe('passed');
-    expect(f.calls).toContainEqual(['git', 'rm', '--cached', '-r', '--', '.omp/sdlc']);
+    expect(f.calls).toContainEqual(['git', 'rm', '--cached', '-r', '--', '.nmg-sdlc']);
     expect(f.calls).toContainEqual(['git', 'status', '--porcelain', '-z']);
     expect(fs.existsSync(runtimePath)).toBe(true);
     expect(f.calls).toContainEqual([
@@ -289,7 +289,7 @@ describe('startIssue controller', () => {
 
   it('rejects other dirt alongside the exact runtime staged transition', () => {
     const f = fixture({
-      gitignore: '.omp/sdlc/\n',
+      gitignore: '.nmg-sdlc/\n',
       integratedRuntimeMigration: true,
     });
     fs.writeFileSync(path.join(f.cwd, 'local.txt'), 'dirty\n');
@@ -297,12 +297,12 @@ describe('startIssue controller', () => {
     startIssue({ issue: 42, cwd: f.cwd, run: f.run });
 
     expect(handoff(f.cwd).reasonCode).toBe('dirty_tree');
-    expect(f.calls).toContainEqual(['git', 'rm', '--cached', '-r', '--', '.omp/sdlc']);
+    expect(f.calls).toContainEqual(['git', 'rm', '--cached', '-r', '--', '.nmg-sdlc']);
     expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'issue' && call[2] === 'develop')).toBe(false);
   });
 
   it('does not untrack unignored runtime and still fails dirty_tree', () => {
-    const f = fixture({ dirty: '?? .omp/sdlc/run.json\n' });
+    const f = fixture({ dirty: '?? .nmg-sdlc/run.json\n' });
     startIssue({ issue: 42, cwd: f.cwd, run: f.run });
     expect(handoff(f.cwd).reasonCode).toBe('dirty_tree');
     expect(f.calls.some((call) => call[0] === 'git' && ['ls-files', 'rm'].includes(call[1]))).toBe(false);
@@ -310,7 +310,7 @@ describe('startIssue controller', () => {
   });
 
   it('keeps non-runtime dirt blocking after ignored runtime is untracked', () => {
-    const f = fixture({ gitignore: '.omp/sdlc/\n', dirty: ' M local.txt\n' });
+    const f = fixture({ gitignore: '.nmg-sdlc/\n', dirty: ' M local.txt\n' });
     startIssue({ issue: 42, cwd: f.cwd, run: f.run });
     expect(handoff(f.cwd).reasonCode).toBe('dirty_tree');
     expect(f.calls.some((call) => call[0] === 'gh' && call[1] === 'issue' && call[2] === 'develop')).toBe(false);
@@ -318,8 +318,8 @@ describe('startIssue controller', () => {
 
   it('writes runtime_untrack_failed before developing the issue branch', () => {
     const f = fixture({
-      gitignore: '.omp/sdlc/\n',
-      trackedRuntime: '.omp/sdlc/run.json\0',
+      gitignore: '.nmg-sdlc/\n',
+      trackedRuntime: '.nmg-sdlc/run.json\0',
       rmStatus: 1,
     });
     startIssue({ issue: 42, cwd: f.cwd, run: f.run });
@@ -953,7 +953,7 @@ describe('startIssue controller', () => {
     runGit(seed, ['config', 'user.name', 'Test']);
     runGit(seed, ['config', 'user.email', 'test@example.com']);
     fs.writeFileSync(path.join(seed, 'README.md'), 'main\n');
-    fs.writeFileSync(path.join(seed, '.gitignore'), '.omp/sdlc/\n');
+    fs.writeFileSync(path.join(seed, '.gitignore'), '.nmg-sdlc/\n');
     runGit(seed, ['add', 'README.md', '.gitignore']);
     runGit(seed, ['commit', '-m', 'main']);
     runGit(seed, ['remote', 'add', 'origin', remote]);

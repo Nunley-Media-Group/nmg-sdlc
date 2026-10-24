@@ -1,56 +1,53 @@
-# nmg-sdlc 3.1 Rewrite Verification
+# nmg-sdlc 4.0 Rewrite Verification
 
-**Release**: 3.1.0
-**Verified**: 2026-08-21
+**Release**: 4.0.0
+**Runtime**: Claude Code
 **Exception**: `repository-rewrite`
 
 ## Decision
 
-The version-4 contribution gate was not compatible with this clean rewrite. It required a current executable issue even though the owner-approved cutover predated the singular issue/spec workflow, and its capped sorted spec discovery could accept unrelated historical packages. Version 5 adds a narrow repository-rewrite predicate. It waives only current PR issue/spec identity; the breaking title, required contract paths, rewrite contract, durable verification, steering, changed-path mapping, specific verification, and managed guide remain required.
+Version 4.0.0 moves nmg-sdlc from an Oh My Pi extension to a Claude Code plugin. This is the second repository rewrite, following the 3.1.0 precedent. The host change touches every public surface at once and has no single GitHub issue owner, so the PR uses the narrow repository-rewrite predicate of the contribution gate. That predicate waives only current PR issue/spec identity. The breaking `feat!:` title, required contract paths, rewrite contract, durable verification, steering, changed-path mapping, specific verification, and managed guide remain required.
+
+The cutover keeps every 3.x capability; only host mechanics change:
+
+| 3.x (Oh My Pi) | 4.0 (Claude Code) |
+|----------------|-------------------|
+| `omp.extensions` manifest and `src/extension.ts` | `.claude-plugin/plugin.json` and the hooks module `hooks/register.ts` |
+| TUI `input` rewrite to `/plan` plus the workflow | hooks-module command handler: builtin `/plan`, then the workflow as the person's prompt |
+| built-in `ask` | `AskUserQuestion` (2–4 options, ` (Recommended)` first, automatic Other) |
+| `xd://propose` and `local://*-plan.md` | the plan-mode plan file headed `# <slug>: <title>`, then `ExitPlanMode` |
+| `/plan` toggle after write-spec Finished | the Finished reply ends with `ExitPlanMode`, which the hooks module approves |
+| Herdr `omp` worker panes | Herdr Claude workers (`--kind claude --plugin-dir <plugin-root>`) |
+| `.omp/sdlc/` runtime state | `.nmg-sdlc/` runtime state; `/sdlc-upgrade-project` migrates legacy state |
+| OMP pane screen reading for hands-off drivers | `NMG_SDLC_AUTOPILOT=1` in the hooks module |
+| `scripts/exercise-omp.mjs` (print/RPC) | `scripts/exercise-claude.mjs` (`claude -p --plugin-dir`, stream-json) |
 
 ## Git provenance
 
-The rewrite is grounded in the branch history rather than a synthetic issue:
-
-| Commit | Observable change |
-|--------|-------------------|
-| `3414fe7` | Rewrote nmg-sdlc as an OMP extension and Herdr workflow. |
-| `df32eb7` | Removed spike behavior and leftover Codex prompt configuration. |
-| `88c157e` | Exposed the public `/sdlc-*` command surface. |
-| `eaeb097` | Added approved-spec publication and OMP-native command dispatch. |
-| `c0495dc` | Added default-branch squash merge for approved specs. |
-| `f42e83e` | Removed development linking from spec-publication branches. |
-| `b8e83a5` | Passed explicit issue numbers into execute worker prompts. |
-| `1e3f4e0` | Regenerated the skill-inventory baseline for the rewrite. |
-| `8483289` | Relocated loader-discoverable skills to private workflow resources and removed legacy catalog packaging. |
-| `2296e25` | Repaired execute prompt loading through the shared workflow reader. |
-| `798725a` | Hardened status evidence handling after workflow relocation. |
-
-Full predecessor specifications and removed implementation remain recoverable through Git history. The working tree retains only genuinely owned current BDD contracts.
+The 3.1 rewrite (commit `3414fe7`, "Rewrote nmg-sdlc as an OMP extension and Herdr workflow") and its 3.1 verification record remain in Git history. The 4.0 cutover lands on branch `feat/v4-claude-code-plugin` on top of `b162f48`. Full predecessor specifications and removed implementation remain recoverable through Git history. The working tree keeps only BDD contracts that have genuine issue owners.
 
 ## Current contract coverage
 
-`references/rewrite-contract.json` enumerates 15 current capabilities. `references/rewrite-contract.md` provides their human-readable purpose, source paths, verification paths, and acceptance behavior. `scripts/verify-current-specs.mjs` proves:
+`references/rewrite-contract.json` lists 16 current capabilities. `references/rewrite-contract.md` gives each one's purpose, source paths, verification paths, and acceptance behavior in readable form. `scripts/verify-current-specs.mjs` proves:
 
-- exactly 15 genuinely owned current issue spec directories remain;
-- every retained artifact has matching singular `**Issue**: #N` identity and Approved requirements;
+- every retained spec directory has a genuine owner, with matching singular `**Issue**: #N` identity and Approved requirements;
 - no obsolete or mismatched spec directory remains;
-- all 15 rewrite capabilities have source and acceptance coverage;
-- all 13 active workflows and all 9 public `/sdlc-*` commands map to the rewrite contract;
-- the deprecated `migrate-project` stub retains its exact redirect;
-- rewrite-contract, `VERSION`, and `package.json` releases match.
+- all 16 rewrite capabilities have source and acceptance coverage;
+- all active workflows and all public `/sdlc-*` commands map to the rewrite contract;
+- the deprecated `migrate-project` stub keeps its exact redirect;
+- the rewrite contract's release matches `VERSION`, `package.json`, and `.claude-plugin/plugin.json`.
 
 ## Verification results
 
-- `cd scripts && npm test` — passed: 32 suites, 279 tests; 1 suite and 1 test skipped.
+- `cd scripts && npm test` — passed: full Jest suite at the 4.0.0 cutover head.
 - `node scripts/verify-plugin-surface.mjs --root . --label repository` — passed.
-- `node scripts/verify-current-specs.mjs` — passed: 15 genuine issue specs, 15 rewrite capabilities, 13 active workflow mappings, 1 deprecated stub.
-- `node scripts/skill-inventory-audit.mjs --check` — passed: 127 items mapped.
+- `node scripts/verify-current-specs.mjs` — passed.
+- `node scripts/skill-inventory-audit.mjs --check` — passed.
 
 ## Changed-path mapping
 
-- OMP package and extension: `package.json`, `VERSION`, `src/`, `commands/`.
-- Workflow and policy: `.github/`, `.gitignore`, `AGENTS.md`, `CONTRIBUTING.md`, `README.md`, `CHANGELOG.md`, `steering/`.
+- Claude Code plugin surface: `.claude-plugin/`, `hooks/`, `package.json`, `VERSION`, `src/`, `commands/`.
+- Workflow and policy: `.github/`, `.gitignore`, `AGENTS.md`, `CONTRIBUTING.md`, `README.md`, `CHANGELOG.md`, `steering/`, `docs/`.
 - SDLC behavior: `workflows/`, `agents/`, `scripts/`, `references/`.
 - Current BDD contracts: `specs/`.
 

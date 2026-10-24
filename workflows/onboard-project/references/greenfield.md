@@ -1,10 +1,10 @@
-# Greenfield (v3)
+# Greenfield (v4)
 
-Detect → interview (ask budget) for vision/tech → initialize the managed steering manifest, runtime modules, and registered prompt snippets through `/sdlc-steering`. Never recreate legacy `steering/product.md`, `steering/tech.md`, or `steering/structure.md` files.
+Detect → interview (`AskUserQuestion` budget) for vision/tech → initialize the managed steering manifest, runtime modules, and registered prompt snippets through `/sdlc-steering`. Never recreate legacy `steering/product.md`, `steering/tech.md`, or `steering/structure.md` files.
 
 Init VERSION + specs/ .
 
-Managed assets use v3 list in CONTRIBUTING/AGENTS:
+Managed assets use the v4 list in CONTRIBUTING/AGENTS:
 
 Run /sdlc-draft-issue for new work
 

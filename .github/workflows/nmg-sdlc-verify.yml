@@ -38,8 +38,8 @@ jobs:
         working-directory: scripts
         run: npm test
 
-      - name: Verify OMP plugin surface
-        run: node scripts/verify-plugin-surface.mjs --root . --label repository
+      - name: Verify Claude Code plugin surface
+        run: node scripts/verify-plugin-surface.mjs --root . --label repository --claude-validate
       - name: Verify current spec archive and rewrite contract
         run: node scripts/verify-current-specs.mjs
 

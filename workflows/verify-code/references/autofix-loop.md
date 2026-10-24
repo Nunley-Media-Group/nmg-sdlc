@@ -1,14 +1,14 @@
-# Autofix Loop (v3)
+# Autofix Loop (v4)
 
 **Consumed by**: verify-code after findings.
 
-Safe local edits for clear findings only. Resolve and read `skill://skill-creator` before editing any skill-bundled path, then follow its editing procedure.
+Safe local edits for clear findings only. Invoke the `skill-creator` skill with the `Skill` tool before editing any skill-bundled path, then follow its editing procedure.
 
 Detector:
 - paths under workflows/ (all subdirs), root references/, agents/*.md
 - task/finding text mentions skill authoring
 
-Resolution: read `skill://skill-creator` through the harness. A repository-local `skills/` directory is not a prerequisite.
+Resolution: load the installed `skill-creator` skill through the `Skill` tool. A repository-local `skills/` directory is not a prerequisite.
 
 Apply minimal behavior preserving fix. Re-run tests + affected verification. Record "Fixes Applied" with routing note in report.
 

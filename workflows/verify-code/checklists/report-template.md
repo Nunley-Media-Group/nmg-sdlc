@@ -145,7 +145,7 @@ Use this template to generate the final verification report.
 |-------|-------|
 | **Skill Exercised** | [skill name] |
 | **Test Project** | [temp dir path] |
-| **Exercise Method** | `node <plugin-root>/scripts/exercise-omp.mjs --cwd <project> -- /sdlc-NAME` |
+| **Exercise Method** | `node <plugin-root>/scripts/exercise-claude.mjs --cwd <project> -- /sdlc-NAME` |
 | **Interactive gate handling** | N/A (automated worker) |
 | **Duration** | [seconds] |
 
@@ -167,7 +167,7 @@ Use this template to generate the final verification report.
 
 | Field | Value |
 |-------|-------|
-| **Reason** | [e.g., OMP CLI not found, explicit cancellation, confirmed process loss] |
+| **Reason** | [e.g., Claude Code CLI not found, explicit cancellation, confirmed process loss] |
 | **Recommendation** | Manual exercise testing recommended as follow-up |
 
 ---

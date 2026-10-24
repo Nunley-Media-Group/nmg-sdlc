@@ -1,6 +1,6 @@
-# Brownfield (v3)
+# Brownfield (v4)
 
-Preflight: gh auth, steering if missing (re-use greenfield bootstrap), contribution assets with v3 list.
+Preflight: gh auth, steering if missing (re-use greenfield bootstrap), contribution assets with the v4 list.
 
 Reconcile: closed issues (skip dup/notplanned) → specs/{N}-slug/ per issue (title slug), fill 4 files from issue+pr+commits+tree.
 

@@ -266,7 +266,7 @@ export function verificationCeiling(results, coverage = { complete: true }) {
   return null;
 }
 function writeVerificationArtifact(root, issue, artifact) {
-  const path = join(root, ".omp", "sdlc", "verification", `${issue}.json`);
+  const path = join(root, ".nmg-sdlc", "verification", `${issue}.json`);
   mkdirSync(dirname(path), { recursive: true });
   const temporary = `${path}.${process.pid}.tmp`;
   writeFileSync(temporary, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");

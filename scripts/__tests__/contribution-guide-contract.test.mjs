@@ -10,7 +10,7 @@ function read(relativePath) {
 }
 
 describe('contribution guide contract', () => {
-  test('shared reference uses v3 invocations and specs/{N}-{slug}', () => {
+  test('shared reference uses v4 invocations and specs/{N}-{slug}', () => {
     const contract = read('references/contribution-guide.md');
 
     expect(contract).toContain('steering/modules/product.mjs');
@@ -25,5 +25,7 @@ describe('contribution guide contract', () => {
     expect(contract).toContain('SDLC-Exception: docs-only');
     expect(contract).not.toContain('epics cannot be started');
     expect(contract).not.toContain('$nmg-sdlc:');
+    expect(contract).toContain('Herdr Claude worker panes');
+    expect(contract).not.toMatch(/\bomp\b/i);
   });
 });

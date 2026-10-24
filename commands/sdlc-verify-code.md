@@ -1,7 +1,13 @@
 ---
-name: sdlc-verify-code
 description: "Verify implementation against the approved spec"
+argument-hint: "[#N]"
 ---
+
+Plugin paths: `${CLAUDE_PLUGIN_ROOT}` is the installed nmg-sdlc plugin root. Read packaged files by their `${CLAUDE_PLUGIN_ROOT}/...` path.
+- In the inlined `verify-code` workflow, relative paths such as `references/...`, `templates/...`, `checklists/...`, and `agents/...` resolve under `${CLAUDE_PLUGIN_ROOT}/workflows/verify-code/`.
+- `../../references/...` resolves under `${CLAUDE_PLUGIN_ROOT}/references/`, and a path beginning `workflows/` resolves under `${CLAUDE_PLUGIN_ROOT}/`.
+- Paths such as `specs/`, `steering/`, and `.nmg-sdlc/` name files in the current project, not in the plugin.
+
 
 # Verify Code
 
@@ -24,28 +30,25 @@ Inline architecture and acceptance review by the architecture-reviewer agent. No
 Before running verification, modifying code, or generating a report, bind the durable verify owner:
 
 ```bash
-node "${NMG_SDLC_PLUGIN_ROOT}/scripts/sdlc-safe-recoveries.mjs" bind --issue N --step verify --spec specs/N-SLUG [--controller-run-id R]
+node "${CLAUDE_PLUGIN_ROOT}/scripts/sdlc-safe-recoveries.mjs" bind --issue N --step verify --spec specs/N-SLUG [--controller-run-id R]
 ```
 
-Use the exact worker-header controller run id; omit it only for standalone work. Require `NMG_SDLC_PUBLICATION` with `passed:true`. Owner or scope failure is intervention and stops before work. The lease is only a mutex: fresh leases and sessions reuse the existing project/issue/branch/verify owner derived from current branch and live evidence, and standalone verification never creates execute `run.json`.
-
-## Deterministic Steering Gate
-
+Use the exact worker-header invocation id when present; omit it only for standalone work. Require `NMG_SDLC_PUBLICATION` with `passed:true` from current issue, branch, Approved spec and publication scope. The lease is only a mutex; historical owner records and `run.json` never authorize or veto verification.
 Before prose review, run:
 
 ```bash
-node "${NMG_SDLC_PLUGIN_ROOT}/scripts/sdlc-verify-steering.mjs" --project . --issue N --spec specs/N-SLUG --base main [--controller-run-id R]
+node "${CLAUDE_PLUGIN_ROOT}/scripts/sdlc-verify-steering.mjs" --project . --issue N --spec specs/N-SLUG --base main [--controller-run-id R]
 ```
 
 When the worker header provides a non-empty controller run id, replace the bracketed option with `--controller-run-id R` using that exact value. Omit the option only for standalone verification.
 
-Read `.omp/sdlc/verification/N.json`. The same runner is mandatory for interactive and execute verification. Use its `coverage` summary to distinguish zero declarations from missing evidence: `declared: 0`, `recorded: 0`, and `complete: true` is a complete gate with no project-specific validations, while `complete: false` means declared results are missing, duplicated, or unknown and caps overall status at `Incomplete`. A required `failed` result caps status at `Fail`; required `incomplete`, runtime/provider/config errors, crashes, explicit cancellation, confirmed process loss, malformed output, stale identities, or applicable provider self-skips cap it at `Incomplete`. `Pass` and `PR Evidence Pending` are forbidden unless coverage is complete and every applicable required validation has a terminal result.
+Read `.nmg-sdlc/verification/N.json`. The same runner is mandatory for interactive and execute verification. Use its `coverage` summary to distinguish zero declarations from missing evidence: `declared: 0`, `recorded: 0`, and `complete: true` is a complete gate with no project-specific validations, while `complete: false` means declared results are missing, duplicated, or unknown and caps overall status at `Incomplete`. A required `failed` result caps status at `Fail`; required `incomplete`, runtime/provider/config errors, crashes, explicit cancellation, confirmed process loss, malformed output, stale identities, or applicable provider self-skips cap it at `Incomplete`. `Pass` and `PR Evidence Pending` are forbidden unless coverage is complete and every applicable required validation has a terminal result.
 
 Run required local `builtin.command` validations first; if any fail/incomplete, record later project providers as required `incomplete` with summary `deferred until required local validations pass`.
 
 ## Run Reviews Inline
 
-- Acceptance: for each AC in requirements (delivery slice), locate code, mark Pass/Fail/Partial/Incomplete. Use grep/read/edit as needed for evidence. Map every approved AC.
+- Acceptance: for each AC in requirements (delivery slice), locate code, mark Pass/Fail/Partial/Incomplete. Use `Grep` / `Read` / `Edit` as needed for evidence. Map every approved AC and scenario.
 - Tasks: confirm listed tasks produced the files/changes expected.
 - Architecture (inline, this is the architecture-reviewer):
   Load each checklist:
@@ -55,13 +58,20 @@ Run required local `builtin.command` validations first; if any fail/incomplete, 
   - testability.md
   - error-handling.md
   Score 1-5, note findings. Average reported.
-- Test / BDD: run the test command from tech.md (or relevant subset). For plugin changes (detect via git diff on workflows/ and agents/):
-  Use updated exercise instructions (see exercise-testing.md): from a disposable project run `node "${NMG_SDLC_PLUGIN_ROOT}/scripts/exercise-omp.mjs" --cwd <project> -- /sdlc-NAME [args]` with this extension loaded by the harness. Do not use `omp --print --load`. Preserve the prior dry-run contract and use state-based termination without a wall-clock deadline. Record output vs ACs.
+- Test / BDD: run the applicable commands registered by technical steering and the relevant test subsets. For plugin changes (detect via git diff on workflows/ and agents/):
+  Use updated exercise instructions (see exercise-testing.md): from a disposable project run `node "${CLAUDE_PLUGIN_ROOT}/scripts/exercise-claude.mjs" --cwd <project> -- /sdlc-NAME [args]`, which loads this checkout through `claude -p --plugin-dir ${CLAUDE_PLUGIN_ROOT}`. Preserve the prior dry-run contract and use state-based termination without a wall-clock deadline. Record output vs ACs.
 - PR-only obligations: if present use the readiness rules from references (PR Evidence Pending allowed only when all local pass).
 
-  Fix findings where safe and local: apply the smallest fix, resolving and reading `skill://skill-creator` before any skill-bundled edit. Re-run affected verification after fixes. Unfixable findings remain in the report.
+  Fix findings where safe and local: apply the smallest fix, invoking the `skill-creator` skill with the `Skill` tool before any skill-bundled edit. Re-run affected verification after fixes. Unfixable findings remain in the report.
 
-Include exactly one standalone `**Verification head**: <40-character current HEAD>` line for every newly generated report.
+Include exactly one standalone `**Verification head**: <40-character current HEAD>` line for every newly generated report, including initial verification and mixed local/external failure.
+
+## Generate and Persist Report
+
+Use references/report-format.md + checklists/report-template.md to build:
+specs/N-SLUG/verification-report.md
+
+With sections: executive summary, deterministic steering artifact and ceiling, AC checklist with evidence, architecture scores + findings, test results, real smoke lifecycle evidence when required (repository.nmg-sdlc-smoke preserved), fixes, remaining issues, overall status (Pass | PR Evidence Pending | Partial | Fail | Incomplete)
 
 Write the file using write tool or node cat.
 
@@ -77,17 +87,17 @@ The controller owns report publication and the verify handoff. Never write hando
 Run:
 
 ```bash
-node "${NMG_SDLC_PLUGIN_ROOT}/scripts/sdlc-finalize-verification.mjs" --issue N --spec specs/N-SLUG [--controller-run-id R]
+node "${CLAUDE_PLUGIN_ROOT}/scripts/sdlc-finalize-verification.mjs" --issue N --spec specs/N-SLUG [--controller-run-id R]
 ```
 
 When the worker header provides a non-empty controller run id, replace the bracketed option with `--controller-run-id R` using that exact value. Omit the option only for standalone verification.
 
-The finalizer keeps the normal dirty-report commit and first push flow. It reconciles a failed first push before emitting a terminal handoff: exact upstream equality acknowledges a landed push; a proven clean-ahead known commit consumes `stage_publication` once before one non-force recovery push. A publication-only reinvoke uses the same proof and owner without another commit. Remote identity, known subject, report-only scope, and clean-tree proof are mandatory.
+The finalizer requires complete passing manifest-registered results, exact source/steering/spec identity, and the current truthful Pass report. A failed push is reconciled by the actual clean commit and exact upstream head with no force and no one-use allowance. Reinvocation with an unchanged report-only publication acknowledges the same passing source-parent gate without another commit; a changed implementation head requires the full registered gate.
 
-Print the controller's `NMG_SDLC_HANDOFF:` line unchanged and stop. A passed handoff exists only after the exact report is published, the branch is synchronized, and the non-runtime worktree is clean. Fail or Partial write `status: failed` with `intervention: false`; they do not advance to delivery and route to implement repair then re-verify at fresh head.
+Print the controller's `NMG_SDLC_HANDOFF:` line unchanged. A passed handoff exists only after the exact Pass report and complete passing registered results are published at the source head and the branch is synchronized. Fail, Partial and Incomplete remain failed handoffs and route to implementation diagnosis. PR Evidence Pending requests draft evidence collection without ready or merge, then fresh final verification.
 
-`spec_not_approved`, `verification_publish_failed`, lease failure, missing/unsafe report or artifact remain intervention. Never rewrite a controller handoff to change classification or bypass live scope, evidence, ownership, publication, or remediation bounds. Every non-green returns evidence to diagnosis and re-runs the full gate after cause changes.
+`spec_not_approved`, `verification_publish_failed`, lease failure, missing/unsafe report or artifact, and unavailable required steering evidence remain blockers. Never rewrite a handoff to bypass live scope, current registered evidence or publication identity. Every Fail/Partial/Incomplete or failed required local result returns to diagnosis and reruns the full gate after the cause changes; never promote a pending or failed report to passed handoff without fresh green at the exact source head.
 
 ## Smoke Requirement
 
-The registered `repository.nmg-sdlc-smoke` is always-applicable when declared; require its real passing result (local prereqs green first) for full-green. Diagnose, repair cause; never replay unchanged.
+The registered `repository.nmg-sdlc-smoke` (and project.nmg-sdlc-smoke) is always-applicable when declared; require its real passing result (with local prerequisites green) for full-green verification. Diagnose provider failure and repair the cause; never replay unchanged smoke for attempt consumption.

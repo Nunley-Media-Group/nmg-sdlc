@@ -1,4 +1,4 @@
-# Extraction (v3)
+# Extraction (v4)
 
 Per defect: read req + related feature, frame transferable principle + rec + evidence paths.
 

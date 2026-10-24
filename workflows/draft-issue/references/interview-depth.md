@@ -1,16 +1,16 @@
 # Interview Probes
 
-Use `ask()` only for preferences and tradeoffs. Discover repository facts with `read`, `grep`, and `glob`.
+Use `AskUserQuestion` only for preferences and tradeoffs. Discover repository facts with `Read`, `Grep`, and `Glob` (or `rg` / `find` through `Bash`).
 
-For every `ask()` call:
+For every `AskUserQuestion` call:
 
 - Provide 2–4 options.
-- Put the recommended option first.
+- Put the recommended option first and end its label with ` (Recommended)`.
 - Include at most three questions.
 
 Each interview or preference `question` includes a short paragraph stating the situation and the facts needed to choose among the shown options. The user must be able to select an option from that prompt without relying on earlier chat text.
 
-Never ask for final draft approval or "does this match." Approval is exclusively by writing to `xd://propose`.
+Never ask for final draft approval or "does this match." Approval is exclusively through the plan file and `ExitPlanMode`.
 
 ## Depth
 
@@ -22,4 +22,4 @@ If filtering leaves no eligible behavior, print exactly `No software requirement
 
 Continue with focused probes until every material undiscoverable preference, observable acceptance criterion, and adjacent-software scope boundary is gathered. Cover persona and outcome, key acceptance criteria, adjacent software scope, and, for bugs, reproduction and expected behavior.
 
-Ask whenever a material software decision remains missing. Ask only for behavior `/sdlc-execute` can implement through permitted repository changes and prove through accepted evidence. Never ask for legal interpretation, policy judgment, ownership or authority proof, external sign-off or attestation, credentials, or live operations. Never skip a necessary eligible probe or synthesize a silent default. Never ask for facts that `read`, `grep`, or `glob` can discover.
+Ask whenever a material software decision remains missing. Ask only for behavior `/sdlc-execute` can implement through permitted repository changes and prove through accepted evidence. Never ask for legal interpretation, policy judgment, ownership or authority proof, external sign-off or attestation, credentials, or live operations. Never skip a necessary eligible probe or synthesize a silent default. Never ask for facts that `Read`, `Grep`, or `Glob` can discover.

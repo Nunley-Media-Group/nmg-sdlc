@@ -6,11 +6,24 @@ const SCRIPT_NAME_PATTERN = /^[A-Za-z0-9._-]+\.mjs$/;
 
 const defaultFs = { existsSync, readFileSync, realpathSync, statSync };
 
+const PLUGIN_NAME = "nmg-sdlc";
+// A plugin root names itself in its Claude Code plugin manifest or, for a
+// source checkout or package-shaped copy, in package.json.
+const PLUGIN_MANIFESTS = [join(".claude-plugin", "plugin.json"), "package.json"];
+
+function namesPlugin(root, manifest, fsImpl) {
+  try {
+    return JSON.parse(fsImpl.readFileSync(join(root, manifest), "utf8"))?.name === PLUGIN_NAME;
+  } catch {
+    return false;
+  }
+}
+
 function validPluginRoot(root, fsImpl = defaultFs) {
   if (typeof root !== "string" || !isAbsolute(root)) return false;
+  if (!PLUGIN_MANIFESTS.some((manifest) => namesPlugin(root, manifest, fsImpl))) return false;
   try {
-    const manifest = JSON.parse(fsImpl.readFileSync(join(root, "package.json"), "utf8"));
-    return manifest?.name === "nmg-sdlc" && fsImpl.statSync(join(root, "scripts")).isDirectory();
+    return fsImpl.statSync(join(root, "scripts")).isDirectory();
   } catch {
     return false;
   }
@@ -81,7 +94,11 @@ function controllerNameFromOperand(operand) {
 
   const segments = operand.split(/[\\/]+/).filter(Boolean);
   const scriptName = segments.at(-1);
-  return segments.at(-3) === "nmg-sdlc"
+  // `.../nmg-sdlc/scripts/x.mjs`, or Claude Code's versioned install cache
+  // `.../nmg-sdlc/<version>/scripts/x.mjs` (~/.claude/plugins/cache/<marketplace>/nmg-sdlc/<version>/).
+  const pluginDirectory = segments.at(-3) === PLUGIN_NAME
+    || (segments.at(-4) === PLUGIN_NAME && /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(segments.at(-3) ?? ""));
+  return pluginDirectory
     && segments.at(-2) === "scripts"
     && SCRIPT_NAME_PATTERN.test(scriptName)
     ? scriptName

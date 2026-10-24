@@ -182,7 +182,7 @@ export function renderPrompt(registry, { consumer, vars = {} } = {}) {
 
 export function writePromptProvenance(projectRoot, provenance) {
   try {
-    const directory = join(projectRoot, ".omp", "sdlc", "prompt-provenance");
+    const directory = join(projectRoot, ".nmg-sdlc", "prompt-provenance");
     mkdirSync(directory, { recursive: true });
     const filename = `${provenance.consumer.replaceAll(":", "-")}.json`;
     writeFileSync(join(directory, filename), `${JSON.stringify(provenance, null, 2)}\n`, "utf8");
@@ -192,8 +192,8 @@ export function writePromptProvenance(projectRoot, provenance) {
 }
 
 const WORKER_HEADER = [
-  "nmg-sdlc {{step}} worker for #{{issue}}.",
-  "Execute this inlined workflow for #{{issue}} without questions.",
+  "nmg-sdlc {{step}} worker for #{{issue}}: a Herdr Claude worker started by /sdlc-execute.",
+  "Execute this inlined workflow for #{{issue}} without questions: never call AskUserQuestion, EnterPlanMode, or ExitPlanMode.",
   "Write and validate the handoff, then stop.",
   "",
   "$ARGUMENTS: #{{issue}}",
@@ -238,6 +238,45 @@ CATALOG.push(Object.freeze({
   order: 0,
   body: WORKER_HEADER,
 }));
+const WORKFLOW_SOURCE_RE = /^workflows\/([a-z0-9-]+)\/(?:WORKFLOW\.md$|references\/)/;
+
+/**
+ * Plugin path note for one consumer: inlined workflow text names packaged files
+ * relative to its own workflow directory, so the rendered prompt states where
+ * those paths resolve. `<plugin-root>` is materialized by the hooks module
+ * (Bash commands and Read paths) and by `${CLAUDE_PLUGIN_ROOT}` in command files.
+ */
+export function pluginPathsNote(workflows) {
+  const lines = [
+    "Plugin paths: `<plugin-root>` is the installed nmg-sdlc plugin root. Read packaged files by their `<plugin-root>/...` path.",
+  ];
+  for (const name of workflows) {
+    lines.push(`- In the inlined \`${name}\` workflow, relative paths such as \`references/...\`, \`templates/...\`, \`checklists/...\`, and \`agents/...\` resolve under \`<plugin-root>/workflows/${name}/\`.`);
+  }
+  lines.push("- `../../references/...` resolves under `<plugin-root>/references/`, and a path beginning `workflows/` resolves under `<plugin-root>/`.");
+  lines.push("- Paths such as `specs/`, `steering/`, and `.nmg-sdlc/` name files in the current project, not in the plugin.");
+  lines.push("");
+  return lines.join("\n");
+}
+
+for (const consumer of ALLOWED_CONSUMERS) {
+  const workflows = [...new Set(CATALOG
+    .filter((fragment) => fragment.consumers.includes(consumer))
+    .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id, "en"))
+    .map((fragment) => WORKFLOW_SOURCE_RE.exec(fragment.source)?.[1])
+    .filter(Boolean))];
+  if (workflows.length === 0) continue;
+  const id = `plugin.paths.${consumer.replace(":", "-")}`;
+  CATALOG.push(Object.freeze({
+    id,
+    provider: "plugin",
+    source: `builtin:${id}`,
+    consumers: Object.freeze([consumer]),
+    slot: "header",
+    order: 50,
+    body: pluginPathsNote(workflows),
+  }));
+}
 Object.freeze(CATALOG);
 
 export function pluginPromptFragments() {

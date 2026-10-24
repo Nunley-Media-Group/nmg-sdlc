@@ -8,7 +8,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const WORKFLOW_RELATIVE_PATH = '.github/workflows/nmg-sdlc-contribution-gate.yml';
 const MANAGED_MARKER = '# nmg-sdlc-managed: contribution-gate';
 const VERSION_PATTERN = /^# nmg-sdlc-managed-version:\s*(\d+)\s*$/m;
-const CURRENT_VERSION = 7;
+const CURRENT_VERSION = 8;
 const AsyncFunction = Object.getPrototypeOf(async function evaluator() {}).constructor;
 
 function readContract() {
@@ -184,11 +184,11 @@ function normalScenario({
 }
 
 describe('contribution gate lifecycle coverage (issues #125, #143, and #177)', () => {
-  test('onboarding-style setup creates version 7 and rerun is idempotent', () => {
+  test('onboarding-style setup creates version 8 and rerun is idempotent', () => {
     const project = scaffoldProject();
 
     expect(ensureContributionGate(project)).toEqual({ workflow: 'created', path: WORKFLOW_RELATIVE_PATH, gaps: [] });
-    expect(fs.readFileSync(workflowPath(project), 'utf8')).toContain('# nmg-sdlc-managed-version: 7');
+    expect(fs.readFileSync(workflowPath(project), 'utf8')).toContain('# nmg-sdlc-managed-version: 8');
     expect(ensureContributionGate(project)).toEqual({ workflow: 'already present', path: WORKFLOW_RELATIVE_PATH, gaps: [] });
   });
 
@@ -201,7 +201,7 @@ describe('contribution gate lifecycle coverage (issues #125, #143, and #177)', (
     fs.writeFileSync(unrelated, 'name: project ci\non: [push]\n');
 
     expect(ensureContributionGate(project)).toEqual({ workflow: 'updated', path: WORKFLOW_RELATIVE_PATH, gaps: [] });
-    expect(fs.readFileSync(target, 'utf8')).toContain('# nmg-sdlc-managed-version: 7');
+    expect(fs.readFileSync(target, 'utf8')).toContain('# nmg-sdlc-managed-version: 8');
     expect(fs.readFileSync(unrelated, 'utf8')).toBe('name: project ci\non: [push]\n');
   });
 
@@ -535,6 +535,52 @@ describe('exact embedded contribution evaluator (issues #143, #177, and #199)', 
 
     expect(result.errors).toEqual([]);
     expect(result.infos.join('\n')).toContain('validated repository-rewrite reduced-evidence contract');
+  });
+
+  async function runRewrite(steeringPaths) {
+    return runEvaluator({
+      title: 'feat!: rewrite the repository runtime',
+      body: [
+        'SDLC-Exception: repository-rewrite — owner-approved clean cutover predating the current issue workflow',
+        'Steering: aligns with the managed steering runtime.',
+        '## Verification',
+        '`node scripts/rewrite.mjs` — passed',
+        'Verified paths: `package.json`, `VERSION`, `.github/workflows/`, `references/`, `steering/`, and `scripts/`.',
+      ].join('\n\n'),
+      changedPaths: [
+        'package.json',
+        'VERSION',
+        'README.md',
+        'CONTRIBUTING.md',
+        ...steeringPaths,
+        '.github/workflows/nmg-sdlc-contribution-gate.yml',
+        'references/rewrite-contract.json',
+        'references/rewrite-contract.md',
+        'references/rewrite-verification.md',
+        'scripts/rewrite.mjs',
+      ],
+      repositoryFiles: baseRepositoryFiles({
+        'references/rewrite-contract.json': '{"release":"4.0.0"}',
+        'references/rewrite-contract.md': '# Rewrite contract',
+        'references/rewrite-verification.md': '# Rewrite verification',
+      }),
+    });
+  }
+
+  test('accepts a repository rewrite whose only steering change is a steering snippet', async () => {
+    const result = await runRewrite(['steering/snippets/x.md']);
+
+    expect(result.errors).toEqual([]);
+    expect(result.infos.join('\n')).toContain('validated repository-rewrite reduced-evidence contract');
+  });
+
+  test('rejects a repository rewrite that changes no steering path and reports steering/**', async () => {
+    const result = await runRewrite([]);
+    const errors = result.errors.join('\n');
+
+    expect(errors).toContain('Invalid repository-rewrite exception');
+    expect(errors).toMatch(/missing paths: steering\/\*\*\./);
+    expect(result.infos.join('\n')).not.toContain('repository-rewrite reduced-evidence contract');
   });
 
   test('rejects incomplete or weak repository rewrite declarations', async () => {

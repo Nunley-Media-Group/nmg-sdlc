@@ -34,6 +34,9 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { isCliEntry } from './plugin-controller-path.mjs';
+import { runExercise } from './exercise-claude.mjs';
+import { isInteractiveCommand } from '../src/host-events.mjs';
+import { renderInteractiveWorkflow } from '../src/sdlc-commands.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
@@ -163,6 +166,27 @@ function countLines(source) {
   return n;
 }
 
+/**
+ * D2: workflow frontmatter is valid for Claude Code. A model override, when
+ * present, must be a Claude Code model alias or a full `claude-*` model name,
+ * and the frontmatter must carry no legacy host terms (Codex, OMP / Oh My Pi,
+ * `gpt-*` models).
+ */
+export function frontmatterHostCheck(frontmatter) {
+  const model = fmField(frontmatter, 'model');
+  const modelOk = !model || /^(?:haiku|sonnet|opus|fable|inherit|claude-[a-z0-9.-]+)$/i.test(model);
+  const legacy = frontmatter.match(/\b(?:codex|omp|oh my pi)\b|\bgpt-[a-z0-9.-]*/i)?.[0] ?? null;
+  const ok = modelOk && !legacy;
+  return {
+    id: 'D2',
+    name: 'frontmatter is Claude Code-compatible',
+    status: ok ? 'pass' : 'fail',
+    detail: ok
+      ? (model ? `model ${model}` : 'no model override and no legacy host terms')
+      : (!modelOk ? `unsupported model ${model}` : `legacy host term "${legacy}"`),
+  };
+}
+
 export function referencePointerCheck(skillName, source) {
   const pointerLines = source.split('\n').filter((line) => /^Read `(?:\.\.\/\.\.\/)?references\//.test(line));
   const nonConforming = pointerLines.filter((line) => !POINTER_RE.test(line));
@@ -210,22 +234,11 @@ function deterministicChecks(skillName, baseRef) {
     detail: `${lines} lines`,
   });
 
-  // D2: frontmatter is valid for Codex.
+  // D2: frontmatter is valid for Claude Code.
   const baseSource = gitShow(baseRef, skillPath)
     ?? gitShow(baseRef, previousSkillPath)
     ?? gitShow(baseRef, legacySkillPath);
-  const model = fmField(frontmatter, 'model');
-  const legacyModelPattern = ['op' + 'us', 'son' + 'net', 'hai' + 'ku'].join('|');
-  const hasLegacyModel = new RegExp(`\\b(${legacyModelPattern})\\b`, 'i').test(frontmatter);
-  const hasLegacyProviderTerm = new RegExp(`\\b${'cla'}${'ude'}\\b`, 'i').test(frontmatter);
-  const modelOk = !model || model.startsWith('gpt-');
-  const frontmatterOk = modelOk && !hasLegacyModel && !hasLegacyProviderTerm;
-  results.push({
-    id: 'D2',
-    name: 'frontmatter is Codex-compatible',
-    status: frontmatterOk ? 'pass' : 'fail',
-    detail: frontmatterOk ? (model ? `model ${model}` : 'no model override and no legacy provider terms') : 'expected absent/gpt-* model and no legacy provider terms',
-  });
+  results.push(frontmatterHostCheck(frontmatter));
 
   // D3: draft-issue must progressively disclose through at least one
   // reference; other compact workflows may have no reference pointers.
@@ -322,44 +335,69 @@ function deterministicChecks(skillName, baseRef) {
 }
 
 /**
- * Attempt the Codex exercise. When exercise mode is disabled or any prerequisite
- * is missing, return a named reason so the caller can either load the committed
- * deterministic fixture artifact or report a specific skip reason.
- *
- * Exercise mode is opt-in because it invokes a live Codex subprocess and may
- * consume API quota. Set RUN_EXERCISE_TESTS=1 to enable it.
+ * The prompt a live exercise submits for `skillName`. Automated commands
+ * (`commands/*.md`) expand under `claude -p`, so they are sent as their slash
+ * command. Interactive commands need the TUI (under `-p` the hooks module
+ * answers `Run /<command> in the TUI.`), so the exercise submits the same
+ * rendered workflow the hooks module would submit as the person's prompt.
  */
-async function attemptCodexExercise(skillName, fixtureDir) {
+export function exercisePrompt(skillName, { render = renderInteractiveWorkflow, root = resolvePluginRoot() } = {}) {
+  const command = `sdlc-${skillName}`;
+  const head = isInteractiveCommand(command) ? render(command, root, null) : `/${command}`;
+  return [head, '', DRY_RUN_INSTRUCTION].join('\n');
+}
+
+const DRY_RUN_INSTRUCTION = 'IMPORTANT: This is a dry-run exercise. Do not execute gh commands that create, modify, or delete GitHub resources. Output the commands and content you would use instead.';
+
+/**
+ * Attempt the live Claude Code exercise. When exercise mode is disabled or any
+ * prerequisite is missing, return a named reason so the caller can either
+ * load the committed deterministic fixture artifact or report a specific skip
+ * reason.
+ *
+ * Exercise mode is opt-in because it invokes a live headless Claude Code
+ * subprocess (`claude -p --plugin-dir <repo root>`, see exercise-claude.mjs)
+ * and may consume API quota. Set RUN_EXERCISE_TESTS=1 to enable it;
+ * NMG_SDLC_EXERCISE_MODEL optionally selects the model.
+ */
+async function attemptClaudeExercise(skillName, fixtureDir, { run = runExercise, probe = probeClaude } = {}) {
   if (process.env.RUN_EXERCISE_TESTS !== '1') {
     return { output: null, reason: 'exercise-mode unavailable' };
   }
-
-  try {
-    execFileSync('codex', ['--version'], { encoding: 'utf8', stdio: 'pipe' });
-  } catch {
+  if (!probe()) {
     return { output: null, reason: 'environment unavailable' };
   }
 
-  const prompt = [
-    `/${skillName}`,
-    '',
-    'IMPORTANT: This is a dry-run exercise. Do not execute gh commands that create, modify, or delete GitHub resources. Output the commands and content you would use instead.',
-  ].join('\n');
-
-  const proc = spawnSync('codex', [
-    'exec',
-    '--cd', fixtureDir,
-    '--full-auto',
-    prompt,
-  ], {
-    encoding: 'utf8',
-  });
-
-  const output = [proc.stdout, proc.stderr].filter(Boolean).join('\n').trim();
+  let output;
+  try {
+    const result = await run({
+      cwd: fixtureDir,
+      message: exercisePrompt(skillName),
+      model: process.env.NMG_SDLC_EXERCISE_MODEL || undefined,
+    });
+    output = [result.text, result.stderr].filter(Boolean).join('\n').trim();
+  } catch (error) {
+    if (error?.reasonCode === 'interactive_only') {
+      return { output: null, reason: 'unsupported interactive gate' };
+    }
+    if (error?.reasonCode === 'launch_failed') {
+      return { output: null, reason: 'environment unavailable' };
+    }
+    output = [error?.text, error?.stderr, error?.message].filter(Boolean).join('\n').trim();
+  }
   if (/unsupported interactive gate|interactive gate unsupported|request_user_input is not supported/i.test(output)) {
     return { output, reason: 'unsupported interactive gate' };
   }
   return { output: output || null, reason: output ? null : 'artifact missing' };
+}
+
+function probeClaude() {
+  try {
+    execFileSync('claude', ['--version'], { encoding: 'utf8', stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function skippedRubricChecks(detail, checks = RUBRIC_CHECKS) {
@@ -1003,7 +1041,7 @@ Options:
       return 2;
     }
   } else {
-    const exercise = await attemptCodexExercise(args.skill, fixtureDir);
+    const exercise = await attemptClaudeExercise(args.skill, fixtureDir);
     const extracted = extractArtifactFromOutput(exercise.output, exercise.reason ?? missingReason);
     artifact = extracted.artifact;
     missingReason = extracted.reason ?? missingReason;
@@ -1032,6 +1070,7 @@ if (isCliEntry(import.meta.url)) {
 
 export {
   acBlocks,
+  attemptClaudeExercise,
   evaluateDraftIssueArtifact,
   evaluateOpenPrArtifact,
   evaluateStatusArtifact,

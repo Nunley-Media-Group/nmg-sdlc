@@ -1,11 +1,13 @@
-# nmg-sdlc 3.1 Repository Rewrite Contract
+# nmg-sdlc 4.0 Repository Rewrite Contract
 
-**Release**: 3.1.0
-**Runtime**: Oh My Pi
-**Orchestration**: Herdr OMP workers
+**Release**: 4.0.0
+**Runtime**: Claude Code
+**Orchestration**: Herdr Claude workers
 **Exception**: `repository-rewrite`
 
-This is the owner-approved current capability contract for the breaking 3.1.0 cutover. It is not an executable issue spec and does not claim a synthetic GitHub issue. Ordinary feature and bug delivery continues to use singular `specs/{N}-{slug}/` packages. Superseded issue specs remain available in Git history and are intentionally absent from the working tree.
+This is the owner-approved current capability contract for the breaking 4.0.0 cutover from Oh My Pi to Claude Code. It is not an executable issue spec and does not claim a synthetic GitHub issue. Ordinary feature and bug delivery continues to use singular `specs/{N}-{slug}/` packages. Superseded issue specs, and the 3.1.0 rewrite contract this one replaces, remain available in Git history and are intentionally absent from the working tree.
+
+The 4.0.0 cutover follows the 3.1.0 repository-rewrite precedent instead of an approved `**Version bump**: major` spec line: the host change touches every public surface at once and has no single issue owner. Every capability below keeps its 3.x behavior; only the host mechanics change (Claude Code plugin, hooks module, `AskUserQuestion`, `ExitPlanMode`, Herdr Claude workers, `.nmg-sdlc/` state).
 
 The machine-readable source is `references/rewrite-contract.json`. The numeric BDD archive retains only capabilities with genuine matching GitHub issue owners; new rewrite-only behavior is documented here until a future executable issue changes it.
 
@@ -54,9 +56,9 @@ Acceptance:
 - Given approved issue text, when publishing, then exactly one feature or bug issue is created with testable BDD acceptance criteria.
 - Given the issue is created, when the workflow completes, then /sdlc-write-spec #N is the next action.
 
-## Execute SDLC with Herdr OMP Workers (`execute`)
+## Execute SDLC with Herdr Claude Workers (`execute`)
 
-Orchestrate approved issue delivery through isolated sibling Herdr OMP workers.
+Orchestrate approved issue delivery through isolated sibling Herdr Claude workers.
 
 - Surface: `/sdlc-execute [#N ...]`
 - Sources: `workflows/execute/`, `scripts/sdlc-execute.mjs`, `agents/`
@@ -65,28 +67,31 @@ Orchestrate approved issue delivery through isolated sibling Herdr OMP workers.
 Acceptance:
 
 - Given issue numbers or a ready backlog, when execute starts in the main Herdr pane, then each issue runs through start, implement, verify, and deliver stages.
-- Given a worker stage, when launched, then the orchestrator supplies explicit #N context and uses a sibling Herdr --kind omp session.
+- Given a worker stage, when launched, then the orchestrator supplies explicit #N context and uses a sibling Herdr --kind claude session.
+- Given a worker launch, when the controller starts the Herdr agent, then it passes --plugin-dir for the controller's own plugin root and --permission-mode from NMG_SDLC_WORKER_PERMISSION_MODE when that names a supported mode, else auto.
 - Given a failed handoff, when a stage ends, then execution stops with intervention instead of silently continuing.
 - Given one issue merges, when more work remains, then the default branch is synchronized before the next issue starts.
 - Given the orchestrator is running, when product edits are needed, then those edits remain delegated to the owning worker.
 
-## OMP Extension Surface (`omp-extension`)
+## Claude Code Plugin Surface (`claude-code-plugin`)
 
-Package nmg-sdlc as an Oh My Pi extension with native interactive commands and print-safe automated commands.
+Package nmg-sdlc as a Claude Code plugin whose hooks module enters native plan mode for interactive commands and whose command files expand automated commands in the TUI and under claude -p.
 
-- Surface: `OMP extension load`
-- Sources: `src/`, `commands/`, `package.json`
-- Verification: `scripts/__tests__/extension-commands.test.mjs`, `scripts/__tests__/plugin-surface-verification.test.mjs`
+- Surface: `Claude Code plugin load`
+- Sources: `.claude-plugin/plugin.json`, `hooks/`, `src/`, `commands/`
+- Verification: `scripts/__tests__/extension-commands.test.mjs`, `scripts/__tests__/interactive-gates-contract.test.mjs`, `scripts/__tests__/plugin-surface-verification.test.mjs`
 
 Acceptance:
 
-- Given OMP loads package.json, when the extension starts, then src/extension.ts registers the five interactive /sdlc-* commands.
-- Given print or RPC execution, when an automated /sdlc-* command runs, then commands/ expands the owning workflow without a dropped sendUserMessage call.
-- Given a Herdr OMP session, when the extension starts, then it exposes run state and reports readiness without owning worker orchestration.
+- Given Claude Code loads the plugin, when a session starts, then hooks/register.ts registers the six interactive /sdlc-* commands.
+- Given an interactive command runs in the TUI, when it starts, then the hooks module runs builtin /plan and submits the rendered workflow as the person's prompt; without a UI it prints Run /<command> in the TUI. and exits 2.
+- Given the TUI or claude -p, when an automated /sdlc-* command runs, then its commands/ file expands the owning workflow with ${CLAUDE_PLUGIN_ROOT} in place of <plugin-root>.
+- Given write-spec Finished is selected, when the reply ends with ExitPlanMode, then the hooks module approves that one call and plan mode ends without a dialog.
+- Given NMG_SDLC_AUTOPILOT=1 in the session environment, when a plan or question gate is reached, then the hooks module approves ExitPlanMode and answers AskUserQuestion with each question's Recommended option.
 
 ## Onboard Project (`onboard-project`)
 
-Initialize greenfield or reconcile brownfield projects with current steering, spec, contribution, and OMP contracts.
+Initialize greenfield or reconcile brownfield projects with current steering, spec, contribution, and Claude Code plugin contracts.
 
 - Surface: `/sdlc-onboard-project`
 - Sources: `workflows/onboard-project/`
@@ -116,7 +121,7 @@ Acceptance:
 
 ## Project Upgrade Compatibility (`project-upgrade`)
 
-Preserve a strict migration alias while upgrades detect and propose current OMP contract repairs.
+Preserve a strict migration alias while upgrades detect and propose current Claude Code contract repairs, including legacy Oh My Pi runtime state.
 
 - Surface: `/sdlc-migrate-project and /sdlc-upgrade-project`
 - Sources: `workflows/migrate-project/`, `workflows/upgrade-project/`, `scripts/sdlc-upgrade.mjs`
@@ -126,10 +131,13 @@ Acceptance:
 
 - Given /sdlc-migrate-project, when invoked, then it prints exactly Run /sdlc-upgrade-project and performs no work.
 - Given /sdlc-upgrade-project, when invoked, then detection is read-only and proposed mutations require approved plan execution.
-- Given legacy packaging or layouts, when an approved upgrade runs, then deterministic script mutations converge on the current OMP structure.
+- Given legacy packaging or layouts, when an approved upgrade runs, then deterministic script mutations converge on the current Claude Code plugin structure.
+- Given legacy .omp/sdlc/ runtime state, when the approved migration runs, then it moves under .nmg-sdlc/ and the managed ignore line becomes .nmg-sdlc/.
 - Given ambiguous ownership, when detected, then the workflow preserves it for explicit user resolution.
 
 ## Managed Steering Runtime (`steering`)
+
+Plan and apply versioned steering registrations and deterministic validation contracts.
 
 - Surface: `/sdlc-steering [prompt]`
 - Sources: `workflows/steering/`, `src/sdlc-steering-runtime.mjs`, `scripts/sdlc-steering.mjs`
@@ -154,7 +162,7 @@ Acceptance:
 
 - Given defect specs changed, when the command runs, then it follows related-spec chains and records transferable patterns.
 - Given unchanged defect inputs, when rerun, then the persisted hash state prevents duplicate analysis.
-- Given an interactive invocation, when review is required, then native plan and bounded ask gates are used before writes.
+- Given an interactive invocation, when review is required, then native plan mode and bounded AskUserQuestion gates are used before writes.
 
 ## Simplify Changed Code (`simplify`)
 
@@ -228,8 +236,8 @@ Acceptance:
 
 - Given an explicit issue or issue branch, when implementation begins, then only the matching approved spec package is authoritative.
 - Given ordered tasks, when work proceeds, then tasks are completed in declared order with observable verification.
-- Given a skill-bundled edit, when skill-creator is installed, then its on-disk authoring contract is followed; absence fails closed.
-- Given implementation completes, when the passed handoff is written, then every non-runtime change is committed and published for review1.
+- Given a skill-bundled edit, when the worker edits it, then the skill-creator skill is first invoked with the Skill tool and its authoring contract is followed.
+- Given implementation completes, when the passed handoff is written, then every non-runtime change is committed and published for review.
 
 ## Write Specification (`write-spec`)
 
@@ -237,7 +245,7 @@ Create, approve, and publish one issue-owned BDD spec package from the default b
 
 - Surface: `/sdlc-write-spec #N`
 - Sources: `workflows/write-spec/`, `scripts/publish-approved-spec.mjs`
-- Verification: `scripts/__tests__/publish-approved-spec.test.mjs`, `scripts/__tests__/interactive-plan-contract.test.mjs`
+- Verification: `scripts/__tests__/publish-approved-spec.test.mjs`, `scripts/__tests__/interactive-gates-contract.test.mjs`
 
 Acceptance:
 
@@ -245,6 +253,7 @@ Acceptance:
 - Given the user approves the plan, when publication runs, then requirements.md, design.md, tasks.md, and feature.gherkin are committed and pushed.
 - Given the spec PR is ready, when published, then it is squash-merged into the default branch without development-linking or closing the implementation issue.
 - Given publication succeeds, when the loop continues, then the user may explicitly continue to implementation or finish.
+- Given Finished is selected, when the Finished reply ends, then it calls ExitPlanMode and plan mode ends without a typed command.
 
 ## Deprecated compatibility surface
 

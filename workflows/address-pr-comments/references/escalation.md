@@ -1,4 +1,4 @@
-# Escalation (v3)
+# Escalation (v4)
 
 Any ambiguous / disagreement / human thread → immediately failed handoff with intervention true, reasonCode human_review or ambiguous_thread.
 

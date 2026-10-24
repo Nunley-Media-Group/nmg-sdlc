@@ -1,6 +1,6 @@
-# Amendment (v3)
+# Amendment (v4)
 
-In v3, write-spec for existing {N}-* updates only that dir (verified **Issue** == #N).
+In v4, write-spec for existing {N}-* updates only that dir (verified **Issue** == #N).
 
 No cross-issue amendment, no epic aggregate writes, no umbrella, no issue-scope/epic-link.
 

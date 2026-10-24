@@ -36,7 +36,7 @@ function porcelainPaths(output) {
     paths.push(entry.slice(3));
     if (/[RC]/.test(entry.slice(0, 2)) && entries[index + 1]) paths.push(entries[index += 1]);
   }
-  return paths.filter((path) => !path.startsWith('.omp/'));
+  return paths.filter((path) => !path.startsWith('.nmg-sdlc/'));
 }
 
 export function matchesRegisteredResults(root, artifact, { issue, specPath, gateHead, reportPath, run }) {
@@ -149,7 +149,7 @@ function finalizeVerificationUnlocked({
   const issueNumber = Number(issue);
   const specPath = String(spec ?? '').split('\\').join('/').replace(/\/$/, '');
   const reportPath = `${specPath}/verification-report.md`;
-  const handoffPath = `.omp/sdlc/handoffs/${issueNumber}-verify.json`;
+  const handoffPath = `.nmg-sdlc/handoffs/${issueNumber}-verify.json`;
   const root = resolve(cwd);
   const absoluteHandoff = resolve(root, handoffPath);
   if (!(absoluteHandoff.startsWith(`${root}${sep}`)) || relative(root, absoluteHandoff).split(sep).join('/') !== handoffPath) {
@@ -157,7 +157,7 @@ function finalizeVerificationUnlocked({
   }
   const ensureSafeHandoffStorage = () => {
     let current = root;
-    for (const segment of ['.omp', 'sdlc', 'handoffs']) {
+    for (const segment of ['.nmg-sdlc', 'handoffs']) {
       current = join(current, segment);
       if (fs.existsSync(current)) {
         const st = fs.lstatSync(current);
@@ -182,7 +182,7 @@ function finalizeVerificationUnlocked({
     }
     if (!fs.existsSync(parent)) {
       let cur = root;
-      for (const segment of ['.omp', 'sdlc', 'handoffs']) {
+      for (const segment of ['.nmg-sdlc', 'handoffs']) {
         cur = join(cur, segment);
         if (!fs.existsSync(cur)) {
           fs.mkdirSync(cur);
@@ -253,7 +253,7 @@ function finalizeVerificationUnlocked({
   });
   const headResult = run('git', ['rev-parse', 'HEAD'], { cwd });
   const headSha = commandSucceeded(headResult) ? String(headResult.stdout ?? '').trim() : '';
-  const artifactRelative = `.omp/sdlc/verification/${issueNumber}.json`;
+  const artifactRelative = `.nmg-sdlc/verification/${issueNumber}.json`;
   const artifactPath = join(root, artifactRelative);
   let artifactRepair = {
     status: 'unverifiable',
@@ -385,7 +385,7 @@ export function finalizeVerification(options = {}) {
       stdout: '',
       stderr: `${error?.reasonCode || 'controller_lease_held'}\n`,
       handoff: null,
-      handoffPath: `.omp/sdlc/handoffs/${options.issue}-verify.json`,
+      handoffPath: `.nmg-sdlc/handoffs/${options.issue}-verify.json`,
     };
   }
   const signalHandlers = [];

@@ -1,109 +1,52 @@
-import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import { describe, expect, it } from '@jest/globals';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { EventEmitter } from 'node:events';
-import { PassThrough } from 'node:stream';
-import { spawn } from 'node:child_process';
 
-import {
-  exerciseOmpArgs,
-  parseExerciseArgs,
-  runExercise,
-  usage as exerciseUsage,
-} from '../exercise-omp.mjs';
 import {
   interactiveHeadlessMessage,
-  isInteractiveHeadless,
+  isInteractiveCommand,
   parseInteractiveSlash,
-  rewriteInteractiveInput,
-  sessionModeFromEntries,
-  withArguments,
+  recommendedAnswers,
+  renderInteractiveWorkflow,
   renderWriteSpecContinuation,
+  withArguments,
   writeSpecFinishedSelection,
-  writeSpecPlanReentry,
+  writeSpecMergeCommand,
+  writeSpecPublication,
 } from '../../src/sdlc-commands.mjs';
+import {
+  materializePluginRootCommand,
+  materializePluginRootPath,
+  soleJsonObject,
+} from '../../src/host-events.mjs';
+import { renderPromptCli } from '../sdlc-render-prompt.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const processFixtures = [];
-afterEach(async () => {
-  jest.restoreAllMocks();
-  for (const child of processFixtures.splice(0)) {
-    const closed = new Promise(resolve => child.once('close', resolve));
-    try { process.kill(-child.pid, 'SIGKILL'); } catch (error) {
-      if (error.code !== 'ESRCH') throw error;
-    }
-    if (child.exitCode === null && child.signalCode === null) await closed;
-  }
-});
-
-async function untilGone(pid) {
-  const deadline = Date.now() + 5000;
-  for (;;) {
-    try { process.kill(pid, 0); } catch (error) {
-      if (error.code === 'ESRCH') return;
-      throw error;
-    }
-    if (Date.now() >= deadline) throw new Error(`Owned descendant ${pid} survived cleanup`);
-    await new Promise(resolve => setTimeout(resolve, 10));
-  }
-}
 
 function provenanceRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-command-provenance-'));
 }
 
-describe('interactive input rewrite', () => {
-  it('rewrites TUI /sdlc-write-spec to builtin /plan plus workflow', () => {
-    const result = rewriteInteractiveInput('/sdlc-write-spec #42', {
-      source: 'interactive',
-      headless: false,
-      sessionMode: 'none',
-      root: repoRoot,
-      provenanceRoot: provenanceRoot(),
-    });
-    expect(result.text.startsWith('/plan\n\n')).toBe(true);
-    expect(result.text).toContain('# Write Spec');
-    expect(result.text).toContain('$ARGUMENTS: #42');
-    expect(result.text).not.toContain('/skill:');
-    expect(result.text).toContain('publish-approved-spec.mjs');
-    expect(result.text).not.toContain('node <plugin-root>/scripts/');
-    expect(result.text).not.toContain('node scripts/');
+describe('interactive command rendering', () => {
+  it('renders /sdlc-write-spec with materialized controllers and arguments', () => {
+    const text = withArguments(renderInteractiveWorkflow('sdlc-write-spec', repoRoot, provenanceRoot()), '#42');
+    expect(text).toContain('# Write Spec');
+    expect(text).toContain('$ARGUMENTS: #42');
+    expect(text).not.toContain('/skill:');
+    expect(text).toContain('publish-approved-spec.mjs');
+    expect(text).not.toContain('node <plugin-root>/scripts/');
+    expect(text).not.toContain('node scripts/');
   });
 
-  it('does not prefix /plan when the session is already in plan mode', () => {
-    const result = rewriteInteractiveInput('/sdlc-draft-issue auth', {
-      source: 'interactive',
-      headless: false,
-      sessionMode: 'plan',
-      root: repoRoot,
-      provenanceRoot: provenanceRoot(),
-    });
-    expect(result.text.startsWith('/plan')).toBe(false);
-    expect(result.text).toContain('$ARGUMENTS: auth');
-  });
-
-  it('ignores headless, print/RPC, and automated input', () => {
-    expect(rewriteInteractiveInput('/sdlc-write-spec #1', {
-      source: 'interactive',
-      headless: true,
-    })).toBeUndefined();
-    expect(rewriteInteractiveInput('/sdlc-write-spec #1', { source: 'rpc' })).toBeUndefined();
-    expect(rewriteInteractiveInput('/sdlc-status --json', {
-      source: 'interactive',
-      headless: false,
-    })).toBeUndefined();
+  it('recognizes only the interactive commands', () => {
+    expect(parseInteractiveSlash('/sdlc-draft-issue auth')).toEqual({ command: 'sdlc-draft-issue', skill: 'draft-issue', args: 'auth' });
     expect(parseInteractiveSlash('/sdlc-execute #9')).toBeNull();
-  });
-
-  it('reads the last mode_change entry', () => {
-    expect(sessionModeFromEntries([
-      { type: 'mode_change', mode: 'plan' },
-      { type: 'message' },
-      { type: 'mode_change', mode: 'none' },
-    ])).toBe('none');
-    expect(sessionModeFromEntries([{ type: 'mode_change', mode: 'plan' }])).toBe('plan');
+    expect(parseInteractiveSlash('/sdlc-status --json')).toBeNull();
+    expect(isInteractiveCommand('sdlc-write-spec')).toBe(true);
+    expect(isInteractiveCommand('sdlc-open-pr')).toBe(false);
   });
 
   it('keeps withArguments contract', () => {
@@ -111,43 +54,65 @@ describe('interactive input rewrite', () => {
     expect(withArguments('BODY', '   ')).toBe('BODY');
   });
 
-  it('treats missing UI and print/RPC modes as headless', () => {
-    expect(isInteractiveHeadless(undefined, ['omp'])).toBe(true);
-    expect(isInteractiveHeadless({}, ['omp'])).toBe(true);
-    expect(isInteractiveHeadless({ hasUI: false }, ['omp'])).toBe(true);
-    expect(isInteractiveHeadless({ hasUI: true }, ['omp'])).toBe(false);
-    expect(isInteractiveHeadless({ hasUI: true }, ['omp', '--print'])).toBe(true);
-    expect(isInteractiveHeadless({ hasUI: true }, ['omp', '--mode', 'rpc'])).toBe(true);
-    expect(interactiveHeadlessMessage('sdlc-write-spec')).toBe(
-      'Run /sdlc-write-spec in the TUI.\n',
-    );
+  it('fails headless invocations closed with the TUI message', () => {
+    expect(interactiveHeadlessMessage('sdlc-write-spec')).toBe('Run /sdlc-write-spec in the TUI.\n');
   });
 });
 
-describe('write-spec plan re-entry', () => {
-  const helper = JSON.stringify(path.join(repoRoot, 'scripts', 'publish-approved-spec.mjs'));
-  const command = `node ${helper} merge --issue 400 --dir specs/400-restore-per-spec-plan-approval-and-ci-gated-merge-waiting`;
+describe('sdlc-render-prompt CLI', () => {
+  it('renders an interactive workflow with arguments', () => {
+    const result = renderPromptCli(['--consumer', 'sdlc-draft-issue', '--project', provenanceRoot(), '--args', 'auth'], { root: repoRoot });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('$ARGUMENTS: auth');
+    expect(result.stderr).toBe('');
+  });
 
-  function event(overrides = {}) {
-    return {
-      type: 'tool_result',
-      toolName: 'bash',
-      toolCallId: 'call-400',
-      input: { command },
-      content: [{ type: 'text', text: '{"ok":true,"merged":true,"pr":401}\n\nWall time: 1 second' }],
-      isError: false,
-      ...overrides,
-    };
-  }
+  it('renders the write-spec continuation from a published list', () => {
+    const result = renderPromptCli([
+      '--consumer', 'sdlc-write-spec', '--project', provenanceRoot(),
+      '--published', JSON.stringify([{ issue: 400, slug: 'first' }, { issue: 402, slug: 'second' }]),
+    ], { root: repoRoot });
+    expect(result.status).toBe(0);
+    expect(result.stdout.startsWith('Post-publication continuation. published[] = [400, 402]')).toBe(true);
+  });
 
   it.each([
-    ['successful publication', event()],
-    ['post-merge helper failure', event({
-      isError: true,
-      content: [{ type: 'text', text: '{"ok":false,"reasonCode":"default_checkout_failed","merged":true,"pr":401}\n\nCommand exited with code 1' }],
-    })],
-  ])('records the merged publication for %s', (_label, toolResult) => {
-    expect(writeSpecPlanReentry(toolResult, repoRoot)).toEqual({
+    ['an automated command', ['--consumer', 'sdlc-execute', '--project', '.']],
+    ['a missing project', ['--consumer', 'sdlc-write-spec']],
+    ['an unknown flag', ['--consumer', 'sdlc-write-spec', '--project', '.', '--bogus']],
+  ])('rejects %s with a usage error', (_label, argv) => {
+    const result = renderPromptCli(argv, { root: repoRoot });
+    expect(result.status).toBe(2);
+    expect(JSON.parse(result.stderr)).toMatchObject({ ok: false, reasonCode: 'usage' });
+  });
+
+  it.each([
+    ['an empty list', '[]'],
+    ['a bad slug', '[{"issue":1,"slug":"Bad Slug"}]'],
+    ['a non-positive issue', '[{"issue":0,"slug":"x"}]'],
+  ])('rejects %s of published specs', (_label, published) => {
+    const result = renderPromptCli(['--consumer', 'sdlc-write-spec', '--project', provenanceRoot(), '--published', published], { root: repoRoot });
+    expect(result.status).toBe(2);
+    expect(JSON.parse(result.stderr)).toMatchObject({ ok: false, reasonCode: 'published_invalid' });
+  });
+
+  it('runs as a CLI entry', () => {
+    const run = spawnSync(process.execPath, [path.join(repoRoot, 'scripts/sdlc-render-prompt.mjs'), '--consumer', 'sdlc-run-retro', '--project', provenanceRoot()], { encoding: 'utf8' });
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain('# Run Retro');
+  });
+});
+
+describe('write-spec publication', () => {
+  const helper = JSON.stringify(`${repoRoot}/scripts/publish-approved-spec.mjs`);
+  const command = `node ${helper} merge --issue 400 --dir specs/400-restore-per-spec-plan-approval-and-ci-gated-merge-waiting`;
+  const call = (overrides = {}) => ({ toolUseId: 'call-400', command, stdout: '{"ok":true,"merged":true,"pr":401}\n\nWall time: 1 second', ...overrides });
+
+  it.each([
+    ['successful publication', call()],
+    ['post-merge helper failure', call({ stdout: 'Exit code 1\n{"ok":false,"reasonCode":"default_checkout_failed","merged":true,"pr":401}' })],
+  ])('records the merged publication for %s', (_label, input) => {
+    expect(writeSpecPublication(input, repoRoot)).toEqual({
       issue: 400,
       slug: 'restore-per-spec-plan-approval-and-ci-gated-merge-waiting',
       pr: 401,
@@ -169,231 +134,89 @@ describe('write-spec plan re-entry', () => {
   });
 
   it.each([
-    ['pre-merge failure', event({ content: [{ type: 'text', text: '{"ok":false,"reasonCode":"pr_merge_failed"}' }], isError: true })],
-    ['malformed output', event({ content: [{ type: 'text', text: '{"merged":true' }] })],
-    ['multiple JSON objects', event({ content: [{ type: 'text', text: '{"merged":true,"pr":401}\n{"merged":true,"pr":402}' }] })],
-    ['unrelated command', event({ input: { command: 'printf done' } })],
-    ['mismatched directory issue', event({ input: { command: `node ${helper} merge --issue 400 --dir specs/401-wrong` } })],
-    ['non-materialized helper path', event({ input: { command: 'node <plugin-root>/scripts/publish-approved-spec.mjs merge --issue 400 --dir specs/400-slug' } })],
-    ['non-positive PR', event({ content: [{ type: 'text', text: '{"merged":true,"pr":0}' }] })],
-    ['non-bash result', event({ toolName: 'read' })],
-  ])('rejects %s', (_label, toolResult) => {
-    expect(writeSpecPlanReentry(toolResult, repoRoot)).toBeNull();
+    ['pre-merge failure', call({ stdout: '{"ok":false,"reasonCode":"pr_merge_failed"}' })],
+    ['malformed output', call({ stdout: '{"merged":true' })],
+    ['multiple JSON objects', call({ stdout: '{"merged":true,"pr":401}\n{"merged":true,"pr":402}' })],
+    ['unrelated command', call({ command: 'printf done' })],
+    ['a chained command', call({ command: `${command} && echo done` })],
+    ['mismatched directory issue', call({ command: `node ${helper} merge --issue 400 --dir specs/401-wrong` })],
+    ['non-materialized helper path', call({ command: 'node <plugin-root>/scripts/publish-approved-spec.mjs merge --issue 400 --dir specs/400-slug' })],
+    ['non-positive PR', call({ stdout: '{"merged":true,"pr":0}' })],
+    ['a missing tool_use_id', call({ toolUseId: '' })],
+  ])('rejects %s', (_label, input) => {
+    expect(writeSpecPublication(input, repoRoot)).toBeNull();
+  });
+
+  it('parses only the verbatim helper command', () => {
+    expect(writeSpecMergeCommand(command, repoRoot)).toEqual({ issue: 400, slug: 'restore-per-spec-plan-approval-and-ci-gated-merge-waiting' });
+    expect(writeSpecMergeCommand(command, `${repoRoot}/`)).toEqual({ issue: 400, slug: 'restore-per-spec-plan-approval-and-ci-gated-merge-waiting' });
+    expect(writeSpecMergeCommand(` ${command}`, repoRoot)).toBeNull();
+    expect(soleJsonObject('text\n{"a":1}\nmore')).toEqual({ a: 1 });
+    expect(soleJsonObject('{"a":1}\n{"b":2}')).toBeNull();
+    expect(soleJsonObject('[1]')).toBeNull();
   });
 });
 
 describe('write-spec Finished selection', () => {
-  const ask = (details, extra = {}) => ({ type: 'tool_result', toolName: 'ask', toolCallId: 'a1', details, isError: false, ...extra });
-
   it.each([
-    ['Continue-loop Finished', ask({ selectedOptions: ['Finished — stop writing specs'] })],
-    ['initial-picker Finished', ask({ selectedOptions: ['Finished — stop without writing a spec'] })],
-    ['multi-question Finished', ask({ results: [
-      { id: 'other', selectedOptions: ['Yes'] },
-      { id: 'issue', selectedOptions: ['Finished — stop writing specs'] },
-    ] })],
-  ])('detects %s', (_label, event) => {
-    expect(writeSpecFinishedSelection(event)).toBe(true);
+    ['Continue-loop Finished', { 'Next?': 'Finished — stop writing specs' }],
+    ['initial-picker Finished', { 'Which issue?': 'Finished — stop without writing a spec' }],
+    ['multi-question Finished', { 'Other?': 'Yes', 'Next?': 'Finished — stop writing specs' }],
+    ['multi-select Finished', { 'Next?': '#445 — Next issue, Finished — stop writing specs' }],
+  ])('detects %s', (_label, answers) => {
+    expect(writeSpecFinishedSelection(answers)).toBe(true);
   });
 
   it.each([
-    ['an issue row', ask({ selectedOptions: ['#445 — Next issue'] })],
-    ['Continue', ask({ selectedOptions: ['Continue — enter another issue number'] })],
-    ['a near-miss label', ask({ selectedOptions: ['Finished - stop writing specs'] })],
-    ['custom input naming Finished', ask({ selectedOptions: [], customInput: 'Finished — stop writing specs' })],
-    ['multi-question custom input', ask({ results: [{ id: 'issue', selectedOptions: [], customInput: 'Finished — stop writing specs' }] })],
-    ['an errored result', ask({ selectedOptions: ['Finished — stop writing specs'] }, { isError: true })],
-    ['missing details', ask(undefined)],
-  ])('rejects %s', (_label, event) => {
-    expect(writeSpecFinishedSelection(event)).toBe(false);
-  });
-
-  it.each([
-    ['bash results', { type: 'tool_result', toolName: 'bash', details: { selectedOptions: ['Finished — stop writing specs'] } }],
-    ['non tool_result events', { type: 'tool_call', toolName: 'ask', details: { selectedOptions: ['Finished — stop writing specs'] } }],
-    ['undefined', undefined],
-  ])('ignores %s', (_label, event) => {
-    expect(writeSpecFinishedSelection(event)).toBeNull();
+    ['an issue row', { 'Next?': '#445 — Next issue' }],
+    ['Continue', { 'Next?': 'Continue — enter another issue number' }],
+    ['a near-miss label', { 'Next?': 'Finished - stop writing specs' }],
+    ['typed text around the label', { 'Next?': 'I am Finished — stop writing specs now' }],
+    ['no answers', {}],
+    ['missing answers', undefined],
+  ])('rejects %s', (_label, answers) => {
+    expect(writeSpecFinishedSelection(answers)).toBe(false);
   });
 });
 
-describe('exercise-omp args', () => {
-  it('parses cwd and command after --', () => {
-    expect(parseExerciseArgs(['--cwd', '/tmp/proj', '--', '/sdlc-status', '--json'])).toEqual({
-      cwd: '/tmp/proj',
-      message: '/sdlc-status --json',
-    });
+describe('autopilot answers', () => {
+  it('picks each question\'s Recommended option, else its first', () => {
+    expect(recommendedAnswers([
+      { question: 'Kind?', options: [{ label: 'Bug' }, { label: 'Feature (Recommended)' }] },
+      { question: 'Milestone?', options: [{ label: 'v1' }, { label: 'v2' }] },
+      { question: 'Empty?', options: [] },
+      { options: [{ label: 'orphan' }] },
+    ])).toEqual({ 'Kind?': 'Feature (Recommended)', 'Milestone?': 'v1' });
+    expect(recommendedAnswers(undefined)).toEqual({});
+    expect(recommendedAnswers(
+      [{ question: 'Next?', options: [{ label: '#6 — Next (Recommended)' }, { label: 'Finished — stop writing specs' }] }],
+      { prefer: ['Finished — stop writing specs'] },
+    )).toEqual({ 'Next?': 'Finished — stop writing specs' });
+  });
+});
+
+describe('plugin-root materialization', () => {
+  const root = '/Volumes/Fast Brick/plugins/nmg-sdlc';
+
+  it.each([
+    ['a bare controller', 'node <plugin-root>/scripts/sdlc-status.mjs --json', `node "${root}/scripts/sdlc-status.mjs" --json`],
+    ['a quoted controller', 'node "<plugin-root>/scripts/sdlc-status.mjs" --json', `node "${root}/scripts/sdlc-status.mjs" --json`],
+    ['the env placeholder in quotes', 'node "${NMG_SDLC_PLUGIN_ROOT}/scripts/exercise-claude.mjs" --cwd .', `node "${root}/scripts/exercise-claude.mjs" --cwd .`],
+    ['the bare env placeholder', 'ls $NMG_SDLC_PLUGIN_ROOT/workflows', `ls "${root}/workflows"`],
+    ['a non-script path', 'cat <plugin-root>/references/claude-code-tooling.md', `cat "${root}/references/claude-code-tooling.md"`],
+  ])('rewrites %s', (_label, command, expected) => {
+    expect(materializePluginRootCommand(command, root)).toBe(expected);
   });
 
-  it('loads the source extension explicitly when extension discovery is disabled', () => {
-    expect(exerciseOmpArgs({ cwd: '/tmp/proj' })).toEqual([
-      '--mode', 'rpc',
-      '--no-session',
-      '--no-extensions',
-      '--no-skills',
-      '--extension', path.join(repoRoot, 'src/extension.ts'),
-      '--plugin-dir', repoRoot,
-      '--add-dir', repoRoot,
-      '--cwd', path.resolve('/tmp/proj'),
-      '--auto-approve',
-    ]);
+  it('leaves commands without a placeholder untouched', () => {
+    for (const command of ['node scripts/check-gate.mjs', 'node "/opt/consumer/scripts/check-gate.mjs"', 'echo $HOME']) {
+      expect(materializePluginRootCommand(command, root)).toBe(command);
+    }
   });
 
-  it('completes a normal non-cancelled RPC exercise without a deadline', async () => {
-    const spawnProcess = () => {
-      const child = new EventEmitter();
-      child.pid = undefined;
-      child.exitCode = null;
-      child.signalCode = null;
-      child.stdin = new PassThrough();
-      child.stdout = new PassThrough();
-      child.stderr = new PassThrough();
-      child.stdin.setEncoding('utf8');
-      let input = '';
-      child.stdin.on('data', (chunk) => {
-        input += chunk;
-        for (;;) {
-          const newline = input.indexOf('\n');
-          if (newline < 0) break;
-          const frame = JSON.parse(input.slice(0, newline));
-          input = input.slice(newline + 1);
-          if (frame.type === 'prompt') {
-            child.stdout.write(`${JSON.stringify({ type: 'response', id: frame.id, success: true })}\n`);
-            child.stdout.write(`${JSON.stringify({ type: 'agent_end' })}\n`);
-          } else if (frame.type === 'get_last_assistant_text') {
-            child.stdout.write(`${JSON.stringify({ type: 'response', id: frame.id, success: true, data: { text: 'complete' } })}\n`);
-          }
-        }
-      });
-      queueMicrotask(() => child.stdout.write(`${JSON.stringify({ type: 'ready' })}\n`));
-      return child;
-    };
-
-    await expect(runExercise({
-      cwd: '/tmp/proj',
-      message: '/sdlc-status --json',
-      spawnProcess,
-    })).resolves.toEqual({ text: 'complete', stderr: '' });
-  });
-
-  it('classifies confirmed RPC child loss without a wall-clock wait', async () => {
-    const spawnProcess = () => {
-      const child = new EventEmitter();
-      child.pid = undefined;
-      child.exitCode = null;
-      child.signalCode = null;
-      child.stdin = new PassThrough();
-      child.stdout = new PassThrough();
-      child.stderr = new PassThrough();
-      child.stdin.once('data', () => {
-        child.exitCode = 0;
-        child.emit('close', 0, null);
-      });
-      queueMicrotask(() => child.stdout.write(`${JSON.stringify({ type: 'ready' })}\n`));
-      return child;
-    };
-
-    await expect(runExercise({
-      cwd: '/tmp/proj',
-      message: '/sdlc-status --json',
-      spawnProcess,
-    })).rejects.toMatchObject({ reasonCode: 'process_lost' });
-  });
-
-  (process.platform === 'win32' ? it.skip : it).each(['SIGKILL', 'exit', 'denied'])(
-    'settles RPC descendant cleanup truthfully after unexpected leader %s',
-    async (mode) => {
-      const source = `
-        const { spawn } = require('node:child_process');
-        const { createInterface } = require('node:readline');
-        const send = frame => process.stdout.write(JSON.stringify(frame) + '\\n');
-        createInterface({ input: process.stdin }).on('line', line => {
-          const frame = JSON.parse(line);
-          if (frame.type !== 'prompt') return;
-          const descendant = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
-            stdio: ['ignore', 'inherit', 'inherit'],
-          });
-          send({ type: 'response', id: frame.id, success: true });
-          send({ type: 'fixture_tree', pid: descendant.pid });
-          if (${JSON.stringify(mode)} === 'exit') process.exit(0);
-        });
-        send({ type: 'ready' });
-      `;
-      const foreign = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' });
-      processFixtures.push(foreign);
-      let owned;
-      let ready;
-      const treeReady = new Promise(resolve => { ready = resolve; });
-      const pending = runExercise({
-        cwd: os.tmpdir(), message: '/sdlc-status --json',
-        spawnProcess: (_program, _args, options) => {
-          owned = spawn(process.execPath, ['-e', source], options);
-          processFixtures.push(owned);
-          let output = '';
-          owned.stdout.on('data', chunk => {
-            output += chunk;
-            for (;;) {
-              const end = output.indexOf('\n');
-              if (end < 0) break;
-              const frame = JSON.parse(output.slice(0, end));
-              output = output.slice(end + 1);
-              if (frame.type === 'fixture_tree') ready(frame);
-            }
-          });
-          return owned;
-        },
-      }).then(result => ({ result }), error => ({ error }));
-      const descendant = await treeReady;
-      if (mode === 'denied') {
-        const kill = process.kill;
-        jest.spyOn(process, 'kill').mockImplementation((pid, signal) => {
-          if (pid === -owned.pid) throw Object.assign(new Error('fixture group termination denied'), { code: 'EPERM' });
-          return kill(pid, signal);
-        });
-      }
-      if (mode !== 'exit') owned.kill('SIGKILL');
-      expect((await pending).error).toMatchObject({
-        reasonCode: mode === 'denied' ? 'cleanup_failed' : mode === 'SIGKILL' ? 'process_failed' : 'process_lost',
-      });
-      if (mode === 'denied') {
-        expect(() => process.kill(descendant.pid, 0)).not.toThrow();
-      } else {
-        await untilGone(descendant.pid);
-        expect(() => process.kill(descendant.pid, 0)).toThrow();
-      }
-      expect(() => process.kill(foreign.pid, 0)).not.toThrow();
-    },
-    10_000,
-  );
-
-  it('honors explicit exercise cancellation', async () => {
-    const spawnProcess = () => {
-      const child = new EventEmitter();
-      child.pid = undefined;
-      child.exitCode = null;
-      child.signalCode = null;
-      child.stdin = new PassThrough();
-      child.stdout = new PassThrough();
-      child.stderr = new PassThrough();
-      return child;
-    };
-    const controller = new AbortController();
-    controller.abort();
-
-    await expect(runExercise({
-      cwd: '/tmp/proj',
-      message: '/sdlc-status --json',
-      signal: controller.signal,
-      spawnProcess,
-    })).rejects.toMatchObject({ reasonCode: 'cancelled' });
-  });
-
-  it('rejects the removed timeout flag', () => {
-    expect(() => parseExerciseArgs(['--timeout-ms', '300000', '--', '/sdlc-status'])).toThrow('Unknown argument: --timeout-ms');
-  });
-
-  it('prints usage', () => {
-    expect(exerciseUsage()).toContain('exercise-omp.mjs');
-    expect(exerciseUsage()).toContain('/sdlc-');
+  it('rewrites a leading placeholder in a file path only', () => {
+    expect(materializePluginRootPath('<plugin-root>/references/a.md', root)).toBe(`${root}/references/a.md`);
+    expect(materializePluginRootPath('/abs/<plugin-root>/a.md', root)).toBe('/abs/<plugin-root>/a.md');
+    expect(materializePluginRootPath(undefined, root)).toBeUndefined();
   });
 });

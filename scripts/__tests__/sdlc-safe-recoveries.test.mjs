@@ -38,7 +38,7 @@ function fixture() {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, content);
   };
-  put('.gitignore', '.omp/\n');
+  put('.gitignore', '.nmg-sdlc/\n');
   put(report, 'initial\n');
   git(work, 'add', '.');
   git(work, 'commit', '-m', 'chore: initialize');
@@ -58,8 +58,8 @@ function fixture() {
 describe('live publication evidence', () => {
   test('a malformed stale run and consumed ledger cannot veto an exact-head publication or acknowledgment', () => {
     const f = fixture();
-    f.put('.omp/sdlc/run.json', '{bad');
-    f.put('.omp/sdlc/safe-recoveries.json', '{bad');
+    f.put('.nmg-sdlc/run.json', '{bad');
+    f.put('.nmg-sdlc/safe-recoveries.json', '{bad');
     expect(resolveRecoveryOwner({ cwd: f.work, issue: 42, step: 'verify', run: f.run }))
       .toBe('42:42-feature:verify');
     expect(() => assertInitialStagePublication({ cwd: f.work, issue: 42, step: 'verify', run: f.run }))
@@ -100,6 +100,12 @@ describe('live publication evidence', () => {
     expect(publicationPathDenied('specs/42-feature/requirements.md', {
       spec: 'specs/42-feature', readOnlyPaths: ['specs/42-feature/requirements.md'],
     })).toBe(true);
-    expect(publicationPathDenied('.omp/sdlc/run.json', { spec: 'specs/42-feature' })).toBe(true);
+    expect(publicationPathDenied('.nmg-sdlc/run.json', { spec: 'specs/42-feature' })).toBe(true);
+    for (const file of ['.nmg-sdlc', '.nmg-sdlc/', '.nmg-sdlc/plans/steering-update.plan.json',
+      '.nmg-sdlc/handoffs/42-implement.json', '.nmg-sdlc/verification/42.json']) {
+      expect(publicationPathDenied(file, { spec: 'specs/42-feature' })).toBe(true);
+    }
+    expect(publicationPathDenied('src/nmg-sdlc/runtime.mjs', { spec: 'specs/42-feature' })).toBe(false);
+    expect(publicationPathDenied('.nmg-sdlc-notes.md', { spec: 'specs/42-feature' })).toBe(false);
   });
 });

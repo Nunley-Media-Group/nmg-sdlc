@@ -34,9 +34,11 @@ describe('status skill contract', () => {
     expect(source).not.toContain('coordination-only');
   });
 
-  it('is bundled as a workflow file the extension reads', () => {
-    const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
-    expect(manifest.omp).not.toHaveProperty('skills');
+  it('is bundled as a workflow file the plugin renders, not a Claude Code skill', () => {
+    const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, '.claude-plugin', 'plugin.json'), 'utf8'));
+    expect(manifest.name).toBe('nmg-sdlc');
+    expect(manifest).not.toHaveProperty('skills');
+    expect(fs.existsSync(path.join(repoRoot, 'skills'))).toBe(false);
     expect(fs.existsSync(skillPath)).toBe(true);
   });
 });

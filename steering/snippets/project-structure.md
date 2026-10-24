@@ -8,9 +8,16 @@ This document defines repository organization, naming conventions, and architect
 
 ```text
 nmg-sdlc/
-├── package.json                  # OMP plugin manifest (version + omp.extensions)
+├── .claude-plugin/
+│   └── plugin.json               # Claude Code plugin manifest (name + version)
+├── hooks/
+│   ├── hooks.json                # Declares the hooks module
+│   └── register.ts               # Hooks module: interactive commands, plan mode, plugin root
+├── commands/                     # Automated /sdlc-* command files (generated)
+├── package.json                  # Node package metadata (version mirror)
+├── tsconfig.json                 # Type checking for hooks/register.ts
 ├── src/
-│   ├── extension.ts              # Extension factory
+│   ├── host-events.mjs           # Node-free helpers shared by the hooks module and Node
 │   ├── sdlc-commands.mjs
 │   ├── sdlc-prompt-snippets.mjs
 │   ├── sdlc-steering-runtime.mjs
@@ -19,7 +26,7 @@ nmg-sdlc/
 ├── .github/
 │   ├── ISSUE_TEMPLATE/           # Canonical managed issue form
 │   └── workflows/                # Repository CI
-├── agents/                       # OMP task agents
+├── agents/                       # Claude Code plugin subagents
 ├── references/                   # Cross-workflow contracts loaded on demand
 ├── workflows/                    # Private workflow files including execute/
 ├── scripts/                      # Contract validators, exercises, status CLI, and Jest tests
@@ -44,18 +51,18 @@ nmg-sdlc/
 ## Layer Architecture
 
 ```text
-package.json + src/extension.ts
-        │ declares OMP identity and /sdlc-* commands
+.claude-plugin/plugin.json + hooks/register.ts + commands/*.md
+        │ declares plugin identity and /sdlc-* commands
         ▼
-src/sdlc-*.mjs
-        │ shared runtime libraries used by scripts and the extension
+src/host-events.mjs + src/sdlc-*.mjs
+        │ shared runtime libraries used by scripts and the hooks module
         ▼
 workflows/*/WORKFLOW.md
         │ points on demand
         ├──────────────► references/*.md
         ├──────────────► workflows/*/references/*.md
         ├──────────────► workflows/*/templates/*
-        └──────────────► agents/*.md (installable OMP agents)
+        └──────────────► agents/*.md (plugin subagents)
 
 scripts/
         ├── validates active plugin contracts
@@ -68,14 +75,15 @@ scripts/
 
 | Layer | Does | Does Not Do |
 |-------|------|-------------|
-| Plugin manifest | Declares identity, version, and `omp.extensions` | Define workflow logic |
-| Extension factory | Registers `/sdlc-*` commands, dispatches to plan/skill workers, appends run entries | Interview users or spawn Herdr workers |
+| Plugin manifest | Declares identity and version | Define workflow logic |
+| Hooks module | Registers interactive `/sdlc-*` commands, enters native plan mode, materializes `<plugin-root>`, drives write-spec Continue/Finished and autopilot | Interview users, import Node built-ins, or spawn Herdr workers |
+| Command files | Expand the four automated `/sdlc-*` commands into their workflows | Hold hand-edited logic; they are generated |
 | Runtime libraries | Load steering, render prompts, run deterministic validations | Own lifecycle decisions that belong in workflows |
 | Workflow entrypoints | Define triggers and concise workflow skeletons | Inline all variants or duplicate shared contracts |
 | Shared references | Hold rules consumed by two or more workflows | Hold one-workflow-only details |
 | Per-workflow references | Hold variants, algorithms, and extended examples for one workflow | Become public command entrypoints |
 | Templates | Define generated artifact structure | Contain mutable project state |
-| Agents | Define installable OMP worker contracts | Bypass the Herdr isolation boundary for pipeline steps |
+| Agents | Define Claude Code plugin subagent contracts | Bypass the Herdr isolation boundary for pipeline steps |
 | Scripts | Validate, classify, or inspect contracts deterministically | Own lifecycle decisions that belong in workflows |
 | Specs | Record approved requirements/design/tasks and historical behavior | Serve as active plugin loader content |
 | Steering | Define stable product and engineering decisions | Replace feature-specific specs |
@@ -111,7 +119,7 @@ New writes never create `feature-`, `bug-`, or `epic-` prefixes. Variant is the 
 | Element | Convention | Example |
 |---------|------------|---------|
 | Commit subjects | Conventional commits | `feat:`, `fix:`, `docs:`, `chore:` |
-| Version | Semver | `3.0.0` |
+| Version | Semver | `4.0.0` |
 | Pending changelog | `## [Unreleased]` | One active section |
 
 ---
@@ -133,7 +141,7 @@ Read `references/detail.md` when the detailed branch is reached.
 ## Workflow
 
 1. Inspect preconditions.
-2. Interview inside /plan or write a worker handoff.
+2. Interview inside plan mode or write a worker handoff.
 3. Apply the approved scope.
 4. Verify postconditions.
 
@@ -143,21 +151,19 @@ Skill frontmatter contains only `name` and `description`. Detailed content belon
 
 ### Agent File
 
-Agent files are installable OMP task agents. Required frontmatter: `name` and `description`. Optional: `model`, `tools`. Bodies follow the inlined workflow for `#N`, forbid `ask`, write the handoff file, print `NMG_SDLC_HANDOFF: .omp/sdlc/handoffs/<N>-<step>.json`, and stop.
+Agent files are Claude Code plugin subagents (`nmg-sdlc:<name>`). Required frontmatter: `name` and `description`. Optional: `model` (`haiku`, `sonnet`, `opus`, or `inherit`), `tools`. Bodies follow the inlined workflow for `#N`, forbid `AskUserQuestion` and `ExitPlanMode`, write the handoff file, print `NMG_SDLC_HANDOFF: .nmg-sdlc/handoffs/<N>-<step>.json`, and stop.
 
 ### Plugin Manifest
 
 ```json
 {
   "name": "nmg-sdlc",
-  "version": "3.0.0",
-  "omp": {
-    "extensions": ["./src/extension.ts"]
-  }
+  "version": "4.0.0",
+  "description": "Spec-driven delivery for Claude Code and Herdr"
 }
 ```
 
-The example version is illustrative. `VERSION` and the live `package.json` version must remain synchronized by the delivery workflow.
+This is `.claude-plugin/plugin.json`; `hooks/hooks.json` is `{ "modules": ["./register.ts"] }`. The example version is illustrative. `VERSION`, the live `package.json` version, and the `.claude-plugin/plugin.json` version must remain synchronized by the delivery workflow.
 
 ---
 
@@ -165,11 +171,11 @@ The example version is illustrative. `VERSION` and the live `package.json` versi
 
 ### Workflow-Authoring Boundary
 
-Every file under `workflows/{name}/`, every shared `references/*.md`, and every `agents/*.md` is workflow-bundled. Worker creation or modification must first resolve and read `skill://skill-creator`, then follow its editing procedure. A repository-local `skills/` directory is not required.
+Every file under `workflows/{name}/`, every shared `references/*.md`, and every `agents/*.md` is workflow-bundled. Worker creation or modification must first invoke the `skill-creator` skill with the `Skill` tool, then follow its editing procedure. A repository-local `skills/` directory is not required.
 
 ### Interactive-Gate Boundary
 
-Interactive `/sdlc-*` commands enter `/plan` in src/extension.ts (workflow files never tell the user to type `/plan` or a legacy skill trigger). They use built-in `ask` inside native `/plan` and finish at `xd://propose`. Automated skills never call `ask`.
+Interactive `/sdlc-*` commands enter native plan mode through the hooks module `hooks/register.ts` (workflow files never tell the user to type `/plan` or a legacy skill trigger). They interview with `AskUserQuestion` inside plan mode, write the plan to the plan-mode plan file, and finish with `ExitPlanMode`. Automated skills never call `AskUserQuestion` or `ExitPlanMode`.
 
 ### Spec Context Boundary
 
@@ -210,7 +216,7 @@ Only the skill that owns a stage performs that mutation. Implementation does not
 | Generated structure | `workflows/{name}/templates/` | Keep placeholders explicit and stack-agnostic |
 | Deterministic validation | `scripts/*.mjs` plus Jest coverage | Stable exit codes and diagnostics |
 | Project steering provider | `steering/extensions/*.mjs` | Frozen `extension` export; cannot change orchestration or safety contracts |
-| Installable worker | `agents/*.md` | OMP task agent with handoff contract |
+| Installable worker | `agents/*.md` | Claude Code plugin subagent with handoff contract |
 
 ---
 

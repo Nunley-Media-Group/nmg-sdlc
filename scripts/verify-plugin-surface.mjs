@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 
 /**
- * Validate one explicitly selected nmg-sdlc plugin surface.
+ * Validate one explicitly selected nmg-sdlc Claude Code plugin surface:
+ * `.claude-plugin/plugin.json`, `hooks/hooks.json` -> `hooks/register.ts`,
+ * `src/host-events.mjs`, the automated `commands/*.md`, `agents/*.md`,
+ * `workflows/<name>/WORKFLOW.md`, and an optional `.claude-plugin/marketplace.json`.
+ * `--claude-validate` also runs `claude plugin validate` when the CLI is on PATH.
  *
  * Exit codes:
  *   0 - the selected surface is valid and contains no removed plugin exposure
@@ -9,18 +13,27 @@
  *   2 - arguments or the selected plugin root are invalid
  */
 
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 
+import { AUTOMATED_COMMANDS, renderAutomatedCommandMarkdown } from '../src/sdlc-commands.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
 
 const TEXT_EXTENSIONS = new Set(['.json', '.md', '.txt', '.yaml', '.yml', '.ts']);
-const MANIFEST_PATH = 'package.json';
+const PLUGIN_NAME = 'nmg-sdlc';
+const MANIFEST_PATH = '.claude-plugin/plugin.json';
+const PACKAGE_PATH = 'package.json';
 const VERSION_PATH = 'VERSION';
+const MARKETPLACE_PATH = '.claude-plugin/marketplace.json';
+const HOOKS_PATH = 'hooks/hooks.json';
+const HOOKS_MODULE = './register.ts';
+const HOOKS_MODULE_PATH = 'hooks/register.ts';
+const HOST_EVENTS_PATH = 'src/host-events.mjs';
+const AGENT_MODEL_PATTERN = /^(?:haiku|sonnet|opus|fable|inherit|claude-[a-z0-9.-]+)$/i;
 const INVENTORY_PATH = path.join('scripts', 'skill-inventory.baseline.json');
 const REMOVED_SKILL_NAMES = new Set(['commit-push', 'end-loop', 'init-config', 'run-loop']);
-const EXPECTED_EXTENSIONS = ['./src/extension.ts'];
 const REMOVED_PATHS = [
   'skills/commit-push',
   'skills/end-loop',
@@ -33,13 +46,17 @@ const REMOVED_PATHS = [
   'scripts/__tests__/runner-config-contract.test.mjs',
   'scripts/__tests__/select-next-issue-from-milestone.test.mjs',
   '.codex-plugin/plugin.json',
-  '.claude-plugin',
+  'src/extension.ts',
 ];
 const ACTIVE_TEXT_FILES = [
   'README.md',
   '.gitignore',
   'package.json',
-  'src/extension.ts',
+  '.claude-plugin/plugin.json',
+  '.claude-plugin/marketplace.json',
+  'hooks/hooks.json',
+  'hooks/register.ts',
+  'src/host-events.mjs',
   'steering/manifest.json',
   'steering/modules/product.mjs',
   'steering/modules/tech.mjs',
@@ -56,6 +73,7 @@ const ACTIVE_TEXT_FILES = [
 const ACTIVE_TEXT_DIRECTORIES = [
   'references',
   'agents',
+  'commands',
   'scripts/__fixtures__/skill-exercise',
 ];
 const REMOVED_COMMAND_PATTERN = /\$nmg-sdlc:(?:commit-push|end-loop|init-config|run-loop)\b/i;
@@ -332,32 +350,148 @@ function inspectInventoryValue(value, jsonPath, file, violations) {
   }
 }
 
+function readJsonObject(root, portable, description) {
+  const file = path.join(root, ...portable.split('/'));
+  const source = readRequiredFile(file, description);
+  const value = parseJson(source, file, description);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new SurfaceInputError(`${description} must contain a JSON object: ${file}`);
+  }
+  return { file, source, value };
+}
+
+let expectedCommandFrontmatter;
+/** Frontmatter `renderAutomatedCommandMarkdown` writes for each automated command. */
+function automatedCommandFrontmatter() {
+  expectedCommandFrontmatter ??= new Map(AUTOMATED_COMMANDS.map(([name, skill, description]) => [
+    name,
+    readFrontmatter(renderAutomatedCommandMarkdown(name, skill, description)),
+  ]));
+  return expectedCommandFrontmatter;
+}
+
+function markdownFiles(root, portable, description) {
+  const directory = path.join(root, portable);
+  requireReadableDirectory(directory, description);
+  return fs.readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => entry.name.endsWith('.md'))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function inspectCommands(root, violations) {
+  const expected = automatedCommandFrontmatter();
+  const entries = markdownFiles(root, 'commands', 'commands directory');
+  for (const entry of entries) {
+    const portable = `commands/${entry.name}`;
+    const name = entry.name.slice(0, -'.md'.length);
+    if (!expected.has(name)) {
+      addViolation(violations, 'unexpected-command', portable);
+      continue;
+    }
+    if (!entry.isFile()) {
+      addViolation(violations, 'unsupported-symlink', portable);
+      continue;
+    }
+    const source = readRequiredFile(path.join(root, 'commands', entry.name), 'command file');
+    if (readFrontmatter(source) !== expected.get(name)) {
+      addViolation(violations, 'command-frontmatter', portable, 'expected renderAutomatedCommandMarkdown frontmatter');
+    }
+    if (source.includes('<plugin-root>')) {
+      addViolation(violations, 'command-plugin-root', portable, 'use ${CLAUDE_PLUGIN_ROOT}');
+    }
+  }
+  for (const name of expected.keys()) {
+    if (!entries.some((entry) => entry.name === `${name}.md`)) {
+      throw new SurfaceInputError(`automated command file is missing: commands/${name}.md`);
+    }
+  }
+}
+
+function frontmatterField(frontmatter, name) {
+  const match = frontmatter.match(new RegExp(`^${name}:\\s*(.*)$`, 'm'));
+  return match ? match[1].trim().replace(/^["']|["']$/g, '') : '';
+}
+
+function inspectAgents(root, violations) {
+  const entries = markdownFiles(root, 'agents', 'agents directory');
+  if (entries.length === 0) throw new SurfaceInputError(`agents directory has no subagent files: ${path.join(root, 'agents')}`);
+  for (const entry of entries) {
+    const portable = `agents/${entry.name}`;
+    if (!entry.isFile()) continue;
+    const frontmatter = readFrontmatter(readRequiredFile(path.join(root, 'agents', entry.name), 'subagent file'));
+    const name = frontmatterField(frontmatter, 'name');
+    const description = frontmatterField(frontmatter, 'description');
+    const model = frontmatterField(frontmatter, 'model');
+    if (name !== entry.name.slice(0, -'.md'.length) || description === '') {
+      addViolation(violations, 'agent-frontmatter', portable, 'expected name matching the file and a description');
+    }
+    if (model !== '' && !AGENT_MODEL_PATTERN.test(model)) {
+      addViolation(violations, 'agent-model', portable, model);
+    }
+  }
+}
+
+function inspectWorkflowEntrypoints(root, workflowsRoot, violations) {
+  for (const entry of fs.readdirSync(workflowsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const portable = `workflows/${entry.name}/WORKFLOW.md`;
+    const file = path.join(workflowsRoot, entry.name, 'WORKFLOW.md');
+    const stat = lstatOptional(file, 'workflow entrypoint');
+    if (stat === null || !stat.isFile()) {
+      addViolation(violations, 'workflow-entrypoint', portable, 'missing');
+      continue;
+    }
+    if (frontmatterField(readFrontmatter(readRequiredFile(file, 'workflow entrypoint')), 'name') !== entry.name) {
+      addViolation(violations, 'workflow-entrypoint', portable, `expected frontmatter name "${entry.name}"`);
+    }
+  }
+}
+
+function inspectMarketplace(root, violations) {
+  if (lstatOptional(path.join(root, ...MARKETPLACE_PATH.split('/')), 'marketplace manifest') === null) return;
+  const { value } = readJsonObject(root, MARKETPLACE_PATH, 'marketplace manifest');
+  const entry = Array.isArray(value.plugins) ? value.plugins.find((plugin) => plugin?.name === PLUGIN_NAME) : null;
+  if (!entry || entry.source !== './') {
+    addViolation(violations, 'marketplace-entry', MARKETPLACE_PATH, `expected plugin "${PLUGIN_NAME}" with source "./"`);
+  }
+}
+
 export function validatePluginSurface(rootArgument, label) {
   const root = path.resolve(rootArgument);
   requireReadableDirectory(root, 'plugin root');
 
-  const manifestFile = path.join(root, MANIFEST_PATH);
-  const manifestSource = readRequiredFile(manifestFile, 'plugin manifest');
-  const manifest = parseJson(manifestSource, manifestFile, 'plugin manifest');
-  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
-    throw new SurfaceInputError(`plugin manifest must contain a JSON object: ${manifestFile}`);
+  const { source: manifestSource, value: manifest } = readJsonObject(root, MANIFEST_PATH, 'plugin manifest');
+  if (manifest.name !== PLUGIN_NAME) {
+    throw new SurfaceInputError(`plugin manifest name ${JSON.stringify(manifest.name)} must equal ${JSON.stringify(PLUGIN_NAME)}`);
   }
 
   const versionSource = readRequiredFile(path.join(root, VERSION_PATH), 'VERSION').trim();
   if (manifest.version !== versionSource) {
     throw new SurfaceInputError(`plugin version ${JSON.stringify(manifest.version)} must equal VERSION ${JSON.stringify(versionSource)}`);
   }
-  const extensions = manifest?.omp?.extensions;
-  if (!Array.isArray(extensions)
-    || extensions.length !== EXPECTED_EXTENSIONS.length
-    || extensions.some((item, index) => item !== EXPECTED_EXTENSIONS[index])) {
-    throw new SurfaceInputError(`package.json omp.extensions must equal ${JSON.stringify(EXPECTED_EXTENSIONS)}`);
-  }
 
   const violations = [];
-  if (Object.hasOwn(manifest?.omp ?? {}, 'skills')) {
-    addViolation(violations, 'omp-skills-declared', 'package.json');
+  let packageSource = null;
+  if (lstatOptional(path.join(root, PACKAGE_PATH), 'package manifest') !== null) {
+    const pkg = readJsonObject(root, PACKAGE_PATH, 'package manifest');
+    packageSource = pkg.source;
+    if (pkg.value.name !== PLUGIN_NAME) {
+      throw new SurfaceInputError(`package.json name ${JSON.stringify(pkg.value.name)} must equal ${JSON.stringify(PLUGIN_NAME)}`);
+    }
+    if (pkg.value.version !== versionSource) {
+      throw new SurfaceInputError(`package.json version ${JSON.stringify(pkg.value.version)} must equal VERSION ${JSON.stringify(versionSource)}`);
+    }
+    if (Object.hasOwn(pkg.value, 'omp')) {
+      addViolation(violations, 'omp-manifest-declared', PACKAGE_PATH);
+    }
   }
+
+  const { value: hooks } = readJsonObject(root, HOOKS_PATH, 'hooks manifest');
+  if (!Array.isArray(hooks.modules) || !hooks.modules.includes(HOOKS_MODULE)) {
+    throw new SurfaceInputError(`hooks/hooks.json modules must name ${JSON.stringify(HOOKS_MODULE)}`);
+  }
+  readRequiredFile(path.join(root, ...HOOKS_MODULE_PATH.split('/')), 'hooks module');
+  readRequiredFile(path.join(root, ...HOST_EVENTS_PATH.split('/')), 'host events module');
 
   const leftoverSkills = lstatOptional(path.join(root, 'skills'), 'leftover skills directory');
   if (leftoverSkills?.isDirectory()) {
@@ -372,8 +506,13 @@ export function validatePluginSurface(rootArgument, label) {
     throw new SurfaceInputError(`open-pr is not present at ${relativePath(root, openPrFile)}: expected frontmatter name "open-pr"`);
   }
 
+  inspectCommands(root, violations);
+  inspectAgents(root, violations);
+  inspectWorkflowEntrypoints(root, workflowsRoot, violations);
+  inspectMarketplace(root, violations);
   inspectRemovedPaths(root, violations);
-  inspectLoaderFacingText(manifestSource, toPortablePath(MANIFEST_PATH), violations);
+  inspectLoaderFacingText(manifestSource, MANIFEST_PATH, violations);
+  if (packageSource !== null) inspectLoaderFacingText(packageSource, PACKAGE_PATH, violations);
   walkWorkflowsTree(root, workflowsRoot, violations);
   ACTIVE_TEXT_FILES.forEach((file) => inspectOptionalActiveFile(root, file, violations));
   ACTIVE_TEXT_DIRECTORIES.forEach((directory) => walkOptionalActiveDirectory(root, directory, violations));
@@ -394,6 +533,20 @@ export function validatePluginSurface(rootArgument, label) {
   return { root, label, violations };
 }
 
+/**
+ * Optional extra check: `claude plugin validate <root>` when the Claude Code
+ * CLI is on PATH. CI has no `claude`, so absence is a clean skip, not a failure.
+ */
+export function runClaudePluginValidate(root, { spawn = spawnSync } = {}) {
+  const result = spawn('claude', ['plugin', 'validate', root], { encoding: 'utf8' });
+  if (result.error?.code === 'ENOENT') return { status: 'skipped', detail: 'claude CLI not on PATH' };
+  if (result.error) return { status: 'fail', detail: result.error.message };
+  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim();
+  return result.status === 0
+    ? { status: 'pass', detail: '' }
+    : { status: 'fail', detail: output.split('\n').slice(-20).join('\n') };
+}
+
 function parseCliArguments(argv) {
   let values;
   try {
@@ -402,6 +555,7 @@ function parseCliArguments(argv) {
       options: {
         root: { type: 'string' },
         label: { type: 'string' },
+        'claude-validate': { type: 'boolean', default: false },
       },
       allowPositionals: false,
       strict: true,
@@ -417,7 +571,7 @@ function parseCliArguments(argv) {
     throw new SurfaceInputError('invalid arguments: --label <surface> is required');
   }
 
-  return { root: values.root, label: values.label.trim() };
+  return { root: values.root, label: values.label.trim(), claudeValidate: values['claude-validate'] };
 }
 
 export function run(argv = process.argv.slice(2)) {
@@ -433,6 +587,19 @@ export function run(argv = process.argv.slice(2)) {
         console.error(`- ${violation.kind}: ${violation.file}${detail}`);
       }
       return 1;
+    }
+
+    if (parsed.claudeValidate) {
+      const claude = runClaudePluginValidate(result.root);
+      if (claude.status === 'skipped') {
+        console.log(`claude plugin validate skipped: ${claude.detail}`);
+      } else if (claude.status === 'fail') {
+        console.error(`Plugin surface validation failed: ${result.label} (${result.root})`);
+        console.error(`- claude-plugin-validate: ${MANIFEST_PATH}${claude.detail ? `\n${claude.detail}` : ''}`);
+        return 1;
+      } else {
+        console.log('claude plugin validate passed');
+      }
     }
 
     console.log(`Plugin surface validation passed: ${result.label} (${result.root})`);

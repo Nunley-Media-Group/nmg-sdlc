@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-25T06:04:28.810Z",
+  "generated_at": "2026-10-24T06:12:26.205Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -27,9 +27,9 @@
       "destination": "agents/architecture-reviewer.md:13"
     },
     {
-      "id": "f0f70126e95d",
+      "id": "6c2558c3539d",
       "source_before": "agents/architecture-reviewer.md:14",
-      "normalized": "never call ask or any nmg-pi input tool.",
+      "normalized": "never call askuserquestion, enterplanmode, or exitplanmode.",
       "destination": "agents/architecture-reviewer.md:14",
       "additional_destinations": [
         "agents/deliverer.md:13",
@@ -38,15 +38,15 @@
       ]
     },
     {
-      "id": "8341e996950a",
+      "id": "b7bcb16d0531",
       "source_before": "agents/architecture-reviewer.md:15",
-      "normalized": "write .omp/sdlc/handoffs/<n>-verify.json.",
+      "normalized": "write .nmg-sdlc/handoffs/<n>-verify.json.",
       "destination": "agents/architecture-reviewer.md:15"
     },
     {
-      "id": "33546cebc481",
+      "id": "e2dad704f26c",
       "source_before": "agents/architecture-reviewer.md:16",
-      "normalized": "on success print exactly: nmgsdlchandoff: .omp/sdlc/handoffs/<n>-verify.json",
+      "normalized": "on success print exactly: nmgsdlchandoff: .nmg-sdlc/handoffs/<n>-verify.json",
       "destination": "agents/architecture-reviewer.md:16"
     },
     {
@@ -61,9 +61,9 @@
       ]
     },
     {
-      "id": "529e6b386cf2",
+      "id": "681a89a47e11",
       "source_before": "agents/architecture-reviewer.md:19",
-      "normalized": "execute does not use the omp task tool for this step.",
+      "normalized": "/sdlc-execute runs this step as a herdr claude worker (a claude code session in ",
       "destination": "agents/architecture-reviewer.md:19",
       "additional_destinations": [
         "agents/deliverer.md:19",
@@ -96,9 +96,9 @@
       "destination": "agents/deliverer.md:12"
     },
     {
-      "id": "30ae72ca36f8",
+      "id": "a5aa20218845",
       "source_before": "agents/deliverer.md:14",
-      "normalized": "write .omp/sdlc/handoffs/<n>-deliver.json.",
+      "normalized": "write .nmg-sdlc/handoffs/<n>-deliver.json.",
       "destination": "agents/deliverer.md:14"
     },
     {
@@ -108,9 +108,9 @@
       "destination": "agents/deliverer.md:15"
     },
     {
-      "id": "78950a60a30a",
+      "id": "6a9999428371",
       "source_before": "agents/deliverer.md:16",
-      "normalized": "on success print exactly: nmgsdlchandoff: .omp/sdlc/handoffs/<n>-deliver.json",
+      "normalized": "on success print exactly: nmgsdlchandoff: .nmg-sdlc/handoffs/<n>-deliver.json",
       "destination": "agents/deliverer.md:16"
     },
     {
@@ -126,9 +126,9 @@
       "destination": "agents/spec-implementer.md:10"
     },
     {
-      "id": "c5c105bfe5bf",
+      "id": "cf6a4f49710d",
       "source_before": "agents/spec-implementer.md:11",
-      "normalized": "resolve and read skill://skill-creator before editing any skill-bundled path, th",
+      "normalized": "invoke the skill-creator skill with the skill tool before editing any skill-bund",
       "destination": "agents/spec-implementer.md:11"
     },
     {
@@ -138,15 +138,15 @@
       "destination": "agents/spec-implementer.md:13"
     },
     {
-      "id": "cb14c0b5de39",
+      "id": "bb8e06831a61",
       "source_before": "agents/spec-implementer.md:14",
-      "normalized": "write .omp/sdlc/handoffs/<n>-implement.json with \"next\": \"verify\".",
+      "normalized": "write .nmg-sdlc/handoffs/<n>-implement.json with \"next\": \"verify\".",
       "destination": "agents/spec-implementer.md:14"
     },
     {
-      "id": "25b7f14bd381",
+      "id": "1ca60dbfa976",
       "source_before": "agents/spec-implementer.md:15",
-      "normalized": "on success print exactly: nmgsdlchandoff: .omp/sdlc/handoffs/<n>-implement.json",
+      "normalized": "on success print exactly: nmgsdlchandoff: .nmg-sdlc/handoffs/<n>-implement.json",
       "destination": "agents/spec-implementer.md:15"
     },
     {
@@ -162,82 +162,82 @@
       "destination": "agents/starter.md:11"
     },
     {
-      "id": "0a87ada23165",
+      "id": "7ae5e0aed670",
       "source_before": "agents/starter.md:13",
-      "normalized": "write .omp/sdlc/handoffs/<n>-start.json.",
+      "normalized": "write .nmg-sdlc/handoffs/<n>-start.json.",
       "destination": "agents/starter.md:13"
     },
     {
-      "id": "b6b19afdb9ca",
+      "id": "204db169eeae",
       "source_before": "agents/starter.md:14",
-      "normalized": "on success print exactly: nmgsdlchandoff: .omp/sdlc/handoffs/<n>-start.json",
+      "normalized": "on success print exactly: nmgsdlchandoff: .nmg-sdlc/handoffs/<n>-start.json",
       "destination": "agents/starter.md:14"
     },
     {
       "id": "cbc05ff950ed",
-      "source_before": "references/contribution-gate.md:405",
+      "source_before": "references/contribution-gate.md:407",
       "normalized": "classify the approved workflow path before writing:",
-      "destination": "references/contribution-gate.md:405"
+      "destination": "references/contribution-gate.md:407"
     },
     {
       "id": "5170ccb2e3ab",
-      "source_before": "references/contribution-gate.md:407",
+      "source_before": "references/contribution-gate.md:409",
       "normalized": "| state | detection | action | status |",
-      "destination": "references/contribution-gate.md:407",
+      "destination": "references/contribution-gate.md:409",
       "additional_destinations": [
         "references/issue-form.md:21"
       ]
     },
     {
       "id": "77e0eb1f3c00",
-      "source_before": "references/contribution-gate.md:409",
-      "normalized": "| missing workflow | approved path absent | create .github/workflows/ and write ",
-      "destination": "references/contribution-gate.md:409"
-    },
-    {
-      "id": "315a64db3b91",
-      "source_before": "references/contribution-gate.md:410",
-      "normalized": "| current managed workflow | marker present and version equals current | leave u",
-      "destination": "references/contribution-gate.md:410"
-    },
-    {
-      "id": "2192e94d4b53",
       "source_before": "references/contribution-gate.md:411",
-      "normalized": "| outdated managed workflow | marker present and numeric version lower than curr",
+      "normalized": "| missing workflow | approved path absent | create .github/workflows/ and write ",
       "destination": "references/contribution-gate.md:411"
     },
     {
-      "id": "995606a2fd61",
+      "id": "315a64db3b91",
       "source_before": "references/contribution-gate.md:412",
-      "normalized": "| future managed workflow | marker present and numeric version higher than curre",
+      "normalized": "| current managed workflow | marker present and version equals current | leave u",
       "destination": "references/contribution-gate.md:412"
     },
     {
-      "id": "f54c5e1e9959",
+      "id": "2192e94d4b53",
       "source_before": "references/contribution-gate.md:413",
-      "normalized": "| unmanaged path collision | approved path exists without marker | leave unchang",
+      "normalized": "| outdated managed workflow | marker present and numeric version lower than curr",
       "destination": "references/contribution-gate.md:413"
     },
     {
-      "id": "fc2fa1c0b2ca",
+      "id": "995606a2fd61",
+      "source_before": "references/contribution-gate.md:414",
+      "normalized": "| future managed workflow | marker present and numeric version higher than curre",
+      "destination": "references/contribution-gate.md:414"
+    },
+    {
+      "id": "f54c5e1e9959",
       "source_before": "references/contribution-gate.md:415",
-      "normalized": "preserve every unrelated workflow under .github/workflows/ byte-for-byte. do not",
+      "normalized": "| unmanaged path collision | approved path exists without marker | leave unchang",
       "destination": "references/contribution-gate.md:415"
     },
     {
+      "id": "fc2fa1c0b2ca",
+      "source_before": "references/contribution-gate.md:417",
+      "normalized": "preserve every unrelated workflow under .github/workflows/ byte-for-byte. do not",
+      "destination": "references/contribution-gate.md:417"
+    },
+    {
       "id": "44f16e69f709",
-      "source_before": "references/contribution-gate.md:426",
+      "source_before": "references/contribution-gate.md:428",
       "normalized": "return this stable result shape to the calling skill:",
-      "destination": "references/contribution-gate.md:426",
+      "destination": "references/contribution-gate.md:428",
       "additional_destinations": [
         "references/issue-form.md:73"
       ]
     },
     {
       "id": "40a524f34bf4",
-      "source_before": "references/contribution-gate.md:435",
+      "source_before": "references/contribution-gate.md:437",
       "normalized": "use these exact status words so summaries and tests can compare results consiste",
-      "destination": "references/contribution-gate.md:435",
+      "destination": "references/contribution-gate.md:437",
       "additional_destinations": [
         "references/issue-form.md:82"
       ]
@@ -477,9 +477,9 @@
       "destination": "references/execute-implementable-requirements.md:73"
     },
     {
-      "id": "00738f537b34",
+      "id": "45bab1f6e029",
       "source_before": "references/execute-implementable-requirements.md:75",
-      "normalized": "stop before writing a plan, calling xd://propose, or mutating github.",
+      "normalized": "stop before writing a plan, calling exitplanmode, or mutating github.",
       "destination": "references/execute-implementable-requirements.md:75"
     },
     {

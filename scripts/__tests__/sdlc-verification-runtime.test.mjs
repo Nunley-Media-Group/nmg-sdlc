@@ -139,7 +139,7 @@ describe('deterministic verification runtime', () => {
     const linkedSteering = path.join(linkedPlugin, 'scripts', path.basename(STEERING_SCRIPT));
     const linkedVerifier = path.join(linkedPlugin, 'scripts', path.basename(VERIFY_SCRIPT));
     const linkedCurrentSpecs = path.join(linkedPlugin, 'scripts', path.basename(CURRENT_SPECS_SCRIPT));
-    const artifactPath = path.join(root, '.omp', 'sdlc', 'verification', '42.json');
+    const artifactPath = path.join(root, '.nmg-sdlc', 'verification', '42.json');
 
     const importOnly = spawnSync(process.execPath, [
       '--input-type=module',
@@ -196,7 +196,7 @@ describe('deterministic verification runtime', () => {
       runId: 'execute-run',
       controllerPaneId: 'execute-pane',
     });
-    const artifactPath = path.join(root, '.omp/sdlc/verification/42.json');
+    const artifactPath = path.join(root, '.nmg-sdlc/verification/42.json');
     const args = [
       VERIFY_SCRIPT,
       '--project', root,
@@ -255,7 +255,7 @@ describe('deterministic verification runtime', () => {
       issue: 42,
       specPath: 'specs/42-test',
     });
-    expect(fs.existsSync(path.join(root, '.omp', 'sdlc', 'verification', '42.json'))).toBe(true);
+    expect(fs.existsSync(path.join(root, '.nmg-sdlc', 'verification', '42.json'))).toBe(true);
   });
 
   it('hashes untracked directories and preserves complete rename paths', async () => {
@@ -551,7 +551,7 @@ describe('deterministic verification runtime', () => {
 
   it('replaces stale success evidence when identity setup fails', async () => {
     const root = await fixture([command('required.pass', 'process.exit(0)')]);
-    const artifactPath = path.join(root, '.omp', 'sdlc', 'verification', '42.json');
+    const artifactPath = path.join(root, '.nmg-sdlc', 'verification', '42.json');
     fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
     fs.writeFileSync(artifactPath, '{"ceiling":null,"stale":true}\n');
     fs.rmSync(path.join(root, 'specs', '42-test', 'design.md'));
