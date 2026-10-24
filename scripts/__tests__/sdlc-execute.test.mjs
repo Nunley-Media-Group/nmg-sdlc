@@ -91,7 +91,7 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
   fs.mkdirSync(runtime, { recursive: true });
   fs.writeFileSync(path.join(runtime, 'run.json'), '{stale corrupted checkpoint');
   fs.writeFileSync(path.join(runtime, 'safe-recoveries.json'), '{stale corrupted ledger');
-  const state = { merged: false, closed: false, starts: [], prompts: [], closedPanes: [], owned: [], released: [], sourcePushes: 0 };
+  const state = { merged: false, closed: false, starts: [], prompts: [], reminders: [], closedPanes: [], owned: [], released: [], sourcePushes: 0 };
   const run = (command, args, options = {}) => {
     if (command === 'git') {
       const response = spawnSync('git', args, { cwd: options.cwd ?? root, encoding: 'utf8' });
@@ -173,6 +173,16 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
       git(root, 'push', 'origin', 'HEAD:42-example');
     }
   };
+  const writeHandoff = (step, outcome) => {
+    fs.mkdirSync(path.join(runtime, 'handoffs'), { recursive: true });
+    fs.writeFileSync(path.join(runtime, 'handoffs', `42-${step}.json`), JSON.stringify({ schemaVersion: 1,
+      issue: 42, step, status: outcome.status, intervention: outcome.intervention ?? false,
+      summary: outcome.summary ?? `${step} complete`, artifacts: outcome.artifacts ?? [],
+      next: outcome.next ?? null, reasonCode: outcome.reasonCode ?? null,
+      ...(step === 'start' ? { branch: '42-example', head: git(root, 'rev-parse', 'HEAD') } : {}) }));
+  };
+  // The controller's reminder to a worker that settled without a handoff; by default the worker ignores it.
+  let onReminder = () => null;
   let onWorker = ({ step }) => {
     if (step === 'implement') publish('fix: finish #42');
     if (step === 'verify') passGate();
@@ -194,23 +204,25 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
     listAgents: () => result([]),
     agentStart: ({ name, paneId, model }) => { state.starts.push({ name, paneId, model }); return result(''); },
     agentPrompt: ({ name, prompt }) => {
+      const step = /-([a-z]+)-[0-9a-f]{8}$/.exec(name)?.[1];
+      if (prompt.startsWith('nmg-sdlc controller:')) {
+        state.reminders.push({ name, prompt });
+        const outcome = onReminder({ step, prompt, state, root, publish, passGate });
+        if (outcome) writeHandoff(step, outcome);
+        return result('');
+      }
       state.prompts.push({ name, prompt });
       if (state.prompts.length > 10) throw new Error('fixture repeated dispatch without progress');
-      const step = /-([a-z]+)-[0-9a-f]{8}$/.exec(name)?.[1];
       const outcome = onWorker({ step, prompt, state, root, publish, passGate });
       if (outcome?.handoff === false) return result('');
-      fs.mkdirSync(path.join(runtime, 'handoffs'), { recursive: true });
-      fs.writeFileSync(path.join(runtime, 'handoffs', `42-${step}.json`), JSON.stringify({ schemaVersion: 1,
-        issue: 42, step, status: outcome.status, intervention: outcome.intervention ?? false,
-        summary: outcome.summary ?? `${step} complete`, artifacts: outcome.artifacts ?? [],
-        next: outcome.next ?? null, reasonCode: outcome.reasonCode ?? null,
-        ...(step === 'start' ? { branch: '42-example', head: git(root, 'rev-parse', 'HEAD') } : {}) }));
+      writeHandoff(step, outcome);
       return result('');
     },
     agentWait: () => result(''),
     agentGet: () => result({ agent_status: 'done' }),
   };
-  return { root, state, run, herdr, publish, passGate, setWorker: (fn) => { onWorker = fn; },
+  return { root, state, run, herdr, publish, passGate, writeHandoff, setWorker: (fn) => { onWorker = fn; },
+    setReminder: (fn) => { onReminder = fn; },
     execute: (args = '', options = {}) => runExecute({ args, cwd: root, env, run, herdr,
       onOwnedPane: (pane) => state.owned.push(pane), onPaneClosed: (pane) => state.released.push(pane), ...options }) };
 }
@@ -319,11 +331,13 @@ describe('Herdr Claude workers', () => {
     api.agentPrompt({ name: 'w', prompt });
     api.agentWait({ name: 'w', until: 'working' });
     api.agentWait({ name: 'w' });
+    api.agentWait({ name: 'w', until: 'working', timeout: 60000 });
     api.agentGet('w');
     expect(calls.map((call) => call.args)).toEqual([
       ['agent', 'prompt', 'w', prompt],
       ['agent', 'wait', 'w', '--until', 'working'],
       ['agent', 'wait', 'w'],
+      ['agent', 'wait', 'w', '--until', 'working', '--timeout', '60000'],
       ['agent', 'get', 'w'],
     ]);
   });
@@ -454,29 +468,32 @@ describe('branch-first execute', () => {
 
   it('starts an explicit issue from a non-issue branch, then uses its new live branch', () => {
     const f = fixture({ branch: 'main' });
-    f.setWorker(({ step, root, passGate, state }) => {
+    f.setWorker(({ step, root, publish, passGate, state }) => {
       if (step === 'start') {
         git(root, 'checkout', '-b', '42-example');
         git(root, 'push', '-u', 'origin', '42-example');
         return { status: 'passed', next: 'implement' };
       }
+      if (step === 'implement') { publish('fix: implement #42 on its new branch'); return { status: 'passed', next: 'verify' }; }
       if (step === 'verify') { passGate(); return { status: 'passed', next: 'deliver' }; }
       if (step === 'deliver') { state.merged = true; state.closed = true; return { status: 'passed', next: null }; }
 
       throw new Error(step);
     });
     expect(f.execute('#42')).toMatchObject({ status: 0 });
-    expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['start', 'verify', 'deliver']);
-    expect(f.state.starts.map((entry) => entry.model)).toEqual(['haiku', 'opus', 'sonnet']);
+    // The new branch has no commits relative to main, so it is implemented before anything is verified.
+    expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['start', 'implement', 'verify', 'deliver']);
+    expect(f.state.starts.map((entry) => entry.model)).toEqual(['haiku', 'sonnet', 'opus', 'sonnet']);
   });
   it('continues an explicit queue on the default branch after the previous issue is delivered', () => {
     const f = fixture({ branch: 'main' });
-    f.setWorker(({ step, root, passGate, state }) => {
+    f.setWorker(({ step, root, publish, passGate, state }) => {
       if (step === 'start') {
         git(root, 'checkout', '-b', '42-example');
         git(root, 'push', '-u', 'origin', '42-example');
         return { status: 'passed', next: 'implement' };
       }
+      if (step === 'implement') { publish('fix: implement #42 on its new branch'); return { status: 'passed', next: 'verify' }; }
       if (step === 'verify') { passGate(); return { status: 'passed', next: 'deliver' }; }
       if (step === 'deliver') { state.merged = true; state.closed = true; return { status: 'passed', next: null }; }
       throw new Error(step);
@@ -486,7 +503,7 @@ describe('branch-first execute', () => {
     expect(response.status).toBe(1);
     expect(response.stderr).not.toContain('active_issue_conflict');
     expect(git(f.root, 'branch', '--show-current')).toBe('main');
-    expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['start', 'verify', 'deliver']);
+    expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['start', 'implement', 'verify', 'deliver']);
   });
   it('recognizes delivered issues off-branch without a worker and continues the queue', () => {
     const f = fixture({ branch: 'main' });
@@ -534,12 +551,13 @@ describe('branch-first execute', () => {
 
   it('keeps a dirty delivered issue branch instead of moving to the next queued issue', () => {
     const f = fixture({ branch: 'main' });
-    f.setWorker(({ step, root, passGate, state }) => {
+    f.setWorker(({ step, root, publish, passGate, state }) => {
       if (step === 'start') {
         git(root, 'checkout', '-b', '42-example');
         git(root, 'push', '-u', 'origin', '42-example');
         return { status: 'passed', next: 'implement' };
       }
+      if (step === 'implement') { publish('fix: implement #42 on its new branch'); return { status: 'passed', next: 'verify' }; }
       if (step === 'verify') { passGate(); return { status: 'passed', next: 'deliver' }; }
       if (step === 'deliver') {
         state.merged = true;
@@ -639,12 +657,13 @@ describe('branch-first execute', () => {
       presented = candidates;
       return 42;
     } };
-    f.setWorker(({ step, root, passGate, state }) => {
+    f.setWorker(({ step, root, publish, passGate, state }) => {
       if (step === 'start') {
         git(root, 'checkout', '-b', '42-example');
         git(root, 'push', '-u', 'origin', '42-example');
         return { status: 'passed', next: 'implement' };
       }
+      if (step === 'implement') { publish('fix: implement #42 on its new branch'); return { status: 'passed', next: 'verify' }; }
       if (step === 'verify') { passGate(); return { status: 'passed', next: 'deliver' }; }
       if (step === 'deliver') { state.merged = true; state.closed = true; return { status: 'passed', next: null }; }
       throw new Error(step);
@@ -834,5 +853,131 @@ describe('branch-first execute', () => {
     expect(deliveryCalls).toBe(1);
     expect(f.execute('')).toMatchObject({ status: 0 });
     expect(deliveryCalls).toBe(1);
+  });
+});
+
+describe('worker supervision while its background work runs (#470)', () => {
+  const marker = (f) => path.join(f.root, '.nmg-sdlc/handoffs/42-verify.json.waiting');
+  const deliver = ({ state }) => { state.merged = true; state.closed = true; return { status: 'passed', next: null }; };
+  // Fails fast instead of hanging if the controller never stops waiting.
+  const boundedWaits = (f, onWait = () => {}) => {
+    const waits = [];
+    return { waits, agentWait: (args) => {
+      waits.push(args);
+      if (waits.length > 50) throw new Error('controller kept waiting without progress');
+      onWait(args);
+      return result('');
+    } };
+  };
+
+  it('keeps the pane of a worker waiting on its background gate and processes the later handoff', () => {
+    const f = fixture();
+    let agent = 'done';
+    let gateRunning = false;
+    f.setWorker((context) => {
+      if (context.step === 'verify') {
+        fs.mkdirSync(path.dirname(marker(f)), { recursive: true });
+        fs.writeFileSync(marker(f), 'sdlc-verify-steering.mjs\n');
+        gateRunning = true;
+        return { handoff: false };
+      }
+      if (context.step === 'deliver') return deliver(context);
+      throw new Error(context.step);
+    });
+    const { waits, agentWait } = boundedWaits(f, (args) => {
+      if (args.timeout && gateRunning) {
+        // The background gate finishes and its notification resumes the worker's turn.
+        expect(f.state.closedPanes).toEqual([]);
+        gateRunning = false;
+        agent = 'working';
+      } else if (!args.until && agent === 'working') {
+        expect(fs.existsSync(marker(f))).toBe(false);
+        f.passGate();
+        f.writeHandoff('verify', { status: 'passed', next: 'deliver' });
+        agent = 'done';
+      }
+    });
+    const herdr = { ...f.herdr, agentWait, agentGet: () => result({ agent_status: agent }) };
+    expect(f.execute('#42', { herdr })).toMatchObject({ status: 0 });
+    expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['verify', 'deliver']);
+    expect(waits).toContainEqual({ name: f.state.starts[0].name, until: 'working', timeout: 60000 });
+    expect(f.state.reminders).toEqual([]);
+    expect(f.state.closedPanes).toEqual(f.state.owned);
+  });
+
+  it('removes a stale waiting marker and reminds a settled worker once before it counts as stopped', () => {
+    const f = fixture();
+    fs.mkdirSync(path.dirname(marker(f)), { recursive: true });
+    fs.writeFileSync(marker(f), 'left by an earlier invocation\n');
+    f.setWorker((context) => {
+      if (context.step === 'verify') return { handoff: false };
+      if (context.step === 'deliver') return deliver(context);
+      throw new Error(context.step);
+    });
+    f.setReminder(({ step, passGate }) => {
+      expect(step).toBe('verify');
+      passGate();
+      return { status: 'passed', next: 'deliver' };
+    });
+    const { agentWait } = boundedWaits(f);
+    expect(f.execute('#42', { herdr: { ...f.herdr, agentWait } })).toMatchObject({ status: 0 });
+    expect(f.state.reminders).toHaveLength(1);
+    expect(f.state.reminders[0].prompt).toContain('.nmg-sdlc/handoffs/42-verify.json');
+    expect(f.state.reminders[0].prompt).toContain('.nmg-sdlc/handoffs/42-verify.json.waiting');
+    expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['verify', 'deliver']);
+  });
+
+  it('retries verify, not an implement repair, after a verify worker stops without a handoff', () => {
+    const f = fixture();
+    let verifications = 0;
+    f.setWorker((context) => {
+      if (context.step === 'verify' && verifications++ === 0) return { handoff: false };
+      if (context.step === 'verify') { context.passGate(); return { status: 'passed', next: 'deliver' }; }
+      if (context.step === 'deliver') return deliver(context);
+      throw new Error(context.step);
+    });
+    expect(f.execute('#42')).toMatchObject({ status: 0 });
+    expect(f.state.reminders).toHaveLength(1);
+    expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['verify', 'verify', 'deliver']);
+    expect(f.state.prompts[1].prompt).toContain('missing_handoff');
+    expect(f.state.closedPanes).toEqual(f.state.owned);
+  });
+
+  it.each([['', 'process_lost'], ['blocked', 'missing_handoff']])(
+    'closes a worker reported as %j without a reminder or resume wait', (lostState, reasonCode) => {
+      const f = fixture();
+      let verifications = 0;
+      f.setWorker((context) => {
+        if (context.step === 'verify' && verifications++ === 0) return { handoff: false };
+        if (context.step === 'verify') { context.passGate(); return { status: 'passed', next: 'deliver' }; }
+        if (context.step === 'deliver') return deliver(context);
+        throw new Error(context.step);
+      });
+      const { waits, agentWait } = boundedWaits(f);
+      const herdr = { ...f.herdr, agentWait,
+        agentGet: () => result({ agent_status: verifications === 1 ? lostState : 'done' }) };
+      expect(f.execute('#42', { herdr })).toMatchObject({ status: 0 });
+      expect(f.state.reminders).toEqual([]);
+      expect(waits.some((args) => args.timeout)).toBe(false);
+      expect(f.state.prompts[1].prompt).toContain(reasonCode);
+      expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['verify', 'verify', 'deliver']);
+    });
+
+  it('verifies a branch with no commits once this invocation implemented it at that head', () => {
+    const f = fixture({ branch: 'main' });
+    f.setWorker((context) => {
+      if (context.step === 'start') {
+        git(context.root, 'checkout', '-b', '42-example');
+        git(context.root, 'push', '-u', 'origin', '42-example');
+        return { status: 'passed', next: 'implement' };
+      }
+      // The implement worker finds nothing left to change and publishes no commit.
+      if (context.step === 'implement') return { status: 'passed', next: 'verify' };
+      if (context.step === 'verify') { context.passGate(); return { status: 'passed', next: 'deliver' }; }
+      if (context.step === 'deliver') return deliver(context);
+      throw new Error(context.step);
+    });
+    expect(f.execute('#42')).toMatchObject({ status: 0 });
+    expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['start', 'implement', 'verify', 'deliver']);
   });
 });
