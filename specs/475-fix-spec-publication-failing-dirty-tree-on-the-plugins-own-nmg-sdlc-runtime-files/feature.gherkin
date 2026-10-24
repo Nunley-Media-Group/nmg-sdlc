@@ -1,0 +1,21 @@
+**Issue**: #475
+**Date**: 2026-10-24
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/473-fix-smoke-provisioning-prompting-through-a-workspace-trust-dialog-herdr-reports-as-ready/
+
+# File: scripts/__tests__/publish-approved-spec.test.mjs
+# Generated from: specs/475-fix-spec-publication-failing-dirty-tree-on-the-plugins-own-nmg-sdlc-runtime-files/requirements.md
+Feature: Fix spec publication failing dirty_tree on the plugin's own .nmg-sdlc runtime files
+
+  @SCN001 @regression
+  Scenario: Runtime state does not block publication
+    Given a clean repository on main with only ".nmg-sdlc/prompt-provenance/sdlc-write-spec.json" untracked
+    When "publish-approved-spec.mjs prepare --issue 42 --name 42-add-x" runs
+    Then it reports ok with branch "42-add-x"
+
+  @SCN002 @regression
+  Scenario: Other changes still block publication
+    Given ".nmg-sdlc/run.json" and "dirty.txt" are untracked on main
+    When "prepare" runs
+    Then it fails "dirty_tree" with porcelain "?? dirty.txt"
