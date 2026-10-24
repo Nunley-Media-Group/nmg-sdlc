@@ -4,7 +4,7 @@
  * the Approved spec and registered verification are the only lifecycle evidence. */
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { closeSync, constants as fsConstants, fstatSync, lstatSync, openSync, readFileSync, realpathSync } from 'node:fs';
+import { closeSync, constants as fsConstants, fstatSync, lstatSync, openSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { defaultPromptRegistry, renderPrompt, writePromptProvenance } from '../src/sdlc-prompt-snippets.mjs';
 import { packageRoot } from '../src/sdlc-workflows.mjs';
@@ -24,6 +24,8 @@ export const REMEDIABLE_STEPS = ['implement', 'verify', 'deliver'];
 const SKILLS = { start: 'start-issue', implement: 'write-code', verify: 'verify-code', deliver: 'open-pr' };
 const HANDOFF_DIR = '.nmg-sdlc/handoffs';
 const MAX_HANDOFF_BYTES = 256 * 1024;
+// How often a worker that is waiting on its own background work is rechecked; the wait itself has no deadline.
+const RESUME_POLL_MS = 60_000;
 const SHA = /^[0-9a-f]{40}$/;
 
 function defaultRun(command, args, options = {}) {
@@ -171,7 +173,8 @@ export function defaultHerdr(run, cwd, env = process.env) {
     agentStart: ({ name, paneId, model }) => invoke(['agent', 'start', name, '--kind', 'claude', '--pane', paneId,
       '--', ...workerAgentArgs({ env, model })]),
     agentPrompt: ({ name, prompt }) => invoke(['agent', 'prompt', name, prompt]),
-    agentWait: ({ name, until }) => invoke(['agent', 'wait', name, ...(until ? ['--until', until] : [])]),
+    agentWait: ({ name, until, timeout }) => invoke(['agent', 'wait', name, ...(until ? ['--until', until] : []),
+      ...(timeout ? ['--timeout', String(timeout)] : [])]),
     agentGet: (name) => invoke(['agent', 'get', name]),
   };
 }
@@ -188,6 +191,13 @@ function statusEvidence(cwd, run) {
     const response = run(command, args, options);
     return { ...response, ok: succeeded(response), stdout: String(response?.stdout ?? ''), stderr: String(response?.stderr ?? '') };
   } });
+}
+/** Whether the branch has commits relative to the default branch; true when that cannot be read. */
+function branchCommits(cwd, run, evidence) {
+  const base = evidence?.project?.defaultBranch;
+  if (!base) return true;
+  const response = run('git', ['rev-list', '--count', `${base}..HEAD`], { cwd });
+  return !succeeded(response) || String(response.stdout ?? '').trim() !== '0';
 }
 function remoteHead(cwd, run, branch) {
   const response = run('git', ['ls-remote', '--heads', 'origin', branch], { cwd });
@@ -316,6 +326,44 @@ function workerState(api, name) {
       ?? value?.result?.agentStatus ?? value?.result?.state
       ?? value?.agent_status ?? value?.state ?? '').toLowerCase();
   } catch { return ''; }
+}
+const SETTLED = ['idle', 'done'];
+function waitingMarker(path) {
+  try { const stat = lstatSync(path); return stat.isFile() && stat.size > 0; } catch { return false; }
+}
+function reminderPrompt(handoffPath) {
+  return `nmg-sdlc controller: your turn ended without a handoff at ${handoffPath}. If a background command for this step is still running, write ${handoffPath}.waiting naming it and end your turn; you are resumed when it finishes. Otherwise finish the step now and write and validate the handoff.`;
+}
+/** Supervises one dispatched worker until it writes a fresh handoff or stops. A Claude Code
+ * worker settles `idle`/`done` whenever its turn ends, including while a `run_in_background`
+ * command it started is still running, so a settled worker without a handoff keeps its pane:
+ * one that wrote its waiting marker is awaited until it resumes, and one that did not is
+ * reminded once per resumption before it counts as stopped. */
+function awaitWorkerHandoff({ api, name, cwd, issue, step, prior }) {
+  const handoffPath = `${HANDOFF_DIR}/${issue}-${step}.json`;
+  const waiting = join(cwd, `${handoffPath}.waiting`);
+  const settle = () => ({ handoff: freshHandoff(cwd, issue, step, prior), state: workerState(api, name) });
+  api.agentWait({ name, until: 'working' });
+  let reminded = false;
+  for (;;) {
+    api.agentWait({ name });
+    let observed = settle();
+    if (observed.handoff || !SETTLED.includes(observed.state)) return observed;
+    if (!waitingMarker(waiting)) {
+      if (reminded || !succeeded(api.agentPrompt({ name, prompt: reminderPrompt(handoffPath) }))) return observed;
+      reminded = true;
+      api.agentWait({ name, until: 'working' });
+      continue;
+    }
+    while (SETTLED.includes(observed.state) && waitingMarker(waiting)) {
+      api.agentWait({ name, until: 'working', timeout: RESUME_POLL_MS });
+      observed = settle();
+      if (observed.handoff) return observed;
+    }
+    if (observed.state !== 'working' && !SETTLED.includes(observed.state)) return observed;
+    rmSync(waiting, { force: true });
+    reminded = false;
+  }
 }
 function sourceHeadForGate(cwd, run, head, report, artifactHead) {
   if (artifactHead === head) return head;
@@ -519,6 +567,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
       if (foreign) throw new Error(`foreign_worker_live: ${foreign.name}`);
       let needsImplement = false;
       let requiresPrEvidence = false;
+      const implementedHeads = new Set();
       for (;;) {
         const current = checkout(cwd, run);
         const branchIssue = parseIssueBranch(current.branch);
@@ -584,12 +633,15 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
             const liveFailure = currentGateFailure(cwd, run, issue, current.head, evidence.verification?.path);
             if (liveFailure) { recordFailure(liveFailure); needsImplement = true; }
           }
-          if (dirty || needsImplement || (!published && !green)) step = 'implement';
+          // A branch with nothing on it relative to the default branch has nothing to verify yet.
+          const unimplemented = !implementedHeads.has(current.head) && !branchCommits(cwd, run, evidence);
+          if (dirty || needsImplement || unimplemented || (!published && !green)) step = 'implement';
           else step = green && published && !dirtyReport ? 'deliver' : 'verify';
         }
         if (step === 'implement') inspectPublicationScope({ cwd, issue, spec: evidence.spec.path, step, run });
         const path = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
         const prior = handoffSnapshot(cwd, path);
+        rmSync(`${path}.waiting`, { force: true });
         const name = `s${issue}-${step}-${invocationId.slice(0, 8)}`;
         const instructions = [
           `Invocation ${invocationId}; branch ${current.branch}; observed HEAD ${current.head}.`,
@@ -629,10 +681,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
             throw new Error('prompt_delivery_unproven');
           }
         }
-        api.agentWait({ name, until: 'working' });
-        api.agentWait({ name });
-        const handoff = freshHandoff(cwd, issue, step, prior);
-        const state = workerState(api, name);
+        const { handoff, state } = awaitWorkerHandoff({ api, name, cwd, issue, step, prior });
         close(pane);
         if (!handoff) {
           // The pane was closed before retry, and Git/GitHub must be re-observed
@@ -641,7 +690,8 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           if (branchIssue && completed(cwd, run, issue, current.branch, after.head)) continue;
           recordFailure({ step, head: after.head, reasonCode: state ? 'missing_handoff' : 'process_lost',
             summary: 'worker ended without durable handoff; reconcile current source and remote', artifacts: [] });
-          needsImplement = after.head === current.head && ['implement', 'verify'].includes(step);
+          // A lost verify handoff is retried as verify; an implement repair would be told to change source for it.
+          needsImplement = after.head === current.head && step === 'implement';
           continue;
         }
         const after = checkout(cwd, run);
@@ -690,6 +740,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
               continue;
             }
           }
+          if (step === 'implement') implementedHeads.add(after.head);
           if (step === 'deliver' && !completed(cwd, run, issue, current.branch, after.head)) {
             throw new Error('delivery_not_merged_and_closed');
           }

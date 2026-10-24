@@ -301,6 +301,8 @@ Successful implement always hands off next=verify.
 
 Workers are sibling Herdr `--kind claude` panes running Claude Code with this plugin (see [Automated commands and workers](#automated-commands-and-workers)). Execute owns orchestration, not product edits in the main pane. Worker success is determined by validated handoffs, not terminal prose or an exit code alone. Only host-captured final assistant output supplies findings.
 
+A worker's turn can end while a background command it started is still running, such as the registered gate. In that case the worker first writes `.nmg-sdlc/handoffs/<N>-<step>.json.waiting`, and the controller keeps its pane open until the worker resumes. A worker that settles with neither a handoff nor that marker gets one reminder before it counts as stopped. A branch with no commits relative to the default branch is implemented before it is verified, and a verify worker that stops without a handoff is retried as verify.
+
 ### Branch-first resume, repair and full-green verification
 
 Branch content and live verification/PR results are authoritative (no run.json or ledger checkpoint). Bare `/sdlc-execute` on recognized N-* branch selects the issue immediately and resumes from current state: verify existing impl if present (skip implement on clean passing); dirty/partial permitted branches implement first.
@@ -370,6 +372,7 @@ Status is read-only: current branch/spec, verification, GitHub issue/PR state, a
 |---|---|
 | `.nmg-sdlc/controller.lock` | Exclusive controller identity |
 | `.nmg-sdlc/handoffs/<N>-<step>.json` | Validated stage outcome and referenced evidence |
+| `.nmg-sdlc/handoffs/<N>-<step>.json.waiting` | Worker is waiting on its own background command; the controller keeps its pane open |
 | `.nmg-sdlc/verification/<N>.json` | Deterministic gate results, coverage, and identity |
 | `.nmg-sdlc/prompt-provenance/` | Recorded prompt composition |
 | `specs/<N>-<slug>/verification-report.md` | Durable acceptance and verification report |

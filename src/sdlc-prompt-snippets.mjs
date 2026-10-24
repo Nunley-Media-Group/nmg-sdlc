@@ -201,6 +201,7 @@ const WORKER_HEADER = [
   "Handoff path: {{handoffPath}}",
   "Before printing the marker, run: node " + "<plugin-root>" + "/scripts/sdlc-execute.mjs validate-handoff --file {{handoffPath}}",
   "Only after validation succeeds print exactly: NMG_SDLC_HANDOFF: {{handoffPath}}",
+  "Before ending any turn while a background command for this step is still running, write {{handoffPath}}.waiting naming that command; the controller keeps this session open and you are resumed when it finishes. Ending a turn with neither the handoff nor that file means the step stopped.",
   "",
 ].join("\n");
 

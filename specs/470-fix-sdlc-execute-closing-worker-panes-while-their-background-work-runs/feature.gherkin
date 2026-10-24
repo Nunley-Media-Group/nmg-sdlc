@@ -1,0 +1,49 @@
+**Issue**: #470
+**Date**: 2026-10-24
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/464-run-each-sdlc-step-on-its-assigned-claude-code-model/
+
+# File: scripts/__tests__/sdlc-execute.test.mjs
+# Generated from: specs/470-fix-sdlc-execute-closing-worker-panes-while-their-background-work-runs/requirements.md
+Feature: Fix sdlc-execute closing worker panes while their background work runs
+
+  @SCN001 @regression
+  Scenario: A worker waiting on its background gate keeps its pane
+    Given a verify worker that writes ".nmg-sdlc/handoffs/42-verify.json.waiting" and ends its turn without a handoff
+    When the background gate finishes and the worker resumes and writes a passed handoff
+    Then no pane is closed before that handoff
+    And the controller polled "agent wait --until working --timeout 60000"
+    And the issue proceeds to deliver
+
+  @SCN002 @regression
+  Scenario: A settled worker without a handoff or marker is reminded once
+    Given a stale waiting marker from an earlier invocation
+    And a verify worker that ends its turn without a handoff
+    When the controller reminds it and it writes a passed handoff
+    Then exactly one reminder names the handoff path and the waiting marker path
+    And the issue proceeds to deliver
+
+  @SCN003 @regression
+  Scenario: A lost verify handoff is retried as verify
+    Given a verify worker that ends without a handoff and ignores the reminder
+    When the controller selects the next step
+    Then it dispatches verify again with "missing_handoff" evidence
+
+  @SCN004 @regression
+  Scenario Outline: Process loss and blocked workers close without a reminder
+    Given a verify worker reported as "<state>" without a handoff
+    When the controller observes it
+    Then it sends no reminder and does no resume wait
+    And the next verify prompt names "<reasonCode>"
+
+    Examples:
+      | state   | reasonCode      |
+      |         | process_lost    |
+      | blocked | missing_handoff |
+
+  @SCN005 @regression
+  Scenario: A branch with no commits is implemented before it is verified
+    Given a branch just created by start with no commits relative to main
+    When the controller selects the next step
+    Then it dispatches implement, then verify, then deliver
