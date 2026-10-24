@@ -340,13 +340,18 @@ async function validateTerminalHeadAdvance(executeCommand, state, request, scope
 }
 
 // Content-addressed plugin candidate, excluding verification output that changes after a failure.
-async function candidateTree(executeCommand, pluginRoot, env, signal) {
+export async function candidateTree(executeCommand, pluginRoot, env, signal) {
   const index = join(tmpdir(), `nmg-sdlc-smoke-index-${randomBytes(12).toString("hex")}`);
   const options = { cwd: pluginRoot, env: { ...env, GIT_INDEX_FILE: index }, signal };
   try {
+    // git refuses a pathspec, an exclusion included, that names an ignored path, and `add -A`
+    // already leaves ignored files out, so `.nmg-sdlc` is excluded only where it is not ignored.
+    const ignored = await executeCommand("git", ["check-ignore", "-q", ".nmg-sdlc"], options);
+    if (![0, 1].includes(ignored.status)) return null;
+    const runtime = ignored.status === 0 ? [] : [":(exclude).nmg-sdlc"];
     for (const args of [
       ["read-tree", "HEAD"],
-      ["add", "-A", "--", ".", ":(exclude).nmg-sdlc", ":(exclude)specs/*/verification-report.md"],
+      ["add", "-A", "--", ".", ...runtime, ":(exclude)specs/*/verification-report.md"],
     ]) {
       const result = await executeCommand("git", args, options);
       if (result.status !== 0) return null;
@@ -610,7 +615,8 @@ const CLAUDE_DIALOGS = Object.freeze([
 ]);
 
 export function claudeDialog(screen) {
-  const text = String(screen ?? "");
+  // A narrow pane wraps dialog labels across lines, so whitespace runs compare as one space.
+  const text = String(screen ?? "").replace(/\s+/g, " ");
   return CLAUDE_DIALOGS.find((dialog) => dialog.patterns.some((pattern) => pattern.test(text))) ?? null;
 }
 
@@ -693,6 +699,49 @@ async function closeAbandonedProvisionPane(herdr, recorded) {
   }
   const closed = await herdr.paneClose(recorded.pane);
   return [commandEvidence(`herdr pane close ${recorded.pane} (abandoned provisioning)`, closed)];
+}
+
+// Every Claude Code session started in a fresh clone first shows the workspace-trust dialog, and
+// the nested /sdlc-execute starts its workers in the delivery clone, where nothing can answer it.
+// The provider trusts that clone first from a short-lived pane it owns, keying the dialog only
+// while the pane's working directory is the clone this run created; Claude Code keeps the trust.
+export async function trustSmokeClone({ herdr, clone, sleep, pollMs, signal, pluginRoot, permissionMode }) {
+  const evidence = [];
+  const split = await herdr.paneSplit(clone);
+  evidence.push(commandEvidence("herdr pane split (trust delivery clone)", split, clone));
+  const pane = herdrResult(split)?.pane?.pane_id ?? null;
+  if (!pane) return { status: "incomplete", summary: "nmg-sdlc-smoke delivery trust pane unavailable", evidence };
+  const name = `smoke-trust-${randomBytes(4).toString("hex")}`;
+  try {
+    const started = await herdr.agentStart(name, pane, { pluginRoot, permissionMode });
+    evidence.push(commandEvidence(`herdr agent start ${name} (trust delivery clone)`, started, clone));
+    let keyed = false;
+    for (let polls = 0; polls <= PROVISION_READY_POLLS; polls += 1) {
+      if (signal?.aborted) return { status: "incomplete", summary: "nmg-sdlc-smoke delivery trust cancelled", evidence };
+      const screen = await herdr.paneRead(pane);
+      const dialog = screen?.status === 0 ? claudeDialog(screen.stdout) : null;
+      if (dialog?.kind === "workspace_trust") {
+        if (!keyed) {
+          const info = herdrResult(await herdr.paneGet(pane))?.pane;
+          if (!samePath(info?.foreground_cwd ?? info?.cwd, clone)) {
+            return { status: "failed", summary: `nmg-sdlc-smoke delivery trust not accepted: pane ${pane} cwd is not the owned clone`, evidence };
+          }
+          const sent = await herdr.paneSendKeys(pane, TRUST_ACCEPT_KEYS);
+          evidence.push(commandEvidence(`herdr pane send-keys ${pane} ${TRUST_ACCEPT_KEYS.join(" ")} (accept workspace trust for delivery clone)`, sent, clone));
+          if (sent?.status !== 0) return { status: "incomplete", summary: "nmg-sdlc-smoke delivery trust keys failed", evidence };
+          keyed = true;
+        }
+      } else if (dialog) {
+        return { status: "failed", summary: `nmg-sdlc-smoke delivery trust stalled at ${dialog.label}`, evidence };
+      } else if (herdrResult(await herdr.agentGet(name))?.agent?.interactive_ready === true) {
+        return { status: "passed", evidence };
+      }
+      await sleep(pollMs);
+    }
+    return { status: "incomplete", summary: "nmg-sdlc-smoke delivery clone trust not confirmed", evidence };
+  } finally {
+    evidence.push(commandEvidence(`herdr pane close ${pane} (trust delivery clone)`, await herdr.paneClose(pane)));
+  }
 }
 
 // Drafts (unless `issue` is already recorded) and specifies one fresh smoke issue through the
@@ -832,11 +881,16 @@ async function provisionSmokeIssue({
     }
     for (let polls = 0; ; polls += 1) {
       if (signal?.aborted) return stop("incomplete", "nmg-sdlc-smoke provisioning cancelled");
-      if (herdrResult(await herdr.agentGet(name))?.agent?.interactive_ready === true) break;
+      // Herdr can report a narrow pane's trust dialog as ready, and a prompt's Enter would then
+      // confirm its preselected `No, exit`; the dialog is checked before readiness is trusted.
       const dialog = await visibleDialog();
-      if (dialog?.kind === "workspace_trust" && !(await acceptOwnedTrust())) {
-        return stop("failed", `nmg-sdlc-smoke provisioning stalled at ${dialog.label}`, await snapshot(dialog));
+      if (dialog?.kind === "workspace_trust") {
+        if (!(await acceptOwnedTrust())) {
+          return stop("failed", `nmg-sdlc-smoke provisioning stalled at ${dialog.label}`, await snapshot(dialog));
+        }
+        continue;
       }
+      if (herdrResult(await herdr.agentGet(name))?.agent?.interactive_ready === true) break;
       if (polls >= PROVISION_READY_POLLS) return stop("incomplete", "nmg-sdlc-smoke provisioning agent not ready");
       await sleep(pollMs);
     }
@@ -1563,6 +1617,9 @@ export function createSmokeProvider({
       if (dirty.status !== 0 || String(dirty.stdout ?? "").trim() !== "") {
         return retain("failed", "nmg-sdlc-smoke clone dirty", [cloneEvidence, commandEvidence("git status --porcelain", dirty, work)]);
       }
+      const trusted = await trustSmokeClone({ herdr: herdrClient, clone: work, sleep, pollMs,
+        signal: request.signal, pluginRoot, permissionMode: workerPermissionMode(env) });
+      if (trusted.status !== "passed") return retain(trusted.status, trusted.summary, [cloneEvidence, ...trusted.evidence]);
       const cloneHead = await executeCommand("git", ["rev-parse", "HEAD"], {
         cwd: work,
         env,

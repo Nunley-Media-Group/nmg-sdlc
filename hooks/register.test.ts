@@ -272,8 +272,9 @@ describe('write-spec Finished', () => {
     expect(await $.classic.PermissionRequest({ tool_name: 'ExitPlanMode', tool_input: {} })).toEqual({})
 
     await ask($, FINISHED)
-    expect(await $.classic.PermissionRequest({ tool_name: 'ExitPlanMode', tool_input: {} }))
-      .toEqual({ decision: { behavior: 'allow' } })
+    // Claude Code dismisses a plan approval only for an allow that carries the input back.
+    expect(await $.classic.PermissionRequest({ tool_name: 'ExitPlanMode', tool_input: { plan: '# Spec' } }))
+      .toEqual({ decision: { behavior: 'allow', updatedInput: { plan: '# Spec' } } })
     expect(await $.classic.PermissionRequest({ tool_name: 'ExitPlanMode', tool_input: {} })).toEqual({})
   })
 
@@ -332,8 +333,8 @@ describe('autopilot', () => {
         updatedInput: { questions, answers: { 'Which kind?': 'Feature (Recommended)', 'Milestone?': 'v1' } },
       },
     })
-    expect(await $.classic.PermissionRequest({ tool_name: 'ExitPlanMode', tool_input: {} }))
-      .toEqual({ decision: { behavior: 'allow' } })
+    expect(await $.classic.PermissionRequest({ tool_name: 'ExitPlanMode', tool_input: { plan: '# Draft' } }))
+      .toEqual({ decision: { behavior: 'allow', updatedInput: { plan: '# Draft' } } })
     expect(await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'rm -rf /' } })).toEqual({})
   })
 

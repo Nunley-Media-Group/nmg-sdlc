@@ -1,0 +1,21 @@
+**Issue**: #474
+**Date**: 2026-10-24
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/473-fix-smoke-provisioning-prompting-through-a-workspace-trust-dialog-herdr-reports-as-ready/
+
+# File: hooks/register.test.ts
+# Generated from: specs/474-fix-autopilot-plan-approval-leaving-claude-codes-exitplanmode-dialog-up/requirements.md
+Feature: Fix autopilot plan approval leaving Claude Code's ExitPlanMode dialog up
+
+  @SCN001 @regression
+  Scenario: Autopilot approves a plan with its input
+    Given a session with NMG_SDLC_AUTOPILOT set to 1
+    When ExitPlanMode asks for permission with input {"plan":"# Draft"}
+    Then the answer is allow with updatedInput {"plan":"# Draft"}
+
+  @SCN002 @regression
+  Scenario: The write-spec Finished approval carries the input
+    Given a write-spec Finished selection
+    When ExitPlanMode asks for permission with input {"plan":"# Spec"}
+    Then the answer is allow with updatedInput {"plan":"# Spec"} once

@@ -1,0 +1,29 @@
+**Issue**: #473
+**Date**: 2026-10-24
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/470-fix-sdlc-execute-closing-worker-panes-while-their-background-work-runs/
+
+# File: scripts/__tests__/nmg-sdlc-smoke.test.mjs
+# Generated from: specs/473-fix-smoke-provisioning-prompting-through-a-workspace-trust-dialog-herdr-reports-as-ready/requirements.md
+Feature: Fix smoke provisioning prompting through a workspace-trust dialog Herdr reports as ready
+
+  @SCN001 @regression
+  Scenario: A trust dialog behind a ready agent is accepted before prompting
+    Given "herdr agent start" succeeds and every "agent get" reports interactive_ready
+    And the provisioning pane shows the narrow, wrapped workspace-trust dialog
+    When the provider waits for readiness
+    Then it sends "down enter" once
+    And "/sdlc-draft-issue" is sent only after the dialog is gone
+
+  @SCN002 @regression
+  Scenario: Wrapped dialog text is recognized
+    Given the narrow-pane trust capture with "Yes, I trust this" and "folder" on separate lines
+    When claudeDialog classifies it
+    Then the kind is "workspace_trust"
+
+  @SCN003
+  Scenario: Ordinary readiness is unchanged
+    Given a ready agent with no dialog on screen
+    When the provider waits for readiness
+    Then it prompts without sending keys

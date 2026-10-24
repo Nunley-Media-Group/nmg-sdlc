@@ -1,0 +1,21 @@
+**Issue**: #476
+**Date**: 2026-10-24
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/473-fix-smoke-provisioning-prompting-through-a-workspace-trust-dialog-herdr-reports-as-ready/
+
+# File: scripts/__tests__/nmg-sdlc-smoke.test.mjs
+# Generated from: specs/476-fix-smoke-candidate-identity-failing-on-a-checkout-that-gitignores-nmg-sdlc/requirements.md
+Feature: Fix smoke candidate identity failing on a checkout that gitignores .nmg-sdlc
+
+  @SCN001 @regression
+  Scenario: A checkout that ignores .nmg-sdlc yields a candidate tree
+    Given a git checkout whose .gitignore lists ".nmg-sdlc/" with a file under ".nmg-sdlc/" and a modified "plugin.mjs"
+    When candidateTree runs
+    Then the tree lists only ".gitignore" and "plugin.mjs" with the modified content
+
+  @SCN002 @regression
+  Scenario: A checkout that does not ignore .nmg-sdlc still leaves it out
+    Given a git checkout without a ".nmg-sdlc/" ignore and with a file under ".nmg-sdlc/"
+    When candidateTree runs
+    Then the tree has no ".nmg-sdlc" entry

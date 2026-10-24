@@ -15,6 +15,8 @@ import {
   resolveSmokeRecoveryScope,
   validNestedOwnership,
   workerPermissionMode,
+  candidateTree,
+  trustSmokeClone,
 } from '../../steering/extensions/nmg-sdlc-smoke.mjs';
 
 const SOURCE_ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -45,6 +47,24 @@ const TEST_SCOPE = Object.freeze({
   issue: 379,
   specPath: 'specs/379-fix',
 });
+
+// A Herdr pane whose Claude Code session is ready at once: the delivery clone is already trusted.
+function trustedHerdr(calls = []) {
+  const ok = (value) => ({ status: 0, stdout: JSON.stringify({ result: value }), stderr: '' });
+  const record = (name) => (...args) => { calls.push([name, ...args]); return Promise.resolve(); };
+  return {
+    calls,
+    paneSplit: async (cwd) => { await record('paneSplit')(cwd); return ok({ pane: { pane_id: 'wF:trust' } }); },
+    paneClose: async (pane) => { await record('paneClose')(pane); return ok({}); },
+    agentStart: async (name, pane) => { await record('agentStart')(name, pane); return ok({ agent: { interactive_ready: true } }); },
+    agentGet: async () => ok({ agent: { interactive_ready: true, agent_status: 'idle' } }),
+    agentPrompt: async () => ok({}),
+    agentRead: async () => ({ status: 0, stdout: '❯ ', stderr: '' }),
+    paneGet: async (pane) => ok({ pane: { pane_id: pane } }),
+    paneRead: async () => ({ status: 0, stdout: '❯ ', stderr: '' }),
+    paneSendKeys: async () => ok({}),
+  };
+}
 
 function harness(options = {}) {
   const config = Object.hasOwn(options, 'config') ? options.config : { issues: [7, 9] };
@@ -78,6 +98,7 @@ function harness(options = {}) {
       return result(0, 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git\n');
     }
     if (program === 'git' && args[0] === 'status') return result();
+    if (program === 'git' && args[0] === 'check-ignore') return result(1);
     if (program === 'git' && ['read-tree', 'add'].includes(args[0])) return result();
     if (program === 'git' && args[0] === 'write-tree') return result(0, `${options.candidate?.value ?? 'e'.repeat(40)}\n`);
     if (program === 'git' && args[0] === 'rev-parse') return result(0, 'a'.repeat(40));
@@ -132,7 +153,7 @@ function harness(options = {}) {
     verifyCurrentEvidence: options.verifyCurrentEvidence ?? (() => true),
     verifyRetainedClone: options.verifyRetainedClone ?? (async () => ({ status: 'passed', evidence: [] })),
     env,
-    herdr: options.herdr ?? null,
+    herdr: options.herdr ?? trustedHerdr(),
     sleep: async () => {},
     pollMs: 0,
   });
@@ -221,6 +242,7 @@ function commandFixture() {
     if (args[0] === 'clone' || args[0] === 'status') process.exit(0);
     if (args[0] === 'rev-parse') console.log('${'a'.repeat(40)}');
     else if (args[0] === 'remote') console.log('https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git');
+    else if (args[0] === 'check-ignore') process.exit(1);
     else if (args[0] === 'read-tree' || args[0] === 'add') process.exit(0);
     else if (args[0] === 'write-tree') console.log('${'e'.repeat(40)}');
     else throw new Error('Unexpected fixture git command');
@@ -628,6 +650,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
         mkdtempSync: () => fixture.work,
         recoveryStore: memoryRecoveryStore(),
         resolveOuterScope: () => TEST_SCOPE,
+        herdr: trustedHerdr(),
       });
       const pending = provider({
         projectRoot: fixture.root, config: { issues: [7] },
@@ -1206,6 +1229,26 @@ const LIVE_TRUST_SCREEN = [
   '   Yes, I trust this folder',
   ' Enter to confirm · Esc to cancel',
 ].join('\n');
+// Captured live from the provider's narrow `--direction right` pane: the header has scrolled away
+// and the accept label wraps. Herdr reports this agent idle and interactive_ready.
+const NARROW_TRUST_SCREEN = [
+  ' trust? (Like your own',
+  ' code, a well-known open',
+  ' source project, or work',
+  ' from your team). If not,',
+  ' take a moment to review',
+  " what's in this folder",
+  ' first.',
+  " Claude Code'll be able",
+  ' to read, edit, and',
+  ' execute files here.',
+  ' Security guide',
+  ' ❯ No, exit',
+  '   Yes, I trust this',
+  '   folder',
+  ' Enter to confirm · Esc',
+  ' to cancel',
+].join('\n');
 const PERMISSION_SCREEN = [
   ' Bash command',
   '   gh issue create -R Nunley-Media-Group/nmg-sdlc-smoke',
@@ -1254,7 +1297,7 @@ function fakeClaudePane({
     issueCreated: false, published: false, dialogPolls: 0, gets: 0, notReady: notReadyPolls,
   };
   const ok = (value) => result(0, JSON.stringify({ result: value }));
-  const trustGone = (candidate) => pane.trustCleared && candidate === TRUST_SCREEN;
+  const trustGone = (candidate) => pane.trustCleared && [TRUST_SCREEN, NARROW_TRUST_SCREEN].includes(candidate);
   const activeDialog = () => (dialog && dialog.phase === pane.phase && pane.remaining === 0
     && !trustGone(dialog.screen)
     && pane.dialogPolls < (dialog.polls ?? Infinity) ? dialog : null);
@@ -1290,7 +1333,11 @@ function fakeClaudePane({
     return current ? current.screen : '✻ Working…';
   };
   pane.herdr = {
-    paneSplit: async (cwd) => { pane.splits.push(cwd); return ok({ pane: { pane_id: 'wF:p99' } }); },
+    // The first split is the provisioning pane; a later one is the delivery clone's trust pane.
+    paneSplit: async (cwd) => {
+      pane.splits.push(cwd);
+      return ok({ pane: { pane_id: pane.splits.length === 1 ? 'wF:p99' : 'wF:trust' } });
+    },
     paneClose: async (id) => { pane.closed.push(id); return result(); },
     agentStart: async (name, id, options) => {
       pane.starts.push({ name, pane: id, ...options });
@@ -1316,7 +1363,7 @@ function fakeClaudePane({
     paneGet: async (id) => ok({ pane: { pane_id: id, cwd: paneCwd, foreground_cwd: paneCwd } }),
     paneSendKeys: async (_id, keys) => {
       pane.keys.push(keys);
-      if (trustAccepts && screen() === TRUST_SCREEN) pane.trustCleared = true;
+      if (trustAccepts && [TRUST_SCREEN, NARROW_TRUST_SCREEN].includes(screen())) pane.trustCleared = true;
       return result();
     },
   };
@@ -1410,6 +1457,7 @@ describe('nmg-sdlc smoke provisioning Claude pane', () => {
     ['workspace trust', TRUST_SCREEN, 'workspace_trust'],
     ['workspace trust (newer wording)', 'Quick safety check: Is this a project you created or one you trust?\n❯ 1. Yes, I trust this folder', 'workspace_trust'],
     ['workspace trust (live capture)', LIVE_TRUST_SCREEN, 'workspace_trust'],
+    ['workspace trust (narrow pane, wrapped label)', NARROW_TRUST_SCREEN, 'workspace_trust'],
     ['a permission ask', PERMISSION_SCREEN, 'permission'],
     ['an edit permission ask', 'Do you want to make this edit to README.md?\n❯ 1. Yes', 'permission'],
     ['plan approval without autopilot', PLAN_APPROVAL_SCREEN, 'plan_approval'],
@@ -1433,14 +1481,20 @@ describe('nmg-sdlc smoke gate self-provisioning', () => {
 
     expect(outcome.status).toBe('passed');
     expect(pane.prompts).toEqual([`/sdlc-draft-issue ${NEED}`, '/sdlc-write-spec 179']);
-    expect(pane.splits).toEqual(['/tmp/nmg-sdlc-smoke-fixture']);
+    // The provisioning pane, then the delivery clone's short-lived trust pane (#477).
+    expect(pane.splits).toEqual(['/tmp/nmg-sdlc-smoke-fixture', '/tmp/nmg-sdlc-smoke-fixture']);
     expect(pane.starts).toEqual([{
       name: expect.stringMatching(/^smoke-provision-[0-9a-f]{8}$/),
       pane: 'wF:p99',
       pluginRoot: path.resolve(SOURCE_ROOT),
       permissionMode: 'auto',
+    }, {
+      name: expect.stringMatching(/^smoke-trust-[0-9a-f]{8}$/),
+      pane: 'wF:trust',
+      pluginRoot: path.resolve(SOURCE_ROOT),
+      permissionMode: 'auto',
     }]);
-    expect(pane.closed).toEqual(['wF:p99']);
+    expect(pane.closed).toEqual(['wF:p99', 'wF:trust']);
     const execute = fixture.calls.filter((call) => call.program === process.execPath);
     expect(execute).toHaveLength(1);
     expect(execute[0].args.slice(1)).toEqual(['run', '#179']);
@@ -1458,7 +1512,8 @@ describe('nmg-sdlc smoke gate self-provisioning', () => {
     const pane = fakeClaudePane();
     const fixture = provisioningHarness(pane, { env: { ...VALID_ENV, NMG_SDLC_WORKER_PERMISSION_MODE: 'bypassPermissions' } });
     await expect(fixture.provider(fixture.request)).resolves.toMatchObject({ status: 'passed' });
-    expect(pane.starts).toEqual([expect.objectContaining({ permissionMode: 'bypassPermissions' })]);
+    expect(pane.starts).toEqual([expect.objectContaining({ permissionMode: 'bypassPermissions' }),
+      expect.objectContaining({ permissionMode: 'bypassPermissions' })]);
   });
 
   it('starts the provisioning pane with the verified checkout as --plugin-dir, not an installed NMG_SDLC_PLUGIN_ROOT', async () => {
@@ -1468,7 +1523,8 @@ describe('nmg-sdlc smoke gate self-provisioning', () => {
     const fixture = provisioningHarness(pane, { env: { ...VALID_ENV, NMG_SDLC_PLUGIN_ROOT: installed.root } });
     fixture.request.projectRoot = checkout;
     await expect(fixture.provider(fixture.request)).resolves.toMatchObject({ status: 'passed' });
-    expect(pane.starts).toEqual([expect.objectContaining({ pluginRoot: checkout })]);
+    expect(pane.starts).toEqual([expect.objectContaining({ pluginRoot: checkout }),
+      expect.objectContaining({ pluginRoot: checkout })]);
   });
 
   it.each([
@@ -1567,6 +1623,34 @@ describe('nmg-sdlc smoke gate self-provisioning', () => {
     ]));
   });
 
+  it('#473: accepts a trust prompt Herdr reports as ready before sending the first prompt', async () => {
+    // agent start succeeds and every agent get is interactive_ready, while the pane shows trust.
+    const pane = fakeClaudePane({ trustAccepts: true, readyScreen: NARROW_TRUST_SCREEN });
+    const promptedWithTrust = [];
+    const agentPrompt = pane.herdr.agentPrompt;
+    pane.herdr.agentPrompt = async (name, text) => {
+      promptedWithTrust.push(!pane.trustCleared);
+      return agentPrompt(name, text);
+    };
+    const fixture = provisioningHarness(pane);
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(outcome.status).toBe('passed');
+    expect(pane.keys).toEqual([['down', 'enter']]);
+    expect(pane.prompts).toEqual([`/sdlc-draft-issue ${NEED}`, '/sdlc-write-spec 179']);
+    expect(promptedWithTrust).toEqual([false, false]);
+  });
+
+  it('#473: prompts a ready agent with no dialog on screen without sending keys', async () => {
+    const pane = fakeClaudePane();
+    const fixture = provisioningHarness(pane);
+    const outcome = await fixture.provider(fixture.request);
+
+    expect(outcome.status).toBe('passed');
+    expect(pane.keys).toEqual([]);
+    expect(pane.prompts).toEqual([`/sdlc-draft-issue ${NEED}`, '/sdlc-write-spec 179']);
+  });
+
   it('SCN009: a trust prompt still showing after one acceptance attempt stalls without keying again', async () => {
     const pane = fakeClaudePane({ notReadyPolls: 5, readyScreen: TRUST_SCREEN });
     const fixture = provisioningHarness(pane);
@@ -1607,7 +1691,7 @@ describe('nmg-sdlc smoke gate self-provisioning', () => {
 
     expect(outcome.status).toBe('passed');
     expect(pane.prompts).toHaveLength(2);
-    expect(pane.closed).toEqual(['wF:p99']);
+    expect(pane.closed).toEqual(['wF:p99', 'wF:trust']);
   });
 
   const createdIssueUrls = (outcome) => outcome.evidence
@@ -1746,7 +1830,7 @@ describe('nmg-sdlc smoke gate self-provisioning', () => {
     const outcome = await fixture.provider({ ...fixture.request, identity: { ...fixture.request.identity, headSha: 'b'.repeat(40) } });
 
     expect(outcome.status).toBe('passed');
-    expect(pane.closed).toEqual(['wF:p42', 'wF:p99']);
+    expect(pane.closed).toEqual(['wF:p42', 'wF:p99', 'wF:trust']);
     expect(fixture.rmSync).toHaveBeenCalledWith('/tmp/nmg-sdlc-smoke-provision-old', { recursive: true, force: true });
   });
 
@@ -1766,7 +1850,9 @@ describe('nmg-sdlc smoke gate self-provisioning', () => {
     const start = pane.herdr.agentStart;
     let recordedAtStart;
     pane.herdr.agentStart = async (...args) => {
-      recordedAtStart = structuredClone(states.get(TEST_SCOPE.recoveryKey).provisionPane);
+      if (args[0].startsWith('smoke-provision-')) {
+        recordedAtStart = structuredClone(states.get(TEST_SCOPE.recoveryKey).provisionPane);
+      }
       return start(...args);
     };
     const fixture = provisioningHarness(pane, { states });
@@ -1786,7 +1872,9 @@ describe('nmg-sdlc smoke gate self-provisioning', () => {
     const outcome = await fixture.provider(fixture.request);
 
     expect(outcome.status).toBe('passed');
-    expect(pane.splits).toEqual([]);
+    // Only the delivery clone's trust pane opens; no provisioning agent starts or is prompted.
+    expect(pane.splits).toEqual(['/tmp/nmg-sdlc-smoke-fixture']);
+    expect(pane.starts.map((start) => start.name)).toEqual([expect.stringMatching(/^smoke-trust-/)]);
     expect(pane.prompts).toEqual([]);
     expect(fixture.calls.find((call) => call.program === process.execPath).args.slice(1)).toEqual(['run', '#11', '#12']);
   });
@@ -1800,5 +1888,93 @@ describe('nmg-sdlc smoke gate self-provisioning', () => {
       summary: 'nmg-sdlc-smoke issues config invalid',
     });
     expect(pane.splits).toEqual([]);
+  });
+});
+
+describe('nmg-sdlc smoke candidate tree (#476)', () => {
+  const realGit = async (program, args, options = {}) => {
+    const response = spawnSync(program, args, { cwd: options.cwd, env: options.env, encoding: 'utf8' });
+    return { status: response.status, stdout: response.stdout, stderr: response.stderr };
+  };
+  const checkout = (gitignore) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'smoke-candidate-'));
+    const git = (...args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.email', 'candidate@example.test');
+    git('config', 'user.name', 'Candidate');
+    fs.writeFileSync(path.join(root, '.gitignore'), gitignore);
+    fs.writeFileSync(path.join(root, 'plugin.mjs'), 'export {};\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'baseline');
+    fs.mkdirSync(path.join(root, '.nmg-sdlc', 'handoffs'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.nmg-sdlc', 'handoffs', '1-verify.json'), '{}\n');
+    fs.writeFileSync(path.join(root, 'plugin.mjs'), 'export const changed = true;\n');
+    return { root, git };
+  };
+  const entries = (git, tree) => git('ls-tree', '-r', '--name-only', tree).stdout.trim().split('\n');
+
+  it.each([['ignores', '.nmg-sdlc/\n'], ['does not ignore', '']])(
+    'computes the working-tree candidate without .nmg-sdlc when the checkout %s it', async (_label, gitignore) => {
+      const { root, git } = checkout(gitignore);
+      try {
+        const tree = await candidateTree(realGit, root, process.env);
+        expect(tree).toMatch(/^[0-9a-f]{40}$/);
+        expect(entries(git, tree)).toEqual(['.gitignore', 'plugin.mjs']);
+        expect(git('show', `${tree}:plugin.mjs`).stdout).toBe('export const changed = true;\n');
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+});
+
+describe('nmg-sdlc smoke delivery clone trust (#477)', () => {
+  const CLONE = '/tmp/nmg-sdlc-smoke-delivery';
+  // A Claude pane that shows the workspace-trust dialog until `down enter` is keyed.
+  const trustPane = ({ cwd = CLONE, screen = NARROW_TRUST_SCREEN } = {}) => {
+    const herdr = trustedHerdr();
+    const state = { trusted: false, keys: [] };
+    herdr.state = state;
+    herdr.paneGet = async (pane) => ({ status: 0, stdout: JSON.stringify({ result: { pane: { pane_id: pane, cwd, foreground_cwd: cwd } } }) });
+    herdr.paneRead = async () => ({ status: 0, stdout: state.trusted ? '❯ ' : screen, stderr: '' });
+    herdr.agentGet = async () => ({ status: 0, stdout: JSON.stringify({ result: { agent: { interactive_ready: state.trusted } } }) });
+    herdr.paneSendKeys = async (_pane, keys) => {
+      state.keys.push(keys);
+      if (screen === NARROW_TRUST_SCREEN) state.trusted = true;
+      return { status: 0, stdout: '{}' };
+    };
+    return herdr;
+  };
+  const trust = (herdr) => trustSmokeClone({ herdr, clone: CLONE, sleep: async () => {}, pollMs: 0,
+    pluginRoot: '/repo/nmg-sdlc', permissionMode: 'auto' });
+
+  it('accepts the delivery clone trust dialog once, waits for readiness, and closes its pane', async () => {
+    const herdr = trustPane();
+    const outcome = await trust(herdr);
+    expect(outcome.status).toBe('passed');
+    expect(herdr.state.keys).toEqual([['down', 'enter']]);
+    expect(herdr.calls.map(([name]) => name)).toEqual(['paneSplit', 'agentStart', 'paneClose']);
+    expect(herdr.calls[0]).toEqual(['paneSplit', CLONE]);
+  });
+
+  it('passes without keying a clone that is already trusted', async () => {
+    const herdr = trustedHerdr();
+    await expect(trust(herdr)).resolves.toMatchObject({ status: 'passed' });
+    expect(herdr.calls.map(([name]) => name)).toEqual(['paneSplit', 'agentStart', 'paneClose']);
+  });
+
+  it('never keys a trust dialog in a pane whose cwd is not the owned clone', async () => {
+    const herdr = trustPane({ cwd: '/Users/someone/project' });
+    const outcome = await trust(herdr);
+    expect(outcome).toMatchObject({ status: 'failed',
+      summary: 'nmg-sdlc-smoke delivery trust not accepted: pane wF:trust cwd is not the owned clone' });
+    expect(herdr.state.keys).toEqual([]);
+    expect(herdr.calls.at(-1)).toEqual(['paneClose', 'wF:trust']);
+  });
+
+  it('fails on any other dialog without keying it', async () => {
+    const herdr = trustPane({ screen: PERMISSION_SCREEN });
+    await expect(trust(herdr)).resolves.toMatchObject({ status: 'failed',
+      summary: 'nmg-sdlc-smoke delivery trust stalled at permission prompt' });
+    expect(herdr.state.keys).toEqual([]);
   });
 });

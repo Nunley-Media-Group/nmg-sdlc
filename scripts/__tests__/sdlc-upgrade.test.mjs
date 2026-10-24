@@ -2710,6 +2710,29 @@ describe('package-scoped publication-only upgrade (#388)', () => {
   });
 
 
+  it('reads an issue listing larger than the default 1 MiB command buffer (#478)', () => {
+    const root = makeRoot();
+    const fakeBin = path.join(root, 'bin');
+    fs.mkdirSync(fakeBin);
+    // About 1.5 MiB of pull-request rows, which issue detection skips without further calls.
+    fs.writeFileSync(path.join(fakeBin, 'gh'), [
+      '#!/usr/bin/env node',
+      'const args = process.argv.slice(2);',
+      "if (args[0] === 'repo') { console.log(JSON.stringify({ nameWithOwner: 'owner/repository' })); process.exit(0); }",
+      "const rows = Array.from({ length: 300 }, (_, i) => ({ number: i + 1, pull_request: {}, body: 'x'.repeat(5000) }));",
+      "process.stdout.write(JSON.stringify(args.includes('--slurp') ? [rows] : rows));",
+      '',
+    ].join('\n'), { mode: 0o755 });
+    const result = spawnSync(process.execPath, [upgradeScript, 'detect', '--root', root], {
+      encoding: 'utf8',
+      shell: false,
+      cwd: root,
+      env: { ...process.env, PATH: `${fakeBin}${path.delimiter}${process.env.PATH}` },
+    });
+    expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' });
+    expect(JSON.parse(result.stdout).root).toBe(root);
+  });
+
   it('preserves legacy parsing of ignored forms and command-named option values', () => {
     const root = makeRoot();
     const fakeBin = path.join(root, 'bin');
