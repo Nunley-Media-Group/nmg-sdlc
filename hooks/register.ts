@@ -9,6 +9,8 @@ import {
   materializePluginRootPath,
   recommendedAnswers,
   writeSpecFinishedSelection,
+  writeSpecMergeIssue,
+  writeSpecMergeResult,
   writeSpecPublication,
 } from '../src/host-events.mjs'
 
@@ -28,8 +30,12 @@ const ARGUMENT_HINTS: Record<string, string> = {
   'sdlc-execute': '[--retain-worker] [#N ...]',
 }
 
-const PENDING_CONTINUATION_NOTICE =
-  'NMG SDLC: write-spec Continue is pending; it is submitted in plan mode after the next turn ends with an empty prompt.'
+// Names every published issue, so a held Continue stays visible to the person.
+function pendingContinuationNotice(published: Published[]): string {
+  const issues = published.map(({ issue }) => `#${issue}`).join(', ')
+  return `NMG SDLC: write-spec published ${issues}; the Continue picker opens in plan mode after the next turn that ends with an empty prompt box.`
+}
+
 const FINISHED_EXIT_NOTICE =
   'NMG SDLC: write-spec finished, but plan mode is still active; Shift+Tab exits it.'
 const FINISHED_EXIT_PROMPT =
@@ -41,6 +47,9 @@ const RENDER_TIMEOUT_MS = 120_000
 // invocation starts a fresh list.
 const writeSpec = {
   published: [] as Published[],
+  // Merges whose Bash call moved to the background, by issue, until their
+  // result is read in a later call.
+  backgrounded: new Set<number>(),
   pending: false,
   // A write-spec session (the command or its continuation) is running.
   active: false,
@@ -91,7 +100,7 @@ async function submitInPlanMode($: Engine, text: string): Promise<boolean> {
 
 function startInteractiveCommand(command: string): void {
   if (command === 'sdlc-write-spec') {
-    Object.assign(writeSpec, { published: [], pending: false, active: true, exitPending: false })
+    Object.assign(writeSpec, { published: [], backgrounded: new Set<number>(), pending: false, active: true, exitPending: false })
     exitNudged = false
   } else {
     Object.assign(writeSpec, { active: false, exitPending: false })
@@ -121,26 +130,50 @@ async function overrideStep($: Engine, e: TurnStepInput): Promise<TurnStepInput>
   return { ...e, model: modelOverride.model }
 }
 
-// A merged write-spec publication is recorded from its Bash result; the
+// Records one merged publication once per tool call and per issue, and marks
+// the Continue prompt pending.
+function recordPublication(toolUseId: string, publication: Published): void {
+  if (recordedPublications.has(toolUseId)) return
+  recordedPublications.add(toolUseId)
+  if (writeSpec.published.some(({ issue }) => issue === publication.issue)) return
+  writeSpec.published.push({ issue: publication.issue, slug: publication.slug })
+  writeSpec.pending = true
+}
+
+// A backgrounded merge's sole JSON result arrives in a later Bash or Read
+// call; it counts once, while its issue is still outstanding.
+function recordBackgrounded(toolUseId: string, text: unknown): void {
+  const result = writeSpecMergeResult(text)
+  if (result === null || !writeSpec.backgrounded.has(result.issue)) return
+  writeSpec.backgrounded.delete(result.issue)
+  recordPublication(toolUseId, { issue: result.issue, slug: result.slug })
+}
+
+// A merged write-spec publication is recorded from its merge result; the
 // Continue prompt is submitted in plan mode once the turn ends, so
-// post-merge remediation finishes first.
+// post-merge remediation finishes first. Any host failure keeps it pending.
 async function submitContinuation($: Engine): Promise<void> {
-  const box = await $.prompt.read()
-  if (!interactive || box.text !== '') {
-    $.ui.toast(PENDING_CONTINUATION_NOTICE)
-    return
-  }
-  writeSpec.pending = false
-  const rendered = await render($, [
-    '--consumer', 'sdlc-write-spec',
-    '--published', JSON.stringify(writeSpec.published),
-  ])
-  if (!rendered.ok || !(await submitInPlanMode($, rendered.text))) {
+  try {
+    const box = await $.prompt.read()
+    if (!interactive || box.text !== '') {
+      $.ui.toast(pendingContinuationNotice(writeSpec.published))
+      return
+    }
+    writeSpec.pending = false
+    const rendered = await render($, [
+      '--consumer', 'sdlc-write-spec',
+      '--published', JSON.stringify(writeSpec.published),
+    ])
+    if (!rendered.ok || !(await submitInPlanMode($, rendered.text))) {
+      writeSpec.pending = true
+      $.ui.toast(pendingContinuationNotice(writeSpec.published))
+      return
+    }
+    writeSpec.active = true
+  } catch {
     writeSpec.pending = true
-    $.ui.toast(PENDING_CONTINUATION_NOTICE)
-    return
+    $.ui.toast(pendingContinuationNotice(writeSpec.published))
   }
-  writeSpec.active = true
 }
 
 export const register: Register = on => {
@@ -203,21 +236,29 @@ export const register: Register = on => {
     const stdout = ran.isError === true
       ? (ran.text ?? '')
       : (ran.result?.stdout ?? ran.text ?? '')
-    const publication = writeSpecPublication(
-      { toolUseId: e.tool_use_id, command, stdout },
-      $.plugin.root,
-    )
-    if (!publication || recordedPublications.has(e.tool_use_id)) return ran
-    recordedPublications.add(e.tool_use_id)
-    if (writeSpec.published.some(({ issue }) => issue === publication.issue)) return ran
-    writeSpec.published.push({ issue: publication.issue, slug: publication.slug })
-    writeSpec.pending = true
+    const publication = writeSpecPublication({ toolUseId: e.tool_use_id, command, stdout })
+    if (publication) {
+      recordPublication(e.tool_use_id, publication)
+      return ran
+    }
+    // A merge that the Bash timeout or `run_in_background` moved to the
+    // background returns no merged JSON yet; its result is read later.
+    const issue = writeSpecMergeIssue(command)
+    if (issue !== null && ran.result?.backgroundTaskId) {
+      writeSpec.backgrounded.add(issue)
+      return ran
+    }
+    if (writeSpec.backgrounded.size > 0) recordBackgrounded(e.tool_use_id, stdout)
     return ran
   })
 
-  on('tool.call', { tool: 'Read' }, ($, e, next) => {
+  on('tool.call', { tool: 'Read' }, async ($, e, next) => {
     const file_path = materializePluginRootPath(e.file_path, $.plugin.root)
-    return next(file_path === e.file_path ? e : { ...e, file_path })
+    const ran = await next(file_path === e.file_path ? e : { ...e, file_path })
+    if (writeSpec.backgrounded.size > 0 && ran.result?.type === 'text') {
+      recordBackgrounded(e.tool_use_id, ran.result.file?.content)
+    }
+    return ran
   })
 
   // Records the write-spec Finished selection; plan mode is exited only once

@@ -12,7 +12,8 @@ type World = {
   renders: string[][]
   draft: string
   renderFails: boolean
-  bash: { command: string; stdout: string; isError?: true }[]
+  bash: { command: string; stdout: string; isError?: true; backgroundTaskId?: string; timedOutAfterMs?: number }[]
+  files: Record<string, string>
   seen: string[]
   envSet: Record<string, string | undefined>
   sessionModel: string
@@ -27,7 +28,7 @@ type World = {
 // here, and what it asked for is recorded on the returned world.
 function engine(on: On, { interactive = true, env = {} as Record<string, string> } = {}): World {
   const world: World = {
-    plans: [], prompts: [], toasts: [], renders: [], draft: '', renderFails: false, bash: [], seen: [], envSet: {},
+    plans: [], prompts: [], toasts: [], renders: [], draft: '', renderFails: false, bash: [], files: {}, seen: [], envSet: {},
     sessionModel: 'claude-sonnet-5-5', steps: [], origins: [], configWrites: [], modelFails: false,
     clock: mock.clock(on),
   }
@@ -67,12 +68,15 @@ function engine(on: On, { interactive = true, env = {} as Record<string, string>
     world.seen.push(e.command)
     const answer = world.bash.find(item => item.command === e.command)
     if (answer?.isError) return { isError: true, result: answer.stdout, text: answer.stdout }
-    return { result: { stdout: answer?.stdout ?? '', stderr: '', interrupted: false } }
+    const background = answer?.backgroundTaskId === undefined
+      ? {}
+      : { backgroundTaskId: answer.backgroundTaskId, timedOutAfterMs: answer.timedOutAfterMs }
+    return { result: { stdout: answer?.stdout ?? '', stderr: '', interrupted: false, ...background } }
   })
   on('tool.call', { tool: 'AskUserQuestion' }, (_, e) => ({
     result: { questions: e.questions, answers: e.answers ?? {} },
   }))
-  on('tool.call', { tool: 'Read' }, (_, e) => ({ result: { type: 'text', file: { filePath: e.file_path, content: '', numLines: 0, startLine: 1, totalLines: 0 } } }))
+  on('tool.call', { tool: 'Read' }, (_, e) => ({ result: { type: 'text', file: { filePath: e.file_path, content: world.files[e.file_path] ?? '', numLines: 0, startLine: 1, totalLines: 0 } } }))
   on('classic.PermissionRequest', () => ({}))
   on('turn.complete', (_, e) => ({ text: e.answer }))
   return world
@@ -213,10 +217,10 @@ describe('write-spec continuation', () => {
     world.prompts.length = 0
 
     world.bash.push(
-      { command: mergeCommand(root, 400), stdout: '{"ok":true,"merged":true,"pr":401}' },
+      { command: mergeCommand(root, 400), stdout: '{"ok":true,"merged":true,"pr":401,"issue":400,"dir":"specs/400-slug-400"}' },
       { command: mergeCommand(root, 401), stdout: '{"ok":false,"reasonCode":"pr_merge_failed"}', isError: true },
       { command: mergeCommand(root, 403), stdout: '{"merged":true' },
-      { command: mergeCommand(root, 402), stdout: 'Exit code 1\n{"ok":false,"reasonCode":"default_checkout_failed","merged":true,"pr":403}', isError: true },
+      { command: mergeCommand(root, 402), stdout: 'Exit code 1\n{"ok":false,"reasonCode":"default_checkout_failed","merged":true,"pr":403,"issue":402,"dir":"specs/402-slug-402"}', isError: true },
     )
     await $.tool.call({ tool: 'Bash', command: mergeCommand(root, 400), tool_use_id: 'p400' } as never)
     await $.tool.call({ tool: 'Bash', command: mergeCommand(root, 400), tool_use_id: 'p400' } as never)
@@ -249,13 +253,13 @@ describe('write-spec continuation', () => {
     await $.tool.call({ tool: 'Bash', command: 'node "<plugin-root>/scripts/sdlc-status.mjs"' })
     const root = /^node "(.+)\/scripts\//.exec(world.seen.at(-1) ?? '')?.[1] ?? ''
     world.prompts.length = 0
-    world.bash.push({ command: mergeCommand(root, 420), stdout: '{"ok":true,"merged":true,"pr":421}' })
+    world.bash.push({ command: mergeCommand(root, 420), stdout: '{"ok":true,"merged":true,"pr":421,"issue":420,"dir":"specs/420-slug-420"}' })
     await $.tool.call({ tool: 'Bash', command: mergeCommand(root, 420), tool_use_id: 'p420' } as never)
 
     world.draft = 'my draft'
     await endTurn($, world)
     expect(world.prompts).toEqual([])
-    expect(world.toasts.at(-1)).toContain('write-spec Continue is pending')
+    expect(world.toasts.at(-1)).toContain('NMG SDLC: write-spec published #420;')
 
     world.draft = ''
     await endTurn($, world)
@@ -372,7 +376,7 @@ describe('step models', () => {
     // write-spec Continue, submitted by the hooks module after a merge.
     await $.tool.call({ tool: 'Bash', command: `node "${ROOT_TOKEN}/scripts/sdlc-status.mjs"` })
     const root = /^node "(.+)\/scripts\//.exec(world.seen.at(-1) ?? '')?.[1] ?? ''
-    world.bash.push({ command: mergeCommand(root, 7), stdout: '{"ok":true,"merged":true,"pr":8}' })
+    world.bash.push({ command: mergeCommand(root, 7), stdout: '{"ok":true,"merged":true,"pr":8,"issue":7,"dir":"specs/7-slug-7"}' })
     await $.tool.call({ tool: 'Bash', command: mergeCommand(root, 7), tool_use_id: 'p7' } as never)
     await endTurn($, world)
     expect(world.prompts.at(-1)?.text).toContain(CONTINUE_HEAD)
@@ -439,5 +443,128 @@ describe('step models', () => {
     await run($, world, 'sdlc-draft-issue')
     world.modelFails = true
     expect(await step($, world)).toEqual({ model: 'claude-sonnet-5-5', effort: 'high' })
+  })
+})
+
+describe('write-spec publication recognition', () => {
+  const mergedJson = (issue: number) =>
+    JSON.stringify({ ok: true, merged: true, pr: issue + 1, issue, dir: `specs/${issue}-slug-${issue}` })
+
+  // Starts a write-spec run and returns the plugin root its commands resolve to.
+  async function startWriteSpec($: Dollar, world: World) {
+    await start($, world)
+    await run($, world, 'sdlc-write-spec')
+    await $.tool.call({ tool: 'Bash', command: 'node "<plugin-root>/scripts/sdlc-status.mjs"' })
+    const root = /^node "(.+)\/scripts\//.exec(world.seen.at(-1) ?? '')?.[1] ?? ''
+    world.plans.length = 0
+    world.prompts.length = 0
+    return root
+  }
+
+  test('a merge quoted differently from the verbatim command submits one Continue prompt', async ($, on) => {
+    const world = engine(on)
+    const root = await startWriteSpec($, world)
+    const merge = `node '${root}//scripts/publish-approved-spec.mjs' merge --issue 430 --dir specs/430-slug-430`
+    world.bash.push({ command: merge, stdout: mergedJson(430) })
+    await $.tool.call({ tool: 'Bash', command: merge, tool_use_id: 'q430' } as never)
+    await endTurn($, world)
+    expect(world.plans).toEqual(['/plan'])
+    expect(world.prompts).toHaveLength(1)
+    expect(world.prompts[0]?.text).toContain('published[] = [{"issue":430,"slug":"slug-430"}]')
+  })
+
+  test('a backgrounded merge records its publication once, when its result is read back', async ($, on) => {
+    const world = engine(on)
+    const root = await startWriteSpec($, world)
+    const merge = mergeCommand(root, 440)
+    world.bash.push(
+      { command: merge, stdout: '', backgroundTaskId: 'task-440', timedOutAfterMs: 120000 },
+      { command: 'cat /tmp/task-440.output', stdout: `${mergedJson(440)}\n` },
+    )
+    await $.tool.call({ tool: 'Bash', command: merge, tool_use_id: 'b440' } as never)
+    await endTurn($, world)
+    expect(world.plans).toEqual([])
+    expect(world.prompts).toEqual([])
+
+    await $.tool.call({ tool: 'Bash', command: 'cat /tmp/task-440.output', tool_use_id: 'c440' } as never)
+    await endTurn($, world)
+    expect(world.plans).toEqual(['/plan'])
+    expect(world.prompts).toHaveLength(1)
+    expect(world.prompts[0]?.text).toContain('published[] = [{"issue":440,"slug":"slug-440"}]')
+
+    await $.tool.call({ tool: 'Bash', command: 'cat /tmp/task-440.output', tool_use_id: 'c440again' } as never)
+    await endTurn($, world)
+    expect(world.prompts).toHaveLength(1)
+  })
+
+  test('a backgrounded merge is also recognized from a Read of its output', async ($, on) => {
+    const world = engine(on)
+    const root = await startWriteSpec($, world)
+    const merge = mergeCommand(root, 450)
+    world.bash.push({ command: merge, stdout: '', backgroundTaskId: 'task-450' })
+    world.files['/tmp/task-450.output'] = `${mergedJson(450)}\n`
+    await $.tool.call({ tool: 'Bash', command: merge, tool_use_id: 'b450' } as never)
+    await $.tool.call({ tool: 'Read', file_path: '/tmp/task-450.output', tool_use_id: 'r450' } as never)
+    await endTurn($, world)
+    expect(world.prompts).toHaveLength(1)
+    expect(world.prompts[0]?.text).toContain('published[] = [{"issue":450,"slug":"slug-450"}]')
+  })
+
+  test('unrelated merged JSON schedules nothing, and another issue leaves a backgrounded merge outstanding', async ($, on) => {
+    const world = engine(on)
+    const root = await startWriteSpec($, world)
+    world.bash.push({ command: 'cat /tmp/other.json', stdout: mergedJson(460) })
+    await $.tool.call({ tool: 'Bash', command: 'cat /tmp/other.json', tool_use_id: 'u460' } as never)
+    await endTurn($, world)
+    expect(world.prompts).toEqual([])
+
+    const merge = mergeCommand(root, 470)
+    world.bash.push(
+      { command: merge, stdout: '', backgroundTaskId: 'task-470' },
+      { command: 'cat /tmp/task-470.output', stdout: mergedJson(471) },
+      { command: 'cat /tmp/task-470-final.output', stdout: mergedJson(470) },
+    )
+    await $.tool.call({ tool: 'Bash', command: merge, tool_use_id: 'b470' } as never)
+    await $.tool.call({ tool: 'Bash', command: 'cat /tmp/task-470.output', tool_use_id: 'c470' } as never)
+    await endTurn($, world)
+    expect(world.prompts).toEqual([])
+
+    await $.tool.call({ tool: 'Bash', command: 'cat /tmp/task-470-final.output', tool_use_id: 'f470' } as never)
+    await endTurn($, world)
+    expect(world.prompts).toHaveLength(1)
+    expect(world.prompts[0]?.text).toContain('published[] = [{"issue":470,"slug":"slug-470"}]')
+  })
+
+  test('a render failure keeps the Continue pending, names the issue, and submits on a later empty turn end', async ($, on) => {
+    const world = engine(on)
+    const root = await startWriteSpec($, world)
+    const merge = mergeCommand(root, 480)
+    world.bash.push({ command: merge, stdout: mergedJson(480) })
+    await $.tool.call({ tool: 'Bash', command: merge, tool_use_id: 'p480' } as never)
+    world.renderFails = true
+    await endTurn($, world)
+    expect(world.prompts).toEqual([])
+    expect(world.toasts.at(-1)).toBe('NMG SDLC: write-spec published #480; the Continue picker opens in plan mode after the next turn that ends with an empty prompt box.')
+
+    world.renderFails = false
+    await endTurn($, world)
+    expect(world.prompts).toHaveLength(1)
+    expect(world.prompts[0]?.text).toContain('published[] = [{"issue":480,"slug":"slug-480"}]')
+  })
+
+  test('after a Finished selection no continuation follows the last publication', async ($, on) => {
+    const world = engine(on)
+    const root = await startWriteSpec($, world)
+    const merge = mergeCommand(root, 490)
+    world.bash.push({ command: merge, stdout: mergedJson(490) })
+    await $.tool.call({ tool: 'Bash', command: merge, tool_use_id: 'p490' } as never)
+    await endTurn($, world)
+    expect(world.prompts).toHaveLength(1)
+
+    world.prompts.length = 0
+    await ask($, FINISHED)
+    await endTurn($, world)
+    expect(world.prompts.map(({ text }) => text).join('\n')).not.toContain(CONTINUE_HEAD)
+    expect(world.prompts[0]?.text).toContain('call ExitPlanMode now')
   })
 })

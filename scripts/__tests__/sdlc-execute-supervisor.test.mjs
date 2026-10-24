@@ -106,6 +106,7 @@ async function fixture({
   const controllerStarted = path.join(runtime, 'controller-started.json');
   const peerRefused = path.join(runtime, 'peer-refused');
   const extraClosed = path.join(runtime, 'extra-closed');
+  const pipeHolderPath = path.join(runtime, 'pipe-holder.pid');
   fs.writeFileSync(runPath, JSON.stringify(checkpoint));
   const command = (name, content) => {
     const file = path.join(bin, name);
@@ -158,6 +159,7 @@ if (${inheritedPipes} && process.argv[2] === 'controller') {
     stdio: ['ignore', 'inherit', 'inherit'],
   });
   process.env.SDLC_FIXTURE_PIPE_PID = String(pipeHolder.pid);
+  fs.writeFileSync(${JSON.stringify(pipeHolderPath)}, String(pipeHolder.pid));
 }
 `);
   command('gh', `const args = process.argv.slice(2);
@@ -203,7 +205,7 @@ throw new Error('Unexpected Herdr command: '+args.slice(0,2).join(' '));\n`);
   child.stdout.on('data', chunk => { stdout += chunk; });
   child.stderr.on('data', chunk => { stderr += chunk; });
   const done = new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal, stdout, stderr })));
-  const value = { root, runtime, child, done, runPath, leasePath, marker,
+  const value = { root, runtime, child, done, runPath, leasePath, marker, pipeHolderPath,
     supervisorPath, bootstrapReady, bootstrapRelease, controllerStarted, peerRefused, extraClosed,
     closed: () => fs.existsSync(closedPath) ? fs.readFileSync(closedPath, 'utf8').trim().split('\n').map(JSON.parse) : [],
   };
@@ -243,6 +245,12 @@ afterEach(async () => {
         const done = new Promise(resolve => value.foreign.once('close', resolve));
         process.kill(-value.foreign.pid, 'SIGKILL');
         await done;
+      }
+    }
+    // Recorded at spawn, so a fixture that never reached its blocking command still reaps it.
+    if (fs.existsSync(value.pipeHolderPath)) {
+      try { process.kill(Number(fs.readFileSync(value.pipeHolderPath, 'utf8')), 'SIGKILL'); } catch (error) {
+        if (error.code !== 'ESRCH') throw error;
       }
     }
     fs.rmSync(value.root, { recursive: true, force: true });

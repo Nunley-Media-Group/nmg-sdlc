@@ -20,7 +20,8 @@ export {
   recommendedAnswers,
   withArguments,
   writeSpecFinishedSelection,
-  writeSpecMergeCommand,
+  writeSpecMergeIssue,
+  writeSpecMergeResult,
   writeSpecPublication,
 } from "./host-events.mjs";
 

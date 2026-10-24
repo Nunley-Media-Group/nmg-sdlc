@@ -583,11 +583,11 @@ async function mergeSpec(argv) {
   }
   if (checkoutError) {
     fail('default_checkout_failed', {
-      ...checkoutError, mergeDiagnostic, labelError, merged: true, pr,
+      ...checkoutError, mergeDiagnostic, labelError, merged: true, pr, issue: issueN, dir,
     });
   }
-  if (labelError) fail('spec_created_label_failed', { ...labelError, merged: true, pr });
-  ok({ branch: base, pr, merged: true, squash: true, labeled: true });
+  if (labelError) fail('spec_created_label_failed', { ...labelError, merged: true, pr, issue: issueN, dir });
+  ok({ branch: base, pr, merged: true, squash: true, labeled: true, issue: issueN, dir });
 
 }
 

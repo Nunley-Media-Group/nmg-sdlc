@@ -519,10 +519,16 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
   try { selected = parseArgs(args); } catch { return fail(usage(), 2); }
   const api = herdr ?? defaultHerdr(run, cwd, env);
   let integration;
-  try { integration = api.integrationStatus(); } catch { integration = null; }
+  try { integration = api.integrationStatus(); } catch (error) { integration = { status: null, error }; }
   if (!succeeded(integration) || !/^claude:\s+(?!not installed)/m.test(
     typeof integration === 'string' ? integration : String(integration?.stdout ?? ''),
-  )) return { status: 2, stdout: 'Run: herdr integration install claude\n', stderr: '' };
+  )) {
+    // A probe that never ran (spawn error, signal) is not proof the integration is missing.
+    const detail = succeeded(integration) ? '' : String(integration?.error?.code ?? integration?.error?.message
+      ?? (integration?.signal ? `signal ${integration.signal}` : `exit ${integration?.status}`));
+    return { status: 2, stdout: 'Run: herdr integration install claude\n',
+      stderr: detail ? `herdr integration status failed: ${detail}\n` : '' };
+  }
   if (!succeeded(run('gh', ['auth', 'status'], { cwd }))) return fail('gh auth status failed');
 
   const invocationId = randomUUID();

@@ -386,6 +386,14 @@ describe('Herdr Claude workers', () => {
       expect(runExecute({ ...base, herdr: integration(stdout) }))
         .toEqual({ status: 2, stdout: 'Run: herdr integration install claude\n', stderr: '' });
     }
+    const spawnError = Object.assign(new Error('spawnSync herdr EAGAIN'), { code: 'EAGAIN' });
+    for (const [probe, detail] of [[() => ({ status: null, stdout: '', error: spawnError }), 'EAGAIN'],
+      [() => { throw new Error('socket gone'); }, 'socket gone'],
+      [() => ({ status: null, signal: 'SIGKILL', stdout: '' }), 'signal SIGKILL'],
+      [() => ({ status: 3, stdout: '' }), 'exit 3']]) {
+      expect(runExecute({ ...base, herdr: { integrationStatus: probe } })).toEqual({ status: 2,
+        stdout: 'Run: herdr integration install claude\n', stderr: `herdr integration status failed: ${detail}\n` });
+    }
     for (const stdout of ['claude: current (v3) (/h/.claude/hooks/herdr-agent-state.sh)\n',
       'codex: not installed\nclaude: outdated (v2 < v3)\n']) {
       expect(runExecute({ ...base, herdr: integration(stdout) }))

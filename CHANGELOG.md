@@ -12,6 +12,19 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.3.2] - 2026-10-24
+
+### Changed
+
+- Fix write-spec stopping silently after a spec merge that outlasts the Bash timeout (#489)
+
+## [4.3.1] - 2026-10-24
+
+### Changed
+
+- Fix write-spec stopping silently after a spec merge that outlasts the Bash timeout (#489)
+- `/sdlc-execute` now names why `herdr integration status` failed (spawn error, signal, or exit status) on stderr instead of only suggesting a reinstall, and the execute supervisor tests reap their pipe-holder processes even when a fixture never blocks (#489)
+
 ## [4.3.0] - 2026-10-24
 
 ### Added

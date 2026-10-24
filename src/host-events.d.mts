@@ -18,11 +18,11 @@ export function isInteractiveCommand(name: unknown): boolean;
 export function parseInteractiveSlash(text: unknown): { command: string; skill: string; args: string } | null;
 export function withArguments(body: string, args: unknown): string;
 export function interactiveHeadlessMessage(commandName: string): string;
-export function writeSpecMergeCommand(command: unknown, root: string): { issue: number; slug: string } | null;
+export function writeSpecMergeIssue(command: unknown): number | null;
+export function writeSpecMergeResult(text: unknown): { issue: number; slug: string; pr: number } | null;
 export function soleJsonObject(text: unknown): Record<string, unknown> | null;
 export function writeSpecPublication(
   call: { toolUseId: unknown; command: unknown; stdout: unknown },
-  root: string,
 ): { issue: number; slug: string; pr: number } | null;
 export function writeSpecFinishedSelection(answers: Record<string, unknown> | null | undefined): boolean;
 export function recommendedAnswers(questions: unknown, options?: { prefer?: readonly string[] }): Record<string, string>;

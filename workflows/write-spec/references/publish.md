@@ -4,7 +4,7 @@
 
 ## Helper contract
 
-All six subcommands print exactly one JSON object to stdout. Success exits 0 with `ok: true`. Failure exits non-zero with `ok: false`, a stable `reasonCode`, and optional `detail`, `stdout`, or `stderr`. A `merge` failure after the PR was successfully merged also returns `merged: true` and `pr`; callers must record that publication instead of retrying it. The nmg-sdlc hooks module validates that exact materialized merge command and JSON result, so run `merge` verbatim as the whole `Bash` command with nothing chained, piped, redirected, or echoed; it records the publication, and after the execution turn ends with an empty prompt box runs `/plan` and submits the Continue prompt into native plan mode.
+All six subcommands print exactly one JSON object to stdout. Success exits 0 with `ok: true`. Failure exits non-zero with `ok: false`, a stable `reasonCode`, and optional `detail`, `stdout`, or `stderr`. Every `merge` result that reports `merged: true`, on success or after a post-merge failure, also carries `issue` and `dir` (`specs/N-slug`) beside `pr`; callers must record that publication instead of retrying it. The nmg-sdlc hooks module recognizes the publication from that JSON, so run `merge` verbatim as the whole `Bash` call with `run_in_background: true` (Approval Behavior step 4). After the execution turn ends with an empty prompt box, the hooks module runs `/plan` and submits the Continue prompt into native plan mode.
 
 ```text
 node "<plugin-root>/scripts/publish-approved-spec.mjs" discover --issue N
@@ -77,7 +77,7 @@ If current differs from `{N}-{slug}`, `prepare` reads the default branch through
 
 ## Merge
 
-`merge` requires the approved four-file package. It opens or resumes a docs-only PR titled `docs: approve spec for #N`, with a body that mentions `#N` without `Closes`, `Fixes`, `Resolves`, or another closing keyword. Before creating a PR it checks merged PR history for the same branch, base, and exact local head. An independently proven merged PR skips creation, readiness polling, and merge; an open PR still passes the full readiness and exact-head checks before squash merge. It then attempts checkout and fast-forward of the default branch and applies `spec-created` while leaving issue N open.
+`merge` requires the approved four-file package. It opens or resumes a docs-only PR titled `docs: approve spec for #N`, with a body that mentions `#N` without `Closes`, `Fixes`, `Resolves`, or another closing keyword. Before creating a PR it checks merged PR history for the same branch, base, and exact local head. An independently proven merged PR skips creation, readiness polling, and merge; an open PR still passes the full readiness and exact-head checks before squash merge. It then attempts checkout and fast-forward of the default branch and applies `spec-created` while leaving issue N open. Every result that reports `merged: true` includes `issue` and `dir`.
 
 If `gh pr merge` exits nonzero, inspect that exact PR independently. Only `MERGED` with the expected PR number, head SHA, head branch, and base counts as publication; otherwise `pr_merge_failed` returns without `merged: true` and without labeling. Preserve the CLI failure diagnostic. Never retry a possibly completed merge. A repeated invocation recognizes the same merged PR and performs only safe outstanding bookkeeping, not another PR creation or merge.
 
