@@ -1,0 +1,62 @@
+**Issue**: #464
+**Date**: 2026-10-24
+**Status**: Approved
+**Author**: NMG
+
+# File: scripts/__tests__/sdlc-execute.test.mjs, scripts/__tests__/plugin-commands.test.mjs, scripts/__tests__/steering-contract.test.mjs, hooks/register.test.ts
+# Generated from: specs/464-run-each-sdlc-step-on-its-assigned-claude-code-model/requirements.md
+Feature: Run each nmg-sdlc step on its assigned Claude Code model
+  Every nmg-sdlc step runs on the Claude Code model suited to its workload,
+  and the user's session model is never changed.
+
+  @SCN001
+  Scenario: fresh stage workers start on their stage model
+    Given an issue with no recorded repairable failure in the current invocation
+    When /sdlc-execute dispatches start, implement, verify, and deliver workers
+    Then the herdr agent start arguments after "--" end with "--model haiku", "--model sonnet", "--model opus", and "--model sonnet" respectively
+    And they begin with "--plugin-dir <plugin-root> --permission-mode <mode>"
+
+  @SCN002
+  Scenario: repair re-dispatch escalates to opus
+    Given the controller recorded a failure with reason code "verification_not_green" for the issue
+    When it dispatches the next implement worker
+    Then the worker arguments end with "--model opus"
+    And a recorded "pr_evidence_pending" or "mergeability_reverification_required" failure keeps the stage model
+    And after a stage passes the next dispatch uses its stage model again
+
+  @SCN003
+  Scenario: automated command files declare their model
+    Given the generated commands/sdlc-status.md, commands/sdlc-verify-code.md, and commands/sdlc-open-pr.md
+    Then their frontmatter model is "haiku", "opus", and "sonnet" respectively
+    And each file equals renderAutomatedCommandMarkdown output
+
+  @SCN004
+  Scenario: hooks-registered commands run on their model without changing the session model
+    Given an interactive session on model "claude-sonnet-5-5"
+    When the user runs "/sdlc-write-spec #7" and the workflow turn, a Continue turn, and the Finished nudge are submitted by the hooks module
+    Then every main-loop turn.step request names model "opus" with its effort unchanged
+    And a subagent turn.step request keeps its own model
+    And when the user runs "/sdlc-execute #7" its main-loop requests name model "haiku"
+    And $.session.model() still reports "claude-sonnet-5-5"
+
+  @SCN005
+  Scenario: the override ends when the user moves on or picks a model
+    Given "/sdlc-draft-issue" set an "opus" override in a session on model "claude-sonnet-5-5"
+    When the user submits a composer prompt, or the session model changes to "claude-haiku-5-5"
+    Then later main-loop turn.step requests keep the session's own model
+    And a headless refusal or render failure of an interactive command sets no override
+
+  @SCN006
+  Scenario: agents and steering declare the stage models
+    Given the packaged agents and the steering Agent Files table
+    Then starter is "haiku", spec-implementer is "sonnet", architecture-reviewer is "opus", and deliverer is "sonnet"
+    And each equals SDLC_MODELS.stages for its step
+    And SDLC_MODELS.commands has one entry for every interactive and automated command
+
+  @SCN007
+  Scenario: a model-routed worker start failure stops dispatch
+    Given herdr agent start exits non-zero for a launch with "--model sonnet"
+    When the controller dispatches the implement stage
+    Then /sdlc-execute stops with "agent_start_failed"
+    And no prompt is sent to that worker
+    And the owned pane is closed unless --retain-worker was passed
