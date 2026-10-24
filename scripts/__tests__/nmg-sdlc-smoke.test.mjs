@@ -15,6 +15,7 @@ import {
   resolveSmokeRecoveryScope,
   validNestedOwnership,
   workerPermissionMode,
+  candidateTree,
 } from '../../steering/extensions/nmg-sdlc-smoke.mjs';
 
 const SOURCE_ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -78,6 +79,7 @@ function harness(options = {}) {
       return result(0, 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git\n');
     }
     if (program === 'git' && args[0] === 'status') return result();
+    if (program === 'git' && args[0] === 'check-ignore') return result(1);
     if (program === 'git' && ['read-tree', 'add'].includes(args[0])) return result();
     if (program === 'git' && args[0] === 'write-tree') return result(0, `${options.candidate?.value ?? 'e'.repeat(40)}\n`);
     if (program === 'git' && args[0] === 'rev-parse') return result(0, 'a'.repeat(40));
@@ -221,6 +223,7 @@ function commandFixture() {
     if (args[0] === 'clone' || args[0] === 'status') process.exit(0);
     if (args[0] === 'rev-parse') console.log('${'a'.repeat(40)}');
     else if (args[0] === 'remote') console.log('https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git');
+    else if (args[0] === 'check-ignore') process.exit(1);
     else if (args[0] === 'read-tree' || args[0] === 'add') process.exit(0);
     else if (args[0] === 'write-tree') console.log('${'e'.repeat(40)}');
     else throw new Error('Unexpected fixture git command');
@@ -1850,4 +1853,40 @@ describe('nmg-sdlc smoke gate self-provisioning', () => {
     });
     expect(pane.splits).toEqual([]);
   });
+});
+
+describe('nmg-sdlc smoke candidate tree (#476)', () => {
+  const realGit = async (program, args, options = {}) => {
+    const response = spawnSync(program, args, { cwd: options.cwd, env: options.env, encoding: 'utf8' });
+    return { status: response.status, stdout: response.stdout, stderr: response.stderr };
+  };
+  const checkout = (gitignore) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'smoke-candidate-'));
+    const git = (...args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.email', 'candidate@example.test');
+    git('config', 'user.name', 'Candidate');
+    fs.writeFileSync(path.join(root, '.gitignore'), gitignore);
+    fs.writeFileSync(path.join(root, 'plugin.mjs'), 'export {};\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'baseline');
+    fs.mkdirSync(path.join(root, '.nmg-sdlc', 'handoffs'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.nmg-sdlc', 'handoffs', '1-verify.json'), '{}\n');
+    fs.writeFileSync(path.join(root, 'plugin.mjs'), 'export const changed = true;\n');
+    return { root, git };
+  };
+  const entries = (git, tree) => git('ls-tree', '-r', '--name-only', tree).stdout.trim().split('\n');
+
+  it.each([['ignores', '.nmg-sdlc/\n'], ['does not ignore', '']])(
+    'computes the working-tree candidate without .nmg-sdlc when the checkout %s it', async (_label, gitignore) => {
+      const { root, git } = checkout(gitignore);
+      try {
+        const tree = await candidateTree(realGit, root, process.env);
+        expect(tree).toMatch(/^[0-9a-f]{40}$/);
+        expect(entries(git, tree)).toEqual(['.gitignore', 'plugin.mjs']);
+        expect(git('show', `${tree}:plugin.mjs`).stdout).toBe('export const changed = true;\n');
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
 });

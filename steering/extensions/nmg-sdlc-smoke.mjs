@@ -340,13 +340,18 @@ async function validateTerminalHeadAdvance(executeCommand, state, request, scope
 }
 
 // Content-addressed plugin candidate, excluding verification output that changes after a failure.
-async function candidateTree(executeCommand, pluginRoot, env, signal) {
+export async function candidateTree(executeCommand, pluginRoot, env, signal) {
   const index = join(tmpdir(), `nmg-sdlc-smoke-index-${randomBytes(12).toString("hex")}`);
   const options = { cwd: pluginRoot, env: { ...env, GIT_INDEX_FILE: index }, signal };
   try {
+    // git refuses a pathspec, an exclusion included, that names an ignored path, and `add -A`
+    // already leaves ignored files out, so `.nmg-sdlc` is excluded only where it is not ignored.
+    const ignored = await executeCommand("git", ["check-ignore", "-q", ".nmg-sdlc"], options);
+    if (![0, 1].includes(ignored.status)) return null;
+    const runtime = ignored.status === 0 ? [] : [":(exclude).nmg-sdlc"];
     for (const args of [
       ["read-tree", "HEAD"],
-      ["add", "-A", "--", ".", ":(exclude).nmg-sdlc", ":(exclude)specs/*/verification-report.md"],
+      ["add", "-A", "--", ".", ...runtime, ":(exclude)specs/*/verification-report.md"],
     ]) {
       const result = await executeCommand("git", args, options);
       if (result.status !== 0) return null;
