@@ -5,7 +5,7 @@
 **Reviewer**: Claude Code (architecture-reviewer, verify worker)
 **Scope**: Implementation verification against spec
 
-**Verification head**: be0264112662085620477551b952875f2a7f03ab
+**Verification head**: 2edc0de41848f1033b8557f6ef2418aec564590d
 
 ---
 
@@ -13,18 +13,18 @@
 
 | Category | Score (1-5) |
 |----------|-------------|
-| Spec Compliance | 3 |
+| Spec Compliance | 5 |
 | Architecture (SOLID) | 4 |
 | Security | 4 |
 | Performance | 5 |
-| Testability | 4 |
-| Error Handling | 2 |
-| **Overall** | 3.7 |
+| Testability | 5 |
+| Error Handling | 4 |
+| **Overall** | 4.5 |
 
-### Implementation Status: Fail
-**Total Issues**: 1 (High)
+### Implementation Status: Pass
+**Total Issues**: 0
 
-Both registered validations passed at the verification head (`repository.tests`, `repository.nmg-sdlc-smoke`; coverage 2/2 complete, no ceiling). The inline review found a reproducible defect in `agents-to-claude-md` merge mode. When `AGENTS.md` is tracked and has working-tree changes, including the changes the earlier `agents-v4-host-language` group makes in the documented apply order, the group appends `AGENTS.md` into `CLAUDE.md` and then fails at `git rm`. `AGENTS.md` stays in place. Every retry appends the same content again. AC8 fails, so the overall status is Fail.
+Both registered validations passed at the verification head: `repository.tests` and `repository.nmg-sdlc-smoke`. Coverage is 2/2 complete, with no ceiling. The AC8 defect from the previous verification at `be02641` is fixed in `2edc0de`. Merge mode now force-removes a tracked `AGENTS.md` after its content is captured, and if removal fails it restores the original `CLAUDE.md` bytes. Regression tests cover both cases, and a disposable-repo exercise of the scenario that failed before now passes and stays idempotent. Every AC, task, and scenario is satisfied.
 
 ---
 
@@ -41,16 +41,16 @@ Both registered validations passed at the verification head (`repository.tests`,
 
 ## Delivery Validation
 
-- Local verification: Not complete (AC8 defect)
+- Local verification: Pass
 - PR evidence: Not required
 
 ---
 
 ## Deterministic Steering Artifact and Ceiling
 
-- Runner: `sdlc-verify-steering.mjs --project . --issue 469 --base main --controller-run-id a6c73e6e-4dab-4037-92e6-4b7a93fba395` → `ok: true`, `ceiling: null`, exit 0
-- Artifact: `.nmg-sdlc/verification/469.json`. Coverage `declared: 2, recorded: 2, complete: true`, nothing missing, duplicated, or unknown
-- Identity: head `be0264112662085620477551b952875f2a7f03ab`, tree clean
+- Runner: `sdlc-verify-steering.mjs --project . --issue 469 --spec specs/469-… --base main --controller-run-id a6c73e6e-4dab-4037-92e6-4b7a93fba395` → `ok: true`, `ceiling: null`, exit 0
+- Artifact: `.nmg-sdlc/verification/469.json`. Coverage `declared: 2, recorded: 2, complete: true`, with nothing missing, duplicated, or unknown
+- Identity: head `2edc0de41848f1033b8557f6ef2418aec564590d`, tree clean, spec hash `sha256:233d595c…`, steering hash `sha256:85b966d4…`
 
 ---
 
@@ -58,15 +58,15 @@ Both registered validations passed at the verification head (`repository.tests`,
 
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
-| AC1 | Steering host tokens proposed and rewritten | Pass | `scripts/sdlc-upgrade.mjs` `V3_STEERING_TOKEN_MAP` (longest-first), `planSteeringHostLanguage` (snippet lines plus validation `config.program`/`config.args`, `omp`→`claude`, `--print`→`-p`), and `applySteeringHostLanguage` via `applySteeringRuntime` in update mode. Covered by tests in `sdlc-upgrade.test.mjs`. |
-| AC2 | Steering host prose rewritten | Pass | `V3_STEERING_PROSE_RE = /Oh My Pi\|\bOMP\b/g`. The rewrite works line by line and keeps the bytes of unchanged lines. The staged runtime validates through the steering writer. |
-| AC3 | CONTRIBUTING.md v3 sentence refreshed | Pass | `detectContributingHostLanguage` / `applyContributingHostLanguage` replace only the exact sentence. `references/contribution-guide.md` adds the "Stale v3 wording" row (FR5). |
-| AC4 | Idempotent and declinable | Pass | No item is emitted when there are no occurrences. Apply re-plans and returns `already-current`. A group that isn't approved is not applied. |
-| AC5 | Unsafe/invalid steering fails closed | Pass | An unsafe snippet returns `skipped:unverifiable` with `steering_host_language_unsafe_path`. A writer failure returns `failed:<message>` with the writer's reason code, now parsed from JSON stdout in `applySteeringRuntime`. |
-| AC6 | Documentation matches | Pass | The upgrade WORKFLOW, v3-detectors, detection, upgrade-procedures, and README describe the three groups. `project-agents.md`, `contribution-guide.md`, and onboarding name `CLAUDE.md`. `AGENTS.md` has moved to `CLAUDE.md`, and `.gitignore` no longer has the `.omp/sdlc/` rule. |
-| AC7 | AGENTS.md renamed to CLAUDE.md | Pass | Rename mode uses `git mv` when the file is tracked and `renameSync` otherwise. `git mv` tolerates working-tree modifications. |
-| AC8 | AGENTS.md merged into existing CLAUDE.md | **Fail** | The merge path writes `CLAUDE.md` first and then runs `git rm -q -- AGENTS.md`. That command refuses a tracked file with local modifications, so the result is `failed:` with `CLAUDE.md` already appended and `AGENTS.md` still present. Reproduced below. |
-| AC9 | Managed-section reconciliation uses CLAUDE.md | Pass | `references/project-agents.md` forbids creating the managed section in `AGENTS.md` and routes it through `agents-to-claude-md` to `CLAUDE.md`. Onboarding writes `CLAUDE.md`. Detection emits no item when `AGENTS.md` is absent. |
+| AC1 | Steering host tokens proposed and rewritten | Pass | `scripts/sdlc-upgrade.mjs`: `V3_STEERING_TOKEN_MAP` (longest-first) uses one escaped alternation, so replacements are never rescanned. `planSteeringHostLanguage` covers snippet lines plus validation `config.program`/`config.args` (`omp`→`claude`, `--print`→`-p`). `applySteeringHostLanguage` writes through `applySteeringRuntime` with an update-mode plan. Covered in `sdlc-upgrade.test.mjs`. |
+| AC2 | Steering host prose rewritten | Pass | `V3_STEERING_PROSE_RE = /Oh My Pi\|\bOMP\b/g` is case-sensitive and whole-word. The rewrite works line by line, so the bytes of unchanged lines are kept. The staged runtime validates through the steering writer. |
+| AC3 | CONTRIBUTING.md v3 sentence refreshed | Pass | `detectContributingHostLanguage` / `applyContributingHostLanguage` replace only the exact sentence, anywhere in the file (`split`/`join`). |
+| AC4 | Idempotent and declinable | Pass | No item is emitted when there are no occurrences. Apply re-plans from live state and returns `already-current`. A group that isn't approved is never dispatched. |
+| AC5 | Unsafe/invalid steering fails closed | Pass | An unsafe snippet returns `skipped:unverifiable` / `steering_host_language_unsafe_path` without writing. A writer failure returns `failed:<message>` with the writer's reason code (tested with `steering_module_invalid`). |
+| AC6 | Documentation matches | Pass | The upgrade WORKFLOW, v3-detectors, detection, upgrade-procedures, and README each name all three group ids. `references/project-agents.md`, `references/contribution-guide.md` (which adds the "Stale v3 wording" row), and onboarding name `CLAUDE.md`. The root `AGENTS.md` was git-renamed to `CLAUDE.md` with H1 `# CLAUDE.md`. `.gitignore` has no `.omp` rule. |
+| AC7 | AGENTS.md renamed to CLAUDE.md | Pass | Rename mode uses `git mv` when the file is tracked, otherwise `renameSync`. Bytes are identical. |
+| AC8 | AGENTS.md merged into existing CLAUDE.md | Pass | `applyAgentsToClaudeMd` merge branch (`scripts/sdlc-upgrade.mjs:1410-1425`): the separator gives exactly one blank line, the CLAUDE copy of the managed section is kept, the original bytes form the prefix, and the file is removed with `git rm -q -f` (tracked) or `unlinkSync`. If removal fails, `CLAUDE.md` is restored. New tests: dirty tracked merge, `agents-v4-host-language` followed by merge in the same run (including an idempotent second apply), and restore on removal failure. A symlink returns `skipped:collision`. |
+| AC9 | Managed-section reconciliation uses CLAUDE.md | Pass | `references/project-agents.md` forbids writing the managed section to `AGENTS.md` and routes an existing `AGENTS.md` through `agents-to-claude-md`. `exercise-spec-context.test.mjs` creates and refreshes the section in `CLAUDE.md`. A repeat detect emits no item. |
 
 ---
 
@@ -74,14 +74,14 @@ Both registered validations passed at the verification head (`repository.tests`,
 
 | Task | Description | Status | Notes |
 |------|-------------|--------|-------|
-| T001 | steering-v4-host-language | Complete | |
-| T002 | contributing-v4-host-language | Complete | |
-| T003 | agents-to-claude-md | Incomplete | Merge mode is not atomic and fails on a dirty tracked `AGENTS.md` |
+| T001 | steering-v4-host-language | Complete | Apply priority 10.5 |
+| T002 | contributing-v4-host-language | Complete | Apply priority 10.5 |
+| T003 | agents-to-claude-md | Complete | Apply priority 7.75. The merge-mode fix landed in `2edc0de` |
 | T004 | CLAUDE.md contract and onboarding | Complete | |
 | T005 | Document the three groups | Complete | |
 | T006 | Repository move and `.gitignore` cleanup | Complete | |
-| T007 | Upgrade behavior tests | Complete | No test combines merge mode with a tracked, modified `AGENTS.md` |
-| T008 | Contract tests | Complete | Skill inventory audit is clean (90 items) with no baseline change needed |
+| T007 | Upgrade behavior tests | Complete | Includes the dirty-merge regression tests |
+| T008 | Contract tests | Complete | `upgrade-v4-host-language-contract.test.mjs`. Skill inventory is clean (90 items) |
 
 ---
 
@@ -91,31 +91,33 @@ Both registered validations passed at the verification head (`repository.tests`,
 
 | Principle | Score (1-5) | Notes |
 |-----------|-------------|-------|
-| Single Responsibility | 4 | Each group has its own detect/apply pair. Planning is shared between detect and apply, so apply re-plans from live state. |
-| Open/Closed | 4 | New kinds are added to the existing order table and dispatch. |
+| Single Responsibility | 4 | Each group has its own detect/apply pair. Detect and apply share one pure planner. |
+| Open/Closed | 4 | New kinds are added to the existing priority table and dispatch chain. |
 | Liskov Substitution | 5 | N/A |
-| Interface Segregation | 4 | Item shapes are consistent with the existing groups. |
-| Dependency Inversion | 4 | Steering writes go through the shared writer. |
+| Interface Segregation | 4 | Item shapes match the existing groups. |
+| Dependency Inversion | 4 | Steering writes go through the shared writer. Git calls use a small local helper. |
 
 ### Layer Separation
 
-The script layer stays deterministic. The workflow and reference docs describe the groups and don't duplicate logic.
-
----
+The script layer stays deterministic. Workflow and reference docs describe the groups without duplicating logic.
 
 ## Security Assessment
 
-- [x] Input validation: snippet paths must be under `steering/snippets/` with no `..`. Symlinks are rejected by `lstat`.
+- [x] Input validation: snippet paths must be under `steering/snippets/` with no `..` segment. Symlinks and non-regular files are rejected through `lstat`.
 - [x] Injection prevention: git calls use argument arrays with `shell: false` and `--` separators.
-- [x] Data protection: no secrets touched.
+- [x] Data protection: no secrets are touched.
 
 ## Performance Assessment
 
 - [x] Bounded scans: only registered snippets, the manifest, `CONTRIBUTING.md`, and the root instructions files are read.
 
+## Testability Assessment
+
+- [x] Every AC has a focused Jest test that uses a disposable temp root and a no-network runner. The new regression tests reproduce the earlier failure boundary.
+
 ## Error-Handling Assessment
 
-Error handling is scored 2. The merge path in `applyAgentsToClaudeMd` mutates `CLAUDE.md` before it knows `AGENTS.md` can be removed, and it has no rollback. This violates the fail-closed and preservation invariant for upgrade groups.
+Score 4. Merge mode now captures `AGENTS.md` before removing it with force, and on removal failure it restores the original `CLAUDE.md` bytes, so a retry can't append twice. Unsafe targets return stable `skipped:*` reason codes. A small window remains where a crash between the `CLAUDE.md` write and the removal leaves both files. That needs process loss rather than an error, and isn't required by the spec.
 
 ---
 
@@ -123,10 +125,9 @@ Error handling is scored 2. The merge path in `applyAgentsToClaudeMd` mutates `C
 
 | Acceptance Criterion | Has Scenario | Has Test | Passes |
 |---------------------|-------------|-----------|--------|
-| AC1–AC7, AC9 | Yes | Yes | Yes |
-| AC8 | Yes | Yes (clean-tree merge only) | Clean tree yes. Dirty tracked `AGENTS.md`: no |
+| AC1–AC9 | Yes (SCN001–SCN009) | Yes | Yes |
 
-- `repository.tests` (`npm test -- --runInBand` in `scripts/`): passed, command exited 0
+- `repository.tests` (`npm test -- --runInBand` in `scripts/`): passed. Test Suites: 51 passed, 1 skipped. Tests: 1084 passed, 2 skipped, 1086 total.
 
 ---
 
@@ -136,22 +137,22 @@ Error handling is scored 2. The merge path in `applyAgentsToClaudeMd` mutates `C
 |-------|-------|
 | **Skill Exercised** | upgrade-project detect/apply runtime (`scripts/sdlc-upgrade.mjs`), called directly |
 | **Test Project** | Disposable git repo in the worker scratchpad |
-| **Exercise Method** | `detectUpgrade` then `applyUpgrade` with `agents-v4-host-language` and `agents-to-claude-md` approved, no network |
+| **Exercise Method** | `applyUpgrade` twice with `agents-v4-host-language` and `agents-to-claude-md` approved, no network |
 
 ### Captured Output Summary
 
-Fixture: tracked `AGENTS.md` (`agents/  # OMP task agents (a, b)` plus `notes`) and tracked `CLAUDE.md` (`# Claude`).
+Fixture: tracked `AGENTS.md` (`agents/  # OMP task agents (a, b)` plus `notes`) and tracked `CLAUDE.md` (`# Claude`, no trailing newline). This is the scenario that failed at `be02641`.
 
-1. First apply: `agents-v4-host-language` returned `applied`. `agents-to-claude-md` returned `failed:error: the following file has local modifications: AGENTS.md (use --cached to keep the file, or -f to force removal)`. `CLAUDE.md` was appended to, and `AGENTS.md` remained.
-2. Second apply: `agents-to-claude-md` failed again, and `CLAUDE.md` now held the `AGENTS.md` content twice.
+1. First apply: `agents-v4-host-language` returned `applied`, and `agents-to-claude-md` returned `applied` / `merge`. `CLAUDE.md` = `# Claude\n\nagents/  # Claude Code plugin subagents (a, b)\nnotes\n`. `AGENTS.md` is gone, and git shows `D  AGENTS.md`.
+2. Second apply: neither group was emitted or applied, and `CLAUDE.md` was unchanged.
 
 ### AC Evaluation
 
 | AC | Verdict | Evidence |
 |----|---------|----------|
-| AC8 | Fail | `AGENTS.md` is not deleted. `CLAUDE.md` gets more than the original bytes plus one copy of `AGENTS.md`, and retries duplicate it. |
+| AC8 | Pass | One blank-line separator, a single appended copy, `AGENTS.md` deleted, and an idempotent retry |
 
-The interactive `/sdlc-upgrade-project` TUI was not exercised. The defect is in the deterministic apply runtime, so a direct call is sufficient evidence.
+The interactive `/sdlc-upgrade-project` TUI was not exercised. The behavior under change lives in the deterministic apply runtime, so a direct call is sufficient evidence.
 
 ---
 
@@ -159,50 +160,33 @@ The interactive `/sdlc-upgrade-project` TUI was not exercised. The defect is in 
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| Contract tests (`repository.tests`) | Pass | `command exited 0` at `be02641` |
-| Live smoke (`repository.nmg-sdlc-smoke`) | Pass | `nmg-sdlc-smoke delivered #224`, with a fresh issue provisioned through autopilot draft-issue/write-spec |
+| Contract tests (`repository.tests`) | Pass | `command exited 0` at `2edc0de`, 1084 tests passed |
+| Live smoke (`repository.nmg-sdlc-smoke`) | Pass | `nmg-sdlc-smoke delivered #227`. A fresh issue #227 was provisioned through autopilot draft-issue/write-spec (spec PR #228 MERGED). Execute delivered PR #229, which is MERGED at `4b91560acd033fb9f9d8f47903435d479b98976f`, and issue #227 is CLOSED |
 | Skill inventory | Pass | `node scripts/skill-inventory-audit.mjs --check` → clean (90 items mapped), exit 0 |
 | Claude Code plugin surface | Pass | `verify-plugin-surface.mjs --root . --label repository` → passed, exit 0 |
-| Skill creator validation | N/A | No fixes were made in this verification. Publication scope is the report only. |
-| Prompt quality | Pass | The new doc steps are unambiguous and the order is documented |
+| Skill creator validation | N/A | No skill-bundled fixes were made in this verification |
+| Prompt quality | Pass | The new doc steps are unambiguous, and the apply order is documented |
 | Git hygiene | Pass | `git diff --check main...HEAD` exit 0 |
 
-**Gate Summary**: 6/6 applicable gates passed, 0 failed, 0 incomplete. The overall status is still Fail because of the AC8 review finding.
+**Gate Summary**: 6/6 applicable gates passed, 0 failed, 0 incomplete.
 
 ---
 
 ## Fixes Applied
 
-None. This verify publication may write only `verification-report.md`, so the code defect is routed back to implementation.
+None in this verification. The previous finding (AC8 merge atomicity) was fixed by implementation in `2edc0de` and re-verified here.
 
 ## Remaining Issues
 
-### High Priority
-
-| Field | Value |
-|-------|-------|
-| **Severity** | High |
-| **Category** | Error Handling |
-| **Location** | `scripts/sdlc-upgrade.mjs` `applyAgentsToClaudeMd`, merge branch (`fs.writeFileSync(claude, …)` followed by `gitCommand(root, ['rm', '-q', '--', 'AGENTS.md'])`) |
-| **Issue** | Merge mode appends to `CLAUDE.md` before removing `AGENTS.md`. `git rm` refuses a tracked file that has working-tree or index changes. That always happens when `agents-v4-host-language` or `agents-spike-language` is approved in the same run, because both apply earlier and rewrite `AGENTS.md`. It also happens whenever a user has local edits. |
-| **Impact** | A common v3 upgrade leaves both files in place, reports `failed:`, and duplicates the content in `CLAUDE.md` on every retry. AC8 ("AGENTS.md is deleted", "original CLAUDE.md bytes are unchanged" plus a single appended copy) is violated. |
-| **Suggested fix** | Remove `AGENTS.md` safely before or atomically with the write: for example `git rm --cached -q` plus `unlinkSync`, or `git rm -f` once the content has been captured. Restore the original `CLAUDE.md` bytes if removal fails. Add a test for merge with a tracked, modified `AGENTS.md`, and one for `agents-v4-host-language` combined with `agents-to-claude-md`. |
-| **Reason Not Fixed** | The verify publication scope allows only the report path |
+None.
 
 ---
 
 ## Positive Observations
 
 - The steering rewrite re-plans from live state and goes through the shared writer, with staged validation and stable reason codes.
-- `applySteeringRuntime` now reports the writer's own `reasonCode` instead of a generic one.
-- The documentation updates are thorough and consistent across workflow, references, and README.
-
----
-
-## Recommendations Summary
-
-### Before PR (Must)
-- [ ] Make `agents-to-claude-md` merge mode atomic and tolerant of a modified tracked `AGENTS.md`, then add the regression tests
+- The merge fix is minimal and adds a rollback path, and its regression tests cover the exact failure boundary.
+- The documentation updates are consistent across the workflow, references, and README.
 
 ---
 
@@ -210,8 +194,9 @@ None. This verify publication may write only `verification-report.md`, so the co
 
 | File | Issues | Notes |
 |------|--------|-------|
-| `scripts/sdlc-upgrade.mjs` | 1 | Merge-mode atomicity |
-| `scripts/__tests__/sdlc-upgrade.test.mjs` | 0 | Missing the dirty-merge case |
+| `scripts/sdlc-upgrade.mjs` | 0 | |
+| `scripts/__tests__/sdlc-upgrade.test.mjs` | 0 | Dirty-merge regression tests added |
+| `scripts/__tests__/upgrade-v4-host-language-contract.test.mjs`, `spec-context-contract.test.mjs`, `exercise-spec-context.test.mjs` | 0 | |
 | `references/project-agents.md`, `references/contribution-guide.md` | 0 | |
 | `workflows/upgrade-project/**`, `workflows/onboard-project/WORKFLOW.md`, `README.md` | 0 | |
 | `CLAUDE.md`, `.gitignore`, `steering/snippets/*` | 0 | |
@@ -220,6 +205,6 @@ None. This verify publication may write only `verification-report.md`, so the co
 
 ## Recommendation
 
-**Needs fixes**
+**Ready for PR**
 
-All registered gates are green, but AC8 fails in a realistic, reproducible upgrade scenario that corrupts `CLAUDE.md` on retry. Return to implementation for the merge-mode fix and its tests, then rerun the full gate.
+All acceptance criteria pass, all registered gates are green at the exact head, and the earlier AC8 defect is fixed and covered by regression tests.
