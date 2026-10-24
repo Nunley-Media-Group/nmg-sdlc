@@ -1190,8 +1190,12 @@ function applyAgentsHostLanguage(root, item) {
   return { id: item.id, status: 'applied' };
 }
 
+// A repository's paginated issue listing alone passes spawnSync's 1 MiB default
+// buffer at about two hundred issues; an overflow would read as an unreadable listing.
+const MAX_COMMAND_OUTPUT_BYTES = 256 * 1024 * 1024;
+
 function defaultRun(command, args, options = {}) {
-  return spawnSync(command, args, { encoding: 'utf8', ...options });
+  return spawnSync(command, args, { encoding: 'utf8', maxBuffer: MAX_COMMAND_OUTPUT_BYTES, ...options });
 }
 
 function dependencyGraphDigest(graph) {

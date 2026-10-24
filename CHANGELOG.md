@@ -20,6 +20,7 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 - `NMG_SDLC_AUTOPILOT=1` and the write-spec Finished approval now end plan mode without Claude Code's plan-approval dialog (#474). The hooks module's `ExitPlanMode` allow now carries the tool input back as `updatedInput`, which Claude Code requires before it settles a tool that needs the person.
 - The live smoke gate no longer stops at `candidate identity unavailable` (#476). Its candidate-tree step named the gitignored `.nmg-sdlc` directory in an exclude pathspec, which git rejects. It now excludes `.nmg-sdlc` only where it is not already ignored.
 - The live smoke gate no longer hangs on the workspace-trust dialog in its fresh delivery clone (#477). The provider now trusts that clone from a short-lived pane it owns before it runs the nested `/sdlc-execute`.
+- `/sdlc-upgrade-project` detection no longer fails with `Repository issue listing failed` on repositories with more than about two hundred issues (#478). `sdlc-upgrade.mjs` now allows command output beyond Node's 1 MiB default.
 
 ## [4.2.1] - 2026-10-24
 
