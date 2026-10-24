@@ -20,7 +20,7 @@ function git(cwd, ...args) {
   return result.stdout.trim();
 }
 
-function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'passed', remoteIssueState = 'OPEN', existing = false, lostAck = false, checksState = 'SUCCESS', checkResponses = {}, smokeOwned = false, humanReview = false, closingReferences = [{ number: 42, url: 'https://github.test/owner/repo/issues/42' }] } = {}) {
+function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'passed', remoteIssueState = 'OPEN', existing = false, lostAck = false, checksState = 'SUCCESS', checkResponses = {}, smokeOwned = false, humanReview = false, versionPrepared = true, closingReferences = [{ number: 42, url: 'https://github.test/owner/repo/issues/42' }] } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-delivery-current-'));
   const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-delivery-remote-'));
   roots.push(root, remote);
@@ -68,6 +68,14 @@ function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'p
   fs.writeFileSync(path.join(root, 'CONTRIBUTING.md'), '# Contributing\n');
   git(root, 'add', '.');
   git(root, 'commit', '-qm', 'feat: implement delivery #42');
+  if (versionPrepared) {
+    // The version commit `prepare-version` makes before verification.
+    fs.writeFileSync(path.join(root, 'VERSION'), '3.5.0\n');
+    fs.writeFileSync(path.join(root, 'package.json'), '{"name":"fixture","version":"3.5.0"}\n');
+    fs.writeFileSync(path.join(root, 'CHANGELOG.md'), '# Changelog\n\n## [Unreleased]\n\n## [3.5.0] - 2026-01-02\n\n### Added\n\n- Deliver verified changes (#42)\n\n## [3.4.5] - 2026-01-01\n\n- old\n');
+    git(root, 'add', '.');
+    git(root, 'commit', '-qm', 'feat: deliver issue #42');
+  }
   const sourceHead = git(root, 'rev-parse', 'HEAD');
   const scope = inspectIssueSpecScope({ projectRoot: root, issueNumber: 42, specPath: spec });
   const projection = Object.fromEntries(['issueNumber', 'specPath', 'status', 'delivery', 'regression'].map((key) => [key, scope[key]]));
@@ -214,7 +222,7 @@ describe('live issue delivery', () => {
   });
 
   test('actual standalone CLI prepares and publishes version before the verification gate', () => {
-    const f = fixture();
+    const f = fixture({ versionPrepared: false });
     const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-gh-delivery-'));
     roots.push(bin);
     const mockGh = path.join(bin, 'gh');
@@ -332,7 +340,7 @@ console.log(JSON.stringify(value));
   });
 
   test('version preparation precedes verification and is idempotent on the actual issue branch', () => {
-    const f = fixture();
+    const f = fixture({ versionPrepared: false });
     const first = runDeliver({ cwd: f.root, issue: 42, action: 'prepare-version', run: f.run });
     expect(first).toMatchObject({ status: 0, handoff: null, prepared: { issue: 42, version: '3.5.0' } });
     expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8')).toBe('3.5.0\n');
@@ -342,6 +350,15 @@ console.log(JSON.stringify(value));
     expect(second).toMatchObject({ status: 0, handoff: null, prepared: { issue: 42, version: '3.5.0' } });
     expect(f.currentHead).toBe(prepared);
     expect(deliveryCalls(f, 'create')).toHaveLength(0);
+  });
+
+  test('delivery without a prepared version fails before any pull request is created', () => {
+    const f = fixture({ versionPrepared: false });
+    const result = runDeliver({ cwd: f.root, issue: 42, run: f.run });
+    expect(result).toMatchObject({ status: 1, handoff: { status: 'failed', reasonCode: 'version_not_prepared', next: 'verify' } });
+    expect(deliveryCalls(f, 'create')).toHaveLength(0);
+    expect(deliveryCalls(f, 'merge')).toHaveLength(0);
+    expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8')).toBe('3.4.5\n');
   });
 
   test('failed required CI produces concrete implement remediation and never merges', () => {

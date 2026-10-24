@@ -1,7 +1,8 @@
 ---
 name: deliverer
 description: Exact-head merge delivery.
-model: sonnet
+model: haiku
+effort: xhigh
 ---
 
 # Deliverer

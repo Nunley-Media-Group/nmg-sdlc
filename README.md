@@ -86,22 +86,22 @@ herdr agent start <name> --kind claude --pane <id> -- --plugin-dir <plugin-root>
 
 ### Models
 
-Every step runs on the Claude Code model suited to its workload, and your session model is never changed. Execute stage workers start with `claude --model <model>`. The three command files declare `model` in their frontmatter. For `/sdlc-execute` and the six interactive commands, the hooks module rewrites the model of each main-loop request, including the turns the plugin submits for the command, such as the write-spec Continue prompt. Subagent requests and the effort setting are left alone.
+Every step runs on the Claude Code model suited to its workload, and your session model is never changed. Execute stage workers start with `claude --model <model>`, plus `--effort <effort>` when the step sets one. The three command files declare `model`, and `effort` when set, in their frontmatter. For `/sdlc-execute` and the six interactive commands, the hooks module rewrites the model of each main-loop request, including the turns the plugin submits for the command, such as the write-spec Continue prompt. Subagent requests and the effort setting of those commands are left alone.
 
-| Step | Model |
-|------|-------|
-| execute stage `start` | `haiku` |
-| execute stage `implement` | `sonnet` |
-| execute stage `verify` | `opus` |
-| execute stage `deliver` | `sonnet` |
-| execute repair re-dispatch (`implement`, `verify`, `deliver`) | `opus` |
-| `/sdlc-status` | `haiku` |
-| `/sdlc-execute` (controller session) | `haiku` |
-| `/sdlc-open-pr` | `sonnet` |
-| `/sdlc-verify-code` | `opus` |
-| `/sdlc-draft-issue`, `/sdlc-write-spec`, `/sdlc-onboard-project`, `/sdlc-upgrade-project`, `/sdlc-steering`, `/sdlc-run-retro` | `opus` |
+| Step | Model | Effort |
+|------|-------|--------|
+| execute stage `start` | `haiku` | default |
+| execute stage `implement` | `haiku` | `xhigh` |
+| execute stage `verify` | `opus` | default |
+| execute stage `deliver` | `haiku` | `xhigh` |
+| execute repair re-dispatch (`implement`, `verify`, `deliver`) | `opus` | default |
+| `/sdlc-status` | `haiku` | default |
+| `/sdlc-execute` (controller session) | `haiku` | default |
+| `/sdlc-open-pr` | `haiku` | `xhigh` |
+| `/sdlc-verify-code` | `opus` | default |
+| `/sdlc-draft-issue`, `/sdlc-write-spec`, `/sdlc-onboard-project`, `/sdlc-upgrade-project`, `/sdlc-steering`, `/sdlc-run-retro` | `opus` | default |
 
-A repair re-dispatch is the next implement, verify, or deliver worker after a recorded failure, other than `pr_evidence_pending` and `mergeability_reverification_required`. Once a stage passes, the next dispatch uses its stage model again. A hooks-registered command's model holds until you submit your own prompt or slash command (from the composer or Remote Control) or change the session model. The aliases always resolve to the current model of each tier. The map is `SDLC_MODELS` in `src/host-events.mjs`.
+A repair re-dispatch is the next implement, verify, or deliver worker after a recorded failure, other than `pr_evidence_pending` and `mergeability_reverification_required`. Once a stage passes, the next dispatch uses its stage model again. A hooks-registered command's model holds until you submit your own prompt or slash command (from the composer or Remote Control) or change the session model. The aliases always resolve to the current model of each tier. The maps are `SDLC_MODELS` and `SDLC_EFFORTS` in `src/host-events.mjs`; "default" is your Claude Code effort setting.
 
 ### Autopilot for hands-off drivers
 
@@ -320,7 +320,7 @@ No fixed attempt count, no --recover-stale, no discover-recovery, no blocked-rec
 
 Full-green (registered results including required smoke all Pass, complete coverage, no ceiling) at exact head is the only route to PR ready/merge. PR Evidence Pending is separate draft evidence step before final verify run and deliver.
 
-For version prep pre-gate: if needed before final verification, run prepare-version, then verify the resulting source HEAD with the full registered gate. Never make a new version commit after a passing gate.
+Version preparation comes before the gate. `/sdlc-execute` runs `prepare-version` on the published issue branch before it dispatches verify or deliver, and verifies any head that the version commit changes. Standalone, run `prepare-version` before final verification, then verify the resulting source HEAD with the full registered gate. Delivery refuses an unprepared version (`version_not_prepared`), and a new version commit is never made after a passing gate.
 
 ```text
 /sdlc-status --json

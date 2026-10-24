@@ -26,12 +26,12 @@ export const AUTOMATED_COMMANDS = [
 // workers (`claude --model`), repair re-dispatch, and every command. The
 // aliases always resolve to the current model of their tier.
 export const SDLC_MODELS = Object.freeze({
-  stages: Object.freeze({ start: "haiku", implement: "sonnet", verify: "opus", deliver: "sonnet" }),
+  stages: Object.freeze({ start: "haiku", implement: "haiku", verify: "opus", deliver: "haiku" }),
   repair: "opus",
   commands: Object.freeze({
     "sdlc-status": "haiku",
     "sdlc-execute": "haiku",
-    "sdlc-open-pr": "sonnet",
+    "sdlc-open-pr": "haiku",
     "sdlc-verify-code": "opus",
     "sdlc-draft-issue": "opus",
     "sdlc-write-spec": "opus",
@@ -40,6 +40,14 @@ export const SDLC_MODELS = Object.freeze({
     "sdlc-steering": "opus",
     "sdlc-run-retro": "opus",
   }),
+});
+
+// The Claude Code effort level for the steps that set one: execute stage
+// workers (`claude --effort`) and command-file frontmatter. A step absent here,
+// and every repair re-dispatch, keeps Claude Code's default effort.
+export const SDLC_EFFORTS = Object.freeze({
+  stages: Object.freeze({ implement: "xhigh", deliver: "xhigh" }),
+  commands: Object.freeze({ "sdlc-open-pr": "xhigh" }),
 });
 
 export const WRITE_SPEC_FINISHED_LABELS = Object.freeze([

@@ -1,7 +1,8 @@
 ---
 description: "Deliver verified work through exact-head PR merge"
 argument-hint: "[#N]"
-model: sonnet
+model: haiku
+effort: xhigh
 ---
 
 Plugin paths: `${CLAUDE_PLUGIN_ROOT}` is the installed nmg-sdlc plugin root. Read packaged files by their `${CLAUDE_PLUGIN_ROOT}/...` path.
@@ -18,7 +19,7 @@ Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/sdlc-deliver.mjs --issue N`. The control
 
 If the report states `PR Evidence Pending`, run `node ${CLAUDE_PLUGIN_ROOT}/scripts/sdlc-deliver.mjs prepare-pr-evidence --issue N` to create or reuse the draft and observe PR checks. Do not mark ready or merge. Return to `/sdlc-verify-code #N` to incorporate actual green exact-head PR evidence into a Pass report and finalize; then retry ordinary delivery.
 
-If version preparation is needed before final verification, run `node ${CLAUDE_PLUGIN_ROOT}/scripts/sdlc-deliver.mjs prepare-version --issue N`, then verify the resulting source HEAD with the full registered gate. Never make a new version commit after a passing gate.
+Delivery refuses an issue branch whose version is not prepared (`version_not_prepared`), because the registered gate must run at the head that merges. `/sdlc-execute` prepares the version before it verifies. Standalone, run `node ${CLAUDE_PLUGIN_ROOT}/scripts/sdlc-deliver.mjs prepare-version --issue N` before final verification, then verify the resulting source HEAD with the full registered gate. Never make a new version commit after a passing gate.
 
 On failed CI or actionable bot review, give the exact check/thread packet to an implementation repair worker. Rerun full verification after a substantive source change, then retry ordinary delivery against the same PR. An unchanged failure requires different diagnosis, not replay of the same smoke or push. Pending checks require live state change; human-required review remains blocked until actual approval. Do not forge approval, suppress checks, force push, manually replay a lost merge, or synthesize handoffs. If a merge acknowledgment is lost, inspect the remote PR and issue before any repeat.
 

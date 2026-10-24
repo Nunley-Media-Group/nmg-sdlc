@@ -37,13 +37,13 @@ This spec replaces the earlier OMP-role spec for #464 and absorbs #463, which as
 | Step | Model |
 |------|-------|
 | execute stage `start` | `haiku` |
-| execute stage `implement` | `sonnet` |
+| execute stage `implement` | `haiku` |
 | execute stage `verify` | `opus` |
-| execute stage `deliver` | `sonnet` |
+| execute stage `deliver` | `haiku` |
 | execute repair re-dispatch (`implement`, `verify`, `deliver`) | `opus` |
 | `/sdlc-status` | `haiku` |
 | `/sdlc-execute` (controller session) | `haiku` |
-| `/sdlc-open-pr` | `sonnet` |
+| `/sdlc-open-pr` | `haiku` |
 | `/sdlc-verify-code` | `opus` |
 | `/sdlc-draft-issue`, `/sdlc-write-spec`, `/sdlc-onboard-project`, `/sdlc-upgrade-project`, `/sdlc-steering`, `/sdlc-run-retro` | `opus` |
 
@@ -67,7 +67,7 @@ This spec replaces the earlier OMP-role spec for #464 and absorbs #463, which as
 
 **Given** the generated command files `commands/sdlc-status.md`, `commands/sdlc-verify-code.md`, and `commands/sdlc-open-pr.md`
 **When** Claude Code loads them
-**Then** their frontmatter `model` is `haiku`, `opus`, and `sonnet` respectively
+**Then** their frontmatter `model` is `haiku`, `opus`, and `haiku` respectively
 **And** running one of them leaves the session model unchanged after it completes
 
 ### AC4: Hooks-registered commands run on their model
@@ -88,7 +88,7 @@ This spec replaces the earlier OMP-role spec for #464 and absorbs #463, which as
 
 **Given** the packaged subagents under `agents/`
 **When** Claude Code loads the plugin
-**Then** frontmatter `model` is `haiku` for `starter`, `sonnet` for `spec-implementer`, `opus` for `architecture-reviewer`, and `sonnet` for `deliverer`
+**Then** frontmatter `model` is `haiku` for `starter`, `haiku` for `spec-implementer`, `opus` for `architecture-reviewer`, and `haiku` for `deliverer`
 **And** the `steering/snippets/project-tech.md` Agent Files table lists those values
 
 ### AC7: Worker start failure on a model-routed launch
@@ -124,3 +124,4 @@ This spec replaces the earlier OMP-role spec for #464 and absorbs #463, which as
 |-------|------|---------|
 | #464 | 2026-10-22 | Initial feature spec (OMP model roles) |
 | #464 | 2026-10-24 | Replaced OMP roles with Claude Code per-step models; absorbed #463 stage-worker models |
+| #482 | 2026-10-24 | Implement and deliver stages, `/sdlc-open-pr`, `spec-implementer`, and `deliverer` moved from `sonnet` to `haiku` (effort is owned by #482) |

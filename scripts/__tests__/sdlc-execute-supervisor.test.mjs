@@ -88,6 +88,8 @@ async function fixture({
   git(root, ['init', '--bare', origin]);
   git(root, ['remote', 'add', 'origin', origin]);
   git(root, ['push', '-u', 'origin', '42-ship-it']);
+  // Uncommitted partial work makes the controller dispatch the implement worker that blocks.
+  fs.writeFileSync(path.join(root, 'partial.txt'), 'in progress\n');
   const checkpoint = {
     schemaVersion: 1, projectRoot: root, runId: 'cancel-fixture', issue: 42,
     branch: '42-ship-it', head, issues: [42], revision: 1,

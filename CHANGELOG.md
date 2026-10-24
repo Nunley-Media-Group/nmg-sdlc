@@ -12,6 +12,30 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.3.0] - 2026-10-24
+
+### Added
+
+- `/sdlc-upgrade-project` migrates v3 Oh My Pi wording and moves project instructions to `CLAUDE.md` (#469). Three new groups propose these changes:
+  - `steering-v4-host-language` rewrites v3 host tokens in registered steering snippets and manifest validations (`omp` to `claude`, `--print` to `-p`, `.omp/sdlc/` to `.nmg-sdlc/`) and `Oh My Pi`/`OMP` prose to `Claude Code`, through the shared steering writer.
+  - `contributing-v4-host-language` replaces the v3 `drives Herdr omp worker panes` sentence in `CONTRIBUTING.md`.
+  - `agents-to-claude-md` moves root `AGENTS.md` to `CLAUDE.md`, renaming it or appending it to an existing `CLAUDE.md`. Claude Code loads `CLAUDE.md` as project memory, and `AGENTS.md` is not loaded.
+
+  `/sdlc-onboard-project` and managed-section reconciliation now write the spec-context section to `CLAUDE.md`.
+
+### Changed
+
+- The steps that ran on Sonnet now run on Haiku at `xhigh` effort (#482). These are the execute `implement` and `deliver` stages, `/sdlc-open-pr`, and the `spec-implementer` and `deliverer` subagents.
+  - Stage workers start with `claude --model haiku --effort xhigh`.
+  - `commands/sdlc-open-pr.md` and the two agent files declare `effort: xhigh`. The new `SDLC_EFFORTS` table in `src/host-events.mjs` is the source.
+  - Repair re-dispatch still runs on Opus at the default effort, and the Opus and existing Haiku steps are unchanged.
+
+### Fixed
+
+- `/sdlc-execute` now bumps the version before it verifies, so its deliveries release a new version (#482). Before this, nothing in the execute flow ran `sdlc-deliver.mjs prepare-version`, and #469 merged with `VERSION` unchanged.
+  - The controller runs `prepare-version` on the clean, published issue branch before it dispatches verify or deliver, and verifies any head that the version commit changes.
+  - Delivery refuses an unprepared version with `version_not_prepared`, before it creates a pull request.
+
 ## [4.2.2] - 2026-10-24
 
 ### Fixed

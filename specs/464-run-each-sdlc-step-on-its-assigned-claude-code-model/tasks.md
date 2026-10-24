@@ -54,7 +54,7 @@
 **Type**: Modify
 **Depends**: T001
 **Acceptance**:
-- `spec-implementer` and `deliverer` declare `model: sonnet`. `starter` and `architecture-reviewer` are unchanged (AC6)
+- `spec-implementer` and `deliverer` declare `model: haiku`. `starter` and `architecture-reviewer` are unchanged (AC6)
 - The steering Agent Files table and rule sentence match the design (AC6, FR7)
 - `README.md` documents the Model Map, and `CHANGELOG.md` `[Unreleased]` records the change (FR7)
 
@@ -80,3 +80,4 @@
 |-------|------|---------|
 | #464 | 2026-10-22 | Initial feature tasks (OMP model roles) |
 | #464 | 2026-10-24 | Replaced with Claude Code per-step model tasks; absorbed #463 |
+| #482 | 2026-10-24 | Implement and deliver stages, `/sdlc-open-pr`, `spec-implementer`, and `deliverer` moved from `sonnet` to `haiku` (effort is owned by #482) |

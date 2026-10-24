@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { SDLC_MODELS } from '../../src/host-events.mjs';
+import { SDLC_EFFORTS, SDLC_MODELS } from '../../src/host-events.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -109,7 +109,7 @@ describe('repo steering contract (v4)', () => {
     for (const filePath of agentFiles) {
       const keys = frontmatterKeys(fs.readFileSync(filePath, 'utf8'));
       expect(keys).toEqual(expect.arrayContaining(['name', 'description']));
-      expect(keys.every((key) => ['name', 'description', 'model', 'tools'].includes(key))).toBe(true);
+      expect(keys.every((key) => ['name', 'description', 'model', 'effort', 'tools'].includes(key))).toBe(true);
       const model = fs.readFileSync(filePath, 'utf8').match(/^model:\s*"?([^"\n]+)"?$/m)?.[1];
       if (model !== undefined) expect(['haiku', 'sonnet', 'opus', 'inherit']).toContain(model);
     }
@@ -121,10 +121,12 @@ describe('repo steering contract (v4)', () => {
     const declared = Object.fromEntries(Object.keys(stages).map((name) => [
       name, read(`agents/${name}.md`).match(/^---\n[\s\S]*?^model:\s*(\S+)$[\s\S]*?^---$/m)?.[1],
     ]));
-    expect(declared).toEqual({ starter: 'haiku', 'spec-implementer': 'sonnet', 'architecture-reviewer': 'opus', deliverer: 'sonnet' });
+    expect(declared).toEqual({ starter: 'haiku', 'spec-implementer': 'haiku', 'architecture-reviewer': 'opus', deliverer: 'haiku' });
     for (const [name, step] of Object.entries(stages)) {
+      const effort = read(`agents/${name}.md`).match(/^---\n[\s\S]*?^effort:\s*(\S+)$[\s\S]*?^---$/m)?.[1];
       expect(declared[name]).toBe(SDLC_MODELS.stages[step]);
-      expect(tech).toContain(`| \`agents/${name}.md\` | \`${name}\` | \`${SDLC_MODELS.stages[step]}\` |`);
+      expect(effort).toBe(SDLC_EFFORTS.stages[step]);
+      expect(tech).toContain(`| \`agents/${name}.md\` | \`${name}\` | \`${SDLC_MODELS.stages[step]}\` | ${effort ? `\`${effort}\`` : '—'} |`);
     }
     expect(tech).toContain('`model` is `haiku`, `sonnet`, or `opus` and matches `SDLC_MODELS`; never hardcode model ids.');
   });
