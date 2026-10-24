@@ -1,0 +1,55 @@
+**Issue**: #482
+**Date**: 2026-10-24
+**Status**: Approved
+**Author**: Rich Nunley
+
+# File: scripts/__tests__/sdlc-execute.test.mjs
+# Generated from: specs/482-run-sonnet-steps-on-haiku-at-xhigh-effort-and-prepare-the-version-before-verify-in-sdlc-execute/requirements.md
+Feature: Run Sonnet steps on Haiku at xhigh effort and prepare the version before verify in /sdlc-execute
+
+  @SCN001
+  Scenario: Sonnet steps move to Haiku at xhigh
+    Given src/host-events.mjs
+    Then implement, deliver, and sdlc-open-pr map to "haiku" in SDLC_MODELS
+    And SDLC_EFFORTS maps exactly those steps to "xhigh"
+
+  @SCN002
+  Scenario: stage workers start with their effort
+    Given an issue with no recorded repairable failure
+    When /sdlc-execute dispatches start, implement, verify, and deliver
+    Then implement and deliver start with "--model haiku --effort xhigh"
+    And start and verify start without "--effort"
+    And a repair re-dispatch starts with "--model opus" and no "--effort"
+
+  @SCN003
+  Scenario: /sdlc-open-pr declares its effort
+    Given the generated commands/sdlc-open-pr.md
+    Then its frontmatter declares model "haiku" and effort "xhigh"
+    And it equals renderAutomatedCommandMarkdown output
+
+  @SCN004
+  Scenario: agents declare Haiku at xhigh
+    Given agents/spec-implementer.md and agents/deliverer.md
+    Then each declares model "haiku" and effort "xhigh"
+
+  @SCN005
+  Scenario: the controller prepares the version before verification
+    Given a clean, published issue branch with no pull request
+    When /sdlc-execute is about to dispatch verify
+    Then it runs prepare-version first
+    And the verify worker sees the "deliver issue #N" version commit
+    And later preparations make no second version commit
+
+  @SCN006
+  Scenario: a failing preparation stops the run
+    Given prepare-version fails with "major_bump_required"
+    When /sdlc-execute runs
+    Then it stops with "version_preparation_failed: major_bump_required"
+    And no worker starts
+
+  @SCN007
+  Scenario: delivery refuses an unprepared version
+    Given an issue branch whose VERSION has no deliver commit
+    When sdlc-deliver.mjs delivers
+    Then it fails "version_not_prepared" with next "verify"
+    And no pull request is created

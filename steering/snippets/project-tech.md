@@ -124,16 +124,16 @@ WORKFLOW.md frontmatter declares only `name` and `description`.
 
 ### Agent Files
 
-Files under `agents/` are installable Claude Code plugin subagents, addressed as `nmg-sdlc:<name>`. Required frontmatter: `name` and `description`. Optional: `model`, `tools`.
+Files under `agents/` are installable Claude Code plugin subagents, addressed as `nmg-sdlc:<name>`. Required frontmatter: `name` and `description`. Optional: `model`, `effort`, `tools`.
 
-`model` is `haiku`, `sonnet`, or `opus` and matches `SDLC_MODELS`; never hardcode model ids.
+`model` is `haiku`, `sonnet`, or `opus` and matches `SDLC_MODELS`; never hardcode model ids. `effort`, when present, matches `SDLC_EFFORTS` for the stage the agent serves.
 
-| File | `name` | `model` |
-|------|--------|---------|
-| `agents/starter.md` | `starter` | `haiku` |
-| `agents/spec-implementer.md` | `spec-implementer` | `sonnet` |
-| `agents/architecture-reviewer.md` | `architecture-reviewer` | `opus` |
-| `agents/deliverer.md` | `deliverer` | `sonnet` |
+| File | `name` | `model` | `effort` |
+|------|--------|---------|----------|
+| `agents/starter.md` | `starter` | `haiku` | — |
+| `agents/spec-implementer.md` | `spec-implementer` | `haiku` | `xhigh` |
+| `agents/architecture-reviewer.md` | `architecture-reviewer` | `opus` | — |
+| `agents/deliverer.md` | `deliverer` | `haiku` | `xhigh` |
 
 `execute` does not use the `Agent` tool for pipeline steps. Herdr sessions are the isolation boundary.
 

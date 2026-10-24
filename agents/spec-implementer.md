@@ -1,7 +1,8 @@
 ---
 name: spec-implementer
 description: Implement approved spec tasks.
-model: sonnet
+model: haiku
+effort: xhigh
 ---
 
 # Spec Implementer

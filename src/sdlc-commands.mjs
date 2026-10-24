@@ -5,7 +5,7 @@ import {
 } from "./sdlc-prompt-snippets.mjs";
 import { packageRoot } from "./sdlc-workflows.mjs";
 import { materializeControllerPaths } from "../scripts/plugin-controller-path.mjs";
-import { SDLC_MODELS } from "./host-events.mjs";
+import { SDLC_EFFORTS, SDLC_MODELS } from "./host-events.mjs";
 
 export { packageRoot, workflowBody } from "./sdlc-workflows.mjs";
 export { materializeControllerPaths } from "../scripts/plugin-controller-path.mjs";
@@ -67,5 +67,6 @@ export function renderAutomatedCommandMarkdown(name, skill, description, root = 
   // Claude Code substitutes ${CLAUDE_PLUGIN_ROOT} in plugin command files, in
   // the TUI and under `claude -p` alike.
   const body = text.replaceAll("<plugin-root>", "${CLAUDE_PLUGIN_ROOT}").replace(/\s*$/, "\n");
-  return `---\ndescription: ${JSON.stringify(description)}\nargument-hint: ${JSON.stringify(AUTOMATED_ARGUMENT_HINTS[name] ?? "")}\nmodel: ${SDLC_MODELS.commands[name]}\n---\n\n${body}`;
+  const effort = SDLC_EFFORTS.commands[name];
+  return `---\ndescription: ${JSON.stringify(description)}\nargument-hint: ${JSON.stringify(AUTOMATED_ARGUMENT_HINTS[name] ?? "")}\nmodel: ${SDLC_MODELS.commands[name]}\n${effort ? `effort: ${effort}\n` : ""}---\n\n${body}`;
 }

@@ -13,7 +13,7 @@ Feature: Run each nmg-sdlc step on its assigned Claude Code model
   Scenario: fresh stage workers start on their stage model
     Given an issue with no recorded repairable failure in the current invocation
     When /sdlc-execute dispatches start, implement, verify, and deliver workers
-    Then the herdr agent start arguments after "--" end with "--model haiku", "--model sonnet", "--model opus", and "--model sonnet" respectively
+    Then the herdr agent start arguments after "--" end with "--model haiku", "--model haiku", "--model opus", and "--model haiku" respectively
     And they begin with "--plugin-dir <plugin-root> --permission-mode <mode>"
 
   @SCN002
@@ -27,7 +27,7 @@ Feature: Run each nmg-sdlc step on its assigned Claude Code model
   @SCN003
   Scenario: automated command files declare their model
     Given the generated commands/sdlc-status.md, commands/sdlc-verify-code.md, and commands/sdlc-open-pr.md
-    Then their frontmatter model is "haiku", "opus", and "sonnet" respectively
+    Then their frontmatter model is "haiku", "opus", and "haiku" respectively
     And each file equals renderAutomatedCommandMarkdown output
 
   @SCN004
@@ -49,13 +49,13 @@ Feature: Run each nmg-sdlc step on its assigned Claude Code model
   @SCN006
   Scenario: agents and steering declare the stage models
     Given the packaged agents and the steering Agent Files table
-    Then starter is "haiku", spec-implementer is "sonnet", architecture-reviewer is "opus", and deliverer is "sonnet"
+    Then starter is "haiku", spec-implementer is "haiku", architecture-reviewer is "opus", and deliverer is "haiku"
     And each equals SDLC_MODELS.stages for its step
     And SDLC_MODELS.commands has one entry for every interactive and automated command
 
   @SCN007
   Scenario: a model-routed worker start failure stops dispatch
-    Given herdr agent start exits non-zero for a launch with "--model sonnet"
+    Given herdr agent start exits non-zero for a launch with "--model haiku"
     When the controller dispatches the implement stage
     Then /sdlc-execute stops with "agent_start_failed"
     And no prompt is sent to that worker

@@ -1348,6 +1348,14 @@ function runDeliverUnlocked({
       run, fs, cwd, issue: issueNumber, title: pr?.title ?? issueData.title,
       body: pullRequestBody, changedPaths,
     });
+    if (!pr && !hasSynchronizedDeliveryState({
+      run, fs, cwd, issue: issueNumber, issueData, tech: registeredTechnicalSteering(fs, cwd),
+      changelog: fs.readFileSync(path.join(cwd, 'CHANGELOG.md'), 'utf8'),
+      version: fs.readFileSync(path.join(cwd, 'VERSION'), 'utf8').trim(),
+    })) {
+      return fail(context, 'version_not_prepared',
+        `Run prepare-version --issue ${issueNumber} and verify the resulting head before delivery`, 'verify');
+    }
     let current = pr;
     if (!current) {
       let created;

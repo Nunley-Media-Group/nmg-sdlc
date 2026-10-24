@@ -8,7 +8,7 @@ import { closeSync, constants as fsConstants, fstatSync, lstatSync, openSync, re
 import { join, relative, resolve } from 'node:path';
 import { defaultPromptRegistry, renderPrompt, writePromptProvenance } from '../src/sdlc-prompt-snippets.mjs';
 import { packageRoot } from '../src/sdlc-workflows.mjs';
-import { SDLC_MODELS } from '../src/host-events.mjs';
+import { SDLC_EFFORTS, SDLC_MODELS } from '../src/host-events.mjs';
 import { collectEvidence, parseIssueBranch } from './sdlc-status.mjs';
 import { inspectPublicationScope } from './sdlc-safe-recoveries.mjs';
 import { inspectVerificationArtifactRepair, inspectVerificationReadiness, MAX_VERIFICATION_REPORT_BYTES } from './verification-readiness.mjs';
@@ -151,12 +151,22 @@ const REPAIR_EXEMPT_REASONS = new Set(['pr_evidence_pending', 'mergeability_reve
  * invocation recorded a repairable failure for the issue. */
 export function stageModel(step, failure) {
   if (!Object.hasOwn(SDLC_MODELS.stages, step)) throw new Error(`unknown stage: ${step}`);
-  if (step !== 'start' && failure && !REPAIR_EXEMPT_REASONS.has(failure.reasonCode)) return SDLC_MODELS.repair;
+  if (repairDispatch(step, failure)) return SDLC_MODELS.repair;
   return SDLC_MODELS.stages[step];
 }
+/** Claude Code effort level for a stage worker: the stage's effort, or none (Claude Code's default)
+ * for a stage without one and for every repair re-dispatch. */
+export function stageEffort(step, failure) {
+  if (!Object.hasOwn(SDLC_MODELS.stages, step)) throw new Error(`unknown stage: ${step}`);
+  return repairDispatch(step, failure) ? undefined : SDLC_EFFORTS.stages[step];
+}
+function repairDispatch(step, failure) {
+  return step !== 'start' && Boolean(failure) && !REPAIR_EXEMPT_REASONS.has(failure.reasonCode);
+}
 /** Claude Code argv after `--`: every worker loads the controller's own plugin checkout. */
-export function workerAgentArgs({ env = process.env, pluginRoot = packageRoot, model } = {}) {
-  return ['--plugin-dir', pluginRoot, '--permission-mode', workerPermissionMode(env), ...(model ? ['--model', model] : [])];
+export function workerAgentArgs({ env = process.env, pluginRoot = packageRoot, model, effort } = {}) {
+  return ['--plugin-dir', pluginRoot, '--permission-mode', workerPermissionMode(env),
+    ...(model ? ['--model', model] : []), ...(effort ? ['--effort', effort] : [])];
 }
 export function defaultHerdr(run, cwd, env = process.env) {
   const invoke = (args) => run('herdr', args, { cwd });
@@ -170,8 +180,8 @@ export function defaultHerdr(run, cwd, env = process.env) {
     paneClose: (pane) => invoke(['pane', 'close', pane]),
     listPanes: () => invoke(['pane', 'list']),
     listAgents: () => invoke(['agent', 'list']),
-    agentStart: ({ name, paneId, model }) => invoke(['agent', 'start', name, '--kind', 'claude', '--pane', paneId,
-      '--', ...workerAgentArgs({ env, model })]),
+    agentStart: ({ name, paneId, model, effort }) => invoke(['agent', 'start', name, '--kind', 'claude', '--pane', paneId,
+      '--', ...workerAgentArgs({ env, model, effort })]),
     agentPrompt: ({ name, prompt }) => invoke(['agent', 'prompt', name, prompt]),
     agentWait: ({ name, until, timeout }) => invoke(['agent', 'wait', name, ...(until ? ['--until', until] : []),
       ...(timeout ? ['--timeout', String(timeout)] : [])]),
@@ -458,6 +468,26 @@ function observedSource(cwd, run) {
       line && !line.slice(3).startsWith('.nmg-sdlc/')),
   };
 }
+// Prepares the issue's version artifacts on its published branch (`sdlc-deliver.mjs prepare-version`,
+// a no-op once they are synchronized) and returns the resulting source head.
+function prepareVersion(cwd, run, issue, invocationId) {
+  const result = run(process.execPath, [join(packageRoot, 'scripts', 'sdlc-deliver.mjs'), 'prepare-version',
+    '--issue', String(issue), '--controller-run-id', invocationId], { cwd });
+  const prepared = String(result?.stdout ?? '').split(/\r?\n/)
+    .find((line) => line.startsWith('NMG_SDLC_VERSION_PREPARED: '));
+  if (succeeded(result) && prepared) {
+    const headSha = JSON.parse(prepared.slice('NMG_SDLC_VERSION_PREPARED: '.length)).headSha;
+    if (SHA.test(headSha ?? '')) return headSha;
+  }
+  let reason = String(result?.stderr ?? '').trim().split(/\r?\n/)[0] || 'unknown';
+  if (String(result?.stdout ?? '').includes('NMG_SDLC_HANDOFF: ')) {
+    try {
+      reason = JSON.parse(readFileSync(join(cwd, HANDOFF_DIR, `${issue}-deliver.json`), 'utf8')).reasonCode ?? reason;
+    } catch { /* keep the stderr reason */ }
+  }
+  throw new Error(`version_preparation_failed: ${reason}`);
+}
+
 function currentGateFailure(cwd, run, issue, head, report) {
   try {
     const path = `.nmg-sdlc/verification/${issue}.json`;
@@ -637,6 +667,10 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           const unimplemented = !implementedHeads.has(current.head) && !branchCommits(cwd, run, evidence);
           if (dirty || needsImplement || unimplemented || (!published && !green)) step = 'implement';
           else step = green && published && !dirtyReport ? 'deliver' : 'verify';
+          // The version commit lands before verification, so the registered gate runs at the
+          // head delivery merges; a new commit is verified before anything is delivered.
+          if (['verify', 'deliver'].includes(step) && !dirty && !dirtyReport && published && !evidence.pullRequest
+            && prepareVersion(cwd, run, issue, invocationId) !== current.head) continue;
         }
         if (step === 'implement') inspectPublicationScope({ cwd, issue, spec: evidence.spec.path, step, run });
         const path = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
@@ -672,7 +706,9 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
         if (!pane || pane === env.HERDR_PANE_ID) throw new Error('pane_identity_unavailable');
         owned.add(pane);
         onOwnedPane(pane);
-        if (!succeeded(api.agentStart({ name, paneId: pane, model: stageModel(step, failure) }))) throw new Error('agent_start_failed');
+        if (!succeeded(api.agentStart({
+          name, paneId: pane, model: stageModel(step, failure), effort: stageEffort(step, failure),
+        }))) throw new Error('agent_start_failed');
         const sent = api.agentPrompt({ name, prompt: instructions });
         if (!succeeded(sent)) {
           if (!String(JSON.stringify(sent)).includes('agent_prompt_stalled')) throw new Error('worker_prompt_failed');

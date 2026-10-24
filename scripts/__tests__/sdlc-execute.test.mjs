@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { defaultHerdr, runExecute, parseArgs, stageModel, validateHandoff, VALID_STEPS, WORKER_PERMISSION_MODES,
+import { defaultHerdr, runExecute, parseArgs, stageEffort, stageModel, validateHandoff, VALID_STEPS, WORKER_PERMISSION_MODES,
   workerAgentArgs, workerPermissionMode } from '../sdlc-execute.mjs';
 import { packageRoot } from '../../src/sdlc-workflows.mjs';
 import { inspectIssueSpecScope } from '../issue-spec-scope.mjs';
@@ -91,11 +91,21 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
   fs.mkdirSync(runtime, { recursive: true });
   fs.writeFileSync(path.join(runtime, 'run.json'), '{stale corrupted checkpoint');
   fs.writeFileSync(path.join(runtime, 'safe-recoveries.json'), '{stale corrupted ledger');
-  const state = { merged: false, closed: false, starts: [], prompts: [], reminders: [], closedPanes: [], owned: [], released: [], sourcePushes: 0 };
+  const state = { merged: false, closed: false, starts: [], prompts: [], reminders: [], closedPanes: [], owned: [], released: [], sourcePushes: 0,
+    versionPreparations: [] };
+  // `sdlc-deliver.mjs prepare-version`: synchronized (no commit) unless a test arranges a bump or a failure.
+  let onPrepareVersion = () => null;
   const run = (command, args, options = {}) => {
     if (command === 'git') {
       const response = spawnSync('git', args, { cwd: options.cwd ?? root, encoding: 'utf8' });
       return { status: response.status, stdout: response.stdout, stderr: response.stderr };
+    }
+    if (command === process.execPath && args[1] === 'prepare-version') {
+      state.versionPreparations.push({ args, head: git(root, 'rev-parse', 'HEAD') });
+      const outcome = onPrepareVersion({ state, root, publish });
+      if (outcome) return outcome;
+      const prepared = { issue: 42, version: '1.0.0', headSha: git(root, 'rev-parse', 'HEAD'), changedPaths: [] };
+      return result(`NMG_SDLC_VERSION_PREPARED: ${JSON.stringify(prepared)}\n`);
     }
     if (command !== 'gh') throw new Error(`unexpected binary ${command}`);
     if (args[0] === 'auth') return result('authenticated');
@@ -202,7 +212,7 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
     },
     paneClose: (pane) => { state.closedPanes.push(pane); return result(''); },
     listAgents: () => result([]),
-    agentStart: ({ name, paneId, model }) => { state.starts.push({ name, paneId, model }); return result(''); },
+    agentStart: ({ name, paneId, model, effort }) => { state.starts.push({ name, paneId, model, effort }); return result(''); },
     agentPrompt: ({ name, prompt }) => {
       const step = /-([a-z]+)-[0-9a-f]{8}$/.exec(name)?.[1];
       if (prompt.startsWith('nmg-sdlc controller:')) {
@@ -222,6 +232,7 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
     agentGet: () => result({ agent_status: 'done' }),
   };
   return { root, state, run, herdr, publish, passGate, writeHandoff, setWorker: (fn) => { onWorker = fn; },
+    setPrepareVersion: (fn) => { onPrepareVersion = fn; },
     setReminder: (fn) => { onReminder = fn; },
     execute: (args = '', options = {}) => runExecute({ args, cwd: root, env, run, herdr,
       onOwnedPane: (pane) => state.owned.push(pane), onPaneClosed: (pane) => state.released.push(pane), ...options }) };
@@ -273,12 +284,14 @@ describe('Herdr Claude workers', () => {
     expect(workerAgentArgs({ env: {} })).toEqual(['--plugin-dir', packageRoot, '--permission-mode', 'auto']);
     expect(workerAgentArgs({ env: { NMG_SDLC_WORKER_PERMISSION_MODE: 'acceptEdits' }, pluginRoot: '/opt/nmg' }))
       .toEqual(['--plugin-dir', '/opt/nmg', '--permission-mode', 'acceptEdits']);
-    expect(workerAgentArgs({ env: {}, model: 'sonnet' }))
-      .toEqual(['--plugin-dir', packageRoot, '--permission-mode', 'auto', '--model', 'sonnet']);
+    expect(workerAgentArgs({ env: {}, model: 'haiku' }))
+      .toEqual(['--plugin-dir', packageRoot, '--permission-mode', 'auto', '--model', 'haiku']);
+    expect(workerAgentArgs({ env: {}, model: 'haiku', effort: 'xhigh' }))
+      .toEqual(['--plugin-dir', packageRoot, '--permission-mode', 'auto', '--model', 'haiku', '--effort', 'xhigh']);
   });
 
   it('starts each fresh stage on its model and a repair re-dispatch on opus', () => {
-    expect(VALID_STEPS.map((step) => stageModel(step, null))).toEqual(['haiku', 'sonnet', 'opus', 'sonnet']);
+    expect(VALID_STEPS.map((step) => stageModel(step, null))).toEqual(['haiku', 'haiku', 'opus', 'haiku']);
     for (const step of ['implement', 'verify', 'deliver']) {
       expect(stageModel(step, { reasonCode: 'verification_not_green' })).toBe('opus');
       expect(stageModel(step, { reasonCode: 'pr_evidence_pending' })).toBe(stageModel(step, null));
@@ -288,11 +301,21 @@ describe('Herdr Claude workers', () => {
     expect(() => stageModel('rem', null)).toThrow('unknown stage: rem');
   });
 
+  it('starts implement and deliver at xhigh effort and every repair re-dispatch at the default effort', () => {
+    expect(VALID_STEPS.map((step) => stageEffort(step, null))).toEqual([undefined, 'xhigh', undefined, 'xhigh']);
+    for (const step of ['implement', 'verify', 'deliver']) {
+      expect(stageEffort(step, { reasonCode: 'verification_not_green' })).toBeUndefined();
+      expect(stageEffort(step, { reasonCode: 'pr_evidence_pending' })).toBe(stageEffort(step, null));
+    }
+    expect(stageEffort('start', { reasonCode: 'verification_not_green' })).toBeUndefined();
+    expect(() => stageEffort('rem', null)).toThrow('unknown stage: rem');
+  });
+
   it('passes the stage model to claude after the permission mode', () => {
     const { calls, run } = recordingRun();
-    defaultHerdr(run, '/repo', {}).agentStart({ name: 's42-implement-abcdef12', paneId: 'w1:p2', model: 'sonnet' });
+    defaultHerdr(run, '/repo', {}).agentStart({ name: 's42-implement-abcdef12', paneId: 'w1:p2', model: 'haiku', effort: 'xhigh' });
     expect(calls[0].args).toEqual(['agent', 'start', 's42-implement-abcdef12', '--kind', 'claude', '--pane', 'w1:p2',
-      '--', '--plugin-dir', packageRoot, '--permission-mode', 'auto', '--model', 'sonnet']);
+      '--', '--plugin-dir', packageRoot, '--permission-mode', 'auto', '--model', 'haiku', '--effort', 'xhigh']);
   });
 
   it('starts claude-kind agents with --plugin-dir and --permission-mode after --', () => {
@@ -390,6 +413,64 @@ describe('branch-first execute', () => {
     expect(fs.readFileSync(path.join(f.root, '.nmg-sdlc/run.json'), 'utf8')).toContain('stale corrupted');
   });
 
+  it('prepares the version before verification and verifies the version commit before delivery', () => {
+    const f = fixture();
+    let bumped = false;
+    f.setPrepareVersion(({ root, publish }) => {
+      if (bumped) return null;
+      bumped = true;
+      fs.writeFileSync(path.join(root, 'VERSION'), '1.1.0\n');
+      publish('feat: deliver issue #42');
+      return null;
+    });
+    const heads = [];
+    f.setWorker(({ step, state, passGate }) => {
+      heads.push({ step, head: git(f.root, 'rev-parse', 'HEAD') });
+      if (step === 'verify') passGate();
+      if (step === 'deliver') { state.merged = true; state.closed = true; }
+      return { status: 'passed', next: { verify: 'deliver', deliver: null }[step] };
+    });
+    expect(f.execute('#42')).toMatchObject({ status: 0 });
+    expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['verify', 'deliver']);
+    // The verifier saw the version commit; the first preparation ran before any worker started.
+    expect(git(f.root, 'log', '-1', '--format=%s', heads[0].head)).toBe('feat: deliver issue #42');
+    expect(f.state.versionPreparations[0].args).toEqual([
+      path.join(packageRoot, 'scripts', 'sdlc-deliver.mjs'), 'prepare-version', '--issue', '42',
+      '--controller-run-id', expect.any(String),
+    ]);
+    // Every later preparation found the version synchronized and made no second commit.
+    expect(f.state.versionPreparations.length).toBeGreaterThan(1);
+    expect(git(f.root, 'log', '--format=%s', '--grep=deliver issue #42').split('\n')).toHaveLength(1);
+  });
+
+  it('stops with the preparation reason and starts no worker when the version cannot be prepared', () => {
+    const f = fixture();
+    f.setPrepareVersion(({ root }) => {
+      fs.mkdirSync(path.join(root, '.nmg-sdlc/handoffs'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.nmg-sdlc/handoffs/42-deliver.json'), JSON.stringify({ reasonCode: 'major_bump_required' }));
+      return { status: 1, stdout: 'NMG_SDLC_HANDOFF: .nmg-sdlc/handoffs/42-deliver.json\n', stderr: '' };
+    });
+    expect(f.execute('#42')).toMatchObject({
+      status: 1, stderr: expect.stringContaining('version_preparation_failed: major_bump_required'),
+    });
+    expect(f.state.starts).toEqual([]);
+  });
+
+  it('prepares no version while the branch has uncommitted work', () => {
+    const f = fixture({ dirty: true });
+    f.setWorker(({ step, state, publish, passGate }) => {
+      if (step === 'implement') {
+        expect(state.versionPreparations).toEqual([]);
+        publish('fix: finish #42');
+      }
+      if (step === 'verify') passGate();
+      if (step === 'deliver') { state.merged = true; state.closed = true; }
+      return { status: 'passed', next: { implement: 'verify', verify: 'deliver', deliver: null }[step] };
+    });
+    expect(f.execute('#42')).toMatchObject({ status: 0 });
+    expect(f.state.versionPreparations.length).toBeGreaterThan(0);
+  });
+
   it('forwards the outer smoke invocation to verify and deliver workers', () => {
     const f = fixture();
     const smoke = { NMG_SDLC_SMOKE_OWNED: '1', NMG_SDLC_SMOKE_RECOVERY: `${'a'.repeat(64)}.${'b'.repeat(64)}` };
@@ -483,7 +564,8 @@ describe('branch-first execute', () => {
     expect(f.execute('#42')).toMatchObject({ status: 0 });
     // The new branch has no commits relative to main, so it is implemented before anything is verified.
     expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['start', 'implement', 'verify', 'deliver']);
-    expect(f.state.starts.map((entry) => entry.model)).toEqual(['haiku', 'sonnet', 'opus', 'sonnet']);
+    expect(f.state.starts.map((entry) => entry.model)).toEqual(['haiku', 'haiku', 'opus', 'haiku']);
+    expect(f.state.starts.map((entry) => entry.effort)).toEqual([undefined, 'xhigh', undefined, 'xhigh']);
   });
   it('continues an explicit queue on the default branch after the previous issue is delivered', () => {
     const f = fixture({ branch: 'main' });
@@ -760,9 +842,12 @@ describe('branch-first execute', () => {
     expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual([
       'implement', 'verify', 'implement', 'verify', 'implement', 'verify', 'deliver',
     ]);
-    // Fresh implement on sonnet; each repair implement after a failed verify on opus; deliver after the pass on sonnet.
+    // Fresh implement on haiku; each repair implement after a failed verify on opus; deliver after the pass on haiku.
     expect(f.state.starts.map((entry) => entry.model)).toEqual([
-      'sonnet', 'opus', 'opus', 'opus', 'opus', 'opus', 'sonnet',
+      'haiku', 'opus', 'opus', 'opus', 'opus', 'opus', 'haiku',
+    ]);
+    expect(f.state.starts.map((entry) => entry.effort)).toEqual([
+      'xhigh', undefined, undefined, undefined, undefined, undefined, 'xhigh',
     ]);
     expect(f.state.prompts[2].prompt).toContain('gate-1.json');
     expect(f.state.prompts[4].prompt).toContain('gate-2.json');
@@ -796,7 +881,7 @@ describe('branch-first execute', () => {
         return result('', 1);
       } };
       expect(f.execute(args, { herdr })).toMatchObject({ status: 1, stderr: expect.stringContaining('agent_start_failed') });
-      expect(f.state.starts.map((entry) => entry.model)).toEqual(['sonnet']);
+      expect(f.state.starts.map((entry) => entry.model)).toEqual(['haiku']);
       expect(f.state.prompts).toEqual([]);
       expect(f.state.closedPanes).toEqual(closed ? f.state.owned : []);
     });

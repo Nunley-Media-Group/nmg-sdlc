@@ -7,6 +7,11 @@ export const SDLC_MODELS: {
   readonly repair: SdlcModel;
   readonly commands: { readonly [command: string]: SdlcModel };
 };
+export type SdlcEffort = "low" | "medium" | "high" | "xhigh" | "max";
+export const SDLC_EFFORTS: {
+  readonly stages: { readonly [step: string]: SdlcEffort };
+  readonly commands: { readonly [command: string]: SdlcEffort };
+};
 export const WRITE_SPEC_FINISHED_LABELS: readonly string[];
 export const PLAN_ENABLED_TEXT: string;
 export function isInteractiveCommand(name: unknown): boolean;

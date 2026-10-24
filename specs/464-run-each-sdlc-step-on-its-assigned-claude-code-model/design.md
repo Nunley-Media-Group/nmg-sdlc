@@ -27,12 +27,12 @@ None of the three changes the session model, so nothing needs restoring.
 
 ```js
 export const SDLC_MODELS = Object.freeze({
-  stages: Object.freeze({ start: "haiku", implement: "sonnet", verify: "opus", deliver: "sonnet" }),
+  stages: Object.freeze({ start: "haiku", implement: "haiku", verify: "opus", deliver: "haiku" }),
   repair: "opus",
   commands: Object.freeze({
     "sdlc-status": "haiku",
     "sdlc-execute": "haiku",
-    "sdlc-open-pr": "sonnet",
+    "sdlc-open-pr": "haiku",
     "sdlc-verify-code": "opus",
     "sdlc-draft-issue": "opus",
     "sdlc-write-spec": "opus",
@@ -75,7 +75,7 @@ Module state: `let override: { command: string; model: string; sessionModel: str
 
 ### Agents and steering
 
-- `agents/spec-implementer.md` and `agents/deliverer.md` gain `model: sonnet`. `starter` (`haiku`) and `architecture-reviewer` (`opus`) keep theirs.
+- `agents/spec-implementer.md` and `agents/deliverer.md` gain `model: haiku`. `starter` (`haiku`) and `architecture-reviewer` (`opus`) keep theirs.
 - The `steering/snippets/project-tech.md` Agent Files table records the four values. Its rule sentence changes to: "`model` is `haiku`, `sonnet`, or `opus` and matches `SDLC_MODELS`; never hardcode model ids."
 - `scripts/__tests__/steering-contract.test.mjs` asserts each agent's `model` equals `SDLC_MODELS.stages[<step>]` for its step (`starter` → start, `spec-implementer` → implement, `architecture-reviewer` → verify, `deliverer` → deliver).
 - `README.md` gains a "Models" subsection with the Model Map table.
@@ -107,3 +107,4 @@ Module state: `let override: { command: string; model: string; sessionModel: str
 |-------|------|---------|
 | #464 | 2026-10-22 | Initial feature design (OMP model roles) |
 | #464 | 2026-10-24 | Replaced with Claude Code per-step models across workers, command files, and hooks-registered commands |
+| #482 | 2026-10-24 | Implement and deliver stages, `/sdlc-open-pr`, `spec-implementer`, and `deliverer` moved from `sonnet` to `haiku` (effort is owned by #482) |

@@ -62,7 +62,15 @@ describe('Claude Code plugin commands', () => {
     const models = Object.fromEntries(AUTOMATED_COMMANDS.map(([name]) => [
       name, read(`commands/${name}.md`).match(/^---\n[\s\S]*?^model: (\S+)$[\s\S]*?^---$/m)?.[1],
     ]));
-    expect(models).toEqual({ 'sdlc-status': 'haiku', 'sdlc-verify-code': 'opus', 'sdlc-open-pr': 'sonnet' });
+    expect(models).toEqual({ 'sdlc-status': 'haiku', 'sdlc-verify-code': 'opus', 'sdlc-open-pr': 'haiku' });
+  });
+
+  it('declares effort only for the automated commands that set one', () => {
+    const efforts = Object.fromEntries(AUTOMATED_COMMANDS.map(([name]) => [
+      name, read(`commands/${name}.md`).match(/^---\n[\s\S]*?^effort: (\S+)$[\s\S]*?^---$/m)?.[1],
+    ]));
+    expect(efforts).toEqual({ 'sdlc-status': undefined, 'sdlc-verify-code': undefined, 'sdlc-open-pr': 'xhigh' });
+    expect(read('commands/sdlc-open-pr.md').startsWith('---\ndescription: "Deliver verified work through exact-head PR merge"\nargument-hint: "[#N]"\nmodel: haiku\neffort: xhigh\n---\n\n')).toBe(true);
   });
 
   it('ships a Claude Code manifest and no OMP extension surface', () => {

@@ -151,7 +151,7 @@ Skill frontmatter contains only `name` and `description`. Detailed content belon
 
 ### Agent File
 
-Agent files are Claude Code plugin subagents (`nmg-sdlc:<name>`). Required frontmatter: `name` and `description`. Optional: `model` (`haiku`, `sonnet`, `opus`, or `inherit`), `tools`. Bodies follow the inlined workflow for `#N`, forbid `AskUserQuestion` and `ExitPlanMode`, write the handoff file, print `NMG_SDLC_HANDOFF: .nmg-sdlc/handoffs/<N>-<step>.json`, and stop.
+Agent files are Claude Code plugin subagents (`nmg-sdlc:<name>`). Required frontmatter: `name` and `description`. Optional: `model` (`haiku`, `sonnet`, `opus`, or `inherit`), `effort` (`low`, `medium`, `high`, `xhigh`, or `max`), `tools`. Bodies follow the inlined workflow for `#N`, forbid `AskUserQuestion` and `ExitPlanMode`, write the handoff file, print `NMG_SDLC_HANDOFF: .nmg-sdlc/handoffs/<N>-<step>.json`, and stop.
 
 ### Plugin Manifest
 

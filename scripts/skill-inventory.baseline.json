@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-24T08:19:43.135Z",
+  "generated_at": "2026-10-24T18:51:52.441Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -32,8 +32,8 @@
       "normalized": "never call askuserquestion, enterplanmode, or exitplanmode.",
       "destination": "agents/architecture-reviewer.md:14",
       "additional_destinations": [
-        "agents/deliverer.md:14",
-        "agents/spec-implementer.md:13",
+        "agents/deliverer.md:15",
+        "agents/spec-implementer.md:14",
         "agents/starter.md:12"
       ]
     },
@@ -55,8 +55,8 @@
       "normalized": "stop.",
       "destination": "agents/architecture-reviewer.md:17",
       "additional_destinations": [
-        "agents/deliverer.md:18",
-        "agents/spec-implementer.md:17",
+        "agents/deliverer.md:19",
+        "agents/spec-implementer.md:18",
         "agents/starter.md:15"
       ]
     },
@@ -66,88 +66,88 @@
       "normalized": "/sdlc-execute runs this step as a herdr claude worker (a claude code session in ",
       "destination": "agents/architecture-reviewer.md:19",
       "additional_destinations": [
-        "agents/deliverer.md:20",
-        "agents/spec-implementer.md:19",
+        "agents/deliverer.md:21",
+        "agents/spec-implementer.md:20",
         "agents/starter.md:17"
       ]
     },
     {
       "id": "ee9ee8e5d3d5",
-      "source_before": "agents/deliverer.md:9",
+      "source_before": "agents/deliverer.md:10",
       "normalized": "you are the nmg-sdlc deliver worker.",
-      "destination": "agents/deliverer.md:9"
+      "destination": "agents/deliverer.md:10"
     },
     {
       "id": "fe6dfb2ad8cb",
-      "source_before": "agents/deliverer.md:11",
-      "normalized": "follow the inlined open-pr workflow for the given #n.",
-      "destination": "agents/deliverer.md:11"
-    },
-    {
-      "id": "f19f8ba8a528",
       "source_before": "agents/deliverer.md:12",
-      "normalized": "bot review threads (__typename: bot or login coderabbitai) are fixed in this sam",
+      "normalized": "follow the inlined open-pr workflow for the given #n.",
       "destination": "agents/deliverer.md:12"
     },
     {
-      "id": "644e40a64928",
+      "id": "f19f8ba8a528",
       "source_before": "agents/deliverer.md:13",
-      "normalized": "human-reviewer threads fail the handoff with intervention: true and reasoncode: ",
+      "normalized": "bot review threads (__typename: bot or login coderabbitai) are fixed in this sam",
       "destination": "agents/deliverer.md:13"
     },
     {
-      "id": "a5aa20218845",
-      "source_before": "agents/deliverer.md:15",
-      "normalized": "write .nmg-sdlc/handoffs/<n>-deliver.json.",
-      "destination": "agents/deliverer.md:15"
+      "id": "644e40a64928",
+      "source_before": "agents/deliverer.md:14",
+      "normalized": "human-reviewer threads fail the handoff with intervention: true and reasoncode: ",
+      "destination": "agents/deliverer.md:14"
     },
     {
-      "id": "7d0fa4396201",
+      "id": "a5aa20218845",
       "source_before": "agents/deliverer.md:16",
-      "normalized": "success handoff only after merged + issue closed.",
+      "normalized": "write .nmg-sdlc/handoffs/<n>-deliver.json.",
       "destination": "agents/deliverer.md:16"
     },
     {
-      "id": "6a9999428371",
+      "id": "7d0fa4396201",
       "source_before": "agents/deliverer.md:17",
-      "normalized": "on success print exactly: nmgsdlchandoff: .nmg-sdlc/handoffs/<n>-deliver.json",
+      "normalized": "success handoff only after merged + issue closed.",
       "destination": "agents/deliverer.md:17"
     },
     {
+      "id": "6a9999428371",
+      "source_before": "agents/deliverer.md:18",
+      "normalized": "on success print exactly: nmgsdlchandoff: .nmg-sdlc/handoffs/<n>-deliver.json",
+      "destination": "agents/deliverer.md:18"
+    },
+    {
       "id": "a1cb491cbd52",
-      "source_before": "agents/spec-implementer.md:9",
+      "source_before": "agents/spec-implementer.md:10",
       "normalized": "you are the nmg-sdlc implement worker.",
-      "destination": "agents/spec-implementer.md:9"
+      "destination": "agents/spec-implementer.md:10"
     },
     {
       "id": "a2b664fc7793",
-      "source_before": "agents/spec-implementer.md:11",
-      "normalized": "follow the inlined write-code workflow for the given #n, including repair and re",
-      "destination": "agents/spec-implementer.md:11"
-    },
-    {
-      "id": "cf6a4f49710d",
       "source_before": "agents/spec-implementer.md:12",
-      "normalized": "invoke the skill-creator skill with the skill tool before editing any skill-bund",
+      "normalized": "follow the inlined write-code workflow for the given #n, including repair and re",
       "destination": "agents/spec-implementer.md:12"
     },
     {
-      "id": "f93407c05c24",
-      "source_before": "agents/spec-implementer.md:14",
-      "normalized": "commit all non-runtime implementation changes with a conventional subject contai",
-      "destination": "agents/spec-implementer.md:14"
+      "id": "cf6a4f49710d",
+      "source_before": "agents/spec-implementer.md:13",
+      "normalized": "invoke the skill-creator skill with the skill tool before editing any skill-bund",
+      "destination": "agents/spec-implementer.md:13"
     },
     {
-      "id": "bb8e06831a61",
+      "id": "f93407c05c24",
       "source_before": "agents/spec-implementer.md:15",
-      "normalized": "write .nmg-sdlc/handoffs/<n>-implement.json with \"next\": \"verify\".",
+      "normalized": "commit all non-runtime implementation changes with a conventional subject contai",
       "destination": "agents/spec-implementer.md:15"
     },
     {
-      "id": "1ca60dbfa976",
+      "id": "bb8e06831a61",
       "source_before": "agents/spec-implementer.md:16",
-      "normalized": "on success print exactly: nmgsdlchandoff: .nmg-sdlc/handoffs/<n>-implement.json",
+      "normalized": "write .nmg-sdlc/handoffs/<n>-implement.json with \"next\": \"verify\".",
       "destination": "agents/spec-implementer.md:16"
+    },
+    {
+      "id": "1ca60dbfa976",
+      "source_before": "agents/spec-implementer.md:17",
+      "normalized": "on success print exactly: nmgsdlchandoff: .nmg-sdlc/handoffs/<n>-implement.json",
+      "destination": "agents/spec-implementer.md:17"
     },
     {
       "id": "04683d5d6833",
@@ -273,9 +273,9 @@
       "destination": "references/execute-implementable-requirements.md:13"
     },
     {
-      "id": "9c28b0bea7d8",
+      "id": "d7d7c45d26cd",
       "source_before": "references/execute-implementable-requirements.md:14",
-      "normalized": "delivery authority. prepare version artifacts on the issue branch before final v",
+      "normalized": "delivery authority. the execute controller prepares version artifacts on the pub",
       "destination": "references/execute-implementable-requirements.md:14"
     },
     {
