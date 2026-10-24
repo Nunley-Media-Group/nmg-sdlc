@@ -1,6 +1,7 @@
 ---
 name: deliverer
 description: Exact-head merge delivery.
+model: sonnet
 ---
 
 # Deliverer

@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { defaultHerdr, runExecute, parseArgs, validateHandoff, VALID_STEPS, WORKER_PERMISSION_MODES,
+import { defaultHerdr, runExecute, parseArgs, stageModel, validateHandoff, VALID_STEPS, WORKER_PERMISSION_MODES,
   workerAgentArgs, workerPermissionMode } from '../sdlc-execute.mjs';
 import { packageRoot } from '../../src/sdlc-workflows.mjs';
 import { inspectIssueSpecScope } from '../issue-spec-scope.mjs';
@@ -192,7 +192,7 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
     },
     paneClose: (pane) => { state.closedPanes.push(pane); return result(''); },
     listAgents: () => result([]),
-    agentStart: ({ name, paneId }) => { state.starts.push({ name, paneId }); return result(''); },
+    agentStart: ({ name, paneId, model }) => { state.starts.push({ name, paneId, model }); return result(''); },
     agentPrompt: ({ name, prompt }) => {
       state.prompts.push({ name, prompt });
       if (state.prompts.length > 10) throw new Error('fixture repeated dispatch without progress');
@@ -261,6 +261,26 @@ describe('Herdr Claude workers', () => {
     expect(workerAgentArgs({ env: {} })).toEqual(['--plugin-dir', packageRoot, '--permission-mode', 'auto']);
     expect(workerAgentArgs({ env: { NMG_SDLC_WORKER_PERMISSION_MODE: 'acceptEdits' }, pluginRoot: '/opt/nmg' }))
       .toEqual(['--plugin-dir', '/opt/nmg', '--permission-mode', 'acceptEdits']);
+    expect(workerAgentArgs({ env: {}, model: 'sonnet' }))
+      .toEqual(['--plugin-dir', packageRoot, '--permission-mode', 'auto', '--model', 'sonnet']);
+  });
+
+  it('starts each fresh stage on its model and a repair re-dispatch on opus', () => {
+    expect(VALID_STEPS.map((step) => stageModel(step, null))).toEqual(['haiku', 'sonnet', 'opus', 'sonnet']);
+    for (const step of ['implement', 'verify', 'deliver']) {
+      expect(stageModel(step, { reasonCode: 'verification_not_green' })).toBe('opus');
+      expect(stageModel(step, { reasonCode: 'pr_evidence_pending' })).toBe(stageModel(step, null));
+      expect(stageModel(step, { reasonCode: 'mergeability_reverification_required' })).toBe(stageModel(step, null));
+    }
+    expect(stageModel('start', { reasonCode: 'verification_not_green' })).toBe('haiku');
+    expect(() => stageModel('rem', null)).toThrow('unknown stage: rem');
+  });
+
+  it('passes the stage model to claude after the permission mode', () => {
+    const { calls, run } = recordingRun();
+    defaultHerdr(run, '/repo', {}).agentStart({ name: 's42-implement-abcdef12', paneId: 'w1:p2', model: 'sonnet' });
+    expect(calls[0].args).toEqual(['agent', 'start', 's42-implement-abcdef12', '--kind', 'claude', '--pane', 'w1:p2',
+      '--', '--plugin-dir', packageRoot, '--permission-mode', 'auto', '--model', 'sonnet']);
   });
 
   it('starts claude-kind agents with --plugin-dir and --permission-mode after --', () => {
@@ -447,6 +467,7 @@ describe('branch-first execute', () => {
     });
     expect(f.execute('#42')).toMatchObject({ status: 0 });
     expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['start', 'verify', 'deliver']);
+    expect(f.state.starts.map((entry) => entry.model)).toEqual(['haiku', 'opus', 'sonnet']);
   });
   it('continues an explicit queue on the default branch after the previous issue is delivered', () => {
     const f = fixture({ branch: 'main' });
@@ -720,6 +741,10 @@ describe('branch-first execute', () => {
     expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual([
       'implement', 'verify', 'implement', 'verify', 'implement', 'verify', 'deliver',
     ]);
+    // Fresh implement on sonnet; each repair implement after a failed verify on opus; deliver after the pass on sonnet.
+    expect(f.state.starts.map((entry) => entry.model)).toEqual([
+      'sonnet', 'opus', 'opus', 'opus', 'opus', 'opus', 'sonnet',
+    ]);
     expect(f.state.prompts[2].prompt).toContain('gate-1.json');
     expect(f.state.prompts[4].prompt).toContain('gate-2.json');
     expect(fs.readFileSync(path.join(f.root, 'helper.py'), 'utf8')).toContain('preserved partial change');
@@ -743,6 +768,19 @@ describe('branch-first execute', () => {
     expect(f.state.starts).toEqual([]);
     expect(f.state.closedPanes).toEqual([]);
   });
+
+  it.each([['#42', true], ['#42 --retain-worker', false]])(
+    'stops with agent_start_failed on a model-routed launch and sends no prompt (%s)', (args, closed) => {
+      const f = fixture({ dirty: true });
+      const herdr = { ...f.herdr, agentStart: ({ name, paneId, model }) => {
+        f.state.starts.push({ name, paneId, model });
+        return result('', 1);
+      } };
+      expect(f.execute(args, { herdr })).toMatchObject({ status: 1, stderr: expect.stringContaining('agent_start_failed') });
+      expect(f.state.starts.map((entry) => entry.model)).toEqual(['sonnet']);
+      expect(f.state.prompts).toEqual([]);
+      expect(f.state.closedPanes).toEqual(closed ? f.state.owned : []);
+    });
 
   it('stops on a real intervention without treating it as another repair attempt', () => {
     const f = fixture();

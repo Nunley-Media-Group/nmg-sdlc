@@ -79,10 +79,29 @@ Replace `42` with the actual GitHub issue number. Review and approve the interac
 `/sdlc-execute` runs its stages in sibling Herdr panes, each a Claude Code session started as:
 
 ```text
-herdr agent start <name> --kind claude --pane <id> -- --plugin-dir <plugin-root> --permission-mode <mode>
+herdr agent start <name> --kind claude --pane <id> -- --plugin-dir <plugin-root> --permission-mode <mode> --model <model>
 ```
 
 `<mode>` defaults to `auto`. Set `NMG_SDLC_WORKER_PERMISSION_MODE` in the controller's environment to `default`, `acceptEdits`, `auto`, `dontAsk`, or `bypassPermissions` to override it; any other value falls back to `auto`. Workers inherit your Claude Code settings and permission rules, so a stricter mode can stop a worker at a permission prompt.
+
+### Models
+
+Every step runs on the Claude Code model suited to its workload, and your session model is never changed. Execute stage workers start with `claude --model <model>`. The three command files declare `model` in their frontmatter. For `/sdlc-execute` and the six interactive commands, the hooks module rewrites the model of each main-loop request, including the turns the plugin submits for the command, such as the write-spec Continue prompt. Subagent requests and the effort setting are left alone.
+
+| Step | Model |
+|------|-------|
+| execute stage `start` | `haiku` |
+| execute stage `implement` | `sonnet` |
+| execute stage `verify` | `opus` |
+| execute stage `deliver` | `sonnet` |
+| execute repair re-dispatch (`implement`, `verify`, `deliver`) | `opus` |
+| `/sdlc-status` | `haiku` |
+| `/sdlc-execute` (controller session) | `haiku` |
+| `/sdlc-open-pr` | `sonnet` |
+| `/sdlc-verify-code` | `opus` |
+| `/sdlc-draft-issue`, `/sdlc-write-spec`, `/sdlc-onboard-project`, `/sdlc-upgrade-project`, `/sdlc-steering`, `/sdlc-run-retro` | `opus` |
+
+A repair re-dispatch is the next implement, verify, or deliver worker after a recorded failure, other than `pr_evidence_pending` and `mergeability_reverification_required`. Once a stage passes, the next dispatch uses its stage model again. A hooks-registered command's model holds until you submit your own prompt or slash command (from the composer or Remote Control) or change the session model. The aliases always resolve to the current model of each tier. The map is `SDLC_MODELS` in `src/host-events.mjs`.
 
 ### Autopilot for hands-off drivers
 

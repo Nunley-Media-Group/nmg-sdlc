@@ -18,6 +18,9 @@ import {
   writeSpecPublication,
 } from '../../src/sdlc-commands.mjs';
 import {
+  AUTOMATED_COMMANDS,
+  INTERACTIVE_COMMANDS,
+  SDLC_MODELS,
   materializePluginRootCommand,
   materializePluginRootPath,
   soleJsonObject,
@@ -47,6 +50,15 @@ describe('interactive command rendering', () => {
     expect(parseInteractiveSlash('/sdlc-status --json')).toBeNull();
     expect(isInteractiveCommand('sdlc-write-spec')).toBe(true);
     expect(isInteractiveCommand('sdlc-open-pr')).toBe(false);
+  });
+
+  it('assigns one model alias to every interactive and automated command', () => {
+    const names = [...INTERACTIVE_COMMANDS, ...AUTOMATED_COMMANDS].map(([name]) => name).sort();
+    expect(Object.keys(SDLC_MODELS.commands).sort()).toEqual(names);
+    for (const model of [...Object.values(SDLC_MODELS.commands), ...Object.values(SDLC_MODELS.stages), SDLC_MODELS.repair]) {
+      expect(['haiku', 'sonnet', 'opus']).toContain(model);
+    }
+    expect(Object.isFrozen(SDLC_MODELS) && Object.isFrozen(SDLC_MODELS.stages) && Object.isFrozen(SDLC_MODELS.commands)).toBe(true);
   });
 
   it('keeps withArguments contract', () => {

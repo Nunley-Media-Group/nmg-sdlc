@@ -126,14 +126,14 @@ WORKFLOW.md frontmatter declares only `name` and `description`.
 
 Files under `agents/` are installable Claude Code plugin subagents, addressed as `nmg-sdlc:<name>`. Required frontmatter: `name` and `description`. Optional: `model`, `tools`.
 
-`model` is only `haiku`, `sonnet`, `opus`, or `inherit`. Omit `model` to inherit the session model. Never hardcode provider model ids.
+`model` is `haiku`, `sonnet`, or `opus` and matches `SDLC_MODELS`; never hardcode model ids.
 
 | File | `name` | `model` |
 |------|--------|---------|
 | `agents/starter.md` | `starter` | `haiku` |
-| `agents/spec-implementer.md` | `spec-implementer` | omit |
+| `agents/spec-implementer.md` | `spec-implementer` | `sonnet` |
 | `agents/architecture-reviewer.md` | `architecture-reviewer` | `opus` |
-| `agents/deliverer.md` | `deliverer` | omit |
+| `agents/deliverer.md` | `deliverer` | `sonnet` |
 
 `execute` does not use the `Agent` tool for pipeline steps. Herdr sessions are the isolation boundary.
 

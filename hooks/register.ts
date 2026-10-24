@@ -1,7 +1,8 @@
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, TurnStepInput } from 'claude-code'
 import {
   DIRECT_COMMANDS,
   INTERACTIVE_COMMANDS,
+  SDLC_MODELS,
   WRITE_SPEC_FINISHED_LABELS,
   interactiveHeadlessMessage,
   materializePluginRootCommand,
@@ -51,6 +52,10 @@ let interactive = true
 let autopilot = false
 // The one prompt that asks the model to leave plan mode after Finished was sent.
 let exitNudged = false
+// The running command's model: main-loop requests name it until the person
+// submits their own prompt or the session model changes. The session model
+// itself is never set.
+let modelOverride: { command: string; model: string; sessionModel: string } | null = null
 
 
 async function render($: Engine, args: string[]): Promise<Rendered> {
@@ -91,6 +96,29 @@ function startInteractiveCommand(command: string): void {
   } else {
     Object.assign(writeSpec, { active: false, exitPending: false })
   }
+}
+
+async function startModelOverride($: Engine, command: string): Promise<void> {
+  try {
+    modelOverride = { command, model: SDLC_MODELS.commands[command], sessionModel: await $.session.model() }
+  } catch {
+    modelOverride = null
+  }
+}
+
+// The request a main-loop step sends while a command's model override holds;
+// any other step, or a host failure, goes out as the engine resolved it.
+async function overrideStep($: Engine, e: TurnStepInput): Promise<TurnStepInput> {
+  if (e.agentId !== undefined || modelOverride === null) return e
+  try {
+    if ((await $.session.model()) !== modelOverride.sessionModel) {
+      modelOverride = null
+      return e
+    }
+  } catch {
+    return e
+  }
+  return { ...e, model: modelOverride.model }
 }
 
 // A merged write-spec publication is recorded from its Bash result; the
@@ -137,6 +165,7 @@ export const register: Register = on => {
       const rendered = await render($, ['--consumer', name, '--args', e.args])
       if (!rendered.ok) return { text: `NMG SDLC: /${name} could not render its workflow: ${rendered.message}` }
       startInteractiveCommand(name)
+      await startModelOverride($, name)
       // Neither `/plan` nor the workflow prompt can start from inside this
       // command's own dispatch; a timer starts them once it has settled.
       if (DIRECT_COMMANDS.includes(name)) {
@@ -151,6 +180,18 @@ export const register: Register = on => {
       return {}
     })
   }
+
+  // The person's own prompt or slash command ends the running command's model
+  // override; a command it runs starts a fresh one from its `command.run`.
+  // Plugin-submitted turns (the workflow, Continue, the Finished nudge) keep it.
+  on('prompt.submit', ($, e, next) => {
+    if ((e.origin.kind === 'composer' || e.origin.kind === 'bridge') && e.isMeta !== true) modelOverride = null
+    return next(e)
+  })
+
+  on('turn.step', async function* ($, e, next) {
+    return yield* next(await overrideStep($, e))
+  })
 
   // Workflows name plugin scripts as `<plugin-root>/scripts/<name>.mjs`; the
   // installed plugin's absolute path replaces the placeholder before the shell

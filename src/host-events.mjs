@@ -22,6 +22,26 @@ export const AUTOMATED_COMMANDS = [
   ["sdlc-open-pr", "open-pr", "Deliver verified work through exact-head PR merge"],
 ];
 
+// The Claude Code model alias each nmg-sdlc step runs on: execute stage
+// workers (`claude --model`), repair re-dispatch, and every command. The
+// aliases always resolve to the current model of their tier.
+export const SDLC_MODELS = Object.freeze({
+  stages: Object.freeze({ start: "haiku", implement: "sonnet", verify: "opus", deliver: "sonnet" }),
+  repair: "opus",
+  commands: Object.freeze({
+    "sdlc-status": "haiku",
+    "sdlc-execute": "haiku",
+    "sdlc-open-pr": "sonnet",
+    "sdlc-verify-code": "opus",
+    "sdlc-draft-issue": "opus",
+    "sdlc-write-spec": "opus",
+    "sdlc-onboard-project": "opus",
+    "sdlc-upgrade-project": "opus",
+    "sdlc-steering": "opus",
+    "sdlc-run-retro": "opus",
+  }),
+});
+
 export const WRITE_SPEC_FINISHED_LABELS = Object.freeze([
   "Finished — stop writing specs",
   "Finished — stop without writing a spec",
