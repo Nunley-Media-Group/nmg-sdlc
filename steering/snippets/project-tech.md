@@ -227,7 +227,7 @@ Read-only evidence gathering does not authorize a write. Issue creation, status 
 |----------|-----------|
 | Contribution workflow | Requires the managed marker/version; unmarked collision is preserved |
 | Structured issue form | Exact managed target path; unrelated templates are preserved |
-| Root AGENTS guidance | Only the marked spec-context section is managed |
+| Root CLAUDE.md guidance | Only the marked spec-context section is managed |
 | Contribution guide | Targeted workflow section and README link; existing policy is preserved |
 | V2 cleanup | Exact regular-file paths and exact entries inside recognized ignore blocks |
 
@@ -390,5 +390,5 @@ Exercise live proof uses `claude -p --plugin-dir <checkout>` loading this reposi
 
 - Product direction: `steering/snippets/project-product.md`
 - Repository organization: `steering/snippets/project-structure.md`
-- Project instructions: `AGENTS.md`
+- Project instructions: `CLAUDE.md`
 - Public workflow: `README.md`

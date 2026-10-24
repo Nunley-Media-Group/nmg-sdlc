@@ -2908,3 +2908,253 @@ describe('managed steering migration', () => {
     expect(fs.existsSync(path.join(root, '.nmg-sdlc'))).toBe(false);
   });
 });
+
+const V3_SNIPPET = [
+  'Run herdr integration install omp first.',
+  'Use ../omp-sdlc-ignore.mjs and scripts/exercise-omp.mjs here.',
+  'Launch with omp --print or --kind omp or --kind pi.',
+  'State lives in .omp/sdlc/ and .omp/sdlc.',
+  'Oh My Pi and OMP agree; OMPX and lowercase omp stay.',
+  '',
+].join('\n');
+
+async function makeV3HostProject(root, snippet = V3_SNIPPET) {
+  await applySteeringPlan(root, createInitializePlan(root, {
+    snippets: [{
+      id: 'project.tech',
+      path: 'steering/snippets/project-tech.md',
+      consumers: ['worker:implement'],
+      slot: 'body',
+      order: 500,
+      content: snippet,
+    }],
+    validations: [{
+      id: 'repository.exercise',
+      provider: 'builtin.command',
+      required: true,
+      when: { kind: 'always' },
+      config: { program: 'omp', args: ['--print', 'scripts/exercise-omp.mjs'], cwd: '.', env: [] },
+    }],
+  }));
+}
+
+const detectItems = (root) => detectUpgrade(root, { run: noNetworkRun, includeIssueDependencies: false }).items;
+const applyIds = (root, ids) => applyUpgrade(root, ids, noNetworkRun, { includeIssueDependencies: false });
+
+describe('steering-v4-host-language', () => {
+  it('lists every occurrence and applies exactly the mapped text through the shared writer', async () => {
+    const root = makeRoot();
+    await makeV3HostProject(root);
+    const item = detectItems(root).find((candidate) => candidate.kind === 'steering-v4-host-language');
+    expect(item.actionable).toBe(true);
+    expect(item.occurrences).toContainEqual({ validationId: 'repository.exercise', field: 'config.program', before: 'omp', after: 'claude' });
+    expect(item.occurrences).toContainEqual({ validationId: 'repository.exercise', field: 'config.args[0]', before: '--print', after: '-p' });
+    expect(item.occurrences).toContainEqual({ validationId: 'repository.exercise', field: 'config.args[1]', before: 'scripts/exercise-omp.mjs', after: 'scripts/exercise-claude.mjs' });
+    expect(item.occurrences.filter((entry) => entry.file === 'steering/snippets/project-tech.md').map((entry) => entry.line)).toEqual([1, 2, 3, 4, 5]);
+
+    const result = applyIds(root, [item.id]);
+    expect(result.applied).toContainEqual(expect.objectContaining({ id: item.id, status: 'applied' }));
+    expect(fs.readFileSync(path.join(root, 'steering', 'snippets', 'project-tech.md'), 'utf8')).toBe([
+      'Run herdr integration install claude first.',
+      'Use ../nmg-sdlc-ignore.mjs and scripts/exercise-claude.mjs here.',
+      'Launch with claude -p or --kind claude or --kind claude.',
+      'State lives in .nmg-sdlc/ and .nmg-sdlc.',
+      'Claude Code and Claude Code agree; OMPX and lowercase omp stay.',
+      '',
+    ].join('\n'));
+    const manifest = JSON.parse(fs.readFileSync(path.join(root, 'steering', 'manifest.json'), 'utf8'));
+    expect(manifest.validations[0].config).toEqual({ program: 'claude', args: ['-p', 'scripts/exercise-claude.mjs'], cwd: '.', env: [] });
+    await expect(loadSteeringRuntime(root)).resolves.toBeDefined();
+    expect(detectItems(root).some((candidate) => candidate.kind === 'steering-v4-host-language')).toBe(false);
+  });
+
+  it('emits no item for a token-free project and leaves a declined group untouched', async () => {
+    const clean = makeRoot();
+    await makeV3HostProject(clean, 'Nothing to rewrite.\n');
+    const manifest = JSON.parse(fs.readFileSync(path.join(clean, 'steering', 'manifest.json'), 'utf8'));
+    manifest.validations[0].config = { program: 'node', args: ['scripts/x.mjs'], cwd: '.', env: [] };
+    fs.writeFileSync(path.join(clean, 'steering', 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+    expect(detectItems(clean).some((candidate) => candidate.kind === 'steering-v4-host-language')).toBe(false);
+
+    const declined = makeRoot();
+    await makeV3HostProject(declined);
+    const before = fs.readFileSync(path.join(declined, 'steering', 'snippets', 'project-tech.md'), 'utf8');
+    applyIds(declined, []);
+    expect(fs.readFileSync(path.join(declined, 'steering', 'snippets', 'project-tech.md'), 'utf8')).toBe(before);
+  });
+
+  it('skips a symlinked snippet and reports a writer failure with its reason code, writing nothing', async () => {
+    const root = makeRoot();
+    await makeV3HostProject(root);
+    const snippetPath = path.join(root, 'steering', 'snippets', 'project-tech.md');
+    const original = fs.readFileSync(snippetPath, 'utf8');
+    fs.writeFileSync(path.join(root, 'real.md'), original);
+    fs.rmSync(snippetPath);
+    fs.symlinkSync(path.join(root, 'real.md'), snippetPath);
+    const item = detectItems(root).find((candidate) => candidate.kind === 'steering-v4-host-language');
+    expect(item.unverifiable).toEqual([{ path: 'steering/snippets/project-tech.md', reasonCode: 'steering_host_language_unsafe_path' }]);
+    const result = applyIds(root, [item.id]);
+    expect(result.results).toContainEqual(expect.objectContaining({ id: item.id, status: 'skipped:unverifiable', reasonCode: 'steering_host_language_unsafe_path' }));
+    expect(fs.readFileSync(path.join(root, 'real.md'), 'utf8')).toBe(original);
+
+    const tampered = makeRoot();
+    await makeV3HostProject(tampered);
+    const tamperedItem = detectItems(tampered).find((candidate) => candidate.kind === 'steering-v4-host-language');
+    const modulePath = path.join(tampered, 'steering', 'modules', 'product.mjs');
+    fs.appendFileSync(modulePath, '\n// tampered\n');
+    const snippetBefore = fs.readFileSync(path.join(tampered, 'steering', 'snippets', 'project-tech.md'), 'utf8');
+    const failed = applyIds(tampered, [tamperedItem.id]);
+    expect(failed.results).toContainEqual(expect.objectContaining({ id: tamperedItem.id, reasonCode: 'steering_module_invalid' }));
+    expect(failed.results.find((entry) => entry.id === tamperedItem.id).status).toMatch(/^failed:/);
+    expect(fs.readFileSync(path.join(tampered, 'steering', 'snippets', 'project-tech.md'), 'utf8')).toBe(snippetBefore);
+  });
+});
+
+describe('contributing-v4-host-language', () => {
+  const sentence = 'drives Herdr omp worker panes through implementation, verification, and delivery';
+  const replacement = 'drives Herdr Claude worker panes through implementation, verification, and delivery';
+
+  it('replaces every occurrence of the exact sentence under any heading and then reports nothing', () => {
+    const root = makeRoot();
+    write(root, 'CONTRIBUTING.md', `# Guide\n\n## Custom\n\n- CI ${sentence}.\nKeep omp here.\n\nAgain ${sentence}.\n`);
+    const item = detectItems(root).find((candidate) => candidate.kind === 'contributing-v4-host-language');
+    expect(item.occurrences).toBe(2);
+    const result = applyIds(root, [item.id]);
+    expect(result.applied).toContainEqual(expect.objectContaining({ id: item.id, status: 'applied' }));
+    expect(fs.readFileSync(path.join(root, 'CONTRIBUTING.md'), 'utf8')).toBe(`# Guide\n\n## Custom\n\n- CI ${replacement}.\nKeep omp here.\n\nAgain ${replacement}.\n`);
+    expect(detectItems(root).some((candidate) => candidate.kind === 'contributing-v4-host-language')).toBe(false);
+  });
+
+  it('emits nothing when the sentence is absent and fails closed on a symlink', () => {
+    const absent = makeRoot();
+    write(absent, 'CONTRIBUTING.md', '# Guide\n');
+    expect(detectItems(absent).some((candidate) => candidate.kind === 'contributing-v4-host-language')).toBe(false);
+
+    const root = makeRoot();
+    write(root, 'real.md', sentence);
+    fs.symlinkSync(path.join(root, 'real.md'), path.join(root, 'CONTRIBUTING.md'));
+    expect(detectItems(root).some((candidate) => candidate.kind === 'contributing-v4-host-language')).toBe(false);
+    const result = applyIds(root, ['contributing-v4-host-language']);
+    expect(fs.readFileSync(path.join(root, 'real.md'), 'utf8')).toBe(sentence);
+    expect(result.applied.some((entry) => entry.id === 'contributing-v4-host-language')).toBe(false);
+  });
+});
+
+describe('agents-to-claude-md', () => {
+  const gitIn = (root, ...args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  const section = '<!-- nmg-sdlc-managed: spec-context -->\n## Spec\n<!-- /nmg-sdlc-managed -->\n';
+
+  function initGit(root) {
+    gitIn(root, 'init', '-q');
+    gitIn(root, 'config', 'user.email', 't@example.com');
+    gitIn(root, 'config', 'user.name', 'T');
+  }
+
+  it('renames an untracked AGENTS.md byte-for-byte', () => {
+    const root = makeRoot();
+    write(root, 'AGENTS.md', '# Agents\r\nbody');
+    const item = detectItems(root).find((candidate) => candidate.kind === 'agents-to-claude-md');
+    expect(item.mode).toBe('rename');
+    applyIds(root, [item.id]);
+    expect(fs.existsSync(path.join(root, 'AGENTS.md'))).toBe(false);
+    expect(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')).toBe('# Agents\r\nbody');
+    expect(detectItems(root).some((candidate) => candidate.kind === 'agents-to-claude-md')).toBe(false);
+  });
+
+  it('renames a git-tracked AGENTS.md with git mv', () => {
+    const root = makeRoot();
+    initGit(root);
+    write(root, 'AGENTS.md', '# Agents\n');
+    gitIn(root, 'add', 'AGENTS.md');
+    gitIn(root, 'commit', '-q', '-m', 'init');
+    applyIds(root, ['agents-to-claude-md']);
+    expect(gitIn(root, 'status', '--porcelain').stdout).toContain('R  AGENTS.md -> CLAUDE.md');
+    expect(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')).toBe('# Agents\n');
+  });
+
+  it('appends after one blank line and keeps a single managed section (the CLAUDE copy)', () => {
+    const root = makeRoot();
+    write(root, 'CLAUDE.md', `# Claude\n${section}`);
+    write(root, 'AGENTS.md', `# Agents\n${section.replace('## Spec', '## Other')}tail\n`);
+    expect(detectItems(root).find((candidate) => candidate.kind === 'agents-to-claude-md').mode).toBe('merge');
+    applyIds(root, ['agents-to-claude-md']);
+    const merged = fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8');
+    expect(merged).toBe(`# Claude\n${section}\n# Agents\ntail\n`);
+    expect(merged.split('nmg-sdlc-managed: spec-context').length - 1).toBe(1);
+    expect(fs.existsSync(path.join(root, 'AGENTS.md'))).toBe(false);
+  });
+
+  it('keeps a section that exists only in AGENTS.md and separates a newline-less CLAUDE.md with one blank line', () => {
+    const root = makeRoot();
+    write(root, 'CLAUDE.md', '# Claude');
+    write(root, 'AGENTS.md', `# Agents\n${section}`);
+    applyIds(root, ['agents-to-claude-md']);
+    expect(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')).toBe(`# Claude\n\n# Agents\n${section}`);
+  });
+
+  it('merges a tracked AGENTS.md that has local modifications and removes it', () => {
+    const root = makeRoot();
+    initGit(root);
+    write(root, 'CLAUDE.md', '# Claude\n');
+    write(root, 'AGENTS.md', '# Agents\n');
+    gitIn(root, 'add', 'AGENTS.md', 'CLAUDE.md');
+    gitIn(root, 'commit', '-q', '-m', 'init');
+    write(root, 'AGENTS.md', '# Agents\nlocal edit\n');
+    const result = applyIds(root, ['agents-to-claude-md']);
+    expect(result.results).toContainEqual({ id: 'agents-to-claude-md', status: 'applied', mode: 'merge' });
+    expect(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')).toBe('# Claude\n\n# Agents\nlocal edit\n');
+    expect(fs.existsSync(path.join(root, 'AGENTS.md'))).toBe(false);
+    expect(gitIn(root, 'ls-files', '--', 'AGENTS.md').stdout).toBe('');
+    expect(detectItems(root).some((candidate) => candidate.kind === 'agents-to-claude-md')).toBe(false);
+  });
+
+  it('merges once after agents-v4-host-language rewrites a tracked AGENTS.md in the same run', () => {
+    const root = makeRoot();
+    initGit(root);
+    write(root, 'CLAUDE.md', '# Claude\n');
+    write(root, 'AGENTS.md', 'agents/  # OMP task agents (a, b)\nnotes\n');
+    gitIn(root, 'add', 'AGENTS.md', 'CLAUDE.md');
+    gitIn(root, 'commit', '-q', '-m', 'init');
+    const result = applyIds(root, ['agents-v4-host-language', 'agents-to-claude-md']);
+    expect(result.results).toContainEqual({ id: 'agents-v4-host-language', status: 'applied' });
+    expect(result.results).toContainEqual({ id: 'agents-to-claude-md', status: 'applied', mode: 'merge' });
+    expect(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')).toBe('# Claude\n\nagents/  # Claude Code plugin subagents (a, b)\nnotes\n');
+    expect(fs.existsSync(path.join(root, 'AGENTS.md'))).toBe(false);
+    const again = applyIds(root, ['agents-v4-host-language', 'agents-to-claude-md']);
+    expect(again.results.some((entry) => String(entry.status).startsWith('failed'))).toBe(false);
+    expect(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')).toBe('# Claude\n\nagents/  # Claude Code plugin subagents (a, b)\nnotes\n');
+  });
+
+  it('restores CLAUDE.md when AGENTS.md cannot be removed', () => {
+    const root = makeRoot();
+    write(root, 'CLAUDE.md', '# Claude\n');
+    write(root, 'AGENTS.md', '# Agents\n');
+    fs.chmodSync(root, 0o555);
+    let result;
+    try {
+      result = applyIds(root, ['agents-to-claude-md']);
+    } finally {
+      fs.chmodSync(root, 0o755);
+    }
+    expect(result.results.find((entry) => entry.id === 'agents-to-claude-md').status).toMatch(/^failed:/);
+    expect(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')).toBe('# Claude\n');
+    expect(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8')).toBe('# Agents\n');
+  });
+
+  it('fails closed with skipped:collision on a symlinked file', () => {
+    const root = makeRoot();
+    write(root, 'real.md', 'real\n');
+    write(root, 'CLAUDE.md', '# Claude\n');
+    fs.symlinkSync(path.join(root, 'real.md'), path.join(root, 'AGENTS.md'));
+    const result = applyIds(root, ['agents-to-claude-md']);
+    expect(result.results).toContainEqual(expect.objectContaining({ id: 'agents-to-claude-md', status: 'skipped:collision' }));
+    expect(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')).toBe('# Claude\n');
+    expect(fs.lstatSync(path.join(root, 'AGENTS.md')).isSymbolicLink()).toBe(true);
+  });
+
+  it('emits no item without AGENTS.md', () => {
+    const root = makeRoot();
+    write(root, 'CLAUDE.md', '# Claude\n');
+    expect(detectItems(root).some((candidate) => candidate.kind === 'agents-to-claude-md')).toBe(false);
+  });
+});

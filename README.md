@@ -139,7 +139,7 @@ Onboarding/upgrade manage:
 
 - `steering/manifest.json`, runtime descriptors, and registered project context.
 - `CONTRIBUTING.md` and its README link.
-- The bounded spec-context section in root `AGENTS.md`.
+- The bounded spec-context section in root `CLAUDE.md`.
 - `.github/workflows/nmg-sdlc-contribution-gate.yml`.
 - `.github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml`.
 - The `.nmg-sdlc/` ignore rule. Start/execute may untrack previously committed runtime files without deleting their working-tree contents.
@@ -155,6 +155,9 @@ nmg-sdlc 4.0 replaces the Oh My Pi extension with a Claude Code plugin. Projects
    - `runtime-state-v4`: moves legacy `.omp/sdlc/` runtime state into `.nmg-sdlc/`. Byte-identical duplicates are dropped, the obsolete OMP-only `omp-controller.yml` paste configuration is deleted, and existing `.nmg-sdlc/` files are never overwritten; conflicts are preserved for you to resolve.
    - `nmg-sdlc-ignore`: adds the `.nmg-sdlc/` ignore rule.
    - `agents-v4-host-language`: rewrites the managed `AGENTS.md` structure comment from OMP task agents to Claude Code plugin subagents.
+   - `steering-v4-host-language`: rewrites v3 host tokens in registered steering snippets and validations (`omp` to `claude`, `--print` to `-p`, `.omp/sdlc/` to `.nmg-sdlc/`) and `Oh My Pi` / `OMP` prose to `Claude Code`, through the shared steering writer.
+   - `contributing-v4-host-language`: replaces the v3 `drives Herdr omp worker panes` sentence in `CONTRIBUTING.md` with its Claude form.
+   - `agents-to-claude-md`: moves root `AGENTS.md` to `CLAUDE.md` (a rename, or an append after one blank line into an existing `CLAUDE.md`); a symlinked file is skipped with `skipped:collision`.
    - `packaging-v4-claude-code-herdr`: reports leftover v3 OMP packaging references and the Claude Code install steps.
 3. Hands-off drivers that answered OMP prompts by reading the pane now launch their Claude session with `NMG_SDLC_AUTOPILOT=1` instead.
 

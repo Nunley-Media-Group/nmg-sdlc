@@ -1,6 +1,5 @@
 node_modules/
 scripts/node_modules/
 .pi-glla/
-.omp/sdlc/
 .nmg-sdlc/
 .claude-plugin/types/

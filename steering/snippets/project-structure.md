@@ -36,7 +36,7 @@ nmg-sdlc/
 │   ├── modules/                  # Plugin-managed descriptors
 │   ├── snippets/                 # Project-owned prompt fragments
 │   └── extensions/               # Project-owned validation providers
-├── AGENTS.md
+├── CLAUDE.md
 ├── CHANGELOG.md
 ├── CONTRIBUTING.md
 ├── README.md
@@ -185,7 +185,7 @@ Project-root `specs/` is canonical. The active spec is `specs/{N}-{slug}/`. Load
 
 - Marked contribution workflows may be created or refreshed only per `references/contribution-gate.md`.
 - The exact managed issue-form path may be reconciled per `references/issue-form.md`.
-- Root `AGENTS.md` and contribution guidance preserve project-authored content outside their managed sections.
+- Root `CLAUDE.md` and contribution guidance preserve project-authored content outside their managed sections.
 - Upgrade cleanup uses exact owned paths and recognized ignore blocks; ambiguous content is preserved.
 
 ### Git and GitHub Boundary

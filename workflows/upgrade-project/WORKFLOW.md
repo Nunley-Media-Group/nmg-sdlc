@@ -34,7 +34,13 @@ Interactive detect + propose only, in native plan mode. Mutators in scripts/sdlc
 
 12. v4 host language: if root `AGENTS.md` carries the managed structure comment `agents/ … # OMP task agents (…)`, propose `agents-v4-host-language`, which rewrites only that comment to `# Claude Code plugin subagents (…)`. Project-authored prose is never rewritten.
 
-13. This repository's specs/ are handled identically. Also read CHANGELOG/VERSION/CONTRIBUTING/AGENTS/gates/issue-form and propose current-contract reconciliation.
+12a. v4 steering host language: if registered steering snippets or manifest validation `config.program` / `config.args` carry v3 host tokens, propose `steering-v4-host-language`. It maps `herdr integration install omp`, `omp-sdlc-ignore.mjs`, `exercise-omp.mjs`, `omp --print`, `--kind omp`, `--kind pi`, and `.omp/sdlc/` to their Claude Code forms, `Oh My Pi` and whole-word `OMP` in snippets to `Claude Code`, and validation program `omp` to `claude` with `--print` to `-p`. It applies after `nmg-sdlc-ignore` through the shared steering writer; an unsafe snippet is skipped with `steering_host_language_unsafe_path`.
+
+12b. v4 contributing host language: if a regular root `CONTRIBUTING.md` contains the exact sentence `drives Herdr omp worker panes through implementation, verification, and delivery`, propose `contributing-v4-host-language`, which replaces it with the `Claude` form and leaves every other byte unchanged. It applies in the same order as `steering-v4-host-language`; a symlinked or unreadable file is skipped with `contributing_unsafe_path`.
+
+12c. Project instructions move: if root `AGENTS.md` exists, propose `agents-to-claude-md`. Without `CLAUDE.md` it renames the file (`git mv` when tracked); with a regular `CLAUDE.md` it appends the `AGENTS.md` content after one blank line, keeps one spec-context managed section (the `CLAUDE.md` copy), and deletes `AGENTS.md`. It applies after `agents-spike-language` and `agents-host-language`; a symlinked or unreadable file on either side is `skipped:collision` with no change.
+
+13. This repository's specs/ are handled identically. Also read CHANGELOG/VERSION/CONTRIBUTING/CLAUDE.md/gates/issue-form and propose current-contract reconciliation.
 
 14. Publication File(s): inspect issue-owned `specs/{N}-{slug}/tasks.md` declarations with the shared `publicationFileEntries` grammar. Propose the exact `publication-files:<digest>` rewrites only when rejected lines contain exclusively valid backtick-quoted repository-relative paths plus surrounding prose. Report mixed unsafe quoted spans and unquoted prose-only lines without extracting them. Approved apply must reject a changed source tree with `publication_files_plan_stale` before mutation.
 

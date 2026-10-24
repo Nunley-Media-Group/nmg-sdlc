@@ -123,6 +123,15 @@ v3 kept plugin runtime state under `.omp/sdlc/` and ignored it with the managed 
 13. **Host language** (`id: agents-v4-host-language`, `kind: agents-host-language`)
    - Signal: root `AGENTS.md` has a line matching the managed structure comment `agents/<spaces># OMP task agents (<list>)`.
    - Apply rewrites only that comment to `# Claude Code plugin subagents (<list>)`, keeping the column and agent list. Other text that mentions OMP is project-authored and is never rewritten. `agents-spike-language` runs first and strips `spike-researcher` from either the OMP or the Claude Code form.
+14. **Steering host language** (`id: steering-v4-host-language`, `kind: steering-v4-host-language`)
+   - Signal: a registered snippet under `steering/snippets/` or a manifest validation `config.program` / `config.args` contains a mapped token (`herdr integration install omp`, `omp-sdlc-ignore.mjs`, `exercise-omp.mjs`, `omp --print`, `--kind omp`, `--kind pi`, `.omp/sdlc/`, `.omp/sdlc`), or a snippet contains `Oh My Pi` or whole-word, case-sensitive `OMP`. Validation program `omp` becomes `claude` and `--print` becomes `-p`. Lowercase `omp` changes only inside mapped tokens.
+   - Apply (order 10.5, after `nmg-sdlc-ignore`) re-plans from live state and writes only through the shared steering writer in update mode. A symlinked, non-regular, or unreadable snippet yields `skipped:unverifiable` with `steering_host_language_unsafe_path` and no write; a writer failure yields `failed:<message>` with the writer's reason code.
+15. **Contributing host language** (`id: contributing-v4-host-language`)
+   - Signal: a regular root `CONTRIBUTING.md` contains the exact sentence `drives Herdr omp worker panes through implementation, verification, and delivery`, under any heading.
+   - Apply (order 10.5) replaces every occurrence with the `Claude` sentence and leaves all other bytes unchanged. A symlinked or unreadable file yields `skipped:unverifiable` with `contributing_unsafe_path`.
+16. **Project instructions move** (`id: agents-to-claude-md`)
+   - Signal: root `AGENTS.md` exists.
+   - Apply (order 7.75, after `agents-spike-language` and `agents-host-language`): without `CLAUDE.md`, rename with identical bytes (`git mv` when tracked). With a regular `CLAUDE.md`, append `AGENTS.md` after exactly one blank line, keep one spec-context managed section (the `CLAUDE.md` copy), and delete `AGENTS.md`. A symlinked or unreadable file on either side yields `skipped:collision` with no change.
 
 Re-running detect after a successful v4 apply reports none of these items.
 
