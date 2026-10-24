@@ -21,7 +21,7 @@
 
 ### T001: Correct the empty execute picker contract
 
-**File(s)**: `workflows/execute/references/selection.md`, generated command only if entrypoint changes
+**File(s)**: `workflows/execute/references/selection.md`
 **Type**: Modify
 **Depends**: None
 **Acceptance**:

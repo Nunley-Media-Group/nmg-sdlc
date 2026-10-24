@@ -44,7 +44,7 @@
 
 ### T003: Cover helper and workflow regression contracts
 
-**File(s)**: `scripts/__tests__/publish-approved-spec.test.mjs`, `scripts/__tests__/interactive-plan-contract.test.mjs`, write-spec exercise fixtures
+**File(s)**: `scripts/__tests__/publish-approved-spec.test.mjs`, `scripts/__tests__/interactive-plan-contract.test.mjs`
 **Type**: Modify
 **Depends**: T001, T002
 **Acceptance**:
