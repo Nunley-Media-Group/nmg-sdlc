@@ -12,6 +12,12 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-10-24
+
+### Changed
+
+- `/sdlc-execute` is now registered by the hooks module `hooks/register.ts`, like `/sdlc-write-spec` and the other interactive commands, so it runs as plain `/sdlc-execute` instead of appearing as the plugin command `nmg-sdlc:sdlc-execute`. It renders its workflow and submits it as the person's prompt without entering plan mode. It is now TUI-only: under `claude -p` or the SDK it prints `Run /sdlc-execute in the TUI.` and exits 2. `commands/sdlc-execute.md` is removed; `/sdlc-status`, `/sdlc-verify-code`, and `/sdlc-open-pr` remain plugin command files.
+
 ## [4.0.0] - 2026-10-24
 
 ### Changed (BREAKING)

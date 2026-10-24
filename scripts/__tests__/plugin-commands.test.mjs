@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   AUTOMATED_COMMANDS,
+  DIRECT_COMMANDS,
   INTERACTIVE_COMMANDS,
   renderAutomatedCommandMarkdown,
 } from '../../src/sdlc-commands.mjs';
@@ -22,11 +23,12 @@ describe('Claude Code plugin commands', () => {
   it('declares only sdlc-prefixed public commands', () => {
     expect(INTERACTIVE_COMMANDS.map(([name]) => name)).toEqual([
       'sdlc-draft-issue', 'sdlc-write-spec', 'sdlc-onboard-project',
-      'sdlc-upgrade-project', 'sdlc-steering', 'sdlc-run-retro',
+      'sdlc-upgrade-project', 'sdlc-steering', 'sdlc-run-retro', 'sdlc-execute',
     ]);
     expect(AUTOMATED_COMMANDS.map(([name]) => name)).toEqual([
-      'sdlc-execute', 'sdlc-status', 'sdlc-verify-code', 'sdlc-open-pr',
+      'sdlc-status', 'sdlc-verify-code', 'sdlc-open-pr',
     ]);
+    expect(DIRECT_COMMANDS).toEqual(['sdlc-execute']);
   });
 
   it('serves interactive commands from the hooks module and automated ones from command files', () => {
@@ -37,6 +39,9 @@ describe('Claude Code plugin commands', () => {
     expect(source).toContain('for (const [name, , description] of INTERACTIVE_COMMANDS)');
     expect(source).toContain("$.command.run({ command: 'plan', args: '' })");
     expect(source).toContain('await $.prompt.submit({ text, asUser: true })');
+    expect(source).toContain("'sdlc-execute': '[--retain-worker] [#N ...]'");
+    expect(source).toContain('if (DIRECT_COMMANDS.includes(name)) {');
+    expect(source).toContain('$.prompt.submit({ text: rendered.text, asUser: true })');
     expect(source).toContain('scripts/sdlc-render-prompt.mjs');
     for (const [name] of INTERACTIVE_COMMANDS) {
       expect(fs.existsSync(path.join(repoRoot, 'commands', `${name}.md`))).toBe(false);
@@ -47,10 +52,10 @@ describe('Claude Code plugin commands', () => {
   });
 
   it('writes command files that Claude Code materializes under -p and in the TUI', () => {
-    const markdown = renderAutomatedCommandMarkdown('sdlc-execute', 'execute', 'Run automated SDLC delivery', repoRoot);
-    expect(markdown.startsWith('---\ndescription: "Run automated SDLC delivery"\nargument-hint: "[--retain-worker] [#N ...]"\n---\n\n')).toBe(true);
+    const markdown = renderAutomatedCommandMarkdown('sdlc-status', 'status', 'Report read-only SDLC status', repoRoot);
+    expect(markdown.startsWith('---\ndescription: "Report read-only SDLC status"\nargument-hint: "[--json]"\n---\n\n')).toBe(true);
     expect(markdown).not.toContain('<plugin-root>');
-    expect(markdown).toContain('${CLAUDE_PLUGIN_ROOT}/scripts/sdlc-execute.mjs');
+    expect(markdown).toContain('${CLAUDE_PLUGIN_ROOT}/scripts/sdlc-status.mjs');
   });
 
   it('ships a Claude Code manifest and no OMP extension surface', () => {

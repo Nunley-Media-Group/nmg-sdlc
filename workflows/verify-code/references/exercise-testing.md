@@ -24,7 +24,7 @@ For GitHub-integrated skills, append the dry-run instructions (unchanged):
 
 Load this repository as the plugin with `claude -p --plugin-dir <repo> --add-dir <repo>`. Claude Code has no `--cwd` flag: run from the disposable project directory.
 
-`claude -p "/sdlc-NAME"` works for **automated** commands (`/sdlc-status`, `/sdlc-execute`, `/sdlc-verify-code`, `/sdlc-open-pr`) because those are plugin command files under `commands/*.md`, which Claude Code expands under `-p` as the initial prompt. Requires `--plugin-dir <nmg-sdlc-root>` (or an installed plugin). Do not register those names in the hooks module; the command files own them.
+`claude -p "/sdlc-NAME"` works for the file-backed **automated** commands (`/sdlc-status`, `/sdlc-verify-code`, `/sdlc-open-pr`) because those are plugin command files under `commands/*.md`, which Claude Code expands under `-p` as the initial prompt. Requires `--plugin-dir <nmg-sdlc-root>` (or an installed plugin). Do not register those names in the hooks module; the command files own them. `/sdlc-execute` is registered by the hooks module and is TUI-only like the interactive commands.
 
 Interactive `/sdlc-*` commands are TUI-only. Without a UI (`claude -p`, the SDK) the nmg-sdlc hooks module answers `Run /sdlc-<command> in the TUI.` and exits 2.
 

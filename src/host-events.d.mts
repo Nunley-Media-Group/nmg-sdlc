@@ -1,5 +1,6 @@
 export const INTERACTIVE_COMMANDS: ReadonlyArray<readonly [string, string, string]>;
 export const AUTOMATED_COMMANDS: ReadonlyArray<readonly [string, string, string]>;
+export const DIRECT_COMMANDS: readonly string[];
 export const WRITE_SPEC_FINISHED_LABELS: readonly string[];
 export const PLAN_ENABLED_TEXT: string;
 export function isInteractiveCommand(name: unknown): boolean;

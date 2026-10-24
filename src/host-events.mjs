@@ -9,10 +9,14 @@ export const INTERACTIVE_COMMANDS = [
   ["sdlc-upgrade-project", "upgrade-project", "Propose contract and layout upgrades"],
   ["sdlc-steering", "steering", "Manage steering runtime and deterministic validations"],
   ["sdlc-run-retro", "run-retro", "Update steering retrospective from defect specs"],
+  ["sdlc-execute", "execute", "Run automated SDLC delivery"],
 ];
 
+// Interactive commands whose workflow runs outside plan mode: execute mutates
+// through its controller, which plan mode would block.
+export const DIRECT_COMMANDS = Object.freeze(["sdlc-execute"]);
+
 export const AUTOMATED_COMMANDS = [
-  ["sdlc-execute", "execute", "Run automated SDLC delivery"],
   ["sdlc-status", "status", "Report read-only SDLC status"],
   ["sdlc-verify-code", "verify-code", "Verify implementation against the approved spec"],
   ["sdlc-open-pr", "open-pr", "Deliver verified work through exact-head PR merge"],

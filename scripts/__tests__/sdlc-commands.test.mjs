@@ -43,7 +43,7 @@ describe('interactive command rendering', () => {
 
   it('recognizes only the interactive commands', () => {
     expect(parseInteractiveSlash('/sdlc-draft-issue auth')).toEqual({ command: 'sdlc-draft-issue', skill: 'draft-issue', args: 'auth' });
-    expect(parseInteractiveSlash('/sdlc-execute #9')).toBeNull();
+    expect(parseInteractiveSlash('/sdlc-execute #9')).toEqual({ command: 'sdlc-execute', skill: 'execute', args: '#9' });
     expect(parseInteractiveSlash('/sdlc-status --json')).toBeNull();
     expect(isInteractiveCommand('sdlc-write-spec')).toBe(true);
     expect(isInteractiveCommand('sdlc-open-pr')).toBe(false);
@@ -77,7 +77,7 @@ describe('sdlc-render-prompt CLI', () => {
   });
 
   it.each([
-    ['an automated command', ['--consumer', 'sdlc-execute', '--project', '.']],
+    ['an automated command', ['--consumer', 'sdlc-status', '--project', '.']],
     ['a missing project', ['--consumer', 'sdlc-write-spec']],
     ['an unknown flag', ['--consumer', 'sdlc-write-spec', '--project', '.', '--bogus']],
   ])('rejects %s with a usage error', (_label, argv) => {
