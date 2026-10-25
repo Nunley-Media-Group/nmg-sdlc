@@ -5,26 +5,26 @@
 **Reviewer**: Claude Code (architecture-reviewer, verify worker)
 **Scope**: Implementation verification against spec
 
-**Verification head**: 78139d92c1ac29159bc1a15c04864ff378022a3d
+**Verification head**: 020d0205da51e74d2ddd22f2b6821131c7e83354
 
 ---
 
 ## Executive Summary
 
-The implement stage never ran for #485. The only branch commit beyond `origin/main` is `78139d9 fix: deliver issue #485`, which changes only `VERSION`, `CHANGELOG.md`, `package.json`, and `.claude-plugin/plugin.json`. None of tasks T001–T004 have been implemented. `scripts/issue-dependencies.mjs`, `scripts/sdlc-upgrade.mjs`, the upgrade-project references, and the tests are unchanged from `main`. No `dependency_dangling_candidate` code exists anywhere. Running the parser against the defect inputs at this head still reproduces the reported behavior.
+Implementation commit `86a2a2a` makes three changes. `parseLegacyDependencyEvidence` now skips markdown table rows. It also drops `#N` references qualified as a pull request or by another project or repository. `detectIssueDependencyUpgrade` turns legacy candidates whose endpoint is not a repository issue into report-only `dependency_dangling_candidate` findings instead of throwing. Validation of existing official edges and of approved edges at apply still fails closed. The upgrade-project workflow and references document the behavior. Regression tests cover every acceptance criterion. Both registered validations pass at the exact head: the full Jest suite and the live `repository.nmg-sdlc-smoke` run. All five acceptance criteria pass.
 
 | Category | Score (1-5) |
 |----------|-------------|
-| Spec Compliance | 1 |
-| Architecture (SOLID) | N/A (no implementation) |
-| Security | N/A (no implementation) |
-| Performance | N/A (no implementation) |
-| Testability | 1 (no regression coverage) |
-| Error Handling | 1 (defect still aborts detection) |
-| **Overall** | 1 |
+| Spec Compliance | 5 |
+| Architecture (SOLID) | 4 |
+| Security | 5 |
+| Performance | 5 |
+| Testability | 5 |
+| Error Handling | 5 |
+| **Overall** | 4.8 |
 
-### Implementation Status: Fail
-**Total Issues**: 4 (T001–T004 unimplemented)
+### Implementation Status: Pass
+**Total Issues**: 2 (both low severity, non-blocking, out of this issue's implementation scope)
 
 ---
 
@@ -41,64 +41,87 @@ The implement stage never ran for #485. The only branch commit beyond `origin/ma
 
 ## Delivery Validation
 
-- Local verification: Not complete
+- Local verification: Pass
 - PR evidence: Not required
+
+---
+
+## Deterministic Steering Artifact and Ceiling
+
+- Runner: `sdlc-verify-steering.mjs --project . --issue 485 --spec specs/485-… --base main --controller-run-id 59a1b2a1-6bf3-4e97-b7b8-8451e4d3c1bf` exited 0
+- Artifact: `.nmg-sdlc/verification/485.json`. Identity: head `020d0205da51e74d2ddd22f2b6821131c7e83354`, clean tree, spec `sha256:22c8c8e8…`, steering `sha256:d2c85d61…`
+- Ceiling: `null`
+- Coverage: declared 2, recorded 2, complete `true`; nothing missing, duplicated, or unknown
+
+| Validation | Provider | Required | Status | Evidence |
+|------------|----------|----------|--------|----------|
+| `repository.tests` | `builtin.command` | Yes | Passed | `npm test -- --runInBand` (cwd `scripts`) exited 0: 52 suites passed and 1 skipped; 1147 tests passed and 2 skipped. These skips are pre-existing; this diff adds no skip |
+| `repository.nmg-sdlc-smoke` | `project.nmg-sdlc-smoke` | Yes | Passed | Provisioned fresh smoke issue #251 through autopilot draft-issue/write-spec. The closing-PR baseline was empty. `sdlc-execute run #251` ran start → implement → verify → deliver, all passed. Proof: PR https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull/253 `MERGED` at `4c1577cc3cc0eaacf91d8db6b01522bfa6bdb7a2`, issue #251 `CLOSED` |
 
 ---
 
 ## Acceptance Criteria Verification
 
-The evidence below comes from calling `parseLegacyDependencyEvidence` from `scripts/issue-dependencies.mjs` at the verification head.
-
 | AC | Description | Status | Evidence |
 |----|-------------|--------|----------|
-| AC1 | PR and table-row references create no candidate | Fail (not implemented) | `\| **Version / Commit** \| Main after merged PR #307 \|` → `edges:[{blockedBy 307}]`; `requires the fix after PR #307` → `edges:[{blockedBy 307}]` |
-| AC2 | Other-project/repository references create no candidate | Fail (not implemented) | `depends on Other-Org/other-repo#12` → `edges:[{blockedBy 12}]`. `PennyScan issue #102 therefore fails` already yields no edge, but only by accident, since no qualification rule exists |
-| AC3 | Dangling legacy candidate becomes a `dependency_dangling_candidate` finding; detect completes | Fail (not implemented) | `scripts/sdlc-upgrade.mjs:1523` still passes every candidate to `preflightBlockedByEdges`, which throws `dependency_dangling` ("Proposed dependency edge is dangling", `scripts/issue-dependencies.mjs:244`). `dependency_dangling_candidate` appears nowhere in the code |
-| AC4 | Genuine sequencing clauses and field lines preserved | Fail (not implemented) | The current parser does still return `blockedBy #394` and `#10`/`#11`, but none of the AC4 regression coverage required by T004 exists, so the AC is not delivered |
-| AC5 | Dangling existing official edges still fail closed | Fail (not implemented) | Existing `dependency_dangling` paths are unchanged (`scripts/issue-dependencies.mjs:60,105,181,244`), but none of the AC5 tests required by T004 exist |
-
-| FR | Status | Evidence |
-|----|--------|----------|
-| FR1 | Not implemented | `scripts/issue-dependencies.mjs` is unchanged from `main` (`git diff origin/main...HEAD` is empty) |
-| FR2 | Not implemented | `scripts/sdlc-upgrade.mjs` is unchanged from `main` |
-| FR3 | Not implemented (no delivered coverage) | Existing behavior is unchanged; none of the required tests exist |
-| FR4 | Not implemented | `workflows/upgrade-project/**` is unchanged from `main` |
-
----
+| AC1 | PR and table-row references create no candidate | Pass | `scripts/issue-dependencies.mjs`: a `^\s*\|` table-row skip, plus `qualifiedReference` for the `PR` / `pull request` prefix. Tests: `body-relationships.test.mjs` ("ignores table rows and pull-request…") and `issue-dependencies.test.mjs` ("drops qualified references…"). Direct run: both inputs return `{edges:[],findings:[]}` |
+| AC2 | References qualified by another project or repository create no candidate | Pass | `qualifiedReference` matches the `owner/repo` prefix, and `<Project> issue` with a capitalized or punctuated word that is not a stop word. Direct run: `PennyScan issue #102 therefore fails` and `depends on Other-Org/other-repo#12` yield no edge. Live repository: `main` proposed the false edge `278 blockedBy 102` from "PennyScan issue #102"; the branch does not |
+| AC3 | A dangling legacy candidate becomes a finding and detection completes | Pass | `scripts/sdlc-upgrade.mjs` `detectIssueDependencyUpgrade` filters candidates against `graph.nodes` and pushes `{issue, line, reason:'dependency_dangling_candidate', edge}`. Test: `sdlc-upgrade.test.mjs` "reports dangling legacy candidates as findings and completes detection" (PR #307 and absent #404 become findings; valid additions remain; the `steering-runtime` category is still present; no POST). Live: `node scripts/sdlc-upgrade.mjs detect --root .` exited 0 over 255 issues and 7 categories, with one `dependency_dangling_candidate` (#485 → #307) |
+| AC4 | Genuine sequencing clauses and field lines are preserved | Pass | `After` is in `QUALIFIER_STOP_WORDS`. Tests assert edges `blockedBy 394`, `10`, and `11`, and that `Requires #10 and #11` stays `ambiguous_dependency_evidence` |
+| AC5 | Dangling existing official edges still fail closed | Pass | `preflightBlockedByEdges` and `validateDependencyGraph` are unchanged for official and approved edges. Tests: "still fails closed on an existing official edge to a non-repository target" (`sdlc-upgrade.test.mjs`) and "still rejects a dangling approved edge…" (`issue-dependencies.test.mjs`) both throw `dependency_dangling` |
 
 ## Task Completion
 
 | Task | Description | Status | Notes |
 |------|-------------|--------|-------|
-| T001 | Ignore table rows and qualified references in legacy parsing | Incomplete | No change to `scripts/issue-dependencies.mjs` |
-| T002 | Report dangling legacy candidates as findings | Incomplete | No change to `scripts/sdlc-upgrade.mjs` |
-| T003 | Document report-only dangling candidates | Incomplete | No change to the upgrade-project workflow or references. The CHANGELOG has only a delivery-prepared `### Changed` entry under `[4.4.2]`, not the required `[Unreleased]` `### Fixed` entry |
-| T004 | Regression coverage | Incomplete | No change to `issue-dependencies`, `body-relationships`, or `sdlc-upgrade` tests |
+| T001 | Ignore table rows and qualified references in legacy parsing | Complete | `scripts/issue-dependencies.mjs` |
+| T002 | Report dangling legacy candidates as findings | Complete | `scripts/sdlc-upgrade.mjs`; the source is carried through `evidenceByEdge` candidates |
+| T003 | Document report-only dangling candidates | Complete | `workflows/upgrade-project/WORKFLOW.md` step 7, `references/detection.md` step 6, `references/v3-detectors.md` §7. The `### Fixed` entry for #485 was written under `[Unreleased]` and has since been rolled into `[4.4.3]` by delivery |
+| T004 | Regression coverage | Complete | `body-relationships.test.mjs` +2, `issue-dependencies.test.mjs` +2, `sdlc-upgrade.test.mjs` +2 |
 
 ---
 
 ## Architecture Assessment
 
-There is no #485 implementation to review. The checklists (SOLID, security, performance, testability, error handling) were loaded but have nothing in the branch diff to score. The diff contains only version mirrors and a CHANGELOG heading.
+### SOLID Compliance
+
+| Principle | Score (1-5) | Notes |
+|-----------|-------------|-------|
+| Single Responsibility | 5 | Parsing heuristics stay in the adapter (`issue-dependencies.mjs`); graph membership and report shaping stay in the upgrade detector |
+| Open/Closed | 4 | The qualifier heuristic is a fixed stop-word set and regexes; a new qualifier form needs a code edit. That is acceptable for migration-only evidence |
+| Liskov Substitution | 5 | N/A; the report shape is additive (a new finding reason) |
+| Interface Segregation | 5 | The public function signatures are unchanged |
+| Dependency Inversion | 4 | Detection still receives `run` by injection; tests stub `gh` |
 
 ### Layer Separation
 
-Not applicable: no change.
+The script-layer change stays within the issue-dependencies adapter and the upgrade detector, as `steering/snippets/project-tech.md` (Issue Dependencies) requires. Body relations remain migration evidence inside upgrade detection only.
 
 ### Dependency Flow
 
-Not applicable: no change.
+No new imports or dependencies. Zero-dependency runtime preserved.
 
 ---
 
 ## Security Assessment
 
-No new code. Not applicable.
+- [x] Authentication: unchanged (`gh` CLI)
+- [x] Authorization: no new remote writes. Dangling candidates are never POSTed, and apply still preflights the approved exact edge set
+- [x] Input validation: issue bodies are treated as data; regexes are linear and anchored at the end of a bounded prefix
+- [x] Injection prevention: no shell interpolation added
+- [x] Data protection: no secrets touched
 
 ## Performance Assessment
 
-No new code. Not applicable.
+- [x] Async patterns: unchanged
+- [x] Caching: N/A
+- [x] Resource management: one `Set` of issue numbers per detection, O(nodes + candidates)
+- [x] Query optimization: no added `gh` calls
+
+## Testability and Error Handling
+
+- Testability (5): deterministic parser tests plus a stubbed-`gh` detection test cover every AC, including the negative fail-closed paths.
+- Error handling (5): the previous single-candidate abort is now a named, report-only finding that carries the source line and edge. Fail-closed behavior is kept for official edges, approved edges, unreadable pages, and cycles.
 
 ---
 
@@ -108,112 +131,44 @@ No new code. Not applicable.
 
 | Acceptance Criterion | Has Scenario | Has Steps | Passes |
 |---------------------|-------------|-----------|--------|
-| AC1 | Yes (SCN001) | No | No |
-| AC2 | Yes (SCN002) | No | No |
-| AC3 | Yes (SCN003) | No | No |
-| AC4 | Yes (SCN004) | No | No |
-| AC5 | Yes (SCN005) | No | No |
+| AC1 | Yes (SCN001) | Jest equivalent | Yes |
+| AC2 | Yes (SCN002) | Jest equivalent | Yes |
+| AC3 | Yes (SCN003) | Jest equivalent | Yes |
+| AC4 | Yes (SCN004) | Jest equivalent | Yes |
+| AC5 | Yes (SCN005) | Jest equivalent | Yes |
 
 ### Coverage Summary
 
-- Feature files: 5 scenarios in `feature.gherkin`
-- Step definitions / Jest coverage for #485: Missing
-- Existing suite: `cd scripts && npm test -- --runInBand` exits 0. This only shows the unchanged code still passes its existing tests, not that #485 was delivered
+- Feature file: 5 scenarios (`feature.gherkin`), each mapped to Jest contract tests
+- Targeted suites (`issue-dependencies`, `body-relationships`, `sdlc-upgrade`): 154/154 passed
+- Full suite (registered): 1147 passed, 2 skipped (pre-existing), 0 failed
+- `git diff --check origin/main...HEAD`: clean
 
 ---
 
 ## Exercise Test Results
 
-Not performed. The branch changes no `workflows/` or `agents/` files, so there is no changed skill to exercise.
-
----
-
-## Steering Doc Verification Gates
-
-The deterministic artifact is `.nmg-sdlc/verification/485.json` (runner `sdlc-verify-steering.mjs`, controller run `59a1b2a1-6bf3-4e97-b7b8-8451e4d3c1bf`). Coverage: declared 2, recorded 2, complete true, ceiling none.
-
-| Gate | Status | Evidence |
-|------|--------|----------|
-| `repository.tests` (builtin.command) | Pass | `npm test -- --runInBand` exited 0 at head `78139d9` |
-| `repository.nmg-sdlc-smoke` (project.nmg-sdlc-smoke) | Pass | `nmg-sdlc-smoke delivered #248` at head `78139d9` |
-| Git hygiene | Pass | `git diff --check origin/main...HEAD` exit 0 |
-
-**Gate Summary**: 3/3 gates passed, 0 failed, 0 incomplete. The gates passing does not lift the status above Fail, because every delivery AC is unimplemented.
+| Field | Value |
+|-------|-------|
+| **Skill Exercised** | `upgrade-project` (detection CLI behind it) |
+| **Test Project** | This repository's live issue graph (read-only `detect`), compared with `origin/main` in a separate disposable worktree |
+| **Exercise Method** | `node scripts/sdlc-upgrade.mjs detect --root .`. `/sdlc-upgrade-project` is an interactive plan-mode command, and `claude -p` prints `Run /sdlc-upgrade-project in the TUI.`, so the deterministic detector that the workflow calls is the exercise surface |
+| **Interactive gate handling** | N/A (automated worker; no apply) |
+| **Result** | Branch: exit 0, 7 categories, 255 issues, 2 additions, 1 `dependency_dangling_candidate`. `main`: exit 0, 3 additions including the false `278 blockedBy 102` from "PennyScan issue #102", which the fix removes |
 
 ---
 
 ## Fixes Applied
 
-None. Implementing the approved tasks belongs to the implement stage, not verification.
+None. The lease's writable scope is limited to this report.
 
 ## Remaining Issues
 
-### Critical Issues
-
-| Field | Value |
-|-------|-------|
-| **Severity** | Critical |
-| **Category** | Spec compliance |
-| **Location** | `scripts/issue-dependencies.mjs:302` (`parseLegacyDependencyEvidence`) |
-| **Issue** | T001 not implemented: table rows and PR/other-repository-qualified `#N` references still produce candidate edges |
-| **Impact** | AC1/AC2/FR1 fail |
-| **Reason Not Fixed** | The implement stage never ran. Routed to implementation |
-
-| Field | Value |
-|-------|-------|
-| **Severity** | Critical |
-| **Category** | Error handling |
-| **Location** | `scripts/sdlc-upgrade.mjs:1523` (`detectIssueDependencyUpgrade`) |
-| **Issue** | T002 not implemented: dangling legacy candidates still throw `dependency_dangling` and abort `detect`/`apply` |
-| **Impact** | AC3/FR2 fail. The defect is still reproducible |
-| **Reason Not Fixed** | The implement stage never ran. Routed to implementation |
-
-### High Priority
-
-| Field | Value |
-|-------|-------|
-| **Severity** | High |
-| **Category** | Testing |
-| **Location** | `scripts/__tests__/issue-dependencies.test.mjs`, `body-relationships.test.mjs`, `sdlc-upgrade.test.mjs` |
-| **Issue** | T004 not implemented: no regression tests for AC1–AC5 |
-| **Impact** | AC4/AC5/FR3 not delivered |
-| **Reason Not Fixed** | The implement stage never ran. Routed to implementation |
-
-| Field | Value |
-|-------|-------|
-| **Severity** | High |
-| **Category** | Documentation |
-| **Location** | `workflows/upgrade-project/WORKFLOW.md`, `references/detection.md`, `references/v3-detectors.md`, `CHANGELOG.md` |
-| **Issue** | T003 not implemented: no report-only `dependency_dangling_candidate` documentation and no `[Unreleased]` `### Fixed` entry |
-| **Impact** | FR4 fails |
-| **Reason Not Fixed** | The implement stage never ran. Routed to implementation |
-
----
-
-## Positive Observations
-
-- The version mirrors (`VERSION`, `package.json`, `.claude-plugin/plugin.json`) are synchronized at 4.4.2.
-- The registered gate, including the live smoke delivery, passes on the unchanged tree.
-
-## Recommendations Summary
-
-### Before PR (Must)
-- [ ] Run the implement stage for T001–T004, then rerun the full registered gate and verification at the new head.
-
----
-
-## Files Reviewed
-
-| File | Issues | Notes |
-|------|--------|-------|
-| `scripts/issue-dependencies.mjs` | 1 | Unchanged; defect reproduced |
-| `scripts/sdlc-upgrade.mjs` | 1 | Unchanged; throws on dangling candidates |
-| `VERSION`, `package.json`, `.claude-plugin/plugin.json`, `CHANGELOG.md` | 0 | The only files in the branch diff |
-
----
+| Severity | Category | Location | Issue | Reason Not Fixed |
+|----------|----------|----------|-------|------------------|
+| Low | Delivery / versioning | `VERSION`, `package.json`, `.claude-plugin/plugin.json`, `CHANGELOG.md` | The branch carries two delivery version commits (`78139d9` 4.4.1→4.4.2 before implementation existed, then `020d020` 4.4.2→4.4.3). `[4.4.2]` holds only the `Changed` title line, and `[4.4.3]` repeats it alongside the `Fixed` entry. One patch fix therefore consumes two patch numbers | Outside this verify lease's writable scope, and outside #485's ACs. A hand edit would break `hasSynchronizedDeliveryState` and trigger a third bump. The root cause is a delivery-ordering issue in the plugin pipeline and should be tracked separately |
+| Low | Heuristic precision | `scripts/issue-dependencies.mjs` `qualifiedReference` | A capitalized non-stop-word before `issue` (for example `After the API issue #5`) is treated as a project qualifier, so the edge is not proposed | Conservative by design: a false negative only omits a migration proposal and never creates a wrong edge. Inline code spans are not stripped, which is pre-existing behavior |
 
 ## Recommendation
 
-**Major rework needed**
-
-No #485 implementation exists at `78139d92c1ac29159bc1a15c04864ff378022a3d`. Route this to the implement stage.
+Ready for PR.
