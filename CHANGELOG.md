@@ -12,6 +12,12 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.4.10] - 2026-10-25
+
+### Changed
+
+- File generated bug-fix CHANGELOG lines under ### Fixed (#512)
+
 ## [4.4.9] - 2026-10-25
 
 ### Fixed
