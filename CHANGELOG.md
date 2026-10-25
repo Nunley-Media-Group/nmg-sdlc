@@ -12,6 +12,12 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.4.7] - 2026-10-25
+
+### Changed
+
+- Fix PR-evidence resolution when a same-name push check exists (#501)
+
 ## [4.4.6] - 2026-10-25
 
 ### Fixed
