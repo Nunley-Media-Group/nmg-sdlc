@@ -1208,7 +1208,7 @@ const V3_STEERING_TOKEN_RE = new RegExp(
   V3_STEERING_TOKEN_MAP.map(([from]) => from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'),
   'g',
 );
-const V3_STEERING_PROSE_RE = /Oh My Pi|\bOMP\b/g;
+const V3_STEERING_PROSE_RE = /Oh My Pi|\bOMP\b/;
 const V3_CONTRIBUTING_SENTENCE = 'drives Herdr omp worker panes through implementation, verification, and delivery';
 const V4_CONTRIBUTING_SENTENCE = 'drives Herdr Claude worker panes through implementation, verification, and delivery';
 const SPEC_CONTEXT_OPEN = '<!-- nmg-sdlc-managed: spec-context -->';
@@ -1217,10 +1217,6 @@ const SPEC_CONTEXT_CLOSE = '<!-- /nmg-sdlc-managed -->';
 function rewriteV3HostTokens(text) {
   const tokens = new Map(V3_STEERING_TOKEN_MAP);
   return text.replace(V3_STEERING_TOKEN_RE, (match) => tokens.get(match));
-}
-
-function rewriteV3SnippetText(text) {
-  return rewriteV3HostTokens(text).replace(V3_STEERING_PROSE_RE, 'Claude Code');
 }
 
 function isSafeRegularFile(target) {
@@ -1239,6 +1235,7 @@ function planSteeringHostLanguage(root) {
   }
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) return null;
   const occurrences = [];
+  const proseFindings = [];
   const unverifiable = [];
   const actions = [];
   for (const snippet of Array.isArray(manifest.snippets) ? manifest.snippets : []) {
@@ -1255,7 +1252,8 @@ function planSteeringHostLanguage(root) {
     }
     let changed = false;
     const rewritten = text.split(/(?<=\n)/).map((line, index) => {
-      const after = rewriteV3SnippetText(line);
+      const after = rewriteV3HostTokens(line);
+      if (V3_STEERING_PROSE_RE.test(line)) proseFindings.push({ file: rel, line: index + 1, text: line.replace(/\r?\n$/, '') });
       if (after === line) return line;
       changed = true;
       occurrences.push({ file: rel, line: index + 1, before: line.replace(/\r?\n$/, ''), after: after.replace(/\r?\n$/, '') });
@@ -1292,12 +1290,13 @@ function planSteeringHostLanguage(root) {
       });
     }
   }
-  if (occurrences.length === 0) return null;
+  if (occurrences.length === 0 && proseFindings.length === 0) return null;
   if (manifestChanged) {
     actions.push({ op: 'write', path: 'steering/manifest.json', content: `${JSON.stringify(manifest, null, 2)}\n` });
   }
   return {
     occurrences,
+    proseFindings,
     unverifiable,
     plan: { schemaVersion: 1, mode: 'update', sourceDigest: steeringSourceDigest(root), actions },
   };
@@ -1306,20 +1305,24 @@ function planSteeringHostLanguage(root) {
 function detectSteeringHostLanguage(root) {
   const planned = planSteeringHostLanguage(root);
   if (!planned) return null;
-  const { occurrences, unverifiable } = planned;
+  const { occurrences, proseFindings, unverifiable } = planned;
+  const actionable = occurrences.length > 0;
   return {
     id: 'steering-v4-host-language',
     kind: 'steering-v4-host-language',
-    description: `Rewrite ${occurrences.length} v3 Oh My Pi host reference(s) in registered steering snippets and validations to Claude Code.`,
+    description: actionable
+      ? `Rewrite ${occurrences.length} v3 Oh My Pi host reference(s) in registered steering snippets and validations to Claude Code.`
+      : `Report ${proseFindings.length} Oh My Pi / OMP prose mention(s) in registered steering snippets; prose is not rewritten.`,
     occurrences,
+    proseFindings,
     unverifiable,
-    actionable: true,
+    actionable,
   };
 }
 
 function applySteeringHostLanguage(root, item) {
   const planned = planSteeringHostLanguage(root);
-  if (!planned) return { id: item.id, status: 'already-current' };
+  if (!planned || planned.occurrences.length === 0) return { id: item.id, status: 'already-current' };
   if (planned.unverifiable.length > 0) {
     return { id: item.id, status: 'skipped:unverifiable', reasonCode: 'steering_host_language_unsafe_path' };
   }

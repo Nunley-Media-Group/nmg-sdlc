@@ -12,6 +12,10 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `/sdlc-upgrade-project` no longer rewrites `Oh My Pi` and whole-word `OMP` prose in registered steering snippets to `Claude Code`, which produced contradictory sentences such as "It is not a Claude Code plugin." Those lines are now listed as report-only prose findings on `steering-v4-host-language`. Command-token and validation `config.program` / `config.args` mapping is unchanged (#487).
+
 ## [4.4.5] - 2026-10-25
 
 ### Changed

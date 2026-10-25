@@ -3087,7 +3087,8 @@ describe('steering-v4-host-language', () => {
     expect(item.occurrences).toContainEqual({ validationId: 'repository.exercise', field: 'config.program', before: 'omp', after: 'claude' });
     expect(item.occurrences).toContainEqual({ validationId: 'repository.exercise', field: 'config.args[0]', before: '--print', after: '-p' });
     expect(item.occurrences).toContainEqual({ validationId: 'repository.exercise', field: 'config.args[1]', before: 'scripts/exercise-omp.mjs', after: 'scripts/exercise-claude.mjs' });
-    expect(item.occurrences.filter((entry) => entry.file === 'steering/snippets/project-tech.md').map((entry) => entry.line)).toEqual([1, 2, 3, 4, 5]);
+    expect(item.occurrences.filter((entry) => entry.file === 'steering/snippets/project-tech.md').map((entry) => entry.line)).toEqual([1, 2, 3, 4]);
+    expect(item.proseFindings).toEqual([{ file: 'steering/snippets/project-tech.md', line: 5, text: 'Oh My Pi and OMP agree; OMPX and lowercase omp stay.' }]);
 
     const result = applyIds(root, [item.id]);
     expect(result.applied).toContainEqual(expect.objectContaining({ id: item.id, status: 'applied' }));
@@ -3096,13 +3097,31 @@ describe('steering-v4-host-language', () => {
       'Use ../nmg-sdlc-ignore.mjs and scripts/exercise-claude.mjs here.',
       'Launch with claude -p or --kind claude or --kind claude.',
       'State lives in .nmg-sdlc/ and .nmg-sdlc.',
-      'Claude Code and Claude Code agree; OMPX and lowercase omp stay.',
+      'Oh My Pi and OMP agree; OMPX and lowercase omp stay.',
       '',
     ].join('\n'));
     const manifest = JSON.parse(fs.readFileSync(path.join(root, 'steering', 'manifest.json'), 'utf8'));
     expect(manifest.validations[0].config).toEqual({ program: 'claude', args: ['-p', 'scripts/exercise-claude.mjs'], cwd: '.', env: [] });
     await expect(loadSteeringRuntime(root)).resolves.toBeDefined();
-    expect(detectItems(root).some((candidate) => candidate.kind === 'steering-v4-host-language')).toBe(false);
+    expect(detectItems(root).some((candidate) => candidate.kind === 'steering-v4-host-language' && candidate.actionable)).toBe(false);
+  });
+
+  it('reports a prose-only Oh My Pi mention without rewriting it or making the category actionable', async () => {
+    const root = makeRoot();
+    await makeV3HostProject(root, 'It is not a Codex or Oh My Pi plugin.\n');
+    const manifestPath = path.join(root, 'steering', 'manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.validations[0].config = { program: 'node', args: ['scripts/x.mjs'], cwd: '.', env: [] };
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    const snippetPath = path.join(root, 'steering', 'snippets', 'project-tech.md');
+    const item = detectItems(root).find((candidate) => candidate.kind === 'steering-v4-host-language');
+    expect(item.actionable).toBe(false);
+    expect(item.occurrences).toEqual([]);
+    expect(item.proseFindings).toEqual([{ file: 'steering/snippets/project-tech.md', line: 1, text: 'It is not a Codex or Oh My Pi plugin.' }]);
+
+    const result = applyIds(root, [item.id]);
+    expect(result.results).toContainEqual(expect.objectContaining({ id: item.id, status: 'already-current' }));
+    expect(fs.readFileSync(snippetPath, 'utf8')).toBe('It is not a Codex or Oh My Pi plugin.\n');
   });
 
   it('emits no item for a token-free project and leaves a declined group untouched', async () => {

@@ -28,6 +28,15 @@ describe('v4 host-language upgrade contract', () => {
     }
   });
 
+  test('steering host-language contract reports prose findings without the prose substitution', () => {
+    for (const doc of ['workflows/upgrade-project/WORKFLOW.md', 'workflows/upgrade-project/references/v3-detectors.md']) {
+      const source = read(doc);
+      expect(source).toContain('proseFindings');
+      expect(source).toContain('report-only prose');
+      expect(source).not.toMatch(/`Oh My Pi`[^\n]*to `Claude Code`|whole-word `OMP`[^\n]*to `Claude Code`/);
+    }
+  });
+
   test('contribution guide marks the v3 sentence stale', () => {
     const source = read('references/contribution-guide.md');
     expect(source).toContain('Stale v3 wording');
