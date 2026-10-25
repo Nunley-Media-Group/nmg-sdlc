@@ -12,6 +12,12 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.4.5] - 2026-10-25
+
+### Changed
+
+- Route /sdlc-execute against the fetched remote default branch instead of the stale local ref (#502)
+
 ## [4.4.4] - 2026-10-25
 
 ### Fixed

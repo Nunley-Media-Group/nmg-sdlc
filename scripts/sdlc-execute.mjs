@@ -220,12 +220,20 @@ function statusEvidence(cwd, run) {
     return { ...response, ok: succeeded(response), stdout: String(response?.stdout ?? ''), stderr: String(response?.stderr ?? '') };
   } });
 }
-/** Whether the branch has commits relative to the default branch; true when that cannot be read. */
+/**
+ * Whether the branch has commits beyond the freshly fetched remote default ref. The local default
+ * branch can lag origin, so it is never counted; an unreadable name, fetch, or count throws.
+ */
 function branchCommits(cwd, run, evidence) {
   const base = evidence?.project?.defaultBranch;
-  if (!base) return true;
-  const response = run('git', ['rev-list', '--count', `${base}..HEAD`], { cwd });
-  return !succeeded(response) || String(response.stdout ?? '').trim() !== '0';
+  if (!base) throw new Error('default_branch_unreadable');
+  const remoteRef = `refs/remotes/origin/${base}`;
+  const fetched = run('git', ['fetch', '--quiet', '--no-tags', 'origin', `refs/heads/${base}:${remoteRef}`], { cwd });
+  if (!succeeded(fetched)) throw new Error('default_branch_unreadable');
+  const response = run('git', ['rev-list', '--count', `${remoteRef}..HEAD`], { cwd });
+  const count = String(response?.stdout ?? '').trim();
+  if (!succeeded(response) || !/^\d+$/.test(count)) throw new Error('default_branch_unreadable');
+  return Number(count) > 0;
 }
 function remoteHead(cwd, run, branch) {
   const response = run('git', ['ls-remote', '--heads', 'origin', branch], { cwd });
