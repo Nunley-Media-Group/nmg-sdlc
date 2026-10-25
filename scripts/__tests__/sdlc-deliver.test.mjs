@@ -531,6 +531,36 @@ console.log(JSON.stringify(value));
     });
   });
 
+  describe('prepare-version spaces the generated line under an empty matching heading (#519)', () => {
+    const prepare = (f) => runDeliver({ cwd: f.root, issue: 42, action: 'prepare-version', run: f.run });
+    const changelogAt = (f) => fs.readFileSync(path.join(f.root, 'CHANGELOG.md'), 'utf8');
+    const releaseAt = (changelog, version) => {
+      const start = changelog.indexOf(`## [${version}]`);
+      const end = changelog.indexOf('\n## [', start + 1);
+      return changelog.slice(start, end < 0 ? changelog.length : end);
+    };
+
+    test('AC1 an empty trailing Fixed heading gets one blank line before the generated bullet', () => {
+      const f = fixture({ versionPrepared: false, labels: ['bug'], unreleased: '### Fixed\n\n' });
+      expect(prepare(f)).toMatchObject({ status: 0, prepared: { issue: 42, version: '3.4.6' } });
+      const section = releaseAt(changelogAt(f), '3.4.6');
+      expect(section.endsWith('### Fixed\n\n- Deliver verified changes (#42)\n')).toBe(true);
+      expect(section.split('### Fixed')).toHaveLength(2);
+    });
+
+    test('AC2 an empty Fixed heading followed by Changed gets one blank line on each side of the generated bullet', () => {
+      const f = fixture({
+        versionPrepared: false,
+        labels: ['bug'],
+        unreleased: '### Fixed\n\n\n### Changed\n\n- Renamed the option (#8)',
+      });
+      expect(prepare(f)).toMatchObject({ status: 0, prepared: { version: '3.4.6' } });
+      const section = releaseAt(changelogAt(f), '3.4.6');
+      expect(section.split('### Fixed')).toHaveLength(2);
+      expect(section).toContain('### Fixed\n\n- Deliver verified changes (#42)\n\n### Changed\n\n- Renamed the option (#8)\n');
+    });
+  });
+
   test('delivery without a prepared version fails before any pull request is created', () => {
     const f = fixture({ versionPrepared: false });
     const result = runDeliver({ cwd: f.root, issue: 42, run: f.run });

@@ -346,7 +346,7 @@ function updateChangelog(content, version, date, title, category, issue) {
   return `${prefix}${marker}\n\n## [${version}] - ${date}\n\n${body}${suffix}`;
 }
 
-// Appends the entry after the last bullet of an exactly matching rolled section, so the category heading is not duplicated; otherwise adds a new heading.
+// Appends the entry after the last bullet of an exactly matching rolled section, so the category heading is not duplicated; an empty matching section gets exactly one blank line before the entry and one after it when another heading follows. Otherwise adds a new heading.
 function addGeneratedEntry(unreleased, category, entry) {
   const heading = `### ${category}`;
   const lines = unreleased.split('\n');
@@ -356,7 +356,11 @@ function addGeneratedEntry(unreleased, category, entry) {
   while (end < lines.length && !lines[end].startsWith('### ')) end += 1;
   let last = end - 1;
   while (last > start && lines[last].trim() === '') last -= 1;
-  lines.splice(last + 1, 0, entry);
+  if (last === start) {
+    lines.splice(start + 1, end - start - 1, '', entry, ...(end < lines.length ? [''] : []));
+  } else {
+    lines.splice(last + 1, 0, entry);
+  }
   return `${lines.join('\n')}\n`;
 }
 
