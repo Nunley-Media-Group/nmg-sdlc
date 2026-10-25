@@ -12,9 +12,15 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.4.1] - 2026-10-25
+
 ### Fixed
 
 - First-run delivery is no longer blocked by a missing changelog or by push-event checks (#484). Onboarding creates `CHANGELOG.md` with a `## [Unreleased]` section when it is absent, and `prepare-version` fails with `version_artifact_missing` and a summary naming what is missing, before it changes any file. `/sdlc-execute` prints that summary, and `/sdlc-upgrade-project` proposes creating a missing `CHANGELOG.md`. A successful push-event check no longer blocks PR delivery, while a failed check of any event still does.
+
+### Changed
+
+- Fix first-run delivery: missing CHANGELOG.md and push-event checks block /sdlc-execute (#484)
 
 ## [4.4.0] - 2026-10-24
 
