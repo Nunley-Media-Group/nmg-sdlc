@@ -1,0 +1,50 @@
+**Issue**: #512
+**Date**: 2026-10-25
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/503-fix-duplicate-changelog-entry-when-delivery-rolls-a-hand-written-issue-entry/
+
+# File: scripts/__tests__/sdlc-deliver.test.mjs
+# Generated from: specs/512-file-generated-bug-fix-changelog-lines-under-fixed/requirements.md
+Feature: Generated CHANGELOG lines use the issue's category
+
+  @SCN001 @regression
+  Scenario: A bug issue's generated line is filed under Fixed
+    Given issue #42 titled "Deliver verified changes" is labelled "bug" with no BREAKING declaration
+    And CHANGELOG.md has an empty [Unreleased] section
+    When prepare-version runs for issue #42
+    Then the new release section contains "### Fixed" followed by "- Deliver verified changes (#42)"
+    And the new release section contains no "### Changed" heading
+
+  @SCN002 @regression
+  Scenario: The generated line joins an existing Fixed section
+    Given issue #42 is labelled "bug"
+    And [Unreleased] contains "### Fixed" with "- Corrected the widget (#7)" followed by "### Changed" with "- Renamed the option (#8)"
+    When prepare-version runs for issue #42
+    Then the new release section contains exactly one "### Fixed" heading
+    And "- Deliver verified changes (#42)" directly follows "- Corrected the widget (#7)"
+    And "### Changed" with "- Renamed the option (#8)" follows in its original form
+
+  @SCN003 @regression
+  Scenario: A feature issue's generated line stays under Changed
+    Given issue #42 is labelled "enhancement" with no BREAKING declaration
+    And [Unreleased] contains "### Changed" with "- Renamed the option (#8)"
+    When prepare-version runs for issue #42
+    Then the new release section contains exactly one "### Changed" heading ending with "- Deliver verified changes (#42)"
+    And the new release section contains no "### Fixed" heading
+
+  @SCN004 @regression
+  Scenario: An approved breaking bug fix stays under Changed (BREAKING)
+    Given issue #42 is labelled "bug" and titled "BREAKING: Deliver verified changes"
+    And the approved requirements contain "**Version bump**: major"
+    When prepare-version runs for issue #42
+    Then VERSION is bumped to the next major
+    And "- BREAKING: Deliver verified changes (#42)" is filed under "### Changed (BREAKING)"
+    And no "### Fixed" heading is added
+
+  @SCN005 @regression
+  Scenario: Re-running preparation for a bug issue does not bump again
+    Given prepare-version already filed issue #42's generated line under "### Fixed" and committed the version artifacts
+    When prepare-version runs again for issue #42
+    Then it reports the same prepared version
+    And VERSION, package.json, and CHANGELOG.md are unchanged and no new commit is created
