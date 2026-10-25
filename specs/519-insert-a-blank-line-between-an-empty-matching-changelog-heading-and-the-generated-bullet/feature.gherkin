@@ -1,0 +1,39 @@
+**Issue**: #519
+**Date**: 2026-10-25
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/512-file-generated-bug-fix-changelog-lines-under-fixed/
+
+# File: scripts/__tests__/sdlc-deliver.test.mjs
+# Generated from: specs/519-insert-a-blank-line-between-an-empty-matching-changelog-heading-and-the-generated-bullet/requirements.md
+Feature: Generated CHANGELOG bullet spacing under a matching heading
+
+  @SCN001 @regression
+  Scenario: An empty trailing Fixed heading gets one blank line before the generated bullet
+    Given issue #42 titled "Deliver verified changes" is labelled "bug" with no BREAKING declaration
+    And CHANGELOG.md [Unreleased] contains only "### Fixed" followed by blank lines
+    When prepare-version runs for issue #42
+    Then the new release section ends with "### Fixed", one blank line, and "- Deliver verified changes (#42)"
+    And the new release section contains "### Fixed" exactly once
+
+  @SCN002 @regression
+  Scenario: An empty Fixed heading followed by another section gets one blank line on each side of the generated bullet
+    Given issue #42 titled "Deliver verified changes" is labelled "bug" with no BREAKING declaration
+    And CHANGELOG.md [Unreleased] contains "### Fixed" with only blank lines beneath it, then "### Changed" with "- Renamed the option (#8)"
+    When prepare-version runs for issue #42
+    Then the new release section contains "### Fixed", one blank line, "- Deliver verified changes (#42)", one blank line, then "### Changed"
+    And the "### Changed" section still contains "- Renamed the option (#8)"
+
+  @SCN003 @regression
+  Scenario: A populated Fixed section receives the generated bullet after its last bullet
+    Given issue #42 titled "Deliver verified changes" is labelled "bug" with no BREAKING declaration
+    And CHANGELOG.md [Unreleased] contains "### Fixed" with "- Corrected the widget (#7)", then "### Changed" with "- Renamed the option (#8)"
+    When prepare-version runs for issue #42
+    Then "- Deliver verified changes (#42)" directly follows "- Corrected the widget (#7)" with no blank line between them
+
+  @SCN004 @regression
+  Scenario: A section without a matching heading gets a new Fixed heading as before
+    Given issue #42 titled "Deliver verified changes" is labelled "bug" with no BREAKING declaration
+    And CHANGELOG.md has an empty [Unreleased] section
+    When prepare-version runs for issue #42
+    Then the new release section ends with "### Fixed", one blank line, and "- Deliver verified changes (#42)"
