@@ -290,6 +290,9 @@ export function applyBlockedByEdges(client, edges) {
   return Object.freeze([...applied]);
 }
 
+// A code span is a backtick run closed by an equal run on the same line; an unmatched backtick stays literal.
+const INLINE_CODE_SPAN = /(?<!`)(`+)(?!`)[^\n]*?(?<!`)\1(?!`)/g;
+
 function stripIgnoredProse(body) {
   return String(body ?? '')
     .replace(/```[\s\S]*?```/g, '')
@@ -304,20 +307,30 @@ const QUALIFIER_STOP_WORDS = new Set([
   'an', 'a', 'each', 'every', 'its', 'our', 'see', 'github',
 ]);
 
+const QUALIFIER_DETERMINERS = new Set(['the', 'a', 'an', 'this', 'that', 'our', 'its', 'each', 'every', 'same']);
+
 // A reference qualified as a pull request or by another project or repository never names a local issue.
 function qualifiedReference(prefix) {
   if (/\b(?:PR|pull request|pull)\s*$/i.test(prefix)) return true;
   if (/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(prefix)) return true;
   const project = prefix.match(/\b([A-Za-z0-9][\w.-]*)\s+issue\s*$/i);
-  return Boolean(project
-    && (/^[A-Z]/.test(project[1]) || /[-._]/.test(project[1]))
-    && !QUALIFIER_STOP_WORDS.has(project[1].toLowerCase()));
+  if (!project) return false;
+  const [, word] = project;
+  if (QUALIFIER_STOP_WORDS.has(word.toLowerCase())) return false;
+  if (/[-._]/.test(word)) return true;
+  if (!/^[A-Z]/.test(word)) return false;
+  // A capitalized run is local only when a determiner directly precedes it, as in "the Auth API issue #8".
+  const boundary = prefix.slice(0, project.index).trim().split(/\s+/).reverse()
+    .find((candidate) => !/^[A-Z][A-Za-z0-9]*$/.test(candidate) || QUALIFIER_DETERMINERS.has(candidate.toLowerCase()));
+  return !QUALIFIER_DETERMINERS.has(boundary?.toLowerCase());
 }
 
 export function parseLegacyDependencyEvidence(body) {
   const edges = [];
   const findings = [];
-  for (const line of stripIgnoredProse(body).split(/\r?\n/)) {
+  for (const original of stripIgnoredProse(body).split(/\r?\n/)) {
+    // Match against a copy whose code spans are blanked, so a reference inside a span never matches; evidence keeps the original line.
+    const line = original.replace(INLINE_CODE_SPAN, ' ');
     if (/^\s*\|/.test(line)) continue;
     const field = line.match(/^\s*(Depends on|Blocked by|Requires|After|Precursor|Blocks):\s*(.+?)\s*$/i);
     const clause = field ?? line.match(/\b(blocked by|depends on|requires|after|precursor)\b.*#([1-9]\d*)\b/i);
@@ -328,13 +341,15 @@ export function parseLegacyDependencyEvidence(body) {
       .filter((match) => !qualifiedReference(text.slice(0, match.index)))
       .map((match) => Number(match[1]));
     if (matches.length > 0 && refs.length === 0) continue;
+    // Blanking removes only code spans, so a #N left in the original line but not in the copy sat inside a span.
+    if (matches.length === 0 && /#[1-9]/.test(original)) continue;
     if (refs.length === 0 || (!field && refs.length !== 1)) {
-      findings.push({ line: line.trim(), reason: 'ambiguous_dependency_evidence' });
+      findings.push({ line: original.trim(), reason: 'ambiguous_dependency_evidence' });
       continue;
     }
     const relation = String(field ? field[1] : clause[1]).toLowerCase();
     for (const issue of refs) {
-      edges.push({ relation: relation === 'blocks' ? 'blocks' : 'blockedBy', issue, source: line.trim() });
+      edges.push({ relation: relation === 'blocks' ? 'blocks' : 'blockedBy', issue, source: original.trim() });
     }
   }
   return { edges, findings };

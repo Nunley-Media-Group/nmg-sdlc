@@ -12,6 +12,16 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.4.9] - 2026-10-25
+
+### Fixed
+
+- Keep determiner-qualified legacy dependency references local and ignore inline code spans in legacy dependency parsing (#504)
+
+### Changed
+
+- Fix legacy dependency parsing of determiner-qualified issue references and inline code spans (#504)
+
 ## [4.4.8] - 2026-10-25
 
 ### Changed
