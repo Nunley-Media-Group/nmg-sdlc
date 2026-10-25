@@ -18,7 +18,7 @@ All mutations go through `scripts/sdlc-upgrade.mjs` (`detectUpgrade` / `applyUpg
 | agents-spike-language | Helper strips leftover spike wording from AGENTS.md structure comments |
 | agents-host-language | Helper rewrites only the managed `agents/ … # OMP task agents (…)` comment to `# Claude Code plugin subagents (…)` |
 | agents-to-claude-md | Rename root `AGENTS.md` to `CLAUDE.md` (`git mv` when tracked), or append it to an existing `CLAUDE.md` after one blank line with a single spec-context managed section, then delete `AGENTS.md`; runs at order 7.75, after `agents-host-language` |
-| steering-v4-host-language | Rewrite v3 host tokens and `Oh My Pi` / whole-word `OMP` prose in registered snippets and validation `config.program` / `config.args` (`omp`→`claude`, `--print`→`-p`) through the shared steering writer; runs at order 10.5 |
+| steering-v4-host-language | Rewrite v3 host tokens in registered snippets and validation `config.program` / `config.args` (`omp`→`claude`, `--print`→`-p`) through the shared steering writer; `Oh My Pi` / whole-word `OMP` prose lines are report-only `proseFindings` and are never rewritten; runs at order 10.5 |
 | contributing-v4-host-language | Replace the exact v3 `drives Herdr omp worker panes …` sentence in `CONTRIBUTING.md` with the `Claude` form; runs at order 10.5 |
 | frontmatter-fix | Singular `**Issue**`; Status Draft or Approved only, including `feature.gherkin` |
 | issue-dependencies | Re-read approved graph digest, preflight combined graph, then add only approved official blocked-by edges |
