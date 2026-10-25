@@ -1,0 +1,42 @@
+**Issue**: #514
+**Date**: 2026-10-25
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/503-fix-duplicate-changelog-entry-when-delivery-rolls-a-hand-written-issue-entry/
+
+# File: scripts/__tests__/changelog-citation-contract.test.mjs
+# Generated from: specs/514-require-the-n-citation-on-hand-written-changelog-unreleased-entries/requirements.md
+Feature: Hand-written CHANGELOG entries cite their issue
+
+  @SCN001 @regression
+  Scenario: AC1 the tasks template states the citation rule
+    Given the file "workflows/write-spec/templates/tasks.md"
+    When a spec writer reads its guidance for a task that requires a CHANGELOG.md [Unreleased] entry for issue #N
+    Then it states that each bullet written for that issue must end with the exact citation "(#N)"
+
+  @SCN002 @regression
+  Scenario: AC2 the versioning reference documents the roll behavior
+    Given the file "references/versioning.md"
+    When a reader looks up how delivery prepares CHANGELOG.md
+    Then it states that each [Unreleased] bullet for issue #N must end with the exact citation "(#N)"
+    And it states that a rolled bullet containing "(#N)" is rolled without the generated "- <issue title> (#N)" line
+    And it states that the generated line is added otherwise
+
+  @SCN003 @regression
+  Scenario: AC3 project steering and CLAUDE.md state the same rule
+    Given the files "steering/snippets/project-tech.md" and "CLAUDE.md"
+    When an implement worker reads the project changelog conventions
+    Then each states that an [Unreleased] bullet written for issue #N must end with the exact citation "(#N)"
+    And the CLAUDE.md rule appears in the "Commit & CHANGELOG Conventions" section
+
+  @SCN004 @regression
+  Scenario: AC4 the contract test guards the rule text
+    Given the contract test "scripts/__tests__/changelog-citation-contract.test.mjs"
+    When the citation rule text is absent from the tasks template or the versioning reference
+    Then the contract test fails
+
+  @SCN005 @regression
+  Scenario: AC5 version mirror discovery is preserved
+    Given the edited "steering/snippets/project-tech.md"
+    When its "## Versioning" section is read up to the next "##" or "###" heading
+    Then the declared rows are exactly "VERSION", "package.json" with field "version", and ".claude-plugin/plugin.json" with field "version"
