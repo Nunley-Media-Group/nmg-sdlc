@@ -100,6 +100,10 @@ The delivery stage continues through checks, review remediation, exact-head merg
 
 Breaking changes still use the accepted bump unless the approved major note is present. Mark them under `### Changed (BREAKING)` and provide migration notes.
 
+### Changelog Entries
+
+Each `CHANGELOG.md` `[Unreleased]` bullet written for issue #N must end with the exact citation `(#N)`; a single trailing period is allowed. Delivery skips its generated `- <issue title> (#N)` line only when a rolled bullet contains `(#N)`, so a bullet without the citation produces a duplicate entry.
+
 ---
 
 ## Claude Code Plugin Standards
