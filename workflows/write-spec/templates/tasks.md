@@ -4,6 +4,8 @@ Use this template for executable feature or bug specs. Emit only issue-specific 
 
 `**File(s)**:` is optional implementation guidance, never an allowlist. When present, use repository-relative paths enclosed in backticks, separated by commas or semicolons. Bounded directories and globs are allowed. Optional parenthetical notes may follow an entry. Acceptance is authoritative.
 
+When a task's acceptance requires a `CHANGELOG.md` `[Unreleased]` entry for issue #N, that acceptance requires each bullet written for that issue to end with the exact citation `(#N)`; a single trailing period is allowed, for example `- Corrected delivery (#42).` Delivery detects the citation to decide whether it adds its generated line, so a bullet without the citation produces a duplicate entry.
+
 ## Feature Variant
 
 ```markdown

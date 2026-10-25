@@ -27,6 +27,12 @@ There is no `--major` CLI flag and no interactive version gate.
 
 Default unmatched issues to minor. Never infer major. A leftover `spike` label is unmatched and defaults to minor.
 
+## CHANGELOG entries
+
+Each `[Unreleased]` bullet written for issue #N must end with the exact citation `(#N)`; a single trailing period is allowed.
+
+When delivery prepares the version for issue #N, it moves the `[Unreleased]` content under the new `## [X.Y.Z] - YYYY-MM-DD` heading. If a rolled `- ` bullet contains `(#N)`, delivery rolls it without adding its generated `- <issue title> (#N)` line; otherwise it adds the generated line. Delivery detects the citation by containment, so a citation anywhere in a bullet suppresses the generated line; authors place it at the end so every entry reads uniformly.
+
 ## Approved major note
 
 A line in the approved spec `requirements.md` or `design.md` matching `^\*\*Version bump\*\*:\s*major\s*$` (case-insensitive).
