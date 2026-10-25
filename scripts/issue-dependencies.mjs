@@ -290,10 +290,14 @@ export function applyBlockedByEdges(client, edges) {
   return Object.freeze([...applied]);
 }
 
+// A code span is a backtick run closed by an equal run on the same line; an unmatched backtick stays literal.
+const INLINE_CODE_SPAN = /(?<!`)(`+)(?!`)[^\n]*?(?<!`)\1(?!`)/g;
+
 function stripIgnoredProse(body) {
   return String(body ?? '')
     .replace(/```[\s\S]*?```/g, '')
     .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(INLINE_CODE_SPAN, ' ')
     .split(/\r?\n/)
     .filter((line) => !/^\s*>/.test(line))
     .join('\n');
@@ -304,14 +308,22 @@ const QUALIFIER_STOP_WORDS = new Set([
   'an', 'a', 'each', 'every', 'its', 'our', 'see', 'github',
 ]);
 
+const QUALIFIER_DETERMINERS = new Set(['the', 'a', 'an', 'this', 'that', 'our', 'its', 'each', 'every', 'same']);
+
 // A reference qualified as a pull request or by another project or repository never names a local issue.
 function qualifiedReference(prefix) {
   if (/\b(?:PR|pull request|pull)\s*$/i.test(prefix)) return true;
   if (/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(prefix)) return true;
   const project = prefix.match(/\b([A-Za-z0-9][\w.-]*)\s+issue\s*$/i);
-  return Boolean(project
-    && (/^[A-Z]/.test(project[1]) || /[-._]/.test(project[1]))
-    && !QUALIFIER_STOP_WORDS.has(project[1].toLowerCase()));
+  if (!project) return false;
+  const [, word] = project;
+  if (QUALIFIER_STOP_WORDS.has(word.toLowerCase())) return false;
+  if (/[-._]/.test(word)) return true;
+  if (!/^[A-Z]/.test(word)) return false;
+  // A capitalized run is local only when a determiner directly precedes it, as in "the Auth API issue #8".
+  const boundary = prefix.slice(0, project.index).trim().split(/\s+/).reverse()
+    .find((candidate) => !/^[A-Z][A-Za-z0-9]*$/.test(candidate) || QUALIFIER_DETERMINERS.has(candidate.toLowerCase()));
+  return !QUALIFIER_DETERMINERS.has(boundary?.toLowerCase());
 }
 
 export function parseLegacyDependencyEvidence(body) {

@@ -223,6 +223,42 @@ describe('official blocked-by adapter', () => {
     });
   });
 
+  it('keeps a determiner-qualified local descriptor before a capitalized word as a local edge', () => {
+    expect(parseLegacyDependencyEvidence('After the API issue #5 lands')).toEqual({
+      edges: [{ relation: 'blockedBy', issue: 5, source: 'After the API issue #5 lands' }],
+      findings: [],
+    });
+  });
+
+  it('keeps a determiner before a run of capitalized words as a local edge', () => {
+    expect(parseLegacyDependencyEvidence([
+      'Depends on our Auth issue #7',
+      'Depends on the Auth API issue #8',
+    ].join('\n'))).toEqual({
+      edges: [
+        { relation: 'blockedBy', issue: 7, source: 'Depends on our Auth issue #7' },
+        { relation: 'blockedBy', issue: 8, source: 'Depends on the Auth API issue #8' },
+      ],
+      findings: [],
+    });
+  });
+
+  it('keeps undetermined and punctuated project qualifiers foreign', () => {
+    expect(parseLegacyDependencyEvidence([
+      'PennyScan issue #102 therefore fails',
+      'Depends on nmg-pi issue #4',
+      'After the nmg-pi issue #4 lands',
+    ].join('\n'))).toEqual({ edges: [], findings: [] });
+  });
+
+  it('ignores inline code spans while keeping a reference outside them', () => {
+    expect(parseLegacyDependencyEvidence('`Requires #9`')).toEqual({ edges: [], findings: [] });
+    expect(parseLegacyDependencyEvidence('Requires `#9` and #10')).toEqual({
+      edges: [{ relation: 'blockedBy', issue: 10, source: 'Requires   and #10' }],
+      findings: [],
+    });
+  });
+
   it('still rejects a dangling approved edge after legacy candidates become findings', () => {
     const f = clientGraph({ issues: [{ number: 2 }, { number: 3 }], blockers: {} });
     expect(() => preflightBlockedByEdges(f.graph, [{ issue: 2, blockedBy: 307 }]))
