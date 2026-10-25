@@ -1,0 +1,39 @@
+**Issue**: #504
+**Date**: 2026-10-25
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/485-reject-non-issue-legacy-dependency-references-instead-of-aborting-upgrade-detection/
+
+# Generated from: specs/504-fix-legacy-dependency-parsing-of-determiner-qualified-issue-references-and-inline-code-spans/requirements.md
+Feature: Legacy dependency parsing keeps determiner-qualified local references and ignores inline code
+
+  @SCN001 @regression
+  Scenario: AC1 determiner before a capitalized descriptor keeps a local edge
+    Given an issue body containing "After the API issue #5 lands"
+    When parseLegacyDependencyEvidence parses the body
+    Then it returns one blockedBy edge to issue 5 and no findings
+
+  @SCN002 @regression
+  Scenario: AC2 determiner before a run of capitalized words keeps a local edge
+    Given an issue body containing "Depends on our Auth issue #7" and "Depends on the Auth API issue #8"
+    When parseLegacyDependencyEvidence parses the body
+    Then it returns blockedBy edges to issues 7 and 8 and no findings
+
+  @SCN003 @regression
+  Scenario: AC3 undetermined and punctuated project names stay foreign
+    Given an issue body containing "PennyScan issue #102 therefore fails", "Depends on nmg-pi issue #4" and "After the nmg-pi issue #4 lands"
+    When parseLegacyDependencyEvidence parses the body
+    Then it returns no edges and no findings
+
+  @SCN004 @regression
+  Scenario: AC4 inline code spans are ignored
+    Given one issue body containing "`Requires #9`" and another containing "Requires `#9` and #10"
+    When parseLegacyDependencyEvidence parses each body
+    Then the first returns no edges and no findings
+    And the second returns only a blockedBy edge to issue 10 and no findings
+
+  @SCN005 @regression
+  Scenario: AC5 existing classification behavior is preserved
+    Given the existing table-row, pull-request, owner/repo, field-line, fenced, quoted and ambiguous-clause parser cases
+    When parseLegacyDependencyEvidence parses them
+    Then it returns the same edges and findings as before the fix
