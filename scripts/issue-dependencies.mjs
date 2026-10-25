@@ -297,7 +297,6 @@ function stripIgnoredProse(body) {
   return String(body ?? '')
     .replace(/```[\s\S]*?```/g, '')
     .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(INLINE_CODE_SPAN, ' ')
     .split(/\r?\n/)
     .filter((line) => !/^\s*>/.test(line))
     .join('\n');
@@ -329,7 +328,9 @@ function qualifiedReference(prefix) {
 export function parseLegacyDependencyEvidence(body) {
   const edges = [];
   const findings = [];
-  for (const line of stripIgnoredProse(body).split(/\r?\n/)) {
+  for (const original of stripIgnoredProse(body).split(/\r?\n/)) {
+    // Match against a copy whose code spans are blanked, so a reference inside a span never matches; evidence keeps the original line.
+    const line = original.replace(INLINE_CODE_SPAN, ' ');
     if (/^\s*\|/.test(line)) continue;
     const field = line.match(/^\s*(Depends on|Blocked by|Requires|After|Precursor|Blocks):\s*(.+?)\s*$/i);
     const clause = field ?? line.match(/\b(blocked by|depends on|requires|after|precursor)\b.*#([1-9]\d*)\b/i);
@@ -340,13 +341,15 @@ export function parseLegacyDependencyEvidence(body) {
       .filter((match) => !qualifiedReference(text.slice(0, match.index)))
       .map((match) => Number(match[1]));
     if (matches.length > 0 && refs.length === 0) continue;
+    // Blanking removes only code spans, so a #N left in the original line but not in the copy sat inside a span.
+    if (matches.length === 0 && /#[1-9]/.test(original)) continue;
     if (refs.length === 0 || (!field && refs.length !== 1)) {
-      findings.push({ line: line.trim(), reason: 'ambiguous_dependency_evidence' });
+      findings.push({ line: original.trim(), reason: 'ambiguous_dependency_evidence' });
       continue;
     }
     const relation = String(field ? field[1] : clause[1]).toLowerCase();
     for (const issue of refs) {
-      edges.push({ relation: relation === 'blocks' ? 'blocks' : 'blockedBy', issue, source: line.trim() });
+      edges.push({ relation: relation === 'blocks' ? 'blocks' : 'blockedBy', issue, source: original.trim() });
     }
   }
   return { edges, findings };

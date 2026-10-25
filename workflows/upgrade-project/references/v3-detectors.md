@@ -90,7 +90,7 @@ The unbounded `detectUpgrade` / `applyUpgrade` API and `detect` / `apply` CLI re
    - Unparseable ADRs are unverifiable.
 7. **Issue dependencies**
    - List every open and closed repository issue and every official `dependencies/blocked_by` page.
-   - Parse explicit legacy fields and clear sequencing clauses only after removing fenced code, HTML comments, inline code spans, and block quotes.
+   - Parse explicit legacy fields and clear sequencing clauses only after removing fenced code, HTML comments, and block quotes. Inline code spans stay in the recorded source, but a `#N` inside one is excluded from matching and yields neither an edge nor a finding.
    - Skip markdown table rows and drop references qualified as a pull request (`PR #N`, `pull request #N`) or by another project or repository (`PennyScan issue #N`, `owner/repo#N`); these never name a local issue. A determiner (`the`, `a`, `an`, `this`, `that`, `our`, `its`, `each`, `every`, `same`, matched case-insensitively) directly before a run of capitalized words that ends at `issue #N` marks a local descriptor, so `After the Auth API issue #N` yields a local edge. `PennyScan issue #N`, a capitalized word with no determiner before it, and punctuated names such as `nmg-pi issue #N` stay foreign.
    - Ambiguous prose is a finding, not an edge. Preserve all issue body text.
    - A candidate whose endpoint is not a repository issue is a report-only `dependency_dangling_candidate` finding with its source line and edge; it is never proposed, and detection still returns every other category.

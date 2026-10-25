@@ -253,8 +253,9 @@ describe('official blocked-by adapter', () => {
 
   it('ignores inline code spans while keeping a reference outside them', () => {
     expect(parseLegacyDependencyEvidence('`Requires #9`')).toEqual({ edges: [], findings: [] });
+    expect(parseLegacyDependencyEvidence('Depends on: `#7`')).toEqual({ edges: [], findings: [] });
     expect(parseLegacyDependencyEvidence('Requires `#9` and #10')).toEqual({
-      edges: [{ relation: 'blockedBy', issue: 10, source: 'Requires   and #10' }],
+      edges: [{ relation: 'blockedBy', issue: 10, source: 'Requires `#9` and #10' }],
       findings: [],
     });
   });
