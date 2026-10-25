@@ -20,7 +20,7 @@ function git(cwd, ...args) {
   return result.stdout.trim();
 }
 
-function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'passed', remoteIssueState = 'OPEN', existing = false, lostAck = false, checksState = 'SUCCESS', checkResponses = {}, smokeOwned = false, humanReview = false, versionPrepared = true, closingReferences = [{ number: 42, url: 'https://github.test/owner/repo/issues/42' }] } = {}) {
+function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'passed', remoteIssueState = 'OPEN', existing = false, lostAck = false, checksState = 'SUCCESS', declaredName = 'contract-tests', checkResponses = {}, smokeOwned = false, humanReview = false, versionPrepared = true, closingReferences = [{ number: 42, url: 'https://github.test/owner/repo/issues/42' }] } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-delivery-current-'));
   const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-delivery-remote-'));
   roots.push(root, remote);
@@ -80,7 +80,7 @@ function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'p
   const scope = inspectIssueSpecScope({ projectRoot: root, issueNumber: 42, specPath: spec });
   const projection = Object.fromEntries(['issueNumber', 'specPath', 'status', 'delivery', 'regression'].map((key) => [key, scope[key]]));
   const local = { ...projection.delivery, regression: projection.regression, tests: 'pass', steeringGates: 'pass' };
-  const identity = { kind: 'required_check', name: 'contract-tests', event: 'pull_request', acceptanceCriteria: ['AC1'] };
+  const identity = { kind: 'required_check', name: declaredName, event: 'pull_request', acceptanceCriteria: ['AC1'] };
   const readiness = pending ? {
     schemaVersion: 1, state: 'pr_evidence_pending', issueNumber: 42, specPath: spec,
     local, pendingEvidence: [identity],
@@ -212,6 +212,40 @@ afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursiv
 
 const deliveryCalls = (f, verb) => f.calls.filter((call) => call[0] === 'gh' && call[1] === 'pr' && call[2] === verb);
 
+// Publishes satisfied PR-only evidence for the draft made by `prepare-pr-evidence`,
+// commits and pushes the report, and returns the final head that delivery observes.
+function publishSatisfiedDraftEvidence(f, { name = 'contract-tests' } = {}) {
+  const h1 = f.currentHead;
+  const reportPath = path.join(f.root, 'specs/42-delivery/verification-report.md');
+  const report = fs.readFileSync(reportPath, 'utf8');
+  const pending = JSON.parse(report.match(/<!-- nmg-sdlc-pr-readiness: (.*?) -->/)?.[1]);
+  const satisfied = {
+    schemaVersion: 1, state: 'pr_evidence_satisfied', issueNumber: 42,
+    specPath: 'specs/42-delivery', local: pending.local,
+    evidence: pending.pendingEvidence.map((identity) => ({
+      ...identity, name, headSha: h1, conclusion: 'SUCCESS', url: 'https://github.test/checks/77',
+    })),
+  };
+  fs.writeFileSync(reportPath, report
+    .replace('PR Evidence Pending', 'Pass')
+    .replace(`**Verification head**: ${f.sourceHead}`, `**Verification head**: ${h1}`)
+    .replace(/<!-- nmg-sdlc-pr-readiness: .* -->/, `<!-- nmg-sdlc-pr-readiness: ${JSON.stringify(satisfied)} -->`));
+  const artifactPath = path.join(f.root, '.nmg-sdlc/verification/42.json');
+  const artifact = JSON.parse(fs.readFileSync(artifactPath, 'utf8'));
+  artifact.identity.headSha = h1;
+  for (const result of artifact.results) {
+    result.request.identity.headSha = h1;
+    result.result.identity.headSha = h1;
+    result.request.verification.runId = `verification-${createHash('sha256')
+      .update(`${fs.realpathSync(f.root)}\0${42}\0specs/42-delivery\0${h1}`).digest('hex')}`;
+  }
+  fs.writeFileSync(artifactPath, `${JSON.stringify(artifact)}\n`);
+  git(f.root, 'add', '--', 'specs/42-delivery/verification-report.md');
+  git(f.root, 'commit', '-qm', 'docs: record verification for #42');
+  expect(f.run('git', ['push', 'origin', 'HEAD:refs/heads/feature/42-delivery']).status).toBe(0);
+  return f.currentHead;
+}
+
 describe('live issue delivery', () => {
   test('CLI accepts branch-first standalone and preparation modes, rejects removed session cursor', () => {
     expect(parseDeliverCli(['--issue', '42'])).toEqual({ action: 'deliver', issue: 42 });
@@ -302,35 +336,7 @@ console.log(JSON.stringify(value));
     const f = fixture({ pending: true });
     const draft = runDeliver({ cwd: f.root, issue: 42, action: 'prepare-pr-evidence', run: f.run });
     expect(draft).toMatchObject({ status: 3, prEvidence: { headSha: f.currentHead } });
-    const h1 = f.currentHead;
-    const reportPath = path.join(f.root, 'specs/42-delivery/verification-report.md');
-    const report = fs.readFileSync(reportPath, 'utf8');
-    const pending = JSON.parse(report.match(/<!-- nmg-sdlc-pr-readiness: (.*?) -->/)?.[1]);
-    const satisfied = {
-      schemaVersion: 1, state: 'pr_evidence_satisfied', issueNumber: 42,
-      specPath: 'specs/42-delivery', local: pending.local,
-      evidence: pending.pendingEvidence.map((identity) => ({
-        ...identity, headSha: h1, conclusion: 'SUCCESS', url: 'https://github.test/checks/77',
-      })),
-    };
-    fs.writeFileSync(reportPath, report
-      .replace('PR Evidence Pending', 'Pass')
-      .replace(`**Verification head**: ${f.sourceHead}`, `**Verification head**: ${h1}`)
-      .replace(/<!-- nmg-sdlc-pr-readiness: .* -->/, `<!-- nmg-sdlc-pr-readiness: ${JSON.stringify(satisfied)} -->`));
-    const artifactPath = path.join(f.root, '.nmg-sdlc/verification/42.json');
-    const artifact = JSON.parse(fs.readFileSync(artifactPath, 'utf8'));
-    artifact.identity.headSha = h1;
-    for (const result of artifact.results) {
-      result.request.identity.headSha = h1;
-      result.result.identity.headSha = h1;
-      result.request.verification.runId = `verification-${createHash('sha256')
-        .update(`${fs.realpathSync(f.root)}\0${42}\0specs/42-delivery\0${h1}`).digest('hex')}`;
-    }
-    fs.writeFileSync(artifactPath, `${JSON.stringify(artifact)}\n`);
-    git(f.root, 'add', '--', 'specs/42-delivery/verification-report.md');
-    git(f.root, 'commit', '-qm', 'docs: record verification for #42');
-    expect(f.run('git', ['push', 'origin', 'HEAD:refs/heads/feature/42-delivery']).status).toBe(0);
-    const finalHead = f.currentHead;
+    const finalHead = publishSatisfiedDraftEvidence(f);
     const result = runDeliver({ cwd: f.root, issue: 42, run: f.run });
     expect(result).toMatchObject({ status: 0, handoff: { status: 'passed' } });
     expect(f.pr.headRefOid).toBe(finalHead);
@@ -480,6 +486,82 @@ console.log(JSON.stringify(value));
       handoff: { reasonCode: 'delivery_linkage_unproven', summary: 'Merged PR #77 does not link issue #42' },
     });
     expect(deliveryCalls(f, 'merge')).toHaveLength(1);
+  });
+
+  describe('draft PR-only evidence resolution', () => {
+    const PUSH_LINK = 'https://github.test/checks/push-77';
+    const PR_LINK = 'https://github.test/checks/pr-77';
+    const PENDING_SUMMARY = 'Draft PR #77 PR-only checks remain pending';
+    const UNRESOLVED_SUMMARY = 'Delivery failed for #42: verification_not_ready';
+    const BUCKETS = { SUCCESS: 'pass', PENDING: 'pending', FAILURE: 'fail' };
+    const checkRow = (name, { event = 'pull_request', state = 'SUCCESS', link = PR_LINK, workflow } = {}) => ({
+      name, state, bucket: BUCKETS[state], link, event, ...(workflow ? { workflow } : {}),
+    });
+    const observedChecks = (...rows) => {
+      const response = { status: 0, stdout: JSON.stringify(rows), stderr: '' };
+      return { all: response, required: response };
+    };
+    const draftWith = (rows, { declaredName = 'contract-tests' } = {}) => {
+      const f = fixture({ pending: true, declaredName, checkResponses: observedChecks(...rows) });
+      const draft = runDeliver({ cwd: f.root, issue: 42, action: 'prepare-pr-evidence', run: f.run });
+      expect(draft).toMatchObject({ status: 3, prEvidence: { pullRequest: 77 } });
+      publishSatisfiedDraftEvidence(f, { name: declaredName });
+      return f;
+    };
+    const deliverDraft = (f) => runDeliver({
+      cwd: f.root, issue: 42, run: f.run, sleep: () => { throw new Error('unexpected wait'); },
+    });
+    const expectNotReady = (f, summary) => {
+      const result = deliverDraft(f);
+      expect(result).toMatchObject({ status: 1, handoff: { status: 'failed', reasonCode: 'verification_not_ready' } });
+      expect(result.handoff.summary).toBe(summary);
+      expect(deliveryCalls(f, 'ready')).toHaveLength(0);
+      expect(deliveryCalls(f, 'merge')).toHaveLength(0);
+      expect(f.pr.body).not.toContain('nmg-sdlc-delivery-validation');
+    };
+
+    test('AC1 a same-name push check does not block pull_request evidence', () => {
+      const f = draftWith([checkRow('contract-tests', { event: 'push', link: PUSH_LINK }), checkRow('contract-tests')]);
+      const result = deliverDraft(f);
+      expect(result).toMatchObject({ status: 0, handoff: { status: 'passed' } });
+      expect(deliveryCalls(f, 'ready')).toHaveLength(1);
+      expect(deliveryCalls(f, 'merge')).toHaveLength(1);
+      expect(f.pr.body).toContain(PR_LINK);
+      expect(f.pr.body).not.toContain(PUSH_LINK);
+    });
+
+    test('AC2 a push check is never counted as declared evidence', () => {
+      expectNotReady(draftWith([checkRow('contract-tests', { event: 'push', link: PUSH_LINK })]), PENDING_SUMMARY);
+    });
+
+    test('AC3 a missing pull_request check stays pending', () => {
+      expectNotReady(draftWith([]), PENDING_SUMMARY);
+    });
+
+    test('AC4 duplicate pull_request checks fail closed', () => {
+      expectNotReady(draftWith([
+        checkRow('contract-tests'),
+        checkRow('contract-tests', { link: 'https://github.test/checks/pr-78' }),
+      ]), UNRESOLVED_SUMMARY);
+    });
+
+    test.each([
+      ['contract-tests'],
+      ['CI / contract-tests'],
+    ])('AC5 a single pull_request SUCCESS match for declared %s merges', (declaredName) => {
+      const f = draftWith([checkRow('contract-tests', { workflow: 'CI' })], { declaredName });
+      const result = deliverDraft(f);
+      expect(result).toMatchObject({ status: 0, handoff: { status: 'passed' } });
+      expect(deliveryCalls(f, 'ready')).toHaveLength(1);
+      expect(deliveryCalls(f, 'merge')).toHaveLength(1);
+    });
+
+    test.each([
+      ['PENDING', PENDING_SUMMARY],
+      ['FAILURE', UNRESOLVED_SUMMARY],
+    ])('AC5 a single pull_request %s match reports its outcome without merging', (state, summary) => {
+      expectNotReady(draftWith([checkRow('contract-tests', { workflow: 'CI', state })]), summary);
+    });
   });
 
   describe('PR check queries', () => {
