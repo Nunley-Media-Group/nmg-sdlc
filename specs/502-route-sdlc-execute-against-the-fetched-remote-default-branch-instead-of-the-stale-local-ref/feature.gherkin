@@ -1,0 +1,39 @@
+**Issue**: #502
+**Date**: 2026-10-25
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/470-fix-sdlc-execute-closing-worker-panes-while-their-background-work-runs/
+
+# File: scripts/__tests__/sdlc-execute.test.mjs
+# Generated from: specs/502-route-sdlc-execute-against-the-fetched-remote-default-branch-instead-of-the-stale-local-ref/requirements.md
+Feature: /sdlc-execute routes against the fetched remote default branch
+
+  @SCN001 @regression
+  Scenario: An empty issue branch routes to implement despite a stale local default branch
+    Given the local "main" is behind "origin/main"
+    And the issue branch "42-example" was created from "origin/main" with no commits of its own
+    When /sdlc-execute routes issue #42
+    Then the implement worker is dispatched
+    And prepare-version is not invoked before the implement worker starts
+
+  @SCN002 @regression
+  Scenario: A branch with real commits still routes to verify
+    Given the local "main" is behind "origin/main"
+    And the clean, published issue branch "42-example" has an implementation commit ahead of "origin/main"
+    When /sdlc-execute routes issue #42
+    Then prepare-version runs before the first worker
+    And the verify worker is dispatched first
+
+  @SCN003 @regression
+  Scenario: An unreadable remote default ref fails closed
+    Given the fetch of "refs/heads/main" into "refs/remotes/origin/main" fails on issue branch "42-example"
+    When /sdlc-execute routes issue #42
+    Then the controller exits non-zero with "default_branch_unreadable" on stderr
+    And no worker is started
+    And prepare-version is not invoked
+
+  @SCN004 @regression
+  Scenario: Regression tests cover the stale local default branch
+    Given scripts/__tests__/sdlc-execute.test.mjs
+    When "cd scripts && npm test" runs
+    Then the stale-local-default empty-branch, real-commits and fetch-failure tests pass
