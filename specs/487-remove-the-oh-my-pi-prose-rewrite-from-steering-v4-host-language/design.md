@@ -56,3 +56,4 @@
 | Issue | Date | Summary |
 |-------|------|---------|
 | #487 | 2026-10-25 | Initial defect report |
+| #487 | 2026-10-25 | Spec revised before delivery |

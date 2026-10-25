@@ -8,7 +8,7 @@ Feature: steering-v4-host-language never rewrites Oh My Pi prose
 
   @SCN001 @regression
   Scenario: AC1 prose host names are not rewritten
-    Given a registered snippet whose only v3 reference is "It is not a Codex or Oh My Pi plugin."
+    Given a registered snippet whose only v3 reference is the negated Oh My Pi prose fixture line from AC1
     When upgrade detection runs
     Then no actionable steering-v4-host-language item is reported
     And the line is listed as a report-only prose finding with its file and line number

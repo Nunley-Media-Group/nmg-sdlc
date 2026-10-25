@@ -7,7 +7,12 @@
 
 ## Reproduction
 
-1. Register a steering snippet `steering/snippets/project-product.md` that contains the line `It is not a Codex or Oh My Pi plugin.` and no other v3 host token.
+1. Register a steering snippet `steering/snippets/project-product.md` whose only v3 host reference is the following prose line (the AC1 fixture line):
+
+```text
+It is not a Codex or Oh My Pi plugin.
+```
+
 2. Run `node scripts/sdlc-upgrade.mjs detect --root .`.
 3. Observe the `steering-v4-host-language` item.
 
@@ -16,13 +21,17 @@
 | | Description |
 |---|-------------|
 | **Expected** | Snippet prose containing `Oh My Pi` or whole-word `OMP` is never rewritten. Each such line is listed as a report-only prose finding on the category, and prose findings alone never make the category actionable. Mapped command tokens and the validation `config.program` / `config.args` mapping are still rewritten. |
-| **Actual** | Detection reports an actionable `steering-v4-host-language` item that rewrites the line to `It is not a Codex or Claude Code plugin.` |
+| **Actual** | Detection reports an actionable `steering-v4-host-language` item that replaces `Oh My Pi` with `Claude Code` in the fixture line, producing the contradictory sentence shown below. |
+
+```text
+It is not a Codex or Claude Code plugin.
+```
 
 ## Acceptance Criteria
 
 ### AC1: Prose host names are not rewritten
 
-**Given** a registered snippet whose only v3 reference is the prose `It is not a Codex or Oh My Pi plugin.`
+**Given** a registered snippet whose only v3 reference is the AC1 fixture line shown under Reproduction
 **When** upgrade detection runs
 **Then** no actionable `steering-v4-host-language` item is reported, and the line is listed as a report-only prose finding with its file and line number
 
@@ -63,3 +72,4 @@
 | Issue | Date | Summary |
 |-------|------|---------|
 | #487 | 2026-10-25 | Initial defect report |
+| #487 | 2026-10-25 | Spec revised before delivery |
