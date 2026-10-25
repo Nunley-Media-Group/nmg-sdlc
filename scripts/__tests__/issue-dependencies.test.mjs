@@ -205,4 +205,27 @@ describe('official blocked-by adapter', () => {
       findings: [{ line: 'Requires #10 and #11', reason: 'ambiguous_dependency_evidence' }],
     });
   });
+
+  it('drops qualified references from legacy lines without hiding genuine ones', () => {
+    expect(parseLegacyDependencyEvidence([
+      '| **Version / Commit** | Main after merged PR #307 |',
+      'requires the fix after PR #307',
+      'PennyScan issue #102 therefore fails',
+      'depends on Other-Org/other-repo#12',
+      'After issue #394 resumes a consumed dispatch',
+      'Depends on: PR #5, #6',
+    ].join('\n'))).toEqual({
+      edges: [
+        { relation: 'blockedBy', issue: 394, source: 'After issue #394 resumes a consumed dispatch' },
+        { relation: 'blockedBy', issue: 6, source: 'Depends on: PR #5, #6' },
+      ],
+      findings: [],
+    });
+  });
+
+  it('still rejects a dangling approved edge after legacy candidates become findings', () => {
+    const f = clientGraph({ issues: [{ number: 2 }, { number: 3 }], blockers: {} });
+    expect(() => preflightBlockedByEdges(f.graph, [{ issue: 2, blockedBy: 307 }]))
+      .toThrow(expect.objectContaining({ reasonCode: 'dependency_dangling' }));
+  });
 });

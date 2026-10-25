@@ -1512,19 +1512,27 @@ export function detectIssueDependencyUpgrade({ cwd = process.cwd(), run = defaul
     findings.push(...evidence.findings.map((finding) => ({ issue: source.number, ...finding })));
     for (const item of evidence.edges) {
       candidates.push(item.relation === 'blocks'
-        ? { issue: item.issue, blockedBy: source.number, source: item.source }
-        : { issue: source.number, blockedBy: item.issue, source: item.source });
+        ? { issue: item.issue, blockedBy: source.number, source: item.source, origin: source.number }
+        : { issue: source.number, blockedBy: item.issue, source: item.source, origin: source.number });
     }
   }
   const evidenceByEdge = new Map();
   for (const candidate of candidates) {
     const key = `${candidate.issue}:${candidate.blockedBy}`;
-    if (!evidenceByEdge.has(key)) evidenceByEdge.set(key, candidate.source);
+    if (!evidenceByEdge.has(key)) evidenceByEdge.set(key, candidate);
   }
-  const additions = preflightBlockedByEdges(graph, [...evidenceByEdge].map(([key]) => {
-    const [issue, blockedBy] = key.split(':').map(Number);
-    return { issue, blockedBy };
-  }));
+  // Legacy prose can name pull requests or foreign issues; those candidates are report-only findings.
+  const issueNumbers = new Set(graph.nodes.map((node) => node.number));
+  const candidateEdges = [];
+  for (const candidate of evidenceByEdge.values()) {
+    const edge = { issue: candidate.issue, blockedBy: candidate.blockedBy };
+    if (issueNumbers.has(edge.issue) && issueNumbers.has(edge.blockedBy)) {
+      candidateEdges.push(edge);
+    } else {
+      findings.push({ issue: candidate.origin, line: candidate.source, reason: 'dependency_dangling_candidate', edge });
+    }
+  }
+  const additions = preflightBlockedByEdges(graph, candidateEdges);
   const digest = dependencyGraphDigest(graph);
   const additionsDigest = dependencyAdditionsDigest(additions);
   return {
@@ -1535,7 +1543,7 @@ export function detectIssueDependencyUpgrade({ cwd = process.cwd(), run = defaul
     digest,
     additionsDigest,
     issueCount: issues.length,
-    additions: additions.map((edge) => ({ ...edge, source: evidenceByEdge.get(`${edge.issue}:${edge.blockedBy}`) })),
+    additions: additions.map((edge) => ({ ...edge, source: evidenceByEdge.get(`${edge.issue}:${edge.blockedBy}`).source })),
     findings,
   };
 }

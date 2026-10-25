@@ -1,6 +1,6 @@
 {
   "name": "nmg-sdlc",
-  "version": "4.4.1",
+  "version": "4.4.3",
   "description": "Spec-driven delivery for Claude Code and Herdr",
   "author": {
     "name": "Nunley Media Group"

@@ -299,14 +299,35 @@ function stripIgnoredProse(body) {
     .join('\n');
 }
 
+const QUALIFIER_STOP_WORDS = new Set([
+  'after', 'blocked', 'depends', 'requires', 'precursor', 'blocks', 'the', 'this', 'that', 'same',
+  'an', 'a', 'each', 'every', 'its', 'our', 'see', 'github',
+]);
+
+// A reference qualified as a pull request or by another project or repository never names a local issue.
+function qualifiedReference(prefix) {
+  if (/\b(?:PR|pull request|pull)\s*$/i.test(prefix)) return true;
+  if (/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(prefix)) return true;
+  const project = prefix.match(/\b([A-Za-z0-9][\w.-]*)\s+issue\s*$/i);
+  return Boolean(project
+    && (/^[A-Z]/.test(project[1]) || /[-._]/.test(project[1]))
+    && !QUALIFIER_STOP_WORDS.has(project[1].toLowerCase()));
+}
+
 export function parseLegacyDependencyEvidence(body) {
   const edges = [];
   const findings = [];
   for (const line of stripIgnoredProse(body).split(/\r?\n/)) {
+    if (/^\s*\|/.test(line)) continue;
     const field = line.match(/^\s*(Depends on|Blocked by|Requires|After|Precursor|Blocks):\s*(.+?)\s*$/i);
     const clause = field ?? line.match(/\b(blocked by|depends on|requires|after|precursor)\b.*#([1-9]\d*)\b/i);
     if (!clause) continue;
-    const refs = [...String(field ? field[2] : line).matchAll(/#([1-9]\d*)/g)].map((match) => Number(match[1]));
+    const text = String(field ? field[2] : line);
+    const matches = [...text.matchAll(/#([1-9]\d*)/g)];
+    const refs = matches
+      .filter((match) => !qualifiedReference(text.slice(0, match.index)))
+      .map((match) => Number(match[1]));
+    if (matches.length > 0 && refs.length === 0) continue;
     if (refs.length === 0 || (!field && refs.length !== 1)) {
       findings.push({ line: line.trim(), reason: 'ambiguous_dependency_evidence' });
       continue;
