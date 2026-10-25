@@ -12,6 +12,12 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.4.11] - 2026-10-25
+
+### Changed
+
+- Require the (#N) citation on hand-written CHANGELOG [Unreleased] entries (#514)
+
 ## [4.4.10] - 2026-10-25
 
 ### Changed
