@@ -153,6 +153,7 @@ describe('interactive commands', () => {
 
   test('sdlc-execute submits its workflow as the person without entering plan mode', async ($, on) => {
     const world = engine(on)
+    world.sessionModel = 'claude-opus-5-5'
     await start($, world)
     await run($, world, 'sdlc-execute', '#7 --retain-worker')
     expect(world.renders.at(-1)).toEqual(expect.arrayContaining(['--consumer', 'sdlc-execute', '--args', '#7 --retain-worker', '--project', '/project']))
@@ -394,9 +395,9 @@ describe('step models', () => {
       .toEqual({ model: 'claude-haiku-5-5', effort: 'high', agentId: 'sub-agent' })
 
     // A composer-typed command clears the old override before its own command.run sets the new one.
-    await typed($, world, '/sdlc-execute #7')
-    await run($, world, 'sdlc-execute', '#7')
-    expect(await step($, world)).toEqual({ model: 'haiku', effort: 'high' })
+    await typed($, world, '/sdlc-status')
+    await run($, world, 'sdlc-draft-issue')
+    expect(await step($, world)).toEqual({ model: 'opus', effort: 'high' })
 
     // Nothing set the session model: no /model run and no settings write.
     expect(world.sessionModel).toBe('claude-sonnet-5-5')
@@ -443,6 +444,48 @@ describe('step models', () => {
     await run($, world, 'sdlc-draft-issue')
     world.modelFails = true
     expect(await step($, world)).toEqual({ model: 'claude-sonnet-5-5', effort: 'high' })
+  })
+})
+
+describe('sdlc-execute session model', () => {
+  const refusal = (model: string) =>
+    `/sdlc-execute requires an Opus session (current: ${model}). Switch with /model opus and run /sdlc-execute again.`
+
+  for (const model of ['claude-opus-5-5', 'claude-fable-5-1', 'Opus 5.5']) {
+    test(`a ${model} session runs sdlc-execute on its own model`, async ($, on) => {
+      const world = engine(on)
+      world.sessionModel = model
+      await start($, world)
+      await typed($, world, '/sdlc-execute #42')
+      const result = await run($, world, 'sdlc-execute', '#42')
+      expect(result).toEqual({})
+      expect(world.prompts.at(-1)).toEqual({ text: '# sdlc-execute workflow', asUser: true })
+      expect(await step($, world)).toEqual({ model, effort: 'high' })
+    })
+  }
+
+  for (const model of ['claude-sonnet-5-5', 'claude-haiku-5-5']) {
+    test(`a ${model} session is told to switch and stopped before anything renders`, async ($, on) => {
+      const world = engine(on)
+      world.sessionModel = model
+      await start($, world)
+      const result = await run($, world, 'sdlc-execute', '#42')
+      expect(result).toEqual(expect.objectContaining({ text: refusal(model), exitCode: 1 }))
+      expect(world.renders).toEqual([])
+      expect(world.prompts).toEqual([])
+      expect(world.plans).toEqual([])
+      expect(world.seen).toEqual([])
+    })
+  }
+
+  test('an unreadable session model fails closed as unknown', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    world.modelFails = true
+    const result = await run($, world, 'sdlc-execute')
+    expect(result).toEqual(expect.objectContaining({ text: refusal('unknown'), exitCode: 1 }))
+    expect(world.renders).toEqual([])
+    expect(world.prompts).toEqual([])
   })
 })
 

@@ -4,6 +4,7 @@ import {
   INTERACTIVE_COMMANDS,
   SDLC_MODELS,
   WRITE_SPEC_FINISHED_LABELS,
+  executeModelRefusal,
   interactiveHeadlessMessage,
   materializePluginRootCommand,
   materializePluginRootPath,
@@ -27,7 +28,7 @@ const ARGUMENT_HINTS: Record<string, string> = {
   'sdlc-upgrade-project': '',
   'sdlc-steering': '[request]',
   'sdlc-run-retro': '',
-  'sdlc-execute': '[--retain-worker] [#N ...]',
+  'sdlc-execute': '[--retain-worker] [--check-in-seconds N] [#N ...]',
 }
 
 // Names every published issue, so a held Continue stays visible to the person.
@@ -107,12 +108,22 @@ function startInteractiveCommand(command: string): void {
   }
 }
 
+// A command without a table model (`/sdlc-execute`) keeps the session model.
 async function startModelOverride($: Engine, command: string): Promise<void> {
+  const model = SDLC_MODELS.commands[command]
   try {
-    modelOverride = { command, model: SDLC_MODELS.commands[command], sessionModel: await $.session.model() }
+    modelOverride = model ? { command, model, sessionModel: await $.session.model() } : null
   } catch {
     modelOverride = null
   }
+}
+
+// `/sdlc-execute` supervises its workers only on an Opus or Fable session; an
+// unreadable model is refused as `unknown`.
+async function executeRefusal($: Engine): Promise<string | null> {
+  let model: string | undefined
+  try { model = await $.session.model() } catch { /* unknown */ }
+  return executeModelRefusal(model)
 }
 
 // The request a main-loop step sends while a command's model override holds;
@@ -194,6 +205,10 @@ export const register: Register = on => {
     on('command.run', { command: name }, async ($, e) => {
       if (!interactive || (await $.session.surfaces()).length === 0) {
         return { text: interactiveHeadlessMessage(name).trimEnd(), exitCode: 2 }
+      }
+      if (name === 'sdlc-execute') {
+        const refusal = await executeRefusal($)
+        if (refusal !== null) return { text: refusal, exitCode: 1 }
       }
       const rendered = await render($, ['--consumer', name, '--args', e.args])
       if (!rendered.ok) return { text: `NMG SDLC: /${name} could not render its workflow: ${rendered.message}` }

@@ -159,6 +159,7 @@ Do not add an `omp` key to `package.json` or restore `src/extension.ts`.
 | Responsibility | Behavior |
 |----------------|----------|
 | Interactive commands | Registers the six interactive `/sdlc-*` commands; running one renders its workflow, runs builtin `/plan`, then submits the workflow as the person's prompt. Without a UI (`claude -p`, the SDK) it prints `Run /<command> in the TUI.` and exits 2 |
+| Execute model gate | `/sdlc-execute` runs only on an Opus or Fable session model, with no model override; any other or unreadable model gets the switch-to-Opus refusal before rendering, so no Herdr, Git, or GitHub call runs. The session supervises the detached controller through `sdlc-execute.mjs supervise`/`decide`/`wait` |
 | Plugin root | Rewrites `<plugin-root>`, `${NMG_SDLC_PLUGIN_ROOT}`, and `$NMG_SDLC_PLUGIN_ROOT` in Bash commands, and a leading `<plugin-root>` in Read paths, to the installed plugin's absolute path |
 | write-spec Continue | Records each merged publication from the verbatim `publish-approved-spec.mjs merge` Bash result; once the turn ends with an empty prompt box it re-enters plan mode with the Continue prompt |
 | write-spec Finished | A Finished `AskUserQuestion` answer arms one approval of the reply's closing `ExitPlanMode` call, so plan mode ends with no dialog; a reply without that call gets one prompt, then a warning toast |

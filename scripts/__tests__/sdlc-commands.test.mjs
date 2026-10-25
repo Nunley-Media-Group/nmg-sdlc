@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import {
+  executeModelRefusal,
   interactiveHeadlessMessage,
   isInteractiveCommand,
   parseInteractiveSlash,
@@ -53,13 +54,23 @@ describe('interactive command rendering', () => {
     expect(isInteractiveCommand('sdlc-open-pr')).toBe(false);
   });
 
-  it('assigns one model alias to every interactive and automated command', () => {
-    const names = [...INTERACTIVE_COMMANDS, ...AUTOMATED_COMMANDS].map(([name]) => name).sort();
+  it('assigns one model alias to every command except the session-model /sdlc-execute', () => {
+    const names = [...INTERACTIVE_COMMANDS, ...AUTOMATED_COMMANDS].map(([name]) => name)
+      .filter((name) => name !== 'sdlc-execute').sort();
     expect(Object.keys(SDLC_MODELS.commands).sort()).toEqual(names);
+    expect(SDLC_MODELS.stages).toEqual({ start: 'haiku', implement: 'haiku', verify: 'opus', deliver: 'haiku' });
+    expect(SDLC_MODELS.repair).toBe('opus');
     for (const model of [...Object.values(SDLC_MODELS.commands), ...Object.values(SDLC_MODELS.stages), SDLC_MODELS.repair]) {
       expect(['haiku', 'sonnet', 'opus']).toContain(model);
     }
     expect(Object.isFrozen(SDLC_MODELS) && Object.isFrozen(SDLC_MODELS.stages) && Object.isFrozen(SDLC_MODELS.commands)).toBe(true);
+  });
+
+  it('lets only an Opus or Fable session model supervise /sdlc-execute', () => {
+    const refusal = (model) => `/sdlc-execute requires an Opus session (current: ${model}). Switch with /model opus and run /sdlc-execute again.`;
+    for (const model of ['claude-opus-5-5', 'claude-fable-5-1', 'opus', 'Opus 5.5']) expect(executeModelRefusal(model)).toBeNull();
+    for (const model of ['claude-sonnet-5-5', 'claude-haiku-5-5', 'haiku']) expect(executeModelRefusal(model)).toBe(refusal(model));
+    for (const model of [undefined, null, '', '   ', 42]) expect(executeModelRefusal(model)).toBe(refusal('unknown'));
   });
 
   it('keeps withArguments contract', () => {

@@ -18,6 +18,7 @@ export function isInteractiveCommand(name: unknown): boolean;
 export function parseInteractiveSlash(text: unknown): { command: string; skill: string; args: string } | null;
 export function withArguments(body: string, args: unknown): string;
 export function interactiveHeadlessMessage(commandName: string): string;
+export function executeModelRefusal(model: unknown): string | null;
 export function writeSpecMergeIssue(command: unknown): number | null;
 export function writeSpecMergeResult(text: unknown): { issue: number; slug: string; pr: number } | null;
 export function soleJsonObject(text: unknown): Record<string, unknown> | null;

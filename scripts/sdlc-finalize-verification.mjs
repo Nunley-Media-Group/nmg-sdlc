@@ -8,7 +8,7 @@ import {
   inspectVerificationArtifactRepair,
   inspectVerificationReadiness,
 } from './verification-readiness.mjs';
-import { inspectIssueSpecScope } from './issue-spec-scope.mjs';
+import { inspectIssueSpecScope, issueScopeMarker } from './issue-spec-scope.mjs';
 import { isSpecApproved, resolveSpecDir } from './issue-spec-scope.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
 import { enterControllerLease, releaseControllerLease } from './sdlc-controller-lease.mjs';
@@ -37,6 +37,32 @@ function porcelainPaths(output) {
     if (/[RC]/.test(entry.slice(0, 2)) && entries[index + 1]) paths.push(entries[index += 1]);
   }
   return paths.filter((path) => !path.startsWith('.nmg-sdlc/'));
+}
+
+const SCOPE_MARKER_LINE = /^<!-- nmg-sdlc-issue-scope:/;
+
+/**
+ * `content` with exactly one issue-scope marker, `marker`: it replaces the first marker line and
+ * drops any others; with none, it follows the first `Issue Scope` heading, or ends the report.
+ */
+export function withScopeMarker(content, marker) {
+  const lines = content.split('\n');
+  const kept = [];
+  let placed = false;
+  for (const line of lines) {
+    if (!SCOPE_MARKER_LINE.test(line)) kept.push(line);
+    else if (!placed) {
+      kept.push(line.endsWith('\r') ? `${marker}\r` : marker);
+      placed = true;
+    }
+  }
+  if (placed) return kept.join('\n');
+  const heading = kept.findIndex((line) => /^#{2,3}\s+Issue Scope\s*$/.test(line.trimEnd()));
+  if (heading >= 0) {
+    kept.splice(heading + 1, 0, '', marker);
+    return kept.join('\n');
+  }
+  return `${content}${content.endsWith('\n') || !content ? '' : '\n'}\n${marker}\n`;
 }
 
 export function matchesRegisteredResults(root, artifact, { issue, specPath, gateHead, reportPath, run }) {
@@ -247,8 +273,12 @@ function finalizeVerificationUnlocked({
     return fail('spec_not_approved', `Live spec scope is unavailable for #${issueNumber}: ${scope.reasonCode}`);
   }
 
+  // The marker is the resolver's, never the worker's composition, so it always matches the live scope.
+  const written = fs.readFileSync(absoluteReport, 'utf8');
+  const content = withScopeMarker(written, issueScopeMarker(scope));
+  if (content !== written) fs.writeFileSync(absoluteReport, content);
   const readiness = inspectVerificationReadiness({
-    content: fs.readFileSync(absoluteReport, 'utf8'),
+    content,
     options: { expectedIssueNumber: issueNumber, expectedSpecPath: specPath, expectedScope: scope },
   });
   const headResult = run('git', ['rev-parse', 'HEAD'], { cwd });

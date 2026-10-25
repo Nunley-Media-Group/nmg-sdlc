@@ -42,7 +42,7 @@ Use this template to generate the final verification report.
 - Delivery: AC [...]; FR [...]; tasks [...]; scenarios [...]
 - Regression: AC [...]; FR [...]; scenarios [...]
 
-<!-- nmg-sdlc-issue-scope: {"issueNumber":N,"specPath":"specs/{feature}","status":"scoped","delivery":{"acceptanceCriteria":[...],"functionalRequirements":[...],"tasks":[...],"scenarios":[...]},"regression":{"acceptanceCriteria":[...],"functionalRequirements":[...],"scenarios":[...]}} -->
+<!-- nmg-sdlc-issue-scope: {resolver marker: paste the line printed by `node "<plugin-root>/scripts/issue-spec-scope.mjs" --project . --spec specs/[feature] --issue N --marker` exactly} -->
 
 <!-- Include exactly one nmg-sdlc-pr-readiness marker here only when the shared PR-dependent verification contract classifies the report as pending or satisfied. -->
 

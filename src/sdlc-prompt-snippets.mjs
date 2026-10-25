@@ -202,6 +202,7 @@ const WORKER_HEADER = [
   "Before printing the marker, run: node " + "<plugin-root>" + "/scripts/sdlc-execute.mjs validate-handoff --file {{handoffPath}}",
   "Only after validation succeeds print exactly: NMG_SDLC_HANDOFF: {{handoffPath}}",
   "Before ending any turn while a background command for this step is still running, write {{handoffPath}}.waiting naming that command; the controller keeps this session open and you are resumed when it finishes. Ending a turn with neither the handoff nor that file means the step stopped.",
+  "This checkout is shared with the controller, which depends on its current branch and HEAD. Never switch its branch or move HEAD to read another ref, such as the default branch: read other refs with `git show <ref>:<path>`, `git diff <ref>...HEAD`, or a separate `git worktree`. Only the start stage checks out the issue branch it creates.",
   "",
 ].join("\n");
 

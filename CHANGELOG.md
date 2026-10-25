@@ -12,6 +12,22 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.4.0] - 2026-10-24
+
+### Added
+
+- `/sdlc-execute` runs as an Opus supervisor (#491). It refuses a session that is not on an Opus or Fable model, with no Herdr, Git, or GitHub call, and no longer forces the orchestrator onto Haiku. The controller now yields a stage report at every worker settlement and a check-in report while a worker runs (default every 5 minutes, `--check-in-seconds N`, or sooner when the pane or `.waiting` marker stalls). The session answers through `sdlc-execute.mjs supervise`/`decide`/`wait` with accept, continue, prompt, re-dispatch (including verify re-runs after an environmental failure), or halt. No call outlasts the Bash timeout, and the full-green gate stays the only route to merge. Worker stage models are unchanged.
+- The verification finalizer writes the report's issue-scope marker from `scripts/issue-spec-scope.mjs` (`--marker`), so a hand-written marker can no longer fail a passed gate (#491).
+
+### Changed
+
+- Every execute worker prompt forbids switching the shared checkout's branch to read another ref (#491).
+
+### Fixed
+
+- The execute supervisor tests pass under an ancestor `"type": "module"` `package.json` (#491).
+- A failed Herdr integration probe always names its cause, or says it returned no result, instead of printing `exit undefined` (#491).
+
 ## [4.3.2] - 2026-10-24
 
 ### Changed

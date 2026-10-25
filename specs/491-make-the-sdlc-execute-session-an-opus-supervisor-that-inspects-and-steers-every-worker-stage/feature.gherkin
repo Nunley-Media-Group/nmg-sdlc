@@ -1,0 +1,121 @@
+**Issue**: #491
+**Date**: 2026-10-24
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/470-fix-sdlc-execute-closing-worker-panes-while-their-background-work-runs/
+
+# File: hooks/register.test.ts, scripts/__tests__/sdlc-execute.test.mjs, scripts/__tests__/sdlc-execute-supervisor.test.mjs, scripts/__tests__/sdlc-finalize-verification.test.mjs, scripts/__tests__/sdlc-prompt-snippets.test.mjs
+# Generated from: specs/491-make-the-sdlc-execute-session-an-opus-supervisor-that-inspects-and-steers-every-worker-stage/requirements.md
+Feature: The /sdlc-execute session supervises every worker stage on Opus
+
+  @SCN001
+  Scenario: An Opus or Fable session runs execute on its own model
+    Given a Herdr Claude Code session whose model is "claude-opus-5-5" or "claude-fable-5-1"
+    When the person runs /sdlc-execute #42
+    Then the execute workflow is submitted
+    And main-loop requests keep the session model
+    And workers start with start, implement and deliver on haiku, verify on opus, and repair on opus
+
+  @SCN002
+  Scenario: A lesser model is told to switch and stopped
+    Given a session whose model is "claude-sonnet-5-5"
+    When the person runs /sdlc-execute #42
+    Then the command prints "/sdlc-execute requires an Opus session (current: claude-sonnet-5-5). Switch with /model opus and run /sdlc-execute again."
+    And it exits non-zero without rendering or submitting the workflow
+
+  @SCN003
+  Scenario: An unreadable session model fails closed
+    Given the host throws when the session model is read
+    When the person runs /sdlc-execute
+    Then the command prints the refusal with "current: unknown" and exits non-zero without rendering
+
+  @SCN004
+  Scenario: Control returns at every stage boundary with a stage report
+    Given a supervised execute run on issue 42
+    When the verify worker writes its handoff
+    Then a stage report is yielded before the worker pane closes
+    And it names the issue, stage, worker, pane, handoff, HEAD before and after, commits, out-of-spec paths, gate status and failure history
+    And it carries the readiness status, reason code, gaps, and the report's critical and remaining issues
+
+  @SCN005
+  Scenario: Accept continues with the existing routing
+    Given a stage report for a passed implement handoff
+    When the supervisor accepts it
+    Then the implement pane closes and verify is dispatched next
+
+  @SCN006
+  Scenario: The supervisor prompts the live worker
+    Given a stage report whose worker pane is open
+    When the supervisor sends guidance
+    Then the guidance reaches that worker's pane
+    And a new stage report follows the same worker's fresh handoff
+
+  @SCN007
+  Scenario: The supervisor re-dispatches with guidance
+    Given a stage report for a failed implement handoff
+    When the supervisor re-dispatches with guidance "use the existing parser"
+    Then the pane closes and a new implement worker starts with that guidance and the failure evidence in its instructions
+
+  @SCN008
+  Scenario: Verify is re-run after an environmental failure
+    Given a failed verify stage report at source HEAD H
+    When the supervisor re-dispatches verify with guidance
+    Then a new verify worker starts at H with no implement repair first
+    And deliver is dispatched only after the full registered gate passes
+
+  @SCN009
+  Scenario: The supervisor halts the run
+    Given a stage report
+    When the supervisor halts with diagnosis "host disk full"
+    Then the run exits non-zero with "supervisor_halt: host disk full"
+    And owned panes close, the lease is released, and the branch is unchanged
+
+  @SCN010
+  Scenario: Supervision cannot bypass the full-green gate
+    Given a verify stage whose registered gate is not full-green
+    When the supervisor accepts the report or re-dispatches deliver
+    Then deliver is not dispatched
+
+  @SCN011
+  Scenario: The supervisor checks in on a running worker
+    Given a worker still running after the check-in interval
+    When the interval passes or its pane output stays unchanged for the interval
+    Then a check-in report is yielded while the worker keeps running
+    And it names the worker, pane, time since dispatch, pane tail and last change, waiting marker, commits, out-of-spec paths and failure history
+
+  @SCN012
+  Scenario: A check-in can continue, steer, re-dispatch or halt
+    Given a check-in report
+    When the supervisor answers continue, prompt, redispatch or halt
+    Then waiting resumes, guidance reaches the running worker, the stage restarts with guidance, or the run halts
+
+  @SCN013
+  Scenario: Guidance to a busy worker is queued
+    Given a worker in the middle of a tool call
+    When the supervisor prompts it at a check-in
+    Then the prompt is accepted without a delivery wait
+    And the controller keeps waiting for that worker's handoff without a deadline
+
+  @SCN014
+  Scenario: The issue-scope marker always matches the resolver
+    Given a passing verification report whose hand-written marker lists scenario titles
+    When the report is finalized
+    Then the report's marker equals the resolver marker and the verify handoff passes
+
+  @SCN015
+  Scenario: Workers never move the shared checkout's branch
+    Given the rendered prompt for any execute worker stage
+    Then it forbids switching the checkout's branch to read another ref
+    And it names git show, git diff and git worktree as the alternatives
+
+  @SCN016
+  Scenario: Supervisor tests ignore an ancestor module package type
+    Given a "type": "module" package.json above the execute supervisor fixture
+    When the supervisor fixture runs execute
+    Then its helper scripts run as commonjs and the run reaches its blocking worker command
+
+  @SCN017
+  Scenario: A failed integration probe names a real cause
+    Given herdr integration status returns no result, a spawn error, a signal, or a non-zero exit
+    When /sdlc-execute stops with "Run: herdr integration install claude"
+    Then stderr names the cause or "probe returned no result" and never "exit undefined"

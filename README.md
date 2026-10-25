@@ -74,6 +74,8 @@ Replace `42` with the actual GitHub issue number. Review and approve the interac
 
 `/sdlc-execute` is registered by the hooks module like the interactive commands, so it runs as plain `/sdlc-execute`. It renders its workflow and submits it as your prompt without entering plan mode, because its controller mutates the repository. Like the interactive commands it is TUI-only: under `claude -p` it prints `Run /sdlc-execute in the TUI.` and exits 2.
 
+`/sdlc-execute` requires an Opus or Fable session, because that session supervises the workers. In a session on any other model, or one whose model cannot be read, it prints `/sdlc-execute requires an Opus session (current: <model>). Switch with /model opus and run /sdlc-execute again.` and stops before any Herdr, Git, or GitHub call.
+
 `/sdlc-status`, `/sdlc-verify-code`, and `/sdlc-open-pr` are plugin command files (`commands/*.md`). They expand in the TUI and under `claude -p`, and they never call `AskUserQuestion` or `ExitPlanMode`.
 
 `/sdlc-execute` runs its stages in sibling Herdr panes, each a Claude Code session started as:
@@ -86,7 +88,7 @@ herdr agent start <name> --kind claude --pane <id> -- --plugin-dir <plugin-root>
 
 ### Models
 
-Every step runs on the Claude Code model suited to its workload, and your session model is never changed. Execute stage workers start with `claude --model <model>`, plus `--effort <effort>` when the step sets one. The three command files declare `model`, and `effort` when set, in their frontmatter. For `/sdlc-execute` and the six interactive commands, the hooks module rewrites the model of each main-loop request, including the turns the plugin submits for the command, such as the write-spec Continue prompt. Subagent requests and the effort setting of those commands are left alone.
+Every step runs on the Claude Code model suited to its workload, and your session model is never changed. Execute stage workers start with `claude --model <model>`, plus `--effort <effort>` when the step sets one. The three command files declare `model`, and `effort` when set, in their frontmatter. For the six interactive commands, the hooks module rewrites the model of each main-loop request, including the turns the plugin submits for the command, such as the write-spec Continue prompt. `/sdlc-execute` is not rewritten: its supervisor runs on your Opus or Fable session model. Subagent requests and the effort setting of those commands are left alone.
 
 | Step | Model | Effort |
 |------|-------|--------|
@@ -96,7 +98,7 @@ Every step runs on the Claude Code model suited to its workload, and your sessio
 | execute stage `deliver` | `haiku` | `xhigh` |
 | execute repair re-dispatch (`implement`, `verify`, `deliver`) | `opus` | default |
 | `/sdlc-status` | `haiku` | default |
-| `/sdlc-execute` (controller session) | `haiku` | default |
+| `/sdlc-execute` (supervisor session) | your Opus or Fable session model | your setting |
 | `/sdlc-open-pr` | `haiku` | `xhigh` |
 | `/sdlc-verify-code` | `opus` | default |
 | `/sdlc-draft-issue`, `/sdlc-write-spec`, `/sdlc-onboard-project`, `/sdlc-upgrade-project`, `/sdlc-steering`, `/sdlc-run-retro` | `opus` | default |
@@ -304,6 +306,17 @@ Successful implement always hands off next=verify.
 
 Workers are sibling Herdr `--kind claude` panes running Claude Code with this plugin (see [Automated commands and workers](#automated-commands-and-workers)). Execute owns orchestration, not product edits in the main pane. Worker success is determined by validated handoffs, not terminal prose or an exit code alone. Only host-captured final assistant output supplies findings.
 
+### Supervision
+
+The `/sdlc-execute` session supervises every stage. Its controller runs detached and yields a report each time a worker settles and while a worker runs. Each `sdlc-execute.mjs supervise`, `decide`, or `wait` call returns within nine minutes, so no call outlasts the `Bash` tool timeout. The controller keeps its lease, owned panes, and failure history across those calls.
+
+- **Stage report**: sent when a worker writes its handoff or settles without one, before its pane closes and before the next stage starts. It names the issue, stage, worker, and pane. It gives the handoff, source HEAD before and after, and the commits added, with any changed paths outside the spec's declared files. It also gives the registered gate status and recent failure history. After verify it adds the readiness `status`, `reasonCode`, and `gaps`, plus the report's critical and remaining issues. The supervisor answers `accept` (continue with the existing routing; the pane closes unless `--retain-worker`), `prompt` (send guidance to the live worker and await its fresh handoff), `redispatch` (start the stage again with guidance beside the failure evidence), or `halt` (stop non-zero with a diagnosis, close owned panes unless `--retain-worker`, release the lease).
+- **Check-in report**: sent every check-in interval without a handoff (default 5 minutes; set `--check-in-seconds N`), and as soon as the worker's pane output or its `.waiting` marker has been unchanged for the interval. The worker keeps running. The report gives the time since dispatch, the end of the pane output and when it last changed, any waiting marker, commits since dispatch, and failure history. The supervisor answers `continue`, `prompt` (queued until the worker's current tool call finishes), `redispatch`, or `halt`.
+
+A verify failure caused by the host environment can be re-run without an implement repair. The supervisor repairs the environment, then re-dispatches verify at the same source HEAD, and that run is held to the same full registered gate. No decision skips routing, publication checks, version preparation, or the full-green gate. Accepting a non-green verify routes to implement, never to deliver. The supervisor never edits product code, implements tasks, or opens PRs. If its pane closes, the controller halts and releases its lease.
+
+Every execute worker is told never to switch the shared checkout's branch or move HEAD to read another ref. Workers use `git show <ref>:<path>`, `git diff <ref>...HEAD`, or a separate worktree instead. The headless `sdlc-execute.mjs run` path, which the smoke gate uses, runs unsupervised to completion.
+
 A worker's turn can end while a background command it started is still running, such as the registered gate. In that case the worker first writes `.nmg-sdlc/handoffs/<N>-<step>.json.waiting`, and the controller keeps its pane open until the worker resumes. A worker that settles with neither a handoff nor that marker gets one reminder before it counts as stopped. A branch with no commits relative to the default branch is implemented before it is verified, and a verify worker that stops without a handoff is retried as verify.
 
 ### Branch-first resume, repair and full-green verification
@@ -330,7 +343,7 @@ Version preparation comes before the gate. `/sdlc-execute` runs `prepare-version
 
 On the exact incomplete issue branch, run bare `/sdlc-execute` to resume ordinary from the branch and live evidence. No issue tokens or recovery flag required. Completed stages skipped when evidence passes; partial work preserved.
 
-Cancel the owning execute job through the host's cancellation surface or send it SIGINT/SIGTERM. The supervisor terminates only this invocation's controller process group and closes worker panes reported as owned through authenticated IPC. It leaves foreign panes, the Herdr server, partial work, and historical runtime files untouched; the next invocation derives its stage from branch and live verification/PR evidence.
+Cancel the owning execute job through the host's cancellation surface or send it SIGINT/SIGTERM. The supervisor terminates only this invocation's controller process group and closes worker panes reported as owned through authenticated IPC. It leaves foreign panes, the Herdr server, partial work, and historical runtime files untouched; the next invocation derives its stage from branch and live verification/PR evidence. Under supervision, stop a run with a `halt` decision; SIGINT or SIGTERM on a `supervise`, `decide`, or `wait` call also cancels it through the same supervisor.
 
 `--retain-worker` keeps this invocation's worker pane on stop or cancellation for inspection; it does not keep the controller running or turn failure into success.
 
@@ -400,7 +413,7 @@ Status is read-only: current branch/spec, verification, GitHub issue/PR state, a
 | `/sdlc-steering [prompt]` | Plan and apply registered context and verification policy |
 | `/sdlc-draft-issue [need]` | Investigate and create a groomed issue |
 | `/sdlc-write-spec [#N]` | Select an issue or publish its approved four-file specification |
-| `/sdlc-execute [--retain-worker] [#N …]` | Run/resume the complete automated delivery queue (branch-first ordinary resume) |
+| `/sdlc-execute [--retain-worker] [--check-in-seconds N] [#N …]` | Run/resume the complete automated delivery queue under Opus supervision (branch-first ordinary resume) |
 | `/sdlc-status [--json]` | Inspect lifecycle state without mutation |
 | `/sdlc-verify-code #N` | Verify an already-implemented issue branch |
 | `/sdlc-open-pr #N` | Deliver an already-verified issue branch through merge and closure |

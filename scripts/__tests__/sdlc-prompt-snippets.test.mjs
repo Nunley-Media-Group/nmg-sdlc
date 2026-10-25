@@ -109,6 +109,7 @@ describe('prompt snippet registry', () => {
       'Before printing the marker, run: node ' + '<plugin-root>' + '/scripts/sdlc-execute.mjs validate-handoff --file .nmg-sdlc/handoffs/42-start.json',
       'Only after validation succeeds print exactly: NMG_SDLC_HANDOFF: .nmg-sdlc/handoffs/42-start.json',
       'Before ending any turn while a background command for this step is still running, write .nmg-sdlc/handoffs/42-start.json.waiting naming that command; the controller keeps this session open and you are resumed when it finishes. Ending a turn with neither the handoff nor that file means the step stopped.',
+      'This checkout is shared with the controller, which depends on its current branch and HEAD. Never switch its branch or move HEAD to read another ref, such as the default branch: read other refs with `git show <ref>:<path>`, `git diff <ref>...HEAD`, or a separate `git worktree`. Only the start stage checks out the issue branch it creates.',
       '',
       pluginPathsNote(['start-issue']),
       workflowBody('start-issue', repoRoot),
@@ -154,6 +155,17 @@ describe('prompt snippet registry', () => {
     const fragments = pluginPromptFragments();
     for (const consumer of ['sdlc-draft-issue', 'sdlc-write-spec', 'sdlc-execute', 'sdlc-status', 'worker:start', 'worker:verify', 'worker:deliver']) {
       expect(fragments.some(({ id }) => id === `plugin.paths.${consumer.replace(':', '-')}`)).toBe(true);
+    }
+  });
+
+  it('forbids every execute worker from moving the shared checkout to read another ref (#491)', () => {
+    for (const step of ['start', 'implement', 'verify', 'deliver']) {
+      const text = renderPrompt(defaultPromptRegistry(repoRoot), {
+        consumer: `worker:${step}`,
+        vars: { step, issue: '7', controllerRunId: 'run-7', handoffPath: `.nmg-sdlc/handoffs/7-${step}.json` },
+      }).text;
+      expect(text).toContain('Never switch its branch or move HEAD to read another ref, such as the default branch');
+      expect(text).toContain('`git show <ref>:<path>`, `git diff <ref>...HEAD`, or a separate `git worktree`');
     }
   });
 
