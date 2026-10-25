@@ -197,20 +197,49 @@ describe('exact-head PR delivery state', () => {
   });
 
 
-  test.each([
-    ['missing', undefined],
-    ['non-PR', 'push'],
-  ])('rejects %s check-event provenance without dropping snapshot evidence', (_name, event) => {
+  test('rejects missing check-event provenance without dropping snapshot evidence', () => {
     const checks = [
       { name: 'test', event: 'pull_request', state: 'SUCCESS' },
-      { name: 'extra', event, state: 'SUCCESS' },
+      { name: 'extra', state: 'SUCCESS' },
     ];
     const result = classifyPrDeliveryState(snapshot({ checks }), { issueNumber: 177 });
 
     expect(result).toMatchObject({ status: 'unverifiable', reasonCode: 'evidence_incomplete_or_invalid' });
-    expect(result.gaps.join('\n')).toContain('exact pull_request event provenance');
+    expect(result.gaps).toContain('check extra is missing event provenance');
     expect(result.evidence.checks).toHaveLength(2);
     expect(result.evidence.checks.map((check) => check.name)).toEqual(['extra', 'test']);
+  });
+
+  test('a successful push check beside the same-name pull_request check reaches merge_ready', () => {
+    const checks = [
+      { name: 'test', event: 'pull_request', state: 'SUCCESS' },
+      { name: 'test', event: 'push', state: 'SUCCESS' },
+    ];
+    const result = classifyPrDeliveryState(snapshot({ checks }), { issueNumber: 177, expectedHead: head });
+
+    expect(result).toMatchObject({ status: 'merge_ready', reasonCode: 'exact_head_clean', headSha: head });
+    expect(result.gaps).toEqual([]);
+  });
+
+  test('a push check never satisfies a declared PR-only check', () => {
+    const result = classifyPrDeliveryState(snapshot({
+      checks: [{ name: 'test', event: 'push', state: 'SUCCESS' }],
+      declaredPrOnlyChecks: ['test'],
+    }), { issueNumber: 177 });
+
+    expect(result).toMatchObject({ status: 'pending', reasonCode: 'checks_pending' });
+    expect(result.status).not.toBe('merge_ready');
+  });
+
+  test('a failed push check blocks merge even beside a successful pull_request check', () => {
+    const checks = [
+      { name: 'test', event: 'pull_request', state: 'SUCCESS' },
+      { name: 'test', event: 'push', state: 'FAILURE' },
+    ];
+    const result = classifyPrDeliveryState(snapshot({ checks }), { issueNumber: 177 });
+
+    expect(result).toMatchObject({ status: 'remediate', reasonCode: 'checks_failed' });
+    expect(result.status).not.toBe('merge_ready');
   });
 
   test('rejects an absent declared check even when an unrelated check was returned', () => {

@@ -29,7 +29,7 @@ Each interview or preference question, including the already-initialized delegat
 
 Build an exact initialize plan JSON for `node <plugin-root>/scripts/sdlc-steering.mjs apply --project . --plan .nmg-sdlc/plans/onboard-steering.plan.json`. Embed it in the plan file as a fenced `json` block; plan mode is read-only, so write it to `.nmg-sdlc/plans/onboard-steering.plan.json` only after approval, then run that `apply` command. The plan installs the four managed module templates, `steering/manifest.json`, registered project snippets, and deterministic validations. Do not create live `steering/product.md`, `steering/tech.md`, or `steering/structure.md`.
 
-Initialize VERSION (0.1.0 or from manifest), create specs/ empty.
+Initialize VERSION (0.1.0 or from manifest), create `CHANGELOG.md` containing `# Changelog` and `## [Unreleased]` when it is absent (never modify an existing `CHANGELOG.md`; `prepare-version` needs the `## [Unreleased]` heading to deliver), create specs/ empty.
 
 Install managed assets: update CONTRIBUTING.md , CLAUDE.md , .github/... using the v4 snippets (see references/).
 

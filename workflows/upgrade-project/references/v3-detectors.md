@@ -132,6 +132,10 @@ v3 kept plugin runtime state under `.omp/sdlc/` and ignored it with the managed 
 16. **Project instructions move** (`id: agents-to-claude-md`)
    - Signal: root `AGENTS.md` exists.
    - Apply (order 7.75, after `agents-spike-language` and `agents-host-language`): without `CLAUDE.md`, rename with identical bytes (`git mv` when tracked). With a regular `CLAUDE.md`, append `AGENTS.md` after exactly one blank line, keep one spec-context managed section (the `CLAUDE.md` copy), and delete `AGENTS.md`. A symlinked or unreadable file on either side yields `skipped:collision` with no change.
+17. **Changelog create** (`id: changelog-create`, `kind: changelog-create`)
+   - Signal: root `VERSION` is a regular file and root `CHANGELOG.md` is absent (`lstatOrNull` returns nothing).
+   - Apply (order 10.75, after `steering-v4-host-language` and `contributing-v4-host-language`) re-checks live state first. Anything present at `CHANGELOG.md` yields `already-current` with no write. Otherwise it writes `# Changelog`, a blank line, then `## [Unreleased]` with a trailing newline. An existing `CHANGELOG.md` is never overwritten.
+   - Without this heading, `prepare-version` fails with `version_artifact_missing`, so the item is the upgrade path for onboarded projects that predate the onboarding fix.
 
 Re-running detect after a successful v4 apply reports none of these items.
 

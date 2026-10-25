@@ -152,9 +152,7 @@ function normalizeSnapshot(snapshot, options, gaps) {
       gaps.push('check identity or state is invalid');
       continue;
     }
-    if (check.event !== 'pull_request') {
-      gaps.push(`check ${check.name} must have exact pull_request event provenance`);
-    }
+    if (!check.event) gaps.push(`check ${check.name} is missing event provenance`);
     const identity = canonicalCheckName(check.name, check.workflow);
     const key = `${identity}\0${check.event}`;
     if (checkKeys.has(key)) gaps.push(`duplicate check identity: ${identity} (${check.event})`);

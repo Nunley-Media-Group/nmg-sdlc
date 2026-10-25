@@ -328,7 +328,7 @@ function registeredTechnicalSteering(fs, cwd) {
 function updateChangelog(content, version, date, title, breaking) {
   const marker = '## [Unreleased]';
   const index = content.indexOf(marker);
-  if (index < 0) throw new Error('CHANGELOG.md lacks [Unreleased]');
+  if (index < 0) throw versionArtifactError('CHANGELOG.md lacks a ## [Unreleased] heading');
   const nextHeading = content.indexOf('\n## [', index + marker.length);
   const end = nextHeading < 0 ? content.length : nextHeading;
   const prefix = content.slice(0, index);
@@ -509,7 +509,34 @@ function hasSynchronizedDeliveryState({ run, fs, cwd, issue, issueData, tech, ch
   return diff.status === 0;
 }
 
+function versionArtifactError(message) {
+  const error = new Error(message);
+  error.reasonCode = 'version_artifact_missing';
+  return error;
+}
+
+function isRegularVersionArtifact(fs, absolute) {
+  if (!fs.existsSync(absolute)) return false;
+  const stat = fs.lstatSync(absolute);
+  return stat.isFile() && !stat.isSymbolicLink();
+}
+
+// Runs before any read or write so a missing artifact changes no file and creates no commit.
+function requireVersionArtifacts(fs, cwd) {
+  if (!isRegularVersionArtifact(fs, path.join(cwd, 'VERSION'))) {
+    throw versionArtifactError('VERSION is missing; create it with the current semver version');
+  }
+  const changelogPath = path.join(cwd, 'CHANGELOG.md');
+  if (!isRegularVersionArtifact(fs, changelogPath)) {
+    throw versionArtifactError('CHANGELOG.md is missing; create it with a ## [Unreleased] section');
+  }
+  if (!/^## \[Unreleased\]/m.test(fs.readFileSync(changelogPath, 'utf8'))) {
+    throw versionArtifactError('CHANGELOG.md lacks a ## [Unreleased] heading');
+  }
+}
+
 function synchronizeVersion({ run, fs, cwd, issue, spec, issueData, tech, now }) {
+  requireVersionArtifacts(fs, cwd);
   const versionPath = path.join(cwd, 'VERSION');
   const changelogPath = path.join(cwd, 'CHANGELOG.md');
   const current = fs.readFileSync(versionPath, 'utf8').trim();
@@ -1299,7 +1326,9 @@ function runDeliverUnlocked({
           tech: registeredTechnicalSteering(fs, cwd), now,
         });
       } catch (error) {
-        if (error.reasonCode === 'major_bump_required') return fail(context, error.reasonCode, error.message);
+        if (['major_bump_required', 'version_artifact_missing'].includes(error.reasonCode)) {
+          return fail(context, error.reasonCode, error.message);
+        }
         throw error;
       }
       const tech = registeredTechnicalSteering(fs, cwd);

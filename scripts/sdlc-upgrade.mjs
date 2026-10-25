@@ -2452,6 +2452,35 @@ function applyPublicationUpgrade(root, approvedItemId, { specDirs } = {}) {
 }
 
 
+const CHANGELOG_CREATE_CONTENT = '# Changelog\n\n## [Unreleased]\n';
+
+function detectChangelogCreate(root) {
+  const version = lstatOrNull(path.join(root, 'VERSION'));
+  if (!version?.isFile() || version.isSymbolicLink()) return null;
+  if (lstatOrNull(path.join(root, 'CHANGELOG.md'))) return null;
+  return {
+    id: 'changelog-create',
+    kind: 'changelog-create',
+    description: 'Create CHANGELOG.md with a ## [Unreleased] section for version preparation.',
+    rel: 'CHANGELOG.md',
+    actionable: true,
+  };
+}
+
+function applyChangelogCreate(root, item) {
+  const version = lstatOrNull(path.join(root, 'VERSION'));
+  if (!version?.isFile() || version.isSymbolicLink()) return { id: item.id, status: 'skipped:missing' };
+  const target = path.join(root, 'CHANGELOG.md');
+  if (lstatOrNull(target)) return { id: item.id, status: 'already-current' };
+  try {
+    fs.writeFileSync(target, CHANGELOG_CREATE_CONTENT, { flag: 'wx' });
+    return { id: item.id, status: 'applied', created: ['CHANGELOG.md'] };
+  } catch (e) {
+    if (e.code === 'EEXIST') return { id: item.id, status: 'already-current' };
+    return { id: item.id, status: `failed:${e.message}` };
+  }
+}
+
 function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRun } = {}) {
   const items = [];
   const rootAbs = path.resolve(root);
@@ -2759,6 +2788,8 @@ function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRu
   if (steeringHostLanguage) items.push(steeringHostLanguage);
   const contributingHostLanguage = detectContributingHostLanguage(rootAbs);
   if (contributingHostLanguage) items.push(contributingHostLanguage);
+  const changelogCreate = detectChangelogCreate(rootAbs);
+  if (changelogCreate) items.push(changelogCreate);
 
   if (dependencyItem) {
     items.push(dependencyItem);
@@ -3059,7 +3090,7 @@ function applyUpgrade(root, approvedItemIds = [], run, {
 
   // Split cumulative packages before renaming their shared legacy source.
   const order = (a, b) => {
-    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'steering-runtime': 2, 'publication-files': 3, 'cumulative-split': 4, 'directory-rename': 5, 'epic-flatten': 6, 'spike-flatten': 7, 'spike-remove': 7, 'spike-issue-form': 7, 'agents-spike-language': 7, 'agents-host-language': 7.5, 'agents-to-claude-md': 7.75, 'frontmatter-fix': 8, 'v2-cleanup': 9, 'runtime-state-v4': 9.5, 'nmg-sdlc-ignore': 10, 'steering-v4-host-language': 10.5, 'contributing-v4-host-language': 10.5, 'issue-dependencies': 11, 'already-current': 99 }[k] ?? 50);
+    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'steering-runtime': 2, 'publication-files': 3, 'cumulative-split': 4, 'directory-rename': 5, 'epic-flatten': 6, 'spike-flatten': 7, 'spike-remove': 7, 'spike-issue-form': 7, 'agents-spike-language': 7, 'agents-host-language': 7.5, 'agents-to-claude-md': 7.75, 'frontmatter-fix': 8, 'v2-cleanup': 9, 'runtime-state-v4': 9.5, 'nmg-sdlc-ignore': 10, 'steering-v4-host-language': 10.5, 'contributing-v4-host-language': 10.5, 'changelog-create': 10.75, 'issue-dependencies': 11, 'already-current': 99 }[k] ?? 50);
     return pri(a.kind) - pri(b.kind);
   };
   const toApply = [...report.items].filter((it) => approvedSet.has(it.id)).sort(order);
@@ -3102,6 +3133,8 @@ function applyUpgrade(root, approvedItemIds = [], run, {
       res = applyRuntimeStateMigration(rootAbs, item);
     } else if (item.kind === 'nmg-sdlc-ignore') {
       res = applyRuntimeIgnore(rootAbs, item);
+    } else if (item.kind === 'changelog-create') {
+      res = applyChangelogCreate(rootAbs, item);
     } else if (item.kind === 'issue-dependencies') {
       res = applyIssueDependencyUpgrade(item, { cwd: rootAbs, run });
     } else if (item.kind === 'packaging' || item.kind === 'legacy-layout' || item.kind === 'already-current') {

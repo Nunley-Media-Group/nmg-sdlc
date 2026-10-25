@@ -352,6 +352,23 @@ console.log(JSON.stringify(value));
     expect(deliveryCalls(f, 'create')).toHaveLength(0);
   });
 
+  test.each([
+    ['is missing', 'delete', 'CHANGELOG.md is missing'],
+    ['lacks the Unreleased heading', 'rewrite', '## [Unreleased]'],
+  ])('prepare-version fails with version_artifact_missing when CHANGELOG.md %s, before any write or commit', (_name, mode, summaryText) => {
+    const f = fixture({ versionPrepared: false });
+    if (mode === 'delete') git(f.root, 'rm', '-q', 'CHANGELOG.md');
+    else fs.writeFileSync(path.join(f.root, 'CHANGELOG.md'), '# Changelog\n\n## [3.4.5] - 2026-01-01\n\n- old\n');
+    git(f.root, 'add', '-A');
+    git(f.root, 'commit', '-qm', 'chore: break changelog for #42');
+    const headBefore = git(f.root, 'rev-parse', 'HEAD');
+    const result = runDeliver({ cwd: f.root, issue: 42, action: 'prepare-version', run: f.run });
+    expect(result).toMatchObject({ status: 1, handoff: { status: 'failed', reasonCode: 'version_artifact_missing', next: null } });
+    expect(result.handoff.summary).toContain(summaryText);
+    expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8')).toBe('3.4.5\n');
+    expect(git(f.root, 'rev-parse', 'HEAD')).toBe(headBefore);
+  });
+
   test('delivery without a prepared version fails before any pull request is created', () => {
     const f = fixture({ versionPrepared: false });
     const result = runDeliver({ cwd: f.root, issue: 42, run: f.run });

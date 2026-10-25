@@ -23,4 +23,6 @@
 13. v4 contributing host language: when a regular root `CONTRIBUTING.md` contains the exact v3 sentence, emit `id: contributing-v4-host-language`, `kind: contributing-v4-host-language`.
 14. Project instructions move: when root `AGENTS.md` exists, emit `id: agents-to-claude-md`, `kind: agents-to-claude-md` with `mode: rename` (no `CLAUDE.md`) or `merge`.
 
+15. Changelog create: when root `VERSION` is a regular file and root `CHANGELOG.md` is absent, emit actionable `id: changelog-create`, `kind: changelog-create` (`rel: CHANGELOG.md`). `prepare-version` needs that file with a `## [Unreleased]` heading, so this is the migration path for onboarded projects that predate the onboarding fix. Nothing is emitted when `CHANGELOG.md` exists.
+
 All detectors are read-only until plan approval and helper apply. Dependency apply re-reads the graph digest before the first POST and preserves issue body text.
