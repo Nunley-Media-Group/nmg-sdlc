@@ -1,0 +1,33 @@
+**Issue**: #486
+**Date**: 2026-10-25
+**Status**: Approved
+**Author**: NMG
+
+# Generated from: specs/486-stop-frontmatter-fix-from-flagging-specs-whose-prose-mentions-issues/requirements.md
+Feature: frontmatter-fix ignores prose Issues and preserves gherkin comment headers
+
+  @SCN001 @regression
+  Scenario: AC1 prose "Issues" does not trigger frontmatter-fix
+    Given a specs/404-restrict-drafted-issues-and-specs package with singular "**Issue**: #404"
+    And its requirements heading is "# Requirements: Restrict Drafted Issues and Specs"
+    When upgrade detection runs
+    Then no frontmatter-fix item is reported for that package
+
+  @SCN002 @regression
+  Scenario: AC2 a plural Issues field still triggers frontmatter-fix
+    Given a specs/7-x package whose requirements.md has "**Issues**: #7, #9"
+    When upgrade detection runs
+    Then a frontmatter-fix item is reported for specs/7-x with primaryN 7
+
+  @SCN003 @regression
+  Scenario: AC3 gherkin comment headers are updated in place without duplicates
+    Given a feature.gherkin header "# Issues: #7, #9", "# Date: 2026-01-01", "# Status: Planning", "# Author: NMG"
+    When an approved frontmatter-fix applies with target #7 and status Draft
+    Then the header is "# Issue: #7", "# Date: 2026-01-01", "# Status: Draft", "# Author: NMG"
+    And the file contains no bold Issue, Date, Status, or Author lines
+
+  @SCN004 @regression
+  Scenario: AC4 bold-form frontmatter behavior is preserved
+    Given spec files with "**Issues**: #7, #9" and "**Status**: Planning"
+    When an approved frontmatter-fix applies
+    Then the files contain "**Issue**: #7" and "**Status**: Draft" and are otherwise unchanged
