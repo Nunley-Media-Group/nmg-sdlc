@@ -5,15 +5,15 @@
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { closeSync, constants as fsConstants, fstatSync, lstatSync, openSync, readFileSync, realpathSync, rmSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import { defaultPromptRegistry, renderPrompt, writePromptProvenance } from '../src/sdlc-prompt-snippets.mjs';
 import { packageRoot } from '../src/sdlc-workflows.mjs';
 import { SDLC_EFFORTS, SDLC_MODELS } from '../src/host-events.mjs';
 import { collectEvidence, parseIssueBranch } from './sdlc-status.mjs';
-import { inspectPublicationScope } from './sdlc-safe-recoveries.mjs';
+import { inspectPublicationScope, publicationFileEntries } from './sdlc-safe-recoveries.mjs';
 import { inspectVerificationArtifactRepair, inspectVerificationReadiness, MAX_VERIFICATION_REPORT_BYTES } from './verification-readiness.mjs';
 import { matchesRegisteredResults } from './sdlc-finalize-verification.mjs';
-import { specStatus } from './issue-spec-scope.mjs';
+import { resolveSpecDir, specStatus } from './issue-spec-scope.mjs';
 import { createIssueDependencyClient, eligibleIssues, issueDependencyStatus, readDependencyGraph } from './issue-dependencies.mjs';
 import { issueHasSpecCreatedLabel, SPEC_CREATED_LABEL } from './spec-created-label.mjs';
 import { acquireControllerLease, readControllerLease, reclaimStaleControllerLease, releaseControllerLease } from './sdlc-controller-lease.mjs';
@@ -27,6 +27,14 @@ const MAX_HANDOFF_BYTES = 256 * 1024;
 // How often a worker that is waiting on its own background work is rechecked; the wait itself has no deadline.
 const RESUME_POLL_MS = 60_000;
 const SHA = /^[0-9a-f]{40}$/;
+// A supervised worker is checked in on after this long without a handoff, or once its pane output
+// or waiting marker has been unchanged this long; waits are sliced so a check-in is never late by more than a slice.
+export const DEFAULT_CHECK_IN_MS = 300_000;
+const CHECK_IN_SLICE_MS = 30_000;
+const PANE_TAIL_LINES = 40;
+const REPORT_HISTORY = 8;
+export const STAGE_DECISIONS = Object.freeze(['accept', 'prompt', 'redispatch', 'halt']);
+export const CHECK_IN_DECISIONS = Object.freeze(['continue', 'prompt', 'redispatch', 'halt']);
 
 function defaultRun(command, args, options = {}) {
   return spawnSync(command, args, { encoding: 'utf8', ...options });
@@ -37,7 +45,7 @@ function parsed(value) {
   if (typeof value?.stdout === 'string') return parsed(value.stdout);
   return value;
 }
-function usage() { return 'Usage: /sdlc-execute [--retain-worker] [#N ...]'; }
+function usage() { return 'Usage: /sdlc-execute [--retain-worker] [--check-in-seconds N] [#N ...]'; }
 export function parseArgs(input = '') {
   const text = String(input ?? '').trim();
   if (!text) return { issues: [], defaultBacklog: true };
@@ -45,10 +53,18 @@ export function parseArgs(input = '') {
   if (!tokens.length) throw new Error(usage());
   const issues = [];
   let retainWorker = false;
-  for (const token of tokens) {
+  let checkInSeconds;
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
     if (token === '--retain-worker') {
       if (retainWorker) throw new Error(usage());
       retainWorker = true;
+      continue;
+    }
+    if (token === '--check-in-seconds') {
+      const value = tokens[index += 1];
+      if (checkInSeconds !== undefined || !/^[1-9]\d{0,4}$/.test(value ?? '') || Number(value) > 86_400) throw new Error(usage());
+      checkInSeconds = Number(value);
       continue;
     }
     const match = token.match(/^(?:#|issue:\/\/|pr:\/\/)?(\d+)$/);
@@ -57,7 +73,8 @@ export function parseArgs(input = '') {
     if (!issues.includes(issue)) issues.push(issue);
   }
   if (issues.length > 20) throw new Error(usage());
-  return { issues, defaultBacklog: !issues.length, ...(retainWorker ? { retainWorker } : {}) };
+  return { issues, defaultBacklog: !issues.length, ...(retainWorker ? { retainWorker } : {}),
+    ...(checkInSeconds ? { checkInSeconds } : {}) };
 }
 function projectDone(projectItems) {
   const items = Array.isArray(projectItems) ? projectItems
@@ -186,6 +203,7 @@ export function defaultHerdr(run, cwd, env = process.env) {
     agentWait: ({ name, until, timeout }) => invoke(['agent', 'wait', name, ...(until ? ['--until', until] : []),
       ...(timeout ? ['--timeout', String(timeout)] : [])]),
     agentGet: (name) => invoke(['agent', 'get', name]),
+    paneRead: (pane) => invoke(['pane', 'read', pane, '--source', 'recent', '--lines', String(PANE_TAIL_LINES)]),
   };
 }
 function checkout(cwd, run) {
@@ -349,24 +367,24 @@ function reminderPrompt(handoffPath) {
  * command it started is still running, so a settled worker without a handoff keeps its pane:
  * one that wrote its waiting marker is awaited until it resumes, and one that did not is
  * reminded once per resumption before it counts as stopped. */
-function awaitWorkerHandoff({ api, name, cwd, issue, step, prior }) {
+function awaitWorkerHandoff({ api, name, cwd, issue, step, prior, waitFor = api.agentWait }) {
   const handoffPath = `${HANDOFF_DIR}/${issue}-${step}.json`;
   const waiting = join(cwd, `${handoffPath}.waiting`);
   const settle = () => ({ handoff: freshHandoff(cwd, issue, step, prior), state: workerState(api, name) });
-  api.agentWait({ name, until: 'working' });
+  waitFor({ name, until: 'working' });
   let reminded = false;
   for (;;) {
-    api.agentWait({ name });
+    waitFor({ name });
     let observed = settle();
     if (observed.handoff || !SETTLED.includes(observed.state)) return observed;
     if (!waitingMarker(waiting)) {
       if (reminded || !succeeded(api.agentPrompt({ name, prompt: reminderPrompt(handoffPath) }))) return observed;
       reminded = true;
-      api.agentWait({ name, until: 'working' });
+      waitFor({ name, until: 'working' });
       continue;
     }
     while (SETTLED.includes(observed.state) && waitingMarker(waiting)) {
-      api.agentWait({ name, until: 'working', timeout: RESUME_POLL_MS });
+      waitFor({ name, until: 'working', timeout: RESUME_POLL_MS });
       observed = settle();
       if (observed.handoff) return observed;
     }
@@ -375,6 +393,105 @@ function awaitWorkerHandoff({ api, name, cwd, issue, step, prior }) {
     reminded = false;
   }
 }
+// A supervisor decision taken at a check-in that ends the current wait.
+class SupervisorDecision extends Error {
+  constructor(decision) { super(`supervisor_${decision.action}`); this.decision = decision; }
+}
+function timedOut(response) {
+  return parsed(response)?.error?.code === 'timeout';
+}
+function headOf(cwd, run) {
+  const head = run('git', ['rev-parse', 'HEAD'], { cwd });
+  const value = String(head?.stdout ?? '').trim();
+  return succeeded(head) && SHA.test(value) ? value : null;
+}
+/** The spec's declared files: its own directory plus every task `**File(s)**:` entry. */
+function declaredSpecEntries(cwd, specPath) {
+  if (!specPath) return [];
+  const entries = [`${specPath}/`];
+  let tasks = '';
+  try { tasks = readFileSync(join(cwd, specPath, 'tasks.md'), 'utf8'); } catch { return entries; }
+  for (const match of tasks.matchAll(/^\*\*File\(s\)\*\*:\s*(.+)$/gm)) {
+    try { entries.push(...publicationFileEntries(match[1])); } catch { /* an unparsable declaration declares nothing */ }
+  }
+  return entries;
+}
+function matchesEntry(path, entry) {
+  if (entry.endsWith('/')) return path.startsWith(entry);
+  if (!/[*?]/.test(entry)) return path === entry;
+  const pattern = entry.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*\*/g, '\0').replace(/\*/g, '[^/]*')
+    .replace(/\?/g, '[^/]').replace(/\0/g, '.*');
+  return new RegExp(`^${pattern}$`).test(path);
+}
+/** Commits added since `before`, their changed paths, and the paths outside the spec's declared files. */
+function addedWork(cwd, run, before, specPath) {
+  const none = { commits: [], changedPaths: [], outsideSpecPaths: [] };
+  const after = headOf(cwd, run);
+  if (!SHA.test(before ?? '') || !after || after === before) return none;
+  const log = run('git', ['log', '--format=%H %s', `${before}..HEAD`], { cwd });
+  const diff = run('git', ['diff', '--name-only', `${before}..HEAD`], { cwd });
+  if (!succeeded(log) || !succeeded(diff)) return { ...none, unreadable: true };
+  const lines = (value) => String(value.stdout ?? '').split(/\r?\n/).filter(Boolean);
+  const changedPaths = lines(diff);
+  const entries = declaredSpecEntries(cwd, specPath);
+  return {
+    commits: lines(log).map((line) => ({ sha: line.slice(0, 40), subject: line.slice(41) })),
+    changedPaths,
+    outsideSpecPaths: changedPaths.filter((path) => !path.startsWith('.nmg-sdlc/')
+      && !entries.some((entry) => matchesEntry(path, entry))),
+  };
+}
+function reportHistory(history) {
+  return history.slice(-REPORT_HISTORY).map(({ step, head, reasonCode, summary, artifacts }) =>
+    ({ step, head, reasonCode, summary, artifacts }));
+}
+// Markdown sections of a verification report whose heading names critical or remaining issues.
+function issueSections(content) {
+  const lines = content.split(/\r?\n/);
+  const level = (line) => /^(#{1,6})\s/.exec(line)?.[1].length ?? Infinity;
+  const sections = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const own = level(lines[index]);
+    if (own < 2 || own > 6 || !/critical|remaining issues/i.test(lines[index])) continue;
+    let end = index + 1;
+    while (end < lines.length && level(lines[end]) > own) end += 1;
+    sections.push(lines.slice(index, end).join('\n').trim().slice(0, 4000));
+    index = end - 1;
+  }
+  return sections;
+}
+function verificationSummary(cwd, issue, evidence) {
+  const path = evidence?.verification?.path;
+  if (!path) return { report: null };
+  try {
+    const report = readRegularEvidence(cwd, join(cwd, path), MAX_VERIFICATION_REPORT_BYTES);
+    if (!report) return { report: path, readiness: null, issues: [] };
+    const content = report.bytes.toString('utf8');
+    const { status, reasonCode, gaps } = inspectVerificationReadiness({ content, options: {
+      expectedIssueNumber: issue, expectedSpecPath: evidence.spec?.path, expectedScope: evidence.spec?.scope } });
+    return { report: path, readiness: { status, reasonCode, gaps }, issues: issueSections(content) };
+  } catch { return { report: path, readiness: null, issues: [] }; }
+}
+function paneTail(api, pane) {
+  try {
+    const response = api.paneRead?.(pane);
+    return response && succeeded(response) ? String(response.stdout ?? '').trimEnd() : null;
+  } catch { return null; }
+}
+function waitingInfo(path, now) {
+  try {
+    const stat = lstatSync(path);
+    if (!stat.isFile() || stat.size === 0) return null;
+    const command = readFileSync(path, 'utf8').trim().split(/\r?\n/)[0].slice(0, 500);
+    return { command, ageSeconds: Math.max(0, Math.round((now - stat.mtimeMs) / 1000)), modified: stat.mtimeMs };
+  } catch { return null; }
+}
+function guidancePrompt({ issue, step, text, handoffPath, boundary }) {
+  return `nmg-sdlc supervisor guidance for #${issue} ${step}:\n${text}\n${boundary
+    ? `Act on this guidance, then write and validate a fresh handoff at ${handoffPath}.`
+    : 'Act on this guidance within the current step; the handoff contract is unchanged.'}`;
+}
+
 function sourceHeadForGate(cwd, run, head, report, artifactHead) {
   if (artifactHead === head) return head;
   if (!report || !SHA.test(artifactHead ?? '')) return null;
@@ -508,9 +625,23 @@ function currentGateFailure(cwd, run, issue, head, report) {
   } catch { return null; }
 }
 
+// Why a failed or empty `herdr integration status` probe could not confirm the Claude
+// integration; empty when the probe answered and simply did not report it installed.
+function probeFailure(probe) {
+  if (probe === null || (typeof probe !== 'object' && typeof probe !== 'string')) return 'probe returned no result';
+  if (typeof probe === 'string' || succeeded(probe)) return '';
+  if (probe.error !== undefined && probe.error !== null) return String(probe.error.code ?? probe.error.message ?? probe.error);
+  if (probe.signal) return `signal ${probe.signal}`;
+  return Number.isInteger(probe.status) ? `exit ${probe.status}` : 'probe returned no result';
+}
+
+/** Runs execute to completion. With `supervise(report) → { action, text }`, every worker settlement
+ * yields a stage report and every check-in interval (or stall) of a running worker a check-in report;
+ * without it the existing routing runs unsupervised. */
 export function runExecute({ args = '', cwd = process.cwd(), env = process.env, run = defaultRun,
   herdr, installSignalHandlers = false, processApi = process,
-  onOwnedPane = () => {}, onPaneClosed = () => {}, onLeaseAcquired = () => {} } = {}) {
+  onOwnedPane = () => {}, onPaneClosed = () => {}, onLeaseAcquired = () => {},
+  supervise = null, now = Date.now, checkInMs } = {}) {
   const fail = (reason, status = 1) => ({ status, stdout: '', stderr: `${reason}\n` });
   if (env.HERDR_ENV !== '1' || !env.HERDR_SOCKET_PATH || !env.HERDR_PANE_ID) {
     return { status: 2, stdout: 'execute requires a Herdr session\n', stderr: '' };
@@ -520,12 +651,11 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
   const api = herdr ?? defaultHerdr(run, cwd, env);
   let integration;
   try { integration = api.integrationStatus(); } catch (error) { integration = { status: null, error }; }
-  if (!succeeded(integration) || !/^claude:\s+(?!not installed)/m.test(
+  if (!integration || !succeeded(integration) || !/^claude:\s+(?!not installed)/m.test(
     typeof integration === 'string' ? integration : String(integration?.stdout ?? ''),
   )) {
-    // A probe that never ran (spawn error, signal) is not proof the integration is missing.
-    const detail = succeeded(integration) ? '' : String(integration?.error?.code ?? integration?.error?.message
-      ?? (integration?.signal ? `signal ${integration.signal}` : `exit ${integration?.status}`));
+    // A probe that never ran (spawn error, signal, no result) is not proof the integration is missing.
+    const detail = probeFailure(integration);
     return { status: 2, stdout: 'Run: herdr integration install claude\n',
       stderr: detail ? `herdr integration status failed: ${detail}\n` : '' };
   }
@@ -543,6 +673,100 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
     if (lease) releaseControllerLease(lease);
     return fail(error?.reasonCode ?? error?.message ?? 'controller_lease_held');
   }
+  const interval = checkInMs ?? (selected.checkInSeconds ? selected.checkInSeconds * 1000 : DEFAULT_CHECK_IN_MS);
+  const decide = (report) => {
+    const decision = supervise(report);
+    if (!report.decisions.includes(decision?.action)
+      || (decision.action !== 'accept' && decision.action !== 'continue'
+        && (typeof decision.text !== 'string' || !decision.text.trim()))) {
+      throw new Error(`supervisor_decision_invalid: ${decision?.action ?? 'none'}`);
+    }
+    return decision;
+  };
+  /** Waits for one dispatched worker under supervision: check-in reports while it runs, then a stage
+   * report at its settlement. Returns `{ handoff, state }` to accept, plus `decision` to re-dispatch or halt. */
+  const superviseWorker = ({ issue, step, name, pane, prior, before, history }) => {
+    const handoffPath = `${HANDOFF_DIR}/${issue}-${step}.json`;
+    const waitingPath = join(cwd, `${handoffPath}.waiting`);
+    let specPath = null;
+    try {
+      const dir = resolveSpecDir(cwd, issue);
+      if (dir) specPath = relative(cwd, dir).split(sep).join('/');
+    } catch { /* reported without spec-scoped paths */ }
+    const dispatchedAt = now();
+    const monitor = { lastCheckIn: dispatchedAt, tail: null, changedAt: dispatchedAt, paneReported: false, markerReported: null };
+    const base = () => ({ issue, stage: step, worker: name, pane, ...addedWork(cwd, run, before, specPath),
+      failureHistory: reportHistory(history) });
+    const guide = (decision, boundary) => succeeded(api.agentPrompt({ name,
+      prompt: guidancePrompt({ issue, step, text: decision.text, handoffPath, boundary }) }));
+    const checkIn = () => {
+      const at = now();
+      const tail = paneTail(api, pane);
+      if (tail !== null && tail !== monitor.tail) Object.assign(monitor, { tail, changedAt: at, paneReported: false });
+      const marker = waitingInfo(waitingPath, at);
+      const paneStalled = tail !== null && !monitor.paneReported && at - monitor.changedAt >= interval;
+      const markerStale = Boolean(marker) && marker.ageSeconds * 1000 >= interval && monitor.markerReported !== marker.modified;
+      const reason = at - monitor.lastCheckIn >= interval ? 'interval'
+        : paneStalled ? 'pane_unchanged' : markerStale ? 'waiting_marker_stale' : null;
+      if (!reason) return;
+      if (paneStalled) monitor.paneReported = true;
+      if (markerStale) monitor.markerReported = marker.modified;
+      monitor.lastCheckIn = at;
+      let note = null;
+      for (;;) {
+        const decision = decide({ kind: 'checkin', reason, ...base(),
+          sinceDispatchSeconds: Math.round((at - dispatchedAt) / 1000), paneTail: tail,
+          paneChangedSecondsAgo: tail === null ? null : Math.round((at - monitor.changedAt) / 1000),
+          waiting: marker ? { command: marker.command, ageSeconds: marker.ageSeconds } : null,
+          note, decisions: CHECK_IN_DECISIONS });
+        if (decision.action === 'continue') return;
+        if (decision.action !== 'prompt') throw new SupervisorDecision(decision);
+        // Herdr queues a prompt to a busy worker until its current call finishes; the wait below covers it.
+        if (guide(decision, false)) return;
+        note = 'guidance could not be delivered to the worker pane';
+      }
+    };
+    const waitFor = (args) => {
+      const deadline = args.timeout ? now() + args.timeout : Infinity;
+      for (;;) {
+        const slice = Math.max(1, Math.ceil(Math.min(deadline - now(), CHECK_IN_SLICE_MS, interval)));
+        const response = api.agentWait({ ...args, timeout: slice });
+        if (!timedOut(response) || now() >= deadline) return response;
+        checkIn();
+      }
+    };
+    let previous = prior;
+    let latest = null;
+    for (;;) {
+      let observed;
+      try { observed = awaitWorkerHandoff({ api, name, cwd, issue, step, prior: previous, waitFor }); } catch (error) {
+        if (error instanceof SupervisorDecision) return { handoff: null, state: workerState(api, name), decision: error.decision };
+        throw error;
+      }
+      const handoff = observed.handoff ?? latest;
+      let note = null;
+      for (;;) {
+        const headAfter = headOf(cwd, run);
+        let evidence = null;
+        let gate = 'unavailable';
+        try {
+          evidence = statusEvidence(cwd, run);
+          gate = registeredGateStatus(cwd, run, issue, headAfter, evidence) ?? 'not_green';
+        } catch { /* reported as unavailable */ }
+        const decision = decide({ kind: 'stage', ...base(), handoff, handoffFresh: Boolean(observed.handoff),
+          workerState: observed.state, headBefore: before, headAfter, gate,
+          ...(step === 'verify' ? { verification: verificationSummary(cwd, issue, evidence) } : {}),
+          note, decisions: observed.state ? STAGE_DECISIONS : STAGE_DECISIONS.filter((action) => action !== 'prompt') });
+        if (decision.action === 'accept') return { handoff, state: observed.state };
+        if (decision.action !== 'prompt') return { handoff, state: observed.state, decision };
+        // Snapshot before prompting: the handoff the worker writes for this guidance counts as fresh.
+        previous = handoffSnapshot(cwd, join(cwd, handoffPath));
+        if (guide(decision, true)) break;
+        note = 'guidance could not be delivered to the worker pane';
+      }
+      latest = handoff;
+    }
+  };
   const owned = new Set();
   const close = (pane) => {
     if (!owned.has(pane)) return;
@@ -603,6 +827,9 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
       if (foreign) throw new Error(`foreign_worker_live: ${foreign.name}`);
       let needsImplement = false;
       let requiresPrEvidence = false;
+      // A supervisor re-dispatch: the stage to repeat where routing allows, and its guidance.
+      let forced = null;
+      let guidance = null;
       const implementedHeads = new Set();
       for (;;) {
         const current = checkout(cwd, run);
@@ -665,7 +892,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
               && evidence.pullRequest?.state === 'OPEN'
               && evidence.pullRequest.isDraft === true
               && evidence.pullRequest.headRefOid === current.head));
-          if (!failure && !dirty && published) {
+          if (!failure && !forced && !dirty && published) {
             const liveFailure = currentGateFailure(cwd, run, issue, current.head, evidence.verification?.path);
             if (liveFailure) { recordFailure(liveFailure); needsImplement = true; }
           }
@@ -673,6 +900,9 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           const unimplemented = !implementedHeads.has(current.head) && !branchCommits(cwd, run, evidence);
           if (dirty || needsImplement || unimplemented || (!published && !green)) step = 'implement';
           else step = green && published && !dirtyReport ? 'deliver' : 'verify';
+          // A re-dispatched verify runs again even where a green gate would deliver; a re-dispatched
+          // deliver runs only where routing delivers, so no decision skips the full-green gate.
+          if (forced === 'verify' && step === 'deliver') step = 'verify';
           // The version commit lands before verification, so the registered gate runs at the
           // head delivery merges; a new commit is verified before anything is delivered. The
           // issue branch's merged spec PR shares its name, so only an open PR stops preparation.
@@ -694,6 +924,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
             `Recent failure evidence:\n${history.slice(-8).map((item) => `- ${item.step} ${item.head}/${item.tree}: ${item.reasonCode}: ${item.summary}`).join('\n')}`,
             'Diagnose the cause and choose a different testable repair. Do not repeat unchanged smoke inputs.',
           ] : []),
+          ...(guidance ? [`Supervisor guidance: ${guidance}`] : []),
           ...(failure?.reasonCode === 'pr_evidence_pending' ? (
             evidence?.pullRequest?.state === 'OPEN' && evidence.pullRequest.isDraft === true
               && evidence.pullRequest.headRefOid === current.head
@@ -717,6 +948,8 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
         if (!succeeded(api.agentStart({
           name, paneId: pane, model: stageModel(step, failure), effort: stageEffort(step, failure),
         }))) throw new Error('agent_start_failed');
+        forced = null;
+        guidance = null;
         const sent = api.agentPrompt({ name, prompt: instructions });
         if (!succeeded(sent)) {
           if (!String(JSON.stringify(sent)).includes('agent_prompt_stalled')) throw new Error('worker_prompt_failed');
@@ -725,8 +958,23 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
             throw new Error('prompt_delivery_unproven');
           }
         }
-        const { handoff, state } = awaitWorkerHandoff({ api, name, cwd, issue, step, prior });
-        close(pane);
+        const { handoff, state, decision } = supervise
+          ? superviseWorker({ issue, step, name, pane, prior, before: current.head, history })
+          : awaitWorkerHandoff({ api, name, cwd, issue, step, prior });
+        // A halt leaves the branch, worktree and remote as they are; cleanup closes owned panes.
+        if (decision?.action === 'halt') throw new Error(`supervisor_halt: ${decision.text}`);
+        if (decision || !(supervise && selected.retainWorker)) close(pane);
+        if (decision?.action === 'redispatch') {
+          if (handoff && handoff.status !== 'passed') {
+            recordFailure({ step, head: checkout(cwd, run).head, reasonCode: handoff.reasonCode ?? 'failed',
+              summary: handoff.summary, artifacts: handoff.artifacts });
+          }
+          forced = step;
+          guidance = decision.text;
+          // Only an implement re-dispatch implements; a verify re-dispatch skips the implement repair.
+          needsImplement = step === 'implement';
+          continue;
+        }
         if (!handoff) {
           // The pane was closed before retry, and Git/GitHub must be re-observed
           // even when a worker lost its final acknowledgment.
@@ -841,11 +1089,47 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
   }
 }
 
+// Removes `--<name> <value>` (at most once) from supervised-session argv.
+function takeOption(argv, name) {
+  const index = argv.indexOf(`--${name}`);
+  if (index < 0) return undefined;
+  const [, value] = argv.splice(index, 2);
+  if (value === undefined || argv.includes(`--${name}`)) throw new Error(`--${name} requires one value`);
+  return value;
+}
+function waitSeconds(argv) {
+  const value = takeOption(argv, 'wait-seconds');
+  if (value === undefined) return undefined;
+  if (!/^[1-9]\d*$/.test(value) || Number(value) > 540) throw new Error('--wait-seconds must be 1-540');
+  return Number(value) * 1000;
+}
+async function sessionCommand(sub, rest) {
+  const supervisor = await import('./sdlc-execute-supervisor.mjs');
+  const argv = [...rest];
+  try {
+    const waitMs = waitSeconds(argv);
+    if (sub === 'run') return supervisor.superviseExecute({ args: argv.join(' ') });
+    if (sub === 'supervise') return supervisor.superviseExecute({ args: argv.join(' '), session: randomUUID(), waitMs });
+    const session = takeOption(argv, 'session');
+    if (sub === 'wait' && !argv.length) return supervisor.awaitSession({ session, waitMs });
+    const seq = Number(takeOption(argv, 'seq'));
+    const text = takeOption(argv, 'text');
+    if (sub === 'decide' && argv.length === 1) {
+      return supervisor.decideSession({ session, seq, action: argv[0], text, waitMs });
+    }
+  } catch (error) {
+    return { status: 2, stdout: '', stderr: `${error.message}\n` };
+  }
+  return { status: 2, stdout: '', stderr: [
+    'Usage: sdlc-execute.mjs supervise [--retain-worker] [--check-in-seconds N] [#N ...]',
+    '       sdlc-execute.mjs decide --session S --seq N <accept|continue|prompt|redispatch|halt> [--text T]',
+    '       sdlc-execute.mjs wait --session S', ''].join('\n') };
+}
+
 async function runCli(argv = process.argv.slice(2)) {
   const [sub, ...rest] = argv;
-  if (sub === 'run') {
-    const { superviseExecute } = await import('./sdlc-execute-supervisor.mjs');
-    const result = await superviseExecute({ args: rest.join(' ') });
+  if (['run', 'supervise', 'decide', 'wait'].includes(sub)) {
+    const result = await sessionCommand(sub, rest);
     if (result.stdout) process.stdout.write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);
     process.exitCode = result.status;

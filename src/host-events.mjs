@@ -23,14 +23,14 @@ export const AUTOMATED_COMMANDS = [
 ];
 
 // The Claude Code model alias each nmg-sdlc step runs on: execute stage
-// workers (`claude --model`), repair re-dispatch, and every command. The
-// aliases always resolve to the current model of their tier.
+// workers (`claude --model`), repair re-dispatch, and every command except
+// `/sdlc-execute`, which supervises on the session's own Opus or Fable model.
+// The aliases always resolve to the current model of their tier.
 export const SDLC_MODELS = Object.freeze({
   stages: Object.freeze({ start: "haiku", implement: "haiku", verify: "opus", deliver: "haiku" }),
   repair: "opus",
   commands: Object.freeze({
     "sdlc-status": "haiku",
-    "sdlc-execute": "haiku",
     "sdlc-open-pr": "haiku",
     "sdlc-verify-code": "opus",
     "sdlc-draft-issue": "opus",
@@ -87,6 +87,17 @@ export function withArguments(body, args) {
 
 export function interactiveHeadlessMessage(commandName) {
   return `Run /${commandName} in the TUI.\n`;
+}
+
+/**
+ * Null when `model` (the session model id, as `/model` shows it) can supervise
+ * `/sdlc-execute`: an Opus or Fable model. Otherwise the refusal to print; an
+ * unreadable model is `unknown` and refused.
+ */
+export function executeModelRefusal(model) {
+  const current = typeof model === "string" && model.trim() ? model.trim() : "unknown";
+  if (/opus|fable/i.test(current)) return null;
+  return `/sdlc-execute requires an Opus session (current: ${current}). Switch with /model opus and run /sdlc-execute again.`;
 }
 
 const WRITE_SPEC_MERGE_RE = /publish-approved-spec\.mjs["']?\s+merge\s[^\n]*?--issue\s+["']?([1-9]\d*)/;

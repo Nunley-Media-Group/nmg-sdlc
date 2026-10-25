@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 
 import { spawn, spawnSync } from 'node:child_process';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { readFileSync, realpathSync } from 'node:fs';
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { linkSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createConnection, createServer } from 'node:net';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { packageRoot } from '../src/sdlc-workflows.mjs';
 import { terminateOwnedProcessGroup, terminateOwnedProcessGroupAfterLeaderLoss } from '../src/process-supervision.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
 import {
@@ -21,6 +23,167 @@ import {
 const SCRIPT = fileURLToPath(import.meta.url);
 const BRIDGE_PORT = 'SDLC_EXECUTE_BRIDGE_PORT';
 const BRIDGE_NONCE = 'SDLC_EXECUTE_BRIDGE_NONCE';
+// A supervised session: its id reaches the daemon and controller through this variable, and its
+// reports, decisions and result live under `.nmg-sdlc/execute/<session>/`.
+const SESSION_ENV = 'NMG_SDLC_EXECUTE_SESSION';
+const SESSION_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+// Every supervised invocation returns within this budget, well inside the 600 s Bash tool timeout.
+export const MAX_SESSION_WAIT_MS = 540_000;
+const SESSION_POLL_MS = 250;
+const DECISION_POLL_MS = 500;
+const ORCHESTRATOR_CHECK_MS = 60_000;
+const MAX_GUIDANCE_CHARS = 8000;
+const EXECUTE_CLI = join(packageRoot, 'scripts', 'sdlc-execute.mjs');
+
+export function sessionDirectory(cwd, session) {
+  return join(cwd, '.nmg-sdlc', 'execute', session);
+}
+function sessionFromEnvironment(env = process.env) {
+  return SESSION_PATTERN.test(env[SESSION_ENV] ?? '') ? env[SESSION_ENV] : null;
+}
+function writeAtomic(path, value) {
+  const temporary = `${path}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+  writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+  renameSync(temporary, path);
+}
+// Fails with EEXIST when the file already exists, so one decision answers one report.
+function writeExclusive(path, value) {
+  const temporary = `${path}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+  writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+  try { linkSync(temporary, path); } finally { unlinkSync(temporary); }
+}
+function readJson(path) {
+  try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; }
+}
+function pause(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+function processAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (error) { return error?.code === 'EPERM'; }
+}
+
+function orchestratorGone(herdr, controllerPane) {
+  try {
+    return !parsedHerdrPanes(herdr).some((pane) => String(pane?.pane_id ?? pane?.paneId ?? '') === controllerPane);
+  } catch { return false; }
+}
+
+/** The controller's supervise callback for a session: writes each report, then blocks until its
+ * decision arrives. A closed orchestrator pane halts the run so its lease is never stranded. */
+export function fileSupervisor({ dir, session, herdr, controllerPane, now = Date.now, sleep = pause,
+  pollMs = DECISION_POLL_MS, paneCheckMs = ORCHESTRATOR_CHECK_MS }) {
+  let seq = 0;
+  return (report) => {
+    seq += 1;
+    writeAtomic(join(dir, `report-${seq}.json`), { schemaVersion: 1, session, seq, ...report });
+    let checked = now();
+    for (;;) {
+      const decision = readJson(join(dir, `decision-${seq}.json`));
+      if (decision?.session === session && decision.seq === seq) return { action: decision.action, text: decision.text };
+      if (now() - checked >= paneCheckMs) {
+        checked = now();
+        if (orchestratorGone(herdr, controllerPane)) return { action: 'halt', text: 'orchestrator pane closed' };
+      }
+      sleep(pollMs);
+    }
+  };
+}
+
+function reportFiles(dir) {
+  try {
+    return readdirSync(dir).map((name) => Number(/^report-([1-9]\d*)\.json$/.exec(name)?.[1]))
+      .filter(Number.isSafeInteger).sort((left, right) => left - right);
+  } catch { return []; }
+}
+// The lowest-numbered report after `after` that has no decision yet.
+function pendingReport(dir, session, after) {
+  for (const seq of reportFiles(dir)) {
+    if (seq <= after) continue;
+    const report = readJson(join(dir, `report-${seq}.json`));
+    if (report?.session === session && report.seq === seq && !readJson(join(dir, `decision-${seq}.json`))) return report;
+  }
+  return null;
+}
+function decideCommand(session, seq, action) {
+  const text = ['accept', 'continue'].includes(action) ? '' : ' --text "<guidance or diagnosis>"';
+  return `node ${JSON.stringify(EXECUTE_CLI)} decide --session ${session} --seq ${seq} ${action}${text}`;
+}
+function reportOutput(report) {
+  return [
+    `NMG_SDLC_EXECUTE_REPORT: session ${report.session} seq ${report.seq} (${report.kind} report for #${report.issue} ${report.stage})`,
+    JSON.stringify(report, null, 2),
+    'Answer with exactly one command:',
+    ...report.decisions.map((action) => `  ${decideCommand(report.session, report.seq, action)}`),
+    '',
+  ].join('\n');
+}
+function runningOutput(session) {
+  return `NMG_SDLC_EXECUTE_RUNNING: session ${session} has no new report yet; the controller is still working.\n`
+    + `Resume with: node ${JSON.stringify(EXECUTE_CLI)} wait --session ${session}\n`;
+}
+function terminalResult(dir, session) {
+  const result = readJson(join(dir, 'result.json'));
+  if (result?.session !== session || !Number.isInteger(result.status)) return null;
+  rmSync(dir, { recursive: true, force: true });
+  return { status: result.status, stdout: String(result.stdout ?? ''), stderr: String(result.stderr ?? '') };
+}
+
+/** Waits up to `waitMs` for the session's next report after `after`, or its result. SIGINT/SIGTERM
+ * are forwarded to the session daemon, which cancels the run as `run` cancellation does. */
+export async function awaitSession({ cwd = process.cwd(), session, after = 0, waitMs = MAX_SESSION_WAIT_MS } = {}) {
+  const dir = sessionDirectory(cwd, session);
+  const daemon = readJson(join(dir, 'daemon.json'));
+  if (!SESSION_PATTERN.test(session ?? '') || daemon?.session !== session || !Number.isSafeInteger(daemon.pid)) {
+    return terminalResult(dir, session) ?? { status: 2, stdout: '', stderr: `execute_session_unknown: ${session}\n` };
+  }
+  const forward = (signal) => { try { process.kill(daemon.pid, signal); } catch { /* already gone */ } };
+  const interrupt = () => forward('SIGINT');
+  const terminate = () => forward('SIGTERM');
+  process.on('SIGINT', interrupt);
+  process.on('SIGTERM', terminate);
+  try {
+    const deadline = Date.now() + Math.min(waitMs, MAX_SESSION_WAIT_MS);
+    for (;;) {
+      const result = terminalResult(dir, session);
+      if (result) return result;
+      const report = pendingReport(dir, session, after);
+      if (report) return { status: 0, stdout: reportOutput(report), stderr: '' };
+      if (!processAlive(daemon.pid)) {
+        return terminalResult(dir, session) ?? { status: 1, stdout: '', stderr: 'controller_supervisor_lost\n' };
+      }
+      if (Date.now() >= deadline) return { status: 0, stdout: runningOutput(session), stderr: '' };
+      await new Promise((resolve) => setTimeout(resolve, SESSION_POLL_MS));
+    }
+  } finally {
+    process.removeListener('SIGINT', interrupt);
+    process.removeListener('SIGTERM', terminate);
+  }
+}
+
+/** Answers report `seq` with one of its allowed actions, then waits for what follows it. */
+export async function decideSession({ cwd = process.cwd(), session, seq, action, text = '', waitMs } = {}) {
+  const dir = sessionDirectory(cwd, session);
+  const report = SESSION_PATTERN.test(session ?? '') && Number.isSafeInteger(seq) && seq > 0
+    ? readJson(join(dir, `report-${seq}.json`)) : null;
+  if (report?.session !== session || report.seq !== seq) {
+    return { status: 2, stdout: '', stderr: `execute_report_unknown: session ${session} seq ${seq}\n` };
+  }
+  const guidance = String(text ?? '').trim();
+  if (!report.decisions.includes(action)) {
+    return { status: 2, stdout: '', stderr: `execute_decision_invalid: ${action} (allowed: ${report.decisions.join(', ')})\n` };
+  }
+  if (!['accept', 'continue'].includes(action) && (!guidance || guidance.length > MAX_GUIDANCE_CHARS)) {
+    return { status: 2, stdout: '', stderr: `execute_decision_invalid: ${action} requires --text of 1-${MAX_GUIDANCE_CHARS} characters\n` };
+  }
+  try {
+    writeExclusive(join(dir, `decision-${seq}.json`), { schemaVersion: 1, session, seq, action,
+      ...(guidance ? { text: guidance } : {}) });
+  } catch (error) {
+    if (error?.code !== 'EEXIST') throw error;
+    return { status: 2, stdout: '', stderr: `execute_report_decided: session ${session} seq ${seq}\n` };
+  }
+  return awaitSession({ cwd, session, after: seq, waitMs });
+}
 
 function takeBridgeEnvironment() {
   const port = Number(process.env[BRIDGE_PORT]);
@@ -262,6 +425,9 @@ async function runBootstrap(args) {
 async function runDaemon(args) {
   const { port, nonce } = takeBridgeEnvironment();
   if (!process.connected) throw new Error('controller_supervisor_bootstrap_lost');
+  const session = sessionFromEnvironment();
+  const dir = session ? sessionDirectory(process.cwd(), session) : null;
+  if (dir) writeAtomic(join(dir, 'daemon.json'), { schemaVersion: 1, session, pid: process.pid });
   const cancellation = new AbortController();
   const interrupt = () => cancellation.abort('SIGINT');
   const terminate = () => cancellation.abort('SIGTERM');
@@ -273,6 +439,8 @@ async function runDaemon(args) {
   let startRequested = false;
   let bootstrapDisconnected = !process.connected;
   let started = false;
+  // A supervised invoker detaches at a yield: losing its connection afterwards is not cancellation.
+  let detached = false;
   let finishStartup;
   const startup = new Promise((resolve) => { finishStartup = resolve; });
   const maybeStart = () => {
@@ -286,10 +454,11 @@ async function runDaemon(args) {
   process.once('disconnect', disconnect);
   const cancelled = () => { if (!started) finishStartup(false); };
   cancellation.signal.addEventListener('abort', cancelled, { once: true });
-  socket.on('error', terminate);
-  socket.once('close', terminate);
+  const lost = () => { if (!detached) terminate(); };
+  socket.on('error', lost);
+  socket.once('close', lost);
   // A half-closed control connection has lost its owner just as completely.
-  socket.once('end', terminate);
+  socket.once('end', lost);
   socket.once('connect', () => {
     void writeMessage(socket, { type: 'authenticate', nonce });
   });
@@ -306,6 +475,9 @@ async function runDaemon(args) {
     } else if (authenticated && message.type === 'cancel'
       && ['SIGINT', 'SIGTERM'].includes(message.signal)) {
       cancellation.abort(message.signal);
+    } else if (authenticated && message.type === 'detach' && dir && startRequested && !detached) {
+      detached = true;
+      void writeMessage(socket, { type: 'detached' });
     } else {
       socket.destroy();
     }
@@ -320,6 +492,7 @@ async function runDaemon(args) {
     } else {
       result = { status: cancellation.signal.reason === 'SIGINT' ? 130 : 143, stdout: '', stderr: '' };
     }
+    if (dir) writeAtomic(join(dir, 'result.json'), { schemaVersion: 1, session, ...result });
     await writeMessage(socket, { type: 'result', ...result });
     process.exitCode = result.status;
   } finally {
@@ -336,12 +509,24 @@ async function runDaemon(args) {
   }
 }
 
-export async function superviseExecute({ args = '', cwd = process.cwd(), env = process.env } = {}) {
+/** Runs execute through the authenticated bootstrap and daemon. Without `session` it waits for the
+ * controller's result. With `session` it returns at the first report, or when `waitMs` passes, after
+ * detaching from the daemon, which keeps the controller running for `decide` and `wait`. */
+export async function superviseExecute({ args = '', cwd = process.cwd(), env = process.env, session = null,
+  waitMs = MAX_SESSION_WAIT_MS } = {}) {
   try {
     parseArgs(args);
   } catch (error) {
     return { status: 2, stdout: '', stderr: `${error.message}\n` };
   }
+  const childEnv = { ...env };
+  delete childEnv[SESSION_ENV];
+  if (session) {
+    mkdirSync(sessionDirectory(cwd, session), { recursive: true });
+    childEnv[SESSION_ENV] = session;
+  }
+  let yielded = null;
+  let watch = null;
   const nonce = randomBytes(32).toString('hex');
   const connections = new Set();
   let channel = null;
@@ -363,12 +548,27 @@ export async function superviseExecute({ args = '', cwd = process.cwd(), env = p
     };
   });
   const fail = (message) => settle({ status: 1, stdout, stderr: `${stderr}${message}\n` });
+  // A supervised start yields its first report, or a running notice once the budget passes.
+  const watchSession = () => {
+    const dir = sessionDirectory(cwd, session);
+    const deadline = Date.now() + Math.min(waitMs, MAX_SESSION_WAIT_MS);
+    watch = setInterval(() => {
+      if (settled || yielded) return;
+      const report = pendingReport(dir, session, 0);
+      if (!report && Date.now() < deadline) return;
+      yielded = report ? reportOutput(report) : runningOutput(session);
+      void writeMessage(channel, { type: 'detach' }).then((sent) => {
+        if (!sent) fail('controller_supervisor_transport_lost');
+      });
+    }, SESSION_POLL_MS);
+  };
   const start = () => {
     if (!settled && channel && bootstrapExited && !started) {
       started = true;
       void writeMessage(channel, { type: 'start' }).then((sent) => {
         if (!sent) fail('controller_supervisor_transport_lost');
       });
+      if (session) watchSession();
     }
   };
   const cancel = (signal) => {
@@ -411,6 +611,8 @@ export async function superviseExecute({ args = '', cwd = process.cwd(), env = p
       } else if (started && !result && message.type === 'result' && Number.isInteger(message.status)
         && typeof message.stdout === 'string' && typeof message.stderr === 'string') {
         result = { status: message.status, stdout: message.stdout, stderr: message.stderr };
+      } else if (started && yielded && message.type === 'detached') {
+        settle({ status: 0, stdout: yielded, stderr: '' });
       } else {
         socket.destroy();
       }
@@ -425,7 +627,7 @@ export async function superviseExecute({ args = '', cwd = process.cwd(), env = p
     });
     if (!settled) {
       bootstrap = spawn(process.execPath, [SCRIPT, 'bootstrap', args], {
-        cwd, env: { ...env, [BRIDGE_PORT]: String(server.address().port), [BRIDGE_NONCE]: nonce },
+        cwd, env: { ...childEnv, [BRIDGE_PORT]: String(server.address().port), [BRIDGE_NONCE]: nonce },
         shell: false, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
       });
       bootstrap.stdout.on('data', (chunk) => { stdout += chunk; });
@@ -441,10 +643,14 @@ export async function superviseExecute({ args = '', cwd = process.cwd(), env = p
       }));
       bootstrap.once('error', (error) => fail(error.message));
     }
-    return await outcome;
+    const value = await outcome;
+    // The controller finished before any yield: its session holds nothing further.
+    if (session && value.stdout !== yielded) rmSync(sessionDirectory(cwd, session), { recursive: true, force: true });
+    return value;
   } catch (error) {
     return { status: 1, stdout, stderr: `${stderr}${error.message}\n` };
   } finally {
+    if (watch) clearInterval(watch);
     process.removeListener('SIGINT', interrupt);
     process.removeListener('SIGTERM', terminate);
     for (const socket of connections) socket.destroy();
@@ -462,8 +668,12 @@ if (isCliEntry(import.meta.url)) {
     process.stderr.write('execute supervisor requires an owned IPC invocation\n');
     process.exitCode = 2;
   } else if (mode === 'controller') {
+    const session = sessionFromEnvironment();
+    const run = (command, commandArgs, options = {}) => spawnSync(command, commandArgs, { encoding: 'utf8', ...options });
     const result = runExecute({
       args,
+      ...(session ? { supervise: fileSupervisor({ dir: sessionDirectory(process.cwd(), session), session,
+        herdr: defaultHerdr(run, process.cwd()), controllerPane: process.env.HERDR_PANE_ID }) } : {}),
       onOwnedPane: (paneId) => { if (process.send && typeof paneId === 'string') process.send({ type: 'owned-pane', paneId }); },
       onLeaseAcquired: (runId) => { if (process.send && typeof runId === 'string') process.send({ type: 'lease-acquired', runId }); },
       onPaneClosed: (paneId) => { if (process.send && typeof paneId === 'string') process.send({ type: 'pane-closed', paneId }); },

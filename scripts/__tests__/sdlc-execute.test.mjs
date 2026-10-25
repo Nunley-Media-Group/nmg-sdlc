@@ -1098,3 +1098,366 @@ describe('worker supervision while its background work runs (#470)', () => {
     expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['start', 'implement', 'verify', 'deliver']);
   });
 });
+
+describe('Opus supervisor decisions (#491)', () => {
+  const steps = (f) => f.state.starts.map((entry) => entry.name.split('-')[1]);
+  const deliver = ({ state }) => { state.merged = true; state.closed = true; return { status: 'passed', next: null }; };
+  const timeout = () => ({ status: 1, stdout: JSON.stringify({ error: { code: 'timeout', message: 'timed out waiting for agent status' } }), stderr: '' });
+  // Records each report, answers it from `answer(report, index)` (default accept/continue), and
+  // captures the controller state the report was taken in.
+  const supervisor = (f, answer = () => null) => {
+    const reports = [];
+    const supervise = (report) => {
+      reports.push({ ...report, closedAtReport: [...f.state.closedPanes], startsAtReport: f.state.starts.length });
+      return answer(report, reports.length - 1) ?? { action: report.kind === 'stage' ? 'accept' : 'continue' };
+    };
+    return { reports, supervise };
+  };
+  // A herdr whose guidance prompts are recorded and handed to `onGuidance` instead of the worker fixture.
+  const guidedHerdr = (f, onGuidance = () => {}, extra = {}) => {
+    const guidance = [];
+    return { guidance, herdr: { ...f.herdr, ...extra, agentPrompt: (args) => {
+      if (args.prompt.startsWith('nmg-sdlc supervisor guidance')) {
+        guidance.push(args);
+        onGuidance(args);
+        return result('');
+      }
+      return (extra.agentPrompt ?? f.herdr.agentPrompt)(args);
+    } } };
+  };
+
+  it('returns a stage report at every boundary before the pane closes or the next stage starts', () => {
+    const f = fixture({ dirty: true });
+    f.setWorker((context) => {
+      if (context.step === 'implement') {
+        fs.writeFileSync(path.join(context.root, 'stray.txt'), 'outside the spec\n');
+        context.publish('fix: finish #42');
+        return { status: 'passed', next: 'verify' };
+      }
+      if (context.step === 'verify') { context.passGate(); return { status: 'passed', next: 'deliver' }; }
+      return deliver(context);
+    });
+    const { reports, supervise } = supervisor(f);
+    expect(f.execute('#42', { supervise })).toMatchObject({ status: 0 });
+    expect(steps(f)).toEqual(['implement', 'verify', 'deliver']);
+    expect(reports.map((report) => `${report.kind}:${report.stage}`)).toEqual(['stage:implement', 'stage:verify', 'stage:deliver']);
+    reports.forEach((report, index) => {
+      expect(report.closedAtReport).not.toContain(report.pane);
+      expect(report.startsAtReport).toBe(index + 1);
+      expect(report).toMatchObject({ issue: 42, worker: f.state.starts[index].name, pane: f.state.owned[index],
+        decisions: ['accept', 'prompt', 'redispatch', 'halt'], failureHistory: [] });
+      expect(report.headBefore).toMatch(/^[0-9a-f]{40}$/);
+      expect(report.headAfter).toMatch(/^[0-9a-f]{40}$/);
+    });
+    const [implement, verify] = reports;
+    expect(implement.handoff).toMatchObject({ step: 'implement', status: 'passed' });
+    expect(implement.headAfter).not.toBe(implement.headBefore);
+    expect(implement.commits.map((commit) => commit.subject)).toEqual(['fix: finish #42']);
+    expect(implement.changedPaths).toEqual(expect.arrayContaining(['helper.py', 'stray.txt']));
+    expect(implement.outsideSpecPaths).toEqual(['stray.txt']);
+    expect(verify.gate).toBe('pass');
+    expect(verify.verification).toMatchObject({ report: 'specs/42-example/verification-report.md',
+      readiness: { status: 'pass', reasonCode: 'ordinary_pass', gaps: [] }, issues: [] });
+    expect(f.state.closedPanes).toEqual(f.state.owned);
+  });
+
+  it('reports a verify stage with its readiness gaps and the report critical and remaining issues', () => {
+    const f = fixture();
+    f.setWorker((context) => {
+      const report = path.join(context.root, 'specs/42-example/verification-report.md');
+      fs.writeFileSync(report, '# Verification Report\n\n### Implementation Status: Fail\n\n## Critical Issues\n\n- smoke host unreachable\n\n## Remaining Issues\n\n- none in code\n\n## Notes\n\nunrelated\n');
+      return { status: 'failed', next: 'implement', reasonCode: 'verification_not_ready', summary: 'smoke host unreachable', artifacts: [] };
+    });
+    const { reports, supervise } = supervisor(f, () => ({ action: 'halt', text: 'smoke host unreachable' }));
+    expect(f.execute('#42', { supervise })).toMatchObject({ status: 1, stderr: 'supervisor_halt: smoke host unreachable\n' });
+    expect(reports[0].verification.readiness).toMatchObject({ status: 'blocked', reasonCode: 'implementation_non_pass' });
+    expect(reports[0].verification.readiness.gaps).toContain('issue-scope marker is malformed');
+    expect(reports[0].verification.issues).toEqual(['## Critical Issues\n\n- smoke host unreachable', '## Remaining Issues\n\n- none in code']);
+    expect(reports[0].gate).toBe('not_green');
+  });
+
+  it('prompts the live worker and reports its fresh handoff before continuing', () => {
+    const f = fixture();
+    f.setWorker((context) => {
+      if (context.step === 'verify') return { status: 'failed', next: 'implement', reasonCode: 'smoke_failed', summary: 'smoke failed', artifacts: [] };
+      return deliver(context);
+    });
+    const { guidance, herdr } = guidedHerdr(f, () => {
+      f.passGate();
+      f.writeHandoff('verify', { status: 'passed', next: 'deliver' });
+    });
+    const { reports, supervise } = supervisor(f, (report, index) =>
+      (index === 0 ? { action: 'prompt', text: 'the smoke host is back; rerun the gate' } : null));
+    expect(f.execute('#42', { supervise, herdr })).toMatchObject({ stderr: '', status: 0 });
+    expect(guidance).toHaveLength(1);
+    expect(guidance[0].name).toBe(f.state.starts[0].name);
+    expect(guidance[0].prompt).toContain('the smoke host is back; rerun the gate');
+    expect(guidance[0].prompt).toContain('write and validate a fresh handoff at .nmg-sdlc/handoffs/42-verify.json');
+    expect(reports.map((report) => [report.stage, report.handoff.status, report.handoffFresh])).toEqual([
+      ['verify', 'failed', true], ['verify', 'passed', true], ['deliver', 'passed', true]]);
+    expect(reports[1].closedAtReport).toEqual([]);
+    expect(steps(f)).toEqual(['verify', 'deliver']);
+  });
+
+  it('re-dispatches the stage with the supervisor guidance beside the failure evidence', () => {
+    const f = fixture({ dirty: true });
+    let implementations = 0;
+    f.setWorker((context) => {
+      if (context.step === 'implement' && implementations++ === 0) {
+        return { status: 'failed', next: 'implement', reasonCode: 'tests_failed', summary: 'parser tests failed', artifacts: ['jest.log'] };
+      }
+      if (context.step === 'implement') { context.publish('fix: finish #42'); return { status: 'passed', next: 'verify' }; }
+      if (context.step === 'verify') { context.passGate(); return { status: 'passed', next: 'deliver' }; }
+      return deliver(context);
+    });
+    const { reports, supervise } = supervisor(f, (report, index) =>
+      (index === 0 ? { action: 'redispatch', text: 'use the existing parser' } : null));
+    expect(f.execute('#42', { supervise })).toMatchObject({ status: 0 });
+    expect(steps(f)).toEqual(['implement', 'implement', 'verify', 'deliver']);
+    expect(f.state.closedPanes.slice(0, 1)).toEqual([f.state.owned[0]]);
+    expect(f.state.prompts[1].prompt).toContain('Supervisor guidance: use the existing parser');
+    expect(f.state.prompts[1].prompt).toContain('tests_failed: parser tests failed');
+    expect(f.state.prompts[2].prompt).not.toContain('Supervisor guidance');
+    expect(reports[1].failureHistory).toEqual([expect.objectContaining({ step: 'implement', reasonCode: 'tests_failed' })]);
+  });
+
+  it('re-runs verify at the same source head after an environmental failure, held to the full gate', () => {
+    const f = fixture();
+    let verifications = 0;
+    const heads = [];
+    f.setWorker((context) => {
+      if (context.step === 'verify') {
+        heads.push(git(context.root, 'rev-parse', 'HEAD'));
+        if (verifications++ === 0) {
+          return { status: 'failed', next: 'implement', reasonCode: 'verification_not_ready', summary: 'smoke clone failed: DNS', artifacts: [] };
+        }
+        context.passGate();
+        return { status: 'passed', next: 'deliver' };
+      }
+      return deliver(context);
+    });
+    const { supervise } = supervisor(f, (report, index) =>
+      (index === 0 ? { action: 'redispatch', text: 'DNS restored on the host; rerun verification unchanged' } : null));
+    expect(f.execute('#42', { supervise })).toMatchObject({ status: 0 });
+    expect(steps(f)).toEqual(['verify', 'verify', 'deliver']);
+    expect(heads[1]).toBe(heads[0]);
+    expect(f.state.prompts[1].prompt).toContain('Supervisor guidance: DNS restored on the host');
+    expect(f.state.starts.map((entry) => entry.model)).toEqual(['opus', 'opus', 'haiku']);
+  });
+
+  it('keeps an environmental verify re-run from delivering until the registered gate is green', () => {
+    const f = fixture();
+    let verifications = 0;
+    f.setWorker((context) => {
+      if (context.step === 'verify' && verifications++ < 2) {
+        return { status: 'passed', next: 'deliver' };
+      }
+      if (context.step === 'implement') { context.publish('fix: repair #42'); return { status: 'passed', next: 'verify' }; }
+      if (context.step === 'verify') { context.passGate(); return { status: 'passed', next: 'deliver' }; }
+      return deliver(context);
+    });
+    const { reports, supervise } = supervisor(f, (report, index) =>
+      (index === 0 ? { action: 'redispatch', text: 'rerun verify' } : null));
+    expect(f.execute('#42', { supervise })).toMatchObject({ status: 0 });
+    // The re-run passed its handoff without a green gate and was accepted: implement, never deliver.
+    expect(steps(f)).toEqual(['verify', 'verify', 'implement', 'verify', 'deliver']);
+    expect(reports.slice(0, 2).map((report) => report.gate)).toEqual(['not_green', 'not_green']);
+  });
+
+  it.each([[false, true], [true, false]])('halts with the diagnosis (retain worker: %s)', (retain, closed) => {
+    const f = fixture();
+    f.setWorker(() => ({ status: 'failed', next: 'implement', reasonCode: 'verification_not_ready', summary: 'disk full', artifacts: [] }));
+    const before = git(f.root, 'rev-parse', 'HEAD');
+    const { supervise } = supervisor(f, () => ({ action: 'halt', text: 'host disk full' }));
+    expect(f.execute(retain ? '--retain-worker #42' : '#42', { supervise }))
+      .toEqual({ status: 1, stdout: '', stderr: 'supervisor_halt: host disk full\n' });
+    expect(steps(f)).toEqual(['verify']);
+    expect(f.state.closedPanes).toEqual(closed ? f.state.owned : []);
+    expect(git(f.root, 'rev-parse', 'HEAD')).toBe(before);
+    expect(git(f.root, 'branch', '--show-current')).toBe('42-example');
+    expect(fs.existsSync(path.join(f.root, '.nmg-sdlc/controller.lock'))).toBe(false);
+  });
+
+  it('keeps an accepted stage pane open under --retain-worker', () => {
+    const f = fixture();
+    const { supervise } = supervisor(f);
+    expect(f.execute('--retain-worker #42', { supervise })).toMatchObject({ status: 0 });
+    expect(steps(f)).toEqual(['verify', 'deliver']);
+    expect(f.state.closedPanes).toEqual([]);
+  });
+
+  it('never accepts a decision the report does not offer', () => {
+    const f = fixture();
+    expect(f.execute('#42', { supervise: () => ({ action: 'continue' }) }))
+      .toMatchObject({ status: 1, stderr: 'supervisor_decision_invalid: continue\n' });
+    const g = fixture();
+    expect(g.execute('#42', { supervise: () => ({ action: 'halt', text: ' ' }) }))
+      .toMatchObject({ status: 1, stderr: 'supervisor_decision_invalid: halt\n' });
+  });
+
+  // A verify worker that keeps working for `slices` timed waits, then writes its passing handoff.
+  const runningWorker = (f, { slices, clock, onSlice = () => {} }) => {
+    let agent = 'done';
+    let waited = 0;
+    f.setWorker((context) => {
+      if (context.step === 'verify') { agent = 'working'; return { handoff: false }; }
+      return deliver(context);
+    });
+    return {
+      agentGet: () => result({ agent_status: agent }),
+      agentWait: (args) => {
+        if (args.until === 'working' || agent !== 'working') return result('');
+        if (waited++ < slices) {
+          expect(args.timeout).toBeGreaterThan(0);
+          clock.now += args.timeout;
+          onSlice(waited);
+          return timeout();
+        }
+        f.passGate();
+        f.writeHandoff('verify', { status: 'passed', next: 'deliver' });
+        agent = 'done';
+        return result('');
+      },
+    };
+  };
+
+  it('checks in on a running worker each interval with its pane, marker and commits, and continues', () => {
+    const f = fixture();
+    const clock = { now: 0 };
+    const marker = path.join(f.root, '.nmg-sdlc/handoffs/42-verify.json.waiting');
+    let pane = 'running the registered gate';
+    const worker = runningWorker(f, { slices: 4, clock, onSlice: (slice) => {
+      if (slice === 2) {
+        fs.mkdirSync(path.dirname(marker), { recursive: true });
+        fs.writeFileSync(marker, 'node scripts/sdlc-verify-steering.mjs --issue 42\n');
+      }
+      if (slice === 3) pane = 'smoke delivering #237';
+    } });
+    const { reports, supervise } = supervisor(f);
+    const herdr = { ...f.herdr, ...worker, paneRead: () => result(`${pane}\n`) };
+    expect(f.execute('#42', { supervise, herdr, now: () => clock.now, checkInMs: 1000 })).toMatchObject({ status: 0 });
+    const checkIns = reports.filter((report) => report.kind === 'checkin');
+    expect(checkIns.length).toBeGreaterThanOrEqual(2);
+    expect(checkIns[0]).toMatchObject({ issue: 42, stage: 'verify', worker: f.state.starts[0].name, pane: f.state.owned[0],
+      reason: 'interval', paneTail: 'running the registered gate', waiting: null, commits: [], outsideSpecPaths: [],
+      failureHistory: [], decisions: ['continue', 'prompt', 'redispatch', 'halt'] });
+    expect(checkIns[0].sinceDispatchSeconds).toBeGreaterThanOrEqual(1);
+    expect(checkIns.some((report) => report.waiting?.command === 'node scripts/sdlc-verify-steering.mjs --issue 42')).toBe(true);
+    expect(checkIns.some((report) => report.paneTail === 'smoke delivering #237')).toBe(true);
+    checkIns.forEach((report) => expect(report.closedAtReport).toEqual([]));
+    expect(reports.at(-2)).toMatchObject({ kind: 'stage', stage: 'verify' });
+    expect(steps(f)).toEqual(['verify', 'deliver']);
+  });
+
+  it('checks in as soon as the pane output stops changing, once per unchanged span', () => {
+    const f = fixture();
+    const clock = { now: 0 };
+    const worker = runningWorker(f, { slices: 9, clock });
+    const { reports, supervise } = supervisor(f);
+    const herdr = { ...f.herdr, ...worker, paneRead: () => result('stuck on a prompt\n') };
+    // 30 s slices against a 100 s interval: first pane read at 30 s, interval check-in at 120 s,
+    // the stall at 150 s (before the next interval would fall due at 220 s), then, the interval
+    // counting from the last check-in, the next interval at 270 s.
+    expect(f.execute('#42', { supervise, herdr, now: () => clock.now, checkInMs: 100_000 })).toMatchObject({ status: 0 });
+    const checkIns = reports.filter((report) => report.kind === 'checkin');
+    expect(checkIns.map((report) => [report.reason, report.sinceDispatchSeconds])).toEqual([
+      ['interval', 120], ['pane_unchanged', 150], ['interval', 270]]);
+    expect(checkIns[1]).toMatchObject({ paneTail: 'stuck on a prompt', paneChangedSecondsAgo: 120 });
+  });
+
+  it('reports a stale waiting marker as a stall once', () => {
+    const f = fixture();
+    const clock = { now: Date.now() };
+    const marker = path.join(f.root, '.nmg-sdlc/handoffs/42-verify.json.waiting');
+    const worker = runningWorker(f, { slices: 3, clock, onSlice: (slice) => {
+      if (slice !== 1) return;
+      fs.mkdirSync(path.dirname(marker), { recursive: true });
+      fs.writeFileSync(marker, 'npm test\n');
+      const old = new Date(clock.now - 3_600_000);
+      fs.utimesSync(marker, old, old);
+    } });
+    const { reports, supervise } = supervisor(f);
+    const herdr = { ...f.herdr, ...worker };
+    expect(f.execute('#42', { supervise, herdr, now: () => clock.now, checkInMs: 600_000 })).toMatchObject({ status: 0 });
+    const checkIns = reports.filter((report) => report.kind === 'checkin');
+    expect(checkIns).toHaveLength(1);
+    expect(checkIns[0]).toMatchObject({ reason: 'waiting_marker_stale', paneTail: null, waiting: { command: 'npm test' } });
+    expect(checkIns[0].waiting.ageSeconds).toBeGreaterThanOrEqual(3600);
+  });
+
+  it('queues check-in guidance to a busy worker and keeps waiting through it for the handoff', () => {
+    const f = fixture();
+    const clock = { now: 0 };
+    let pending = null;
+    const worker = runningWorker(f, { slices: 4, clock, onSlice: (slice) => {
+      // The worker is mid tool call: the queued guidance lands only when that call finishes.
+      if (slice === 3 && pending) { f.state.delivered = pending; pending = null; }
+    } });
+    const { guidance, herdr } = guidedHerdr(f, (args) => { pending = args.prompt; }, worker);
+    const { reports, supervise } = supervisor(f, (report) =>
+      (report.kind === 'checkin' && report.reason === 'interval' && !guidance.length
+        ? { action: 'prompt', text: 'skip the flaky retry and report the failure' } : null));
+    expect(f.execute('#42', { supervise, herdr, now: () => clock.now, checkInMs: 30_000 })).toMatchObject({ status: 0 });
+    expect(guidance).toHaveLength(1);
+    expect(guidance[0]).toEqual({ name: f.state.starts[0].name, prompt: expect.stringContaining('skip the flaky retry') });
+    expect(guidance[0].prompt).toContain('Act on this guidance within the current step');
+    expect(f.state.delivered).toBe(guidance[0].prompt);
+    expect(f.state.closedPanes).toEqual(f.state.owned);
+    expect(reports.filter((report) => report.kind === 'stage').map((report) => report.stage)).toEqual(['verify', 'deliver']);
+    expect(steps(f)).toEqual(['verify', 'deliver']);
+  });
+
+  it('re-dispatches a running worker from a check-in with the guidance', () => {
+    const f = fixture();
+    const clock = { now: 0 };
+    // The first verify keeps working through one slice; the re-dispatched one finishes.
+    const worker = runningWorker(f, { slices: 1, clock });
+    const { reports, supervise } = supervisor(f, (report) =>
+      (report.kind === 'checkin' ? { action: 'redispatch', text: 'the worker is looping; start verification again' } : null));
+    const herdr = { ...f.herdr, ...worker };
+    expect(f.execute('#42', { supervise, herdr, now: () => clock.now, checkInMs: 30_000 })).toMatchObject({ status: 0 });
+    expect(reports[0]).toMatchObject({ kind: 'checkin', stage: 'verify' });
+    expect(f.state.closedPanes[0]).toBe(f.state.owned[0]);
+    expect(steps(f)).toEqual(['verify', 'verify', 'deliver']);
+    expect(f.state.prompts[1].prompt).toContain('Supervisor guidance: the worker is looping; start verification again');
+  });
+
+  it('halts a running worker from a check-in', () => {
+    const f = fixture();
+    const clock = { now: 0 };
+    const worker = runningWorker(f, { slices: 5, clock });
+    const { supervise } = supervisor(f, (report) =>
+      (report.kind === 'checkin' ? { action: 'halt', text: 'worker is editing unrelated files' } : null));
+    expect(f.execute('#42', { supervise, herdr: { ...f.herdr, ...worker }, now: () => clock.now, checkInMs: 30_000 }))
+      .toEqual({ status: 1, stdout: '', stderr: 'supervisor_halt: worker is editing unrelated files\n' });
+    expect(steps(f)).toEqual(['verify']);
+    expect(f.state.closedPanes).toEqual(f.state.owned);
+    expect(fs.existsSync(path.join(f.root, '.nmg-sdlc/controller.lock'))).toBe(false);
+  });
+
+  it('accepts a configurable check-in interval in the execute arguments', () => {
+    expect(parseArgs('--check-in-seconds 120 #42')).toEqual({ issues: [42], defaultBacklog: false, checkInSeconds: 120 });
+    for (const args of ['--check-in-seconds', '--check-in-seconds 0 #42', '--check-in-seconds 1.5', '--check-in-seconds 86401',
+      '--check-in-seconds 60 --check-in-seconds 60']) {
+      expect(() => parseArgs(args)).toThrow('Usage: /sdlc-execute [--retain-worker] [--check-in-seconds N] [#N ...]');
+    }
+  });
+
+  it('reads a worker pane tail through the default Herdr surface', () => {
+    const calls = [];
+    defaultHerdr((command, args) => { calls.push([command, ...args]); return { status: 0, stdout: '' }; }, '/project').paneRead('w1:p2');
+    expect(calls).toEqual([['herdr', 'pane', 'read', 'w1:p2', '--source', 'recent', '--lines', '40']]);
+  });
+
+  it('names a real cause for every failed integration probe and never exit undefined', () => {
+    const base = { args: '#42', env, run: () => ({ status: 1, stdout: '', stderr: 'no auth' }) };
+    for (const [probe, detail] of [[() => null, 'probe returned no result'], [() => undefined, 'probe returned no result'],
+      [() => 7, 'probe returned no result'], [() => ({ status: null, stdout: '' }), 'probe returned no result'],
+      [() => { throw 'socket closed'; }, 'socket closed'], [() => ({ status: 2, stdout: '' }), 'exit 2']]) {
+      const response = runExecute({ ...base, herdr: { integrationStatus: probe } });
+      expect(response).toEqual({ status: 2, stdout: 'Run: herdr integration install claude\n',
+        stderr: `herdr integration status failed: ${detail}\n` });
+      expect(response.stderr).not.toContain('undefined');
+    }
+  });
+});

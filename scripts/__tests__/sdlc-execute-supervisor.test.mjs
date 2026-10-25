@@ -6,6 +6,8 @@ import path from 'node:path';
 import { createConnection } from 'node:net';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { fileSupervisor } from '../sdlc-execute-supervisor.mjs';
+
 const EXECUTE = fileURLToPath(new URL('../sdlc-execute.mjs', import.meta.url));
 const fixtures = [];
 const pause = () => new Promise((resolve) => setTimeout(resolve, 20));
@@ -69,11 +71,18 @@ function git(cwd, args) {
 async function fixture({
   pending = false, retain = false, closeFailure = false, inheritedPipes = false,
   holdBootstrap = false, startupFailure = false, probePeer = false, waitForController = true, outsideHerdr = false,
+  ancestorModule = false, supervised = false,
 } = {}) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-cancel-')));
+  // An ancestor `"type": "module"` package.json (as a system temporary directory may hold) must not
+  // change how the extensionless fixture commands load.
+  const parent = ancestorModule ? fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-module-'))) : null;
+  if (parent) fs.writeFileSync(path.join(parent, 'package.json'), '{"type":"module"}\n');
+  const root = parent ? path.join(parent, 'project') : fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-cancel-')));
+  fs.mkdirSync(root, { recursive: true });
   const runtime = path.join(root, '.nmg-sdlc');
   const bin = path.join(runtime, 'bin');
   fs.mkdirSync(bin, { recursive: true });
+  fs.writeFileSync(path.join(bin, 'package.json'), '{"type":"commonjs"}\n');
   const spec = path.join(root, 'specs/42-ship-it');
   fs.mkdirSync(spec, { recursive: true });
   for (const file of ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']) {
@@ -177,8 +186,19 @@ const args = process.argv.slice(2);
 const out = value => { console.log(typeof value === 'string' ? value : JSON.stringify(value)); process.exit(0); };
 if (args[0] === 'integration') out('claude: installed');
 if (args[0] === 'agent' && args[1] === 'list') out([]);
-if (args[0] === 'agent' && args[1] === 'get') out({result:{state:'working'}});
+if (args[0] === 'agent' && args[1] === 'get') out({result:{state:${JSON.stringify(supervised === 'reports' ? 'done' : 'working')}}});
 if (args[0] === 'agent' && args[1] === 'start') out('');
+if (${supervised === 'reports'} && args[0] === 'agent' && args[1] === 'prompt') {
+  // Each dispatch fails its implement handoff, so the supervised controller yields a stage report.
+  const dir = ${JSON.stringify(path.join(runtime, 'handoffs'))};
+  fs.mkdirSync(dir, { recursive: true });
+  const count = fs.readdirSync(dir).length + Date.now();
+  fs.writeFileSync(dir + '/42-implement.json', JSON.stringify({ schemaVersion: 1, issue: 42, step: 'implement',
+    status: 'failed', intervention: false, summary: 'attempt ' + count, artifacts: [], next: 'implement', reasonCode: 'tests_failed' }));
+  out('');
+}
+if (${supervised === 'reports'} && args[0] === 'agent' && args[1] === 'wait') out('');
+if (args[0] === 'pane' && args[1] === 'read') out('worker output');
 if (args[0] === 'agent' && args[1] === 'prompt' && !${pending}) out('');
 if (args[0] === 'agent' && args[1] === ${JSON.stringify(pending ? 'prompt' : 'wait')}) {
   fs.writeFileSync(${JSON.stringify(marker)},JSON.stringify({pid:process.pid,controllerPid:process.ppid,pipePid:Number(process.env.SDLC_FIXTURE_PIPE_PID)||null}));
@@ -193,19 +213,21 @@ if (args[0] === 'pane' && args[1] === 'close') {
 }
 if (args[0] === 'notification') out('');
 throw new Error('Unexpected Herdr command: '+args.slice(0,2).join(' '));\n`);
-  const child = spawn('node', [EXECUTE, 'run', ...(retain ? ['--retain-worker'] : []), '#42'], {
-    cwd: root, detached: true, stdio: ['ignore', 'pipe', 'pipe'], env: {
-      ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`,
-      NODE_OPTIONS: `${process.env.NODE_OPTIONS || ''} --import=${pathToFileURL(preload).href}`,
-      HERDR_ENV: outsideHerdr ? '0' : '1', HERDR_SOCKET_PATH: path.join(runtime, 'fixture.sock'), HERDR_PANE_ID: 'controller-pane',
-    },
+  const childEnv = {
+    ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+    NODE_OPTIONS: `${process.env.NODE_OPTIONS || ''} --import=${pathToFileURL(preload).href}`,
+    HERDR_ENV: outsideHerdr ? '0' : '1', HERDR_SOCKET_PATH: path.join(runtime, 'fixture.sock'), HERDR_PANE_ID: 'controller-pane',
+  };
+  const child = spawn('node', [EXECUTE, ...(supervised ? ['supervise', '--wait-seconds', supervised === 'reports' ? '20' : '2'] : ['run']),
+    ...(retain ? ['--retain-worker'] : []), '#42'], {
+    cwd: root, detached: true, stdio: ['ignore', 'pipe', 'pipe'], env: childEnv,
   });
   let stdout = '';
   let stderr = '';
   child.stdout.on('data', chunk => { stdout += chunk; });
   child.stderr.on('data', chunk => { stderr += chunk; });
   const done = new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal, stdout, stderr })));
-  const value = { root, runtime, child, done, runPath, leasePath, marker, pipeHolderPath,
+  const value = { root, parent, childEnv, runtime, child, done, runPath, leasePath, marker, pipeHolderPath,
     supervisorPath, bootstrapReady, bootstrapRelease, controllerStarted, peerRefused, extraClosed,
     closed: () => fs.existsSync(closedPath) ? fs.readFileSync(closedPath, 'utf8').trim().split('\n').map(JSON.parse) : [],
   };
@@ -227,6 +249,12 @@ throw new Error('Unexpected Herdr command: '+args.slice(0,2).join(' '));\n`);
 }
 afterEach(async () => {
   for (const value of fixtures.splice(0)) {
+    // A supervised controller left waiting on a decision holds this fixture's lease with its own pid.
+    if (value.supervisedControllerPid) {
+      try { process.kill(-value.supervisedControllerPid, 'SIGKILL'); } catch (error) {
+        if (error.code !== 'ESRCH') throw error;
+      }
+    }
     if (fs.existsSync(value.supervisorPath)) {
       const supervisor = JSON.parse(fs.readFileSync(value.supervisorPath, 'utf8'));
       // Exact fixture-recorded PIDs only; these are fallback cleanup, never proof.
@@ -253,7 +281,7 @@ afterEach(async () => {
         if (error.code !== 'ESRCH') throw error;
       }
     }
-    fs.rmSync(value.root, { recursive: true, force: true });
+    fs.rmSync(value.parent ?? value.root, { recursive: true, force: true });
   }
 });
 
@@ -411,6 +439,133 @@ posix('execute CLI cancellation during real blocking commands', () => {
     expect(fs.existsSync(value.leasePath)).toBe(true);
   }, 30_000);
 
+});
+
+posix('execute supervisor tests ignore ancestor package types (#491)', () => {
+  it('runs the commonjs fixture commands under an ancestor "type": "module" package.json', async () => {
+    const value = await fixture({ ancestorModule: true });
+    expect(JSON.parse(fs.readFileSync(path.join(value.parent, 'package.json'), 'utf8'))).toEqual({ type: 'module' });
+    expect(JSON.parse(fs.readFileSync(path.join(value.runtime, 'bin/package.json'), 'utf8'))).toEqual({ type: 'commonjs' });
+    value.child.kill('SIGTERM');
+    expect((await value.done).code).toBe(143);
+    expect(value.closed()).toEqual(['owned-worker']);
+    expect(fs.existsSync(value.leasePath)).toBe(false);
+  }, 30_000);
+});
+
+posix('supervised execute sessions (#491)', () => {
+  const cli = (value, args) => new Promise((resolve) => {
+    const child = spawn('node', [EXECUTE, ...args], { cwd: value.root, stdio: ['ignore', 'pipe', 'pipe'], env: value.childEnv });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.once('close', (code) => resolve({ code, stdout, stderr }));
+  });
+  const reportOf = (stdout) => {
+    const header = /^NMG_SDLC_EXECUTE_REPORT: session ([0-9a-f-]{36}) seq (\d+) \((\w+) report for #42 (\w+)\)$/m.exec(stdout);
+    if (!header) throw new Error(`no report in: ${stdout}`);
+    return { session: header[1], seq: Number(header[2]), kind: header[3], stage: header[4] };
+  };
+
+  it('yields stage reports across invocations with one live lease, then halts with cleanup', async () => {
+    const value = await fixture({ supervised: 'reports', waitForController: false });
+    const started = await value.done;
+    expect(started.code).toBe(0);
+    const first = reportOf(started.stdout);
+    expect(first).toMatchObject({ seq: 1, kind: 'stage', stage: 'implement' });
+    expect(started.stdout).toContain(`decide --session ${first.session} --seq 1 accept`);
+    expect(started.stdout).toContain(`decide --session ${first.session} --seq 1 halt --text "<guidance or diagnosis>"`);
+    // The controller outlives the invocation that started it and still holds its lease.
+    const lease = JSON.parse(fs.readFileSync(value.leasePath, 'utf8'));
+    value.supervisedControllerPid = lease.pid;
+    expect(() => process.kill(lease.pid, 0)).not.toThrow();
+    const sessionDir = path.join(value.root, '.nmg-sdlc/execute', first.session);
+    expect(JSON.parse(fs.readFileSync(path.join(sessionDir, 'report-1.json'), 'utf8')))
+      .toMatchObject({ session: first.session, seq: 1, kind: 'stage', stage: 'implement', pane: 'owned-worker',
+        handoff: { status: 'failed', reasonCode: 'tests_failed' } });
+
+    // `wait` re-prints a pending report without answering it.
+    const pending = await cli(value, ['wait', '--session', first.session, '--wait-seconds', '5']);
+    expect(pending.code).toBe(0);
+    expect(reportOf(pending.stdout)).toEqual(first);
+
+    const invalid = await cli(value, ['decide', '--session', first.session, '--seq', '1', 'continue']);
+    expect(invalid).toMatchObject({ code: 2, stderr: expect.stringContaining('execute_decision_invalid: continue') });
+
+    const accepted = await cli(value, ['decide', '--session', first.session, '--seq', '1', 'accept', '--wait-seconds', '20']);
+    expect(accepted.code).toBe(0);
+    expect(reportOf(accepted.stdout)).toMatchObject({ session: first.session, seq: 2, kind: 'stage', stage: 'implement' });
+    expect(JSON.parse(fs.readFileSync(value.leasePath, 'utf8'))).toEqual(lease);
+    expect(value.closed()).toEqual(['owned-worker']);
+    const second = JSON.parse(fs.readFileSync(path.join(sessionDir, 'report-2.json'), 'utf8'));
+    expect(second.failureHistory).toEqual([expect.objectContaining({ step: 'implement', reasonCode: 'tests_failed' })]);
+
+    const again = await cli(value, ['decide', '--session', first.session, '--seq', '1', 'accept']);
+    expect(again).toMatchObject({ code: 2, stderr: expect.stringContaining('execute_report_decided') });
+
+    const halted = await cli(value, ['decide', '--session', first.session, '--seq', '2', 'halt', '--text', 'tests need a fixture fix outside the spec']);
+    expect(halted).toEqual({ code: 1, stdout: '', stderr: 'supervisor_halt: tests need a fixture fix outside the spec\n' });
+    expect(value.closed()).toEqual(['owned-worker', 'owned-worker']);
+    expect(fs.existsSync(value.leasePath)).toBe(false);
+    expect(fs.existsSync(sessionDir)).toBe(false);
+    await until(() => !alive(lease.pid), 'the supervised controller exiting after its halt');
+  }, 60_000);
+
+  it('returns a running notice at the wait budget, then cancels from a waiting invocation', async () => {
+    const value = await fixture({ supervised: 'blocking', waitForController: false });
+    const started = await value.done;
+    expect(started.code).toBe(0);
+    const session = /^NMG_SDLC_EXECUTE_RUNNING: session ([0-9a-f-]{36}) has no new report yet/m.exec(started.stdout)?.[1];
+    expect(session).toBeDefined();
+    expect(started.stdout).toContain(`wait --session ${session}`);
+    value.waiting = JSON.parse(fs.readFileSync(value.marker, 'utf8'));
+    value.supervisedControllerPid = JSON.parse(fs.readFileSync(value.leasePath, 'utf8')).pid;
+    // The worker never settles, so `wait` blocks; it forwards SIGTERM to the session daemon.
+    const waiting = spawn('node', [EXECUTE, 'wait', '--session', session, '--wait-seconds', '20'],
+      { cwd: value.root, stdio: ['ignore', 'pipe', 'pipe'], env: value.childEnv });
+    let stdout = '';
+    waiting.stdout.on('data', (chunk) => { stdout += chunk; });
+    const closed = new Promise((resolve) => waiting.once('close', resolve));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    waiting.kill('SIGTERM');
+    expect(await closed).toBe(143);
+    expect(stdout).toBe('');
+    expect(fs.existsSync(value.leasePath)).toBe(false);
+    expect(value.closed()).toEqual(['owned-worker']);
+    const unknown = await cli(value, ['wait', '--session', session]);
+    expect(unknown).toMatchObject({ code: 2, stderr: `execute_session_unknown: ${session}\n` });
+  }, 60_000);
+});
+
+describe('controller decision wait (#491)', () => {
+  const session = '00000000-0000-4000-8000-000000000491';
+  const report = { kind: 'stage', issue: 42, stage: 'verify', decisions: ['accept', 'prompt', 'redispatch', 'halt'] };
+  const directory = () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-session-'));
+    fixtures.push({ root: dir });
+    return dir;
+  };
+  const panes = (...ids) => ({ listPanes: () => ({ status: 0, stdout: JSON.stringify({ result: { panes: ids.map((pane_id) => ({ pane_id })) } }) }) });
+
+  it('writes each report and returns the decision written for it', () => {
+    const dir = directory();
+    const supervise = fileSupervisor({ dir, session, herdr: panes('controller-pane'), controllerPane: 'controller-pane',
+      sleep: () => fs.writeFileSync(path.join(dir, 'decision-1.json'), JSON.stringify({ session, seq: 1, action: 'redispatch', text: 'retry' })) });
+    expect(supervise(report)).toEqual({ action: 'redispatch', text: 'retry' });
+    expect(JSON.parse(fs.readFileSync(path.join(dir, 'report-1.json'), 'utf8'))).toEqual({ schemaVersion: 1, session, seq: 1, ...report });
+  });
+
+  it('halts when the orchestrator pane is gone, and keeps waiting while it lives', () => {
+    const dir = directory();
+    let clock = 0;
+    let listed = 0;
+    const herdr = { listPanes: () => { listed += 1; return panes(...(listed < 3 ? ['controller-pane'] : ['other'])).listPanes(); } };
+    const supervise = fileSupervisor({ dir, session, herdr, controllerPane: 'controller-pane', now: () => clock,
+      sleep: () => { clock += 30_000; } });
+    expect(supervise(report)).toEqual({ action: 'halt', text: 'orchestrator pane closed' });
+    expect(listed).toBe(3);
+  });
 });
 
 describe('execute CLI argument failures', () => {

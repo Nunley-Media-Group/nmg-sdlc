@@ -14,6 +14,7 @@ export {
   DIRECT_COMMANDS,
   INTERACTIVE_COMMANDS,
   WRITE_SPEC_FINISHED_LABELS,
+  executeModelRefusal,
   interactiveHeadlessMessage,
   isInteractiveCommand,
   parseInteractiveSlash,
