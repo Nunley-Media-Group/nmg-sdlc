@@ -20,7 +20,7 @@ function git(cwd, ...args) {
   return result.stdout.trim();
 }
 
-function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'passed', remoteIssueState = 'OPEN', existing = false, lostAck = false, checksState = 'SUCCESS', declaredName = 'contract-tests', checkResponses = {}, smokeOwned = false, humanReview = false, versionPrepared = true, closingReferences = [{ number: 42, url: 'https://github.test/owner/repo/issues/42' }] } = {}) {
+function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'passed', remoteIssueState = 'OPEN', existing = false, lostAck = false, checksState = 'SUCCESS', declaredName = 'contract-tests', checkResponses = {}, smokeOwned = false, humanReview = false, versionPrepared = true, issueTitle = 'Deliver verified changes', versionBump = false, closingReferences = [{ number: 42, url: 'https://github.test/owner/repo/issues/42' }] } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-delivery-current-'));
   const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-delivery-remote-'));
   roots.push(root, remote);
@@ -39,7 +39,7 @@ function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'p
   fs.mkdirSync(path.join(root, spec), { recursive: true });
   const header = '**Issue**: #42\n**Status**: Approved\n\n';
   const documents = {
-    'requirements.md': '### AC1: Deliver verified changes\n\n| FR1 | Deliver current evidence | Must |\n',
+    'requirements.md': `### AC1: Deliver verified changes\n\n| FR1 | Deliver current evidence | Must |\n${versionBump ? '\n**Version bump**: major\n' : ''}`,
     'design.md': 'Publish exact-head verification before delivery.\n',
     'tasks.md': '### T001: Deliver verified changes\n\n**File(s)**: `scripts/sdlc-deliver.mjs`, `VERSION`, `CHANGELOG.md`, `package.json`\n',
     'feature.gherkin': 'Feature: Delivery\n  Scenario: Deliver current evidence\n    Given verification passed\n    When delivery runs\n    Then verified changes are delivered\n',
@@ -136,7 +136,7 @@ function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'p
     body: `Closes #42\n`,
   } : null;
   const issueUrl = 'https://github.test/owner/repo/issues/42';
-  const issue = { number: 42, title: 'Deliver verified changes', body: '', labels: [{ name: 'enhancement' }], state: issueState, url: issueUrl };
+  const issue = { number: 42, title: issueTitle, body: '', labels: [{ name: 'enhancement' }], state: issueState, url: issueUrl };
   const success = [{ name: 'contract-tests', state: checksState, bucket: checksState === 'SUCCESS' ? 'pass' : 'fail', link: 'https://github.test/checks/77', event: 'pull_request' }];
   const checkCalls = { required: 0, all: 0 };
   const run = (binary, args, opts = {}) => {
@@ -373,6 +373,97 @@ console.log(JSON.stringify(value));
     expect(result.handoff.summary).toContain(summaryText);
     expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8')).toBe('3.4.5\n');
     expect(git(f.root, 'rev-parse', 'HEAD')).toBe(headBefore);
+  });
+
+  describe('prepare-version rolls hand-written issue entries (#503)', () => {
+    const prepare = (f) => runDeliver({ cwd: f.root, issue: 42, action: 'prepare-version', run: f.run });
+    const changelogAt = (f) => fs.readFileSync(path.join(f.root, 'CHANGELOG.md'), 'utf8');
+    const releaseAt = (changelog, version) => {
+      const start = changelog.indexOf(`## [${version}]`);
+      const end = changelog.indexOf('\n## [', start + 1);
+      return changelog.slice(start, end < 0 ? changelog.length : end);
+    };
+    const stageUnreleased = (f, unreleased) => {
+      const body = unreleased ? `${unreleased}\n` : '';
+      fs.writeFileSync(path.join(f.root, 'CHANGELOG.md'), `# Changelog\n\n## [Unreleased]\n\n${body}\n## [3.4.5] - 2026-01-01\n\n- old\n`);
+      git(f.root, 'add', '--', 'CHANGELOG.md');
+      git(f.root, 'commit', '-qm', 'docs: stage unreleased notes for #42');
+    };
+    // Moves the verification report and artifact onto the prepared head, as a report-only commit above it.
+    function verifyPreparedHead(f) {
+      const head = f.currentHead;
+      const reportPath = path.join(f.root, 'specs/42-delivery/verification-report.md');
+      fs.writeFileSync(reportPath, fs.readFileSync(reportPath, 'utf8')
+        .replace(`**Verification head**: ${f.sourceHead}`, `**Verification head**: ${head}`));
+      const artifactPath = path.join(f.root, '.nmg-sdlc/verification/42.json');
+      const artifact = JSON.parse(fs.readFileSync(artifactPath, 'utf8'));
+      artifact.identity.headSha = head;
+      for (const result of artifact.results) {
+        result.request.identity.headSha = head;
+        result.result.identity.headSha = head;
+        result.request.verification.runId = `verification-${createHash('sha256')
+          .update(`${fs.realpathSync(f.root)}\0${42}\0specs/42-delivery\0${head}`).digest('hex')}`;
+      }
+      fs.writeFileSync(artifactPath, `${JSON.stringify(artifact)}\n`);
+      git(f.root, 'add', '--', 'specs/42-delivery/verification-report.md');
+      git(f.root, 'commit', '-qm', 'docs: record verification for #42');
+      expect(f.run('git', ['push', 'origin', 'HEAD:refs/heads/feature/42-delivery']).status).toBe(0);
+    }
+
+    test('AC1 a hand-written issue entry is rolled once and no generated Changed line is added', () => {
+      const f = fixture({ versionPrepared: false });
+      stageUnreleased(f, '### Fixed\n\n- Corrected delivery (#42).');
+      expect(prepare(f)).toMatchObject({ status: 0, prepared: { issue: 42, version: '3.5.0' } });
+      const changelog = changelogAt(f);
+      const section = releaseAt(changelog, '3.5.0');
+      expect(section.split('- Corrected delivery (#42).')).toHaveLength(2);
+      expect(section).toContain('### Fixed');
+      expect(section).not.toContain('### Changed');
+      expect(changelog).toMatch(/## \[Unreleased\]\n\n## \[3\.5\.0\] - \d{4}-\d{2}-\d{2}/);
+    });
+
+    test.each([
+      ['is empty', ''],
+      ['holds only a (#7) bullet', '### Fixed\n\n- Corrected parser (#7).'],
+    ])('AC2 a generated Changed line is added when Unreleased %s', (_name, unreleased) => {
+      const f = fixture({ versionPrepared: false });
+      stageUnreleased(f, unreleased);
+      expect(prepare(f)).toMatchObject({ status: 0, prepared: { version: '3.5.0' } });
+      const section = releaseAt(changelogAt(f), '3.5.0');
+      expect(section).toContain(unreleased);
+      expect(section.endsWith('### Changed\n\n- Deliver verified changes (#42)\n')).toBe(true);
+    });
+
+    test('AC3 an approved breaking issue keeps the generated BREAKING category', () => {
+      const f = fixture({ versionPrepared: false, issueTitle: 'BREAKING: Deliver verified changes', versionBump: true });
+      expect(prepare(f)).toMatchObject({ status: 0, prepared: { version: '4.0.0' } });
+      expect(fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8')).toBe('4.0.0\n');
+      expect(releaseAt(changelogAt(f), '4.0.0'))
+        .toContain('### Changed (BREAKING)\n\n- BREAKING: Deliver verified changes (#42)\n');
+    });
+
+    test('AC4 a re-run after rolling a hand-written entry changes nothing and delivery does not fail with version_not_prepared', () => {
+      const f = fixture({ versionPrepared: false });
+      stageUnreleased(f, '### Fixed\n\n- Corrected delivery (#42).');
+      expect(prepare(f)).toMatchObject({ status: 0, prepared: { version: '3.5.0' } });
+      const prepared = f.currentHead;
+      const files = ['VERSION', 'package.json', 'CHANGELOG.md'];
+      const before = files.map((name) => fs.readFileSync(path.join(f.root, name), 'utf8'));
+      expect(prepare(f)).toMatchObject({ status: 0, prepared: { version: '3.5.0' } });
+      expect(f.currentHead).toBe(prepared);
+      expect(files.map((name) => fs.readFileSync(path.join(f.root, name), 'utf8'))).toEqual(before);
+      verifyPreparedHead(f);
+      const delivered = runDeliver({ cwd: f.root, issue: 42, run: f.run });
+      expect(delivered.handoff?.reasonCode).not.toBe('version_not_prepared');
+      expect(delivered).toMatchObject({ status: 0, handoff: { status: 'passed' } });
+    });
+
+    test('AC5 bullets referencing (#4) or (#420) do not count as references to issue 42', () => {
+      const f = fixture({ versionPrepared: false });
+      stageUnreleased(f, '### Fixed\n\n- Corrected parser (#4).\n- Corrected cache (#420).');
+      expect(prepare(f)).toMatchObject({ status: 0, prepared: { version: '3.5.0' } });
+      expect(releaseAt(changelogAt(f), '3.5.0')).toContain('### Changed\n\n- Deliver verified changes (#42)\n');
+    });
   });
 
   test('delivery without a prepared version fails before any pull request is created', () => {

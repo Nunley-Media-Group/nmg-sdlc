@@ -12,6 +12,12 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.4.8] - 2026-10-25
+
+### Changed
+
+- Fix duplicate CHANGELOG entry when delivery rolls a hand-written issue entry (#503)
+
 ## [4.4.7] - 2026-10-25
 
 ### Changed

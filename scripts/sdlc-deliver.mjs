@@ -325,7 +325,13 @@ function registeredTechnicalSteering(fs, cwd) {
   return fs.readFileSync(snippetPath, 'utf8');
 }
 
-function updateChangelog(content, version, date, title, breaking) {
+// Matches the exact `(#N)` token, so `(#4)` and `(#420)` never count as references to issue 42.
+function referencesIssue(text, issue) {
+  const token = `(#${issue})`;
+  return String(text).split('\n').some((line) => line.startsWith('- ') && line.includes(token));
+}
+
+function updateChangelog(content, version, date, title, breaking, issue) {
   const marker = '## [Unreleased]';
   const index = content.indexOf(marker);
   if (index < 0) throw versionArtifactError('CHANGELOG.md lacks a ## [Unreleased] heading');
@@ -335,8 +341,10 @@ function updateChangelog(content, version, date, title, breaking) {
   const unreleased = content.slice(index + marker.length, end).trim();
   const suffix = content.slice(end).replace(/^\n+/, '\n');
   const category = breaking ? 'Changed (BREAKING)' : 'Changed';
-  const preserved = unreleased ? `${unreleased}\n\n` : '';
-  return `${prefix}${marker}\n\n## [${version}] - ${date}\n\n${preserved}### ${category}\n\n- ${title}\n${suffix}`;
+  const body = referencesIssue(unreleased, issue)
+    ? `${unreleased}\n`
+    : `${unreleased ? `${unreleased}\n\n` : ''}### ${category}\n\n- ${title}\n`;
+  return `${prefix}${marker}\n\n## [${version}] - ${date}\n\n${body}${suffix}`;
 }
 
 function synchronizedDeliveryVersion(changelog, version, issue, title) {
@@ -345,7 +353,7 @@ function synchronizedDeliveryVersion(changelog, version, issue, title) {
   if (start < 0) return false;
   const end = changelog.indexOf('\n## [', start + heading.length);
   const release = changelog.slice(start, end < 0 ? changelog.length : end);
-  return release.includes(`- ${title} (#${issue})`);
+  return release.includes(`- ${title} (#${issue})`) || referencesIssue(release, issue);
 }
 function versionedArtifacts(tech) {
   const source = String(tech);
@@ -572,7 +580,7 @@ function synchronizeVersion({ run, fs, cwd, issue, spec, issueData, tech, now })
   });
   const date = new Date(now()).toISOString().slice(0, 10);
   const nextChangelog = updateChangelog(
-    changelog, version, date, `${issueData.title} (#${issue})`, breaking,
+    changelog, version, date, `${issueData.title} (#${issue})`, breaking, issue,
   );
 
   fs.writeFileSync(versionPath, `${version}\n`);
