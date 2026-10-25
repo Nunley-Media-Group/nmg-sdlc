@@ -740,11 +740,13 @@ function evidenceForHead(readiness, observed, headSha) {
       });
       continue;
     }
-    const resolved = resolveDeclaredCheck(item.name, observed.evidenceChecks);
+    const resolved = resolveDeclaredCheck(
+      item.name,
+      observed.evidenceChecks.filter((check) => check.event === item.event),
+    );
     if (resolved.status === 'pending') return null;
     if (resolved.status !== 'matched') throw new Error('verification_not_ready');
     const check = resolved.check;
-    if (check.event !== item.event) throw new Error('verification_not_ready');
     if (['PENDING', 'QUEUED', 'IN_PROGRESS', 'WAITING', 'REQUESTED'].includes(check.state)) return null;
     if (!['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(check.state) || !check.url) {
       throw new Error('verification_not_ready');
