@@ -28,7 +28,7 @@ const ARGUMENT_HINTS: Record<string, string> = {
   'sdlc-upgrade-project': '',
   'sdlc-steering': '[request]',
   'sdlc-run-retro': '',
-  'sdlc-execute': '[--retain-worker] [#N ...]',
+  'sdlc-execute': '[--retain-worker] [--check-in-seconds N] [#N ...]',
 }
 
 // Names every published issue, so a held Continue stays visible to the person.

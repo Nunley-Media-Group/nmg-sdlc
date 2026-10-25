@@ -39,7 +39,7 @@ describe('Claude Code plugin commands', () => {
     expect(source).toContain('for (const [name, , description] of INTERACTIVE_COMMANDS)');
     expect(source).toContain("$.command.run({ command: 'plan', args: '' })");
     expect(source).toContain('await $.prompt.submit({ text, asUser: true })');
-    expect(source).toContain("'sdlc-execute': '[--retain-worker] [#N ...]'");
+    expect(source).toContain("'sdlc-execute': '[--retain-worker] [--check-in-seconds N] [#N ...]'");
     expect(source).toContain('if (DIRECT_COMMANDS.includes(name)) {');
     expect(source).toContain('$.prompt.submit({ text: rendered.text, asUser: true })');
     expect(source).toContain('scripts/sdlc-render-prompt.mjs');

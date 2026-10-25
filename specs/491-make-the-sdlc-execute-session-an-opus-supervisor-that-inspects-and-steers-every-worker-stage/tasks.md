@@ -44,7 +44,7 @@
 
 ### T004: Make the execute workflow a supervisor
 
-**File(s)**: `workflows/execute/WORKFLOW.md`
+**File(s)**: `workflows/execute/WORKFLOW.md`, `workflows/execute/references/selection.md`
 **Type**: Modify
 **Depends**: T003
 **Acceptance**:

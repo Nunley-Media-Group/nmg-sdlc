@@ -714,6 +714,16 @@ export function inspectIssueSpecScope(options, adapters = {}) {
   return classifyIssueSpecScope(expected, documents);
 }
 
+/**
+ * The verification report's one-line issue-scope marker for a resolved scope, exactly as
+ * verification readiness compares it, or null when the scope is not resolved.
+ */
+export function issueScopeMarker(scope) {
+  if (!['scoped', 'implicit_single_issue'].includes(scope?.status)) return null;
+  const { issueNumber, specPath, status, delivery, regression } = scope;
+  return `<!-- nmg-sdlc-issue-scope: ${JSON.stringify({ issueNumber, specPath, status, delivery, regression })} -->`;
+}
+
 function parseCli(argv) {
   const { values } = parseArgs({
     args: argv,
@@ -722,6 +732,7 @@ function parseCli(argv) {
       spec: { type: 'string' },
       issue: { type: 'string' },
       json: { type: 'boolean', default: false },
+      marker: { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
     },
     strict: true,
@@ -731,8 +742,9 @@ function parseCli(argv) {
   for (const key of ['project', 'spec', 'issue']) {
     if (!values[key]) throw new Error(`--${key} is required`);
   }
-  if (!values.json) throw new Error('--json is required');
+  if (values.json === values.marker) throw new Error('exactly one of --json or --marker is required');
   return {
+    marker: values.marker,
     projectRoot: path.resolve(values.project),
     specPath: values.spec,
     issueNumber: parsePositiveInteger(values.issue),
@@ -743,6 +755,7 @@ function usage() {
   return [
     'Usage:',
     '  node scripts/issue-spec-scope.mjs --project <path> --spec specs/<slug> --issue <N> --json',
+    '  node scripts/issue-spec-scope.mjs --project <path> --spec specs/<slug> --issue <N> --marker',
   ].join('\n');
 }
 
@@ -759,7 +772,17 @@ function main() {
     process.stdout.write(`${usage()}\n`);
     return;
   }
-  process.stdout.write(`${JSON.stringify(inspectIssueSpecScope(options), null, 2)}\n`);
+  const scope = inspectIssueSpecScope(options);
+  if (!options.marker) {
+    process.stdout.write(`${JSON.stringify(scope, null, 2)}\n`);
+    return;
+  }
+  const marker = issueScopeMarker(scope);
+  if (marker) process.stdout.write(`${marker}\n`);
+  else {
+    process.stderr.write(`issue scope unresolved: ${scope.reasonCode}\n`);
+    process.exitCode = 1;
+  }
 }
 
 if (isCliEntry(import.meta.url)) main();

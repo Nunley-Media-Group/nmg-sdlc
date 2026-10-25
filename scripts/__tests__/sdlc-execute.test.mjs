@@ -1102,7 +1102,8 @@ describe('worker supervision while its background work runs (#470)', () => {
 describe('Opus supervisor decisions (#491)', () => {
   const steps = (f) => f.state.starts.map((entry) => entry.name.split('-')[1]);
   const deliver = ({ state }) => { state.merged = true; state.closed = true; return { status: 'passed', next: null }; };
-  const timeout = () => ({ status: 1, stdout: JSON.stringify({ error: { code: 'timeout', message: 'timed out waiting for agent status' } }), stderr: '' });
+  // Herdr prints the timeout error on stderr with exit 1.
+  const timeout = () => ({ status: 1, stdout: '', stderr: `${JSON.stringify({ error: { code: 'timeout', message: 'timed out waiting for agent status' }, id: 'cli:agent:wait' })}\n` });
   // Records each report, answers it from `answer(report, index)` (default accept/continue), and
   // captures the controller state the report was taken in.
   const supervisor = (f, answer = () => null) => {

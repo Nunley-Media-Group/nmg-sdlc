@@ -4,8 +4,8 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { finalizeVerification, matchesRegisteredResults } from '../sdlc-finalize-verification.mjs';
-import { inspectIssueSpecScope } from '../issue-spec-scope.mjs';
+import { finalizeVerification, matchesRegisteredResults, withScopeMarker } from '../sdlc-finalize-verification.mjs';
+import { inspectIssueSpecScope, issueScopeMarker } from '../issue-spec-scope.mjs';
 import { canonicalJson } from '../../src/sdlc-steering-runtime.mjs';
 
 const roots = [];
@@ -193,5 +193,50 @@ describe('sdlc-finalize-verification focused fresh', () => {
     expect(outcome).toMatchObject({ status: 0, handoff: { status: 'passed', next: 'deliver' } });
     expect(spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim()).toBe(reportHead);
     expect(spawnSync('git', ['rev-parse', 'origin/42-feature'], { cwd: root, encoding: 'utf8' }).stdout.trim()).toBe(reportHead);
+  });
+
+  it('finalizes a passed gate whose hand-written issue-scope marker names scenario titles (#491)', () => {
+    const root = makeRoot();
+    writeSteering(root);
+    writeSpec(root);
+    fs.writeFileSync(path.join(root, SPEC, 'feature.gherkin'),
+      '**Issue**: #42\n**Status**: Approved\n\nFeature: F\n\n  @SCN001\n  Scenario: Ship the feature\n    Given x\n');
+    const head = gitInit(root);
+    const live = inspectIssueSpecScope({ projectRoot: root, issueNumber: 42, specPath: SPEC });
+    expect(live.delivery.scenarios).toEqual(['SCN001']);
+    const handWritten = { issueNumber: 42, specPath: SPEC, status: live.status,
+      delivery: { ...live.delivery, scenarios: ['Ship the feature'] }, regression: live.regression };
+    fs.writeFileSync(path.join(root, REPORT), `# Verification\n\n## Implementation Status: **Pass**\n\n### Issue Scope\n\n<!-- nmg-sdlc-issue-scope: ${JSON.stringify(handWritten)} -->\n**Verification head**: ${head}\n`);
+    writeArtifact(root, head, null, 'passed', 'R491');
+    const out = finalizeVerification({ issue: 42, spec: SPEC, cwd: root, controllerRunId: 'R491' });
+    expect(out).toMatchObject({ status: 0, handoff: { status: 'passed', next: 'deliver' } });
+    const markers = fs.readFileSync(path.join(root, REPORT), 'utf8').split('\n').filter((line) => line.startsWith('<!-- nmg-sdlc-issue-scope:'));
+    expect(markers).toEqual([issueScopeMarker(live)]);
+  });
+});
+
+describe('resolver-produced issue-scope marker (#491)', () => {
+  const marker = '<!-- nmg-sdlc-issue-scope: {"issueNumber":42} -->';
+
+  it('replaces the first marker, drops duplicates, and keeps everything else', () => {
+    expect(withScopeMarker('# R\n<!-- nmg-sdlc-issue-scope: {"bad":1} -->\ntext\n<!-- nmg-sdlc-issue-scope: {} -->\n', marker))
+      .toBe(`# R\n${marker}\ntext\n`);
+    expect(withScopeMarker('a\r\n<!-- nmg-sdlc-issue-scope: x -->\r\nb', marker)).toBe(`a\r\n${marker}\r\nb`);
+  });
+
+  it('inserts a missing marker after the Issue Scope heading, or at the end', () => {
+    expect(withScopeMarker('# R\n\n## Issue Scope\n\n- Active issue: #42\n', marker))
+      .toBe(`# R\n\n## Issue Scope\n\n${marker}\n\n- Active issue: #42\n`);
+    expect(withScopeMarker('# R\nbody\n', marker)).toBe(`# R\nbody\n\n${marker}\n`);
+    expect(withScopeMarker('# R', marker)).toBe(`# R\n\n${marker}\n`);
+  });
+
+  it('renders only resolved scopes', () => {
+    const scope = { issueNumber: 42, specPath: SPEC, status: 'scoped', reasonCode: 'x',
+      delivery: { acceptanceCriteria: ['AC1'], functionalRequirements: [], tasks: [], scenarios: ['SCN001'] },
+      regression: { acceptanceCriteria: [], functionalRequirements: [], scenarios: [] } };
+    expect(issueScopeMarker(scope)).toBe(`<!-- nmg-sdlc-issue-scope: {"issueNumber":42,"specPath":"${SPEC}","status":"scoped","delivery":{"acceptanceCriteria":["AC1"],"functionalRequirements":[],"tasks":[],"scenarios":["SCN001"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]}} -->`);
+    expect(issueScopeMarker({ ...scope, status: 'unverifiable' })).toBeNull();
+    expect(issueScopeMarker(null)).toBeNull();
   });
 });

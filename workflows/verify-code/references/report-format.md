@@ -48,7 +48,7 @@ Use this Markdown structure:
 - Delivery: AC [...]; FR [...]; tasks [...]; scenarios [...]
 - Regression: AC [...]; FR [...]; scenarios [...]
 
-<!-- nmg-sdlc-issue-scope: {"issueNumber":N,"specPath":"specs/{feature}","status":"scoped","delivery":{"acceptanceCriteria":[...],"functionalRequirements":[...],"tasks":[...],"scenarios":[...]},"regression":{"acceptanceCriteria":[...],"functionalRequirements":[...],"scenarios":[...]}} -->
+<!-- nmg-sdlc-issue-scope: {resolver marker: paste the --marker line exactly} -->
 
 <!-- Include exactly one readiness marker only for qualified pending or satisfied evidence. Emit compact JSON on one line immediately after the issue-scope marker. -->
 <!-- nmg-sdlc-pr-readiness: {"schemaVersion":1,"state":"pr_evidence_pending","issueNumber":N,"specPath":"specs/{feature}","local":{"acceptanceCriteria":[...],"functionalRequirements":[...],"tasks":[...],"scenarios":[...],"regression":{"acceptanceCriteria":[...],"functionalRequirements":[...],"scenarios":[...]},"tests":"pass","steeringGates":"pass"},"pendingEvidence":[{"kind":"required_check","name":"exact-check-name","event":"pull_request","acceptanceCriteria":["AC1"]}]} -->
@@ -114,7 +114,7 @@ The Routing column records how the fix was applied: `skill-creator` when the fix
 [Ready for PR / Needs fixes for remaining items / Major rework needed]
 ```
 
-Emit the HTML marker as one line with valid JSON and the exact normalized resolver values. Use `implicit_single_issue` when applicable. Include the same marker in the GitHub issue comment; it is machine evidence used by status and delivery preparation to reject another contributor's verification report.
+Do not compose the issue-scope marker. Run `node "<plugin-root>/scripts/issue-spec-scope.mjs" --project . --spec specs/{feature} --issue N --marker` and paste the one line it prints exactly. It carries the resolver's normalized values, including scenario identifiers (never scenario titles) and `implicit_single_issue` when applicable. A hand-composed marker that differs from the resolver would make readiness report `scope_evidence_invalid` after the gate passed. The finalizer rewrites the report's marker to the resolver line before publication, so the published report always matches it. Include the same marker in the GitHub issue comment; it is machine evidence used by status and delivery preparation to reject another contributor's verification report.
 
 When PR-dependent evidence qualifies, emit the readiness marker immediately after the issue-scope marker and copy it unchanged to the issue comment. Before PR creation, use `state: pr_evidence_pending` and `pendingEvidence`; the exact declared checks are allowed to be absent because the PR-only results do not exist yet. Every `required_check` or `check_run` identity includes GitHub's exact `event: pull_request` provenance; a push-capable or unknown event does not qualify. For an existing draft, set `state: pr_evidence_satisfied` and use `evidence` only when every declared item succeeds. Required-check and check-run items include the same event identity, exact head SHA, successful conclusion, and evidence URL; each `merge_blocking` item additionally includes its required `observedStates`. Do not emit a qualifying marker for Partial, Incomplete, Fail, local/gate failures, stale/malformed evidence, missing or failed evidence on an existing draft, or an ordinary Pass report.
 

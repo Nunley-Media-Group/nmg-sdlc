@@ -397,8 +397,9 @@ function awaitWorkerHandoff({ api, name, cwd, issue, step, prior, waitFor = api.
 class SupervisorDecision extends Error {
   constructor(decision) { super(`supervisor_${decision.action}`); this.decision = decision; }
 }
+// `herdr agent wait --timeout` reports its timeout as a JSON error on stderr.
 function timedOut(response) {
-  return parsed(response)?.error?.code === 'timeout';
+  return [response?.stdout, response?.stderr].some((stream) => parsed(String(stream ?? ''))?.error?.code === 'timeout');
 }
 function headOf(cwd, run) {
   const head = run('git', ['rev-parse', 'HEAD'], { cwd });
