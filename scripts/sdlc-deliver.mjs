@@ -331,7 +331,7 @@ function referencesIssue(text, issue) {
   return String(text).split('\n').some((line) => line.startsWith('- ') && line.includes(token));
 }
 
-function updateChangelog(content, version, date, title, breaking, issue) {
+function updateChangelog(content, version, date, title, category, issue) {
   const marker = '## [Unreleased]';
   const index = content.indexOf(marker);
   if (index < 0) throw versionArtifactError('CHANGELOG.md lacks a ## [Unreleased] heading');
@@ -340,11 +340,24 @@ function updateChangelog(content, version, date, title, breaking, issue) {
   const prefix = content.slice(0, index);
   const unreleased = content.slice(index + marker.length, end).trim();
   const suffix = content.slice(end).replace(/^\n+/, '\n');
-  const category = breaking ? 'Changed (BREAKING)' : 'Changed';
   const body = referencesIssue(unreleased, issue)
     ? `${unreleased}\n`
-    : `${unreleased ? `${unreleased}\n\n` : ''}### ${category}\n\n- ${title}\n`;
+    : addGeneratedEntry(unreleased, category, `- ${title}`);
   return `${prefix}${marker}\n\n## [${version}] - ${date}\n\n${body}${suffix}`;
+}
+
+// Appends the entry after the last bullet of an exactly matching rolled section, so the category heading is not duplicated; otherwise adds a new heading.
+function addGeneratedEntry(unreleased, category, entry) {
+  const heading = `### ${category}`;
+  const lines = unreleased.split('\n');
+  const start = lines.indexOf(heading);
+  if (start < 0) return `${unreleased ? `${unreleased}\n\n` : ''}${heading}\n\n${entry}\n`;
+  let end = start + 1;
+  while (end < lines.length && !lines[end].startsWith('### ')) end += 1;
+  let last = end - 1;
+  while (last > start && lines[last].trim() === '') last -= 1;
+  lines.splice(last + 1, 0, entry);
+  return `${lines.join('\n')}\n`;
 }
 
 function synchronizedDeliveryVersion(changelog, version, issue, title) {
@@ -561,6 +574,7 @@ function synchronizeVersion({ run, fs, cwd, issue, spec, issueData, tech, now })
   })) return { version: current, changed: [] };
   const labels = issueLabels(issueData);
   const bump = breaking && approvedMajor(spec) ? 'major' : labels.includes('bug') ? 'patch' : 'minor';
+  const category = breaking ? 'Changed (BREAKING)' : labels.includes('bug') ? 'Fixed' : 'Changed';
   const version = bumpedVersion(current, bump);
   const { declared } = deliveryVersionArtifacts(tech, cwd, fs);
   const mirrors = declared.filter(({ relative }) => !['VERSION', 'CHANGELOG.md'].includes(relative));
@@ -580,7 +594,7 @@ function synchronizeVersion({ run, fs, cwd, issue, spec, issueData, tech, now })
   });
   const date = new Date(now()).toISOString().slice(0, 10);
   const nextChangelog = updateChangelog(
-    changelog, version, date, `${issueData.title} (#${issue})`, breaking, issue,
+    changelog, version, date, `${issueData.title} (#${issue})`, category, issue,
   );
 
   fs.writeFileSync(versionPath, `${version}\n`);
