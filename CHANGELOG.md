@@ -12,6 +12,10 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `/sdlc-upgrade-project` detection no longer aborts with `dependency_dangling` on legacy dependency prose that names a pull request or another project's issue (#485). Markdown table rows and references qualified as a pull request or by another project or repository are ignored, and any other legacy candidate whose endpoint is not a repository issue is reported as a `dependency_dangling_candidate` finding instead of being proposed. Existing official edges with dangling targets still fail closed.
+
 ## [4.4.2] - 2026-10-25
 
 ### Changed

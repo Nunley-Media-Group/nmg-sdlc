@@ -10,7 +10,7 @@
 
 5. Epic flatten: epic and link artifacts → ordinary issue-owned packages; legacy relations become migration evidence, not runtime fields.
 
-6. Issue dependencies: completely list all open and closed repository issues and each official blocked-by page. Derive candidate edges only from explicit legacy fields or clear sequencing clauses, subtract existing edges, validate the combined graph, and report exact evidence. Unreadable pages, dangling targets, and open cycles fail closed.
+6. Issue dependencies: completely list all open and closed repository issues and each official blocked-by page. Derive candidate edges only from explicit legacy fields or clear sequencing clauses, ignoring markdown table rows and references qualified as a pull request or by another project or repository. Report each candidate whose endpoint is not a repository issue as a report-only `dependency_dangling_candidate` finding with its source line, so one stray reference cannot abort the report. Subtract existing edges, validate the combined graph, and report exact evidence. Unreadable pages, existing official edges with dangling targets, and open cycles fail closed.
 
 7. Frontmatter and status normalization.
 

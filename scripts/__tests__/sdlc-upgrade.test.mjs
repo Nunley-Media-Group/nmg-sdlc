@@ -834,6 +834,60 @@ describe('official dependency upgrade reconciliation', () => {
     }));
   });
 
+  it('reports dangling legacy candidates as findings and completes detection', async () => {
+    const root = makeRoot();
+    await makeObsoleteCurrentSteering(root);
+    const fixture = dependencyRun([
+      { number: 1, state: 'closed' },
+      { number: 2, body: 'Depends on: #1\nBlocked by #307 until the fix lands' },
+      { number: 3, body: 'Requires #404 first' },
+      { number: 4, body: 'After issue #2 resumes a consumed dispatch\nDepends on: #1, #3' },
+    ]);
+    const run = (command, args) => {
+      const listed = fixture.run(command, args);
+      if (!(args.includes('--paginate') && args.includes('repos/acme/widgets/issues'))) return listed;
+      const [page] = JSON.parse(listed.stdout);
+      return { ...listed, stdout: JSON.stringify([[...page, { number: 307, state: 'closed', body: '', pull_request: {} }]]) };
+    };
+
+    const report = detectUpgrade(root, { run, includeIssueDependencies: true });
+    const item = report.items.find((candidate) => candidate.kind === 'issue-dependencies');
+
+    expect(item.additions).toEqual([
+      { issue: 2, blockedBy: 1, source: 'Depends on: #1' },
+      { issue: 4, blockedBy: 1, source: 'Depends on: #1, #3' },
+      { issue: 4, blockedBy: 2, source: 'After issue #2 resumes a consumed dispatch' },
+      { issue: 4, blockedBy: 3, source: 'Depends on: #1, #3' },
+    ]);
+    expect(item.findings).toEqual([
+      {
+        issue: 2,
+        line: 'Blocked by #307 until the fix lands',
+        reason: 'dependency_dangling_candidate',
+        edge: { issue: 2, blockedBy: 307 },
+      },
+      {
+        issue: 3,
+        line: 'Requires #404 first',
+        reason: 'dependency_dangling_candidate',
+        edge: { issue: 3, blockedBy: 404 },
+      },
+    ]);
+    expect(item.actionable).toBe(true);
+    expect(report.items.some((candidate) => candidate.kind === 'steering-runtime')).toBe(true);
+    expect(fixture.calls.some((args) => args.includes('POST'))).toBe(false);
+  });
+
+  it('still fails closed on an existing official edge to a non-repository target', () => {
+    const fixture = dependencyRun([
+      { number: 2, body: 'Depends on: #1' },
+      { number: 1, state: 'closed' },
+    ], { 2: [{ number: 1, repository: { full_name: 'other/widgets' } }] });
+
+    expect(() => detectIssueDependencyUpgrade({ cwd: '/repo', run: fixture.run }))
+      .toThrow(expect.objectContaining({ reasonCode: 'dependency_dangling' }));
+  });
+
   it('does not report already current while dependency additions remain', () => {
     const root = makeRoot();
     const fixture = dependencyRun([

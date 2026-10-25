@@ -91,8 +91,10 @@ The unbounded `detectUpgrade` / `applyUpgrade` API and `detect` / `apply` CLI re
 7. **Issue dependencies**
    - List every open and closed repository issue and every official `dependencies/blocked_by` page.
    - Parse explicit legacy fields and clear sequencing clauses only after removing fenced code, HTML comments, and block quotes.
+   - Skip markdown table rows and drop references qualified as a pull request (`PR #N`, `pull request #N`) or by another project or repository (`PennyScan issue #N`, `owner/repo#N`); these never name a local issue.
    - Ambiguous prose is a finding, not an edge. Preserve all issue body text.
-   - Merge candidates with official edges and reject dangling targets or deterministic open cycles before proposal.
+   - A candidate whose endpoint is not a repository issue is a report-only `dependency_dangling_candidate` finding with its source line and edge; it is never proposed, and detection still returns every other category.
+   - Merge the remaining candidates with official edges and reject existing official edges with dangling targets, dangling approved edges, or deterministic open cycles before proposal.
    - Apply only the approved exact edge set after a live graph-digest check; POST numeric REST database ids.
 8. **Frontmatter normalization**
    - Plural `**Issues**` → singular `**Issue**` (N must match target directory leading number).
