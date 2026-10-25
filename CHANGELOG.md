@@ -12,6 +12,12 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.4.12] - 2026-10-25
+
+### Changed
+
+- Insert a blank line between an empty matching CHANGELOG heading and the generated bullet (#519)
+
 ## [4.4.11] - 2026-10-25
 
 ### Changed
