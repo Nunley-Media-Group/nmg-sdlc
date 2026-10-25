@@ -10,7 +10,7 @@
 
 ### T001: Gate /sdlc-execute on an Opus or Fable session model
 
-**File(s)**: `src/host-events.mjs`, `src/host-events.d.mts`, `hooks/register.ts`
+**File(s)**: `src/host-events.mjs`, `src/host-events.d.mts`, `src/sdlc-commands.mjs`, `hooks/register.ts`
 **Type**: Modify
 **Depends**: none
 **Acceptance**:
