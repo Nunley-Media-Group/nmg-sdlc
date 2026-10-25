@@ -675,21 +675,24 @@ function computeStatusAfter(dirFull, originalStatus) {
 
 function rewriteFrontmatter(content, targetN, targetStatus) {
   let c = String(content || '');
+  const today = new Date().toISOString().slice(0, 10);
   c = c.replace(/^\*\*Issues?\*\*:\s*.*$/gm, `**Issue**: #${targetN}`);
   c = c.replace(/^\*\*Status\*\*:\s*.*$/gm, `**Status**: ${targetStatus}`);
-  c = c.replace(/^#\s*Issue:\s*.*$/gm, `**Issue**: #${targetN}`);
-  if (!/^\*\*Issue\*\*:/m.test(c)) {
-    c = c.replace(/^(# .+)$/m, `$1\n\n**Issue**: #${targetN}\n**Date**: ${new Date().toISOString().slice(0, 10)}\n**Status**: ${targetStatus}\n**Author**: Unknown`);
+  c = c.replace(/^#[ \t]*Issues?:.*$/gm, `# Issue: #${targetN}`);
+  c = c.replace(/^#[ \t]*Status:.*$/gm, `# Status: ${targetStatus}`);
+  const commentStyle = /^# Issue:/m.test(c) && !/^\*\*Issue\*\*:/m.test(c);
+  const fieldPattern = (field) => `(?:\\*\\*${field}\\*\\*|#[ \\t]*${field}):`;
+  const has = (field) => new RegExp(`^${fieldPattern(field)}`, 'm').test(c);
+  const fieldLine = (field, value) => (commentStyle ? `# ${field}: ${value}` : `**${field}**: ${value}`);
+  const insertAfter = (anchor, field, value) => {
+    c = c.replace(new RegExp(`^(${fieldPattern(anchor)}[^\\n]*)`, 'm'), `$1\n${fieldLine(field, value)}`);
+  };
+  if (!has('Issue')) {
+    c = c.replace(/^(# .+)$/m, `$1\n\n**Issue**: #${targetN}\n**Date**: ${today}\n**Status**: ${targetStatus}\n**Author**: Unknown`);
   }
-  if (!/^\*\*Date\*\*:/m.test(c)) {
-    c = c.replace(/^(\*\*Issue\*\*:[^\n]*)/m, `$1\n**Date**: ${new Date().toISOString().slice(0, 10)}`);
-  }
-  if (!/^\*\*Status\*\*:/m.test(c)) {
-    c = c.replace(/^(\*\*Date\*\*:[^\n]*)/m, `$1\n**Status**: ${targetStatus}`);
-  }
-  if (!/^\*\*Author\*\*:/m.test(c)) {
-    c = c.replace(/^(\*\*Status\*\*:[^\n]*)/m, `$1\n**Author**: Unknown`);
-  }
+  if (!has('Date')) insertAfter('Issue', 'Date', today);
+  if (!has('Status')) insertAfter('Date', 'Status', targetStatus);
+  if (!has('Author')) insertAfter('Status', 'Author', 'Unknown');
   return c;
 }
 
@@ -2534,7 +2537,7 @@ function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRu
     const isPrefixed = LEGACY_DIR_PREFIX_RE.test(d.name);
     const alreadyNumSlug = NUM_SLUG_RE.test(d.name);
     const numsInFm = extractIssueNumbersFromContent(req);
-    const isPlural = /Issues/.test(req);
+    const isPlural = /^\*\*Issues\*\*:/m.test(req);
     const needsNameChange = isPrefixed || (alreadyNumSlug && primary && d.name !== `${primary}-${slug}`);
 
     if (needsNameChange && primary && targetFull) {

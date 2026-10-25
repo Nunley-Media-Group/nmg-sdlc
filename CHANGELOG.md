@@ -12,6 +12,10 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `/sdlc-upgrade-project` no longer flags an already-singular spec package for `frontmatter-fix` because its prose or headings contain "Issues" (#486). Plural detection reads only a `**Issues**:` field line. Gherkin `# Issue:` / `# Issues:` / `# Date:` / `# Status:` / `# Author:` comment headers are normalized in place, keeping their comment syntax, instead of gaining duplicate bold `**Issue**`, `**Date**`, `**Status**`, and `**Author**` lines. Bold-form frontmatter normalization is unchanged.
+
 ## [4.4.3] - 2026-10-25
 
 ### Fixed

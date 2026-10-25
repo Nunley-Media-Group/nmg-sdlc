@@ -97,8 +97,9 @@ The unbounded `detectUpgrade` / `applyUpgrade` API and `detect` / `apply` CLI re
    - Merge the remaining candidates with official edges and reject existing official edges with dangling targets, dangling approved edges, or deterministic open cycles before proposal.
    - Apply only the approved exact edge set after a live graph-digest check; POST numeric REST database ids.
 8. **Frontmatter normalization**
-   - Plural `**Issues**` → singular `**Issue**` (N must match target directory leading number).
+   - Plural `**Issues**` → singular `**Issue**` (N must match target directory leading number). Plural detection reads only a `**Issues**:` field line; prose or headings that merely contain "Issues" do not trigger it.
    - Status `Amended` / `Planning` / `In Review` → `Approved` if verification-report.md present, else `Draft`.
+   - Gherkin comment headers (`# Issue:` / `# Issues:` / `# Date:` / `# Status:` / `# Author:`) are normalized in place: Issue and Status values are updated and missing fields are added in comment syntax, so no bold `**Issue**`/`**Date**`/`**Status**`/`**Author**` duplicates are created.
    - Applied as part of rename/split/flatten, or as standalone fix items for already-N dirs that still carry plural/Amended. Includes `feature.gherkin`.
 9. **Repeat run (already current)**
    - All specs are issue-owned and no approved official dependency additions remain.

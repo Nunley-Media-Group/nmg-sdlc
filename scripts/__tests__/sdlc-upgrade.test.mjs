@@ -262,6 +262,89 @@ describe('sdlc-upgrade flatten and split (SCN010–SCN011)', () => {
   });
 });
 
+describe('sdlc-upgrade frontmatter-fix normalization (#486)', () => {
+  it('does not flag a singular package whose prose or heading contains "Issues" (AC1)', () => {
+    const root = makeRoot();
+    write(root, 'specs/404-restrict-drafted-issues-and-specs/requirements.md', [
+      '# Requirements: Restrict Drafted Issues and Specs',
+      '',
+      '**Issue**: #404',
+      '**Status**: Approved',
+      '',
+    ].join('\n'));
+
+    const items = detectUpgrade(root).items.filter((item) => item.id.startsWith('frontmatter-fix:'));
+    expect(items).toEqual([]);
+  });
+
+  it('still flags a plural **Issues** field with its primary issue number (AC2)', () => {
+    const root = makeRoot();
+    write(root, 'specs/7-x/requirements.md', '# Requirements: X\n\n**Issues**: #7, #9\n**Status**: Approved\n');
+
+    const item = detectUpgrade(root).items.find((candidate) => candidate.id === 'frontmatter-fix:specs/7-x');
+    expect(item).toMatchObject({ kind: 'frontmatter-fix', rel: 'specs/7-x', primaryN: 7 });
+  });
+
+  it('updates a gherkin comment header in place without adding bold duplicates (AC3)', () => {
+    const root = makeRoot();
+    write(root, 'specs/7-x/requirements.md', '# Requirements: X\n\n**Issues**: #7, #9\n**Status**: Planning\n');
+    write(root, 'specs/7-x/feature.gherkin', [
+      '# Issues: #7, #9',
+      '# Date: 2026-01-01',
+      '# Status: Planning',
+      '# Author: NMG',
+      '',
+      'Feature: X',
+      '',
+    ].join('\n'));
+
+    const item = detectUpgrade(root).items.find((candidate) => candidate.id === 'frontmatter-fix:specs/7-x');
+    applyUpgrade(root, [item.id], noNetworkRun);
+
+    const gherkin = fs.readFileSync(path.join(root, 'specs/7-x/feature.gherkin'), 'utf8');
+    expect(gherkin).toBe([
+      '# Issue: #7',
+      '# Date: 2026-01-01',
+      '# Status: Draft',
+      '# Author: NMG',
+      '',
+      'Feature: X',
+      '',
+    ].join('\n'));
+    expect(gherkin).not.toMatch(/^\*\*(Issue|Date|Status|Author)\*\*:/m);
+  });
+
+  it('keeps bold-form frontmatter normalization unchanged (AC4)', () => {
+    const root = makeRoot();
+    write(root, 'specs/7-x/requirements.md', [
+      '# Requirements: Bar',
+      '',
+      '**Issues**: #7, #9',
+      '**Date**: 2026-01-01',
+      '**Status**: Planning',
+      '**Author**: NMG',
+      '',
+      'Body text stays.',
+      '',
+    ].join('\n'));
+
+    const item = detectUpgrade(root).items.find((candidate) => candidate.id === 'frontmatter-fix:specs/7-x');
+    applyUpgrade(root, [item.id], noNetworkRun);
+
+    expect(fs.readFileSync(path.join(root, 'specs/7-x/requirements.md'), 'utf8')).toBe([
+      '# Requirements: Bar',
+      '',
+      '**Issue**: #7',
+      '**Date**: 2026-01-01',
+      '**Status**: Draft',
+      '**Author**: NMG',
+      '',
+      'Body text stays.',
+      '',
+    ].join('\n'));
+  });
+});
+
 describe('sdlc-upgrade leftover spikes', () => {
   it('converts a spike ADR into an ordinary spec and marks the ADR migrated', () => {
     const root = makeRoot();
