@@ -1,0 +1,63 @@
+**Issue**: #484
+**Date**: 2026-10-25
+**Status**: Approved
+**Author**: NMG
+
+# Generated from: specs/484-fix-first-run-delivery-missing-changelog-md-and-push-event-checks-block-sdlc-execute/requirements.md
+Feature: First-run delivery is not blocked by a missing changelog or push-event checks
+
+  @SCN001 @regression
+  Scenario: AC1 onboarding creates the changelog
+    Given a greenfield or brownfield project without CHANGELOG.md
+    When /sdlc-onboard-project completes
+    Then CHANGELOG.md exists with "# Changelog" and "## [Unreleased]"
+    And an existing CHANGELOG.md is left unchanged
+
+  @SCN002 @regression
+  Scenario: AC2 missing changelog fails with a specific reason
+    Given an issue branch with VERSION and no CHANGELOG.md
+    When sdlc-deliver.mjs prepare-version --issue 42 runs
+    Then it exits non-zero with a failed deliver handoff whose reasonCode is "version_artifact_missing"
+    And the handoff summary names "CHANGELOG.md"
+    And VERSION is unchanged and no commit is created
+
+  @SCN003 @regression
+  Scenario: AC3 missing Unreleased heading fails with a specific reason
+    Given a CHANGELOG.md without a "## [Unreleased]" heading
+    When prepare-version --issue 42 runs
+    Then the deliver handoff reasonCode is "version_artifact_missing"
+    And the summary names the "## [Unreleased]" heading
+    And no commit is created
+
+  @SCN004 @regression
+  Scenario: AC4 execute prints the failure summary
+    Given prepare-version fails and writes a deliver handoff with a summary
+    When /sdlc-execute reports the failure
+    Then stderr contains "version_preparation_failed: version_artifact_missing" followed by the handoff summary
+
+  @SCN005 @regression
+  Scenario: AC5 upgrade proposes the missing changelog
+    Given an onboarded project with VERSION and no CHANGELOG.md
+    When /sdlc-upgrade-project detection runs
+    Then the proposal includes "changelog-create"
+    And applying it creates CHANGELOG.md with a "## [Unreleased]" section
+
+  @SCN006 @regression
+  Scenario: AC6 existing version preparation is preserved
+    Given a valid VERSION and a CHANGELOG.md with "## [Unreleased]"
+    When prepare-version --issue 42 runs
+    Then the version artifacts are bumped and committed as before
+    And a BREAKING issue without an approved major note still fails with "major_bump_required"
+
+  @SCN007 @regression
+  Scenario: AC7 push-event checks do not block delivery
+    Given an open CLEAN PR whose exact head has successful push and pull_request checks with the same name
+    When delivery classifies the PR state
+    Then the result is "merge_ready"
+    And the push-event check never satisfies a declared PR-only check
+
+  @SCN008 @regression
+  Scenario: AC8 failing push-event checks still block delivery
+    Given an open PR whose exact head has a failed push-event check
+    When delivery classifies the PR state
+    Then the result is "checks_failed" and the PR is not merged
