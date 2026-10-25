@@ -1,0 +1,54 @@
+**Issue**: #501
+**Date**: 2026-10-25
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/484-fix-first-run-delivery-missing-changelog-md-and-push-event-checks-block-sdlc-execute/
+
+# File: scripts/__tests__/sdlc-deliver.test.mjs
+# Generated from: specs/501-fix-pr-evidence-resolution-when-a-same-name-push-check-exists/requirements.md
+Feature: Declared PR evidence resolves only against checks of the declared event
+
+  Background:
+    Given a draft PR whose verification report declares satisfied pull_request evidence named "contract-tests"
+
+  @SCN001 @regression
+  Scenario: AC1 a same-name push check does not block pull_request evidence
+    Given the PR reports a push check and a pull_request check both named "contract-tests", both SUCCESS with distinct links
+    When delivery collects final-head evidence for the draft
+    Then the delivery-validation marker records the pull_request check's link and not the push check's link
+    And the draft is readied and merged at the exact head
+
+  @SCN002 @regression
+  Scenario: AC2 a push check is never counted as declared evidence
+    Given the only check named "contract-tests" is a SUCCESS push check
+    When delivery collects final-head evidence for the draft
+    Then delivery reports verification_not_ready with "PR-only checks remain pending"
+    And the draft is neither readied nor merged
+
+  @SCN003 @regression
+  Scenario: AC3 a missing pull_request check stays pending
+    Given the PR reports no pull_request check
+    When delivery collects final-head evidence for the draft
+    Then delivery reports verification_not_ready with "PR-only checks remain pending"
+    And the draft is neither readied nor merged
+
+  @SCN004 @regression
+  Scenario: AC4 duplicate pull_request checks fail closed
+    Given the PR reports two SUCCESS pull_request checks both named "contract-tests"
+    When delivery collects final-head evidence for the draft
+    Then delivery fails with "Delivery failed for #42: verification_not_ready"
+    And the draft is neither readied nor merged
+
+  @SCN005 @regression
+  Scenario Outline: AC5 single-event resolution is preserved
+    Given the declared evidence name is "<declared>"
+    And the PR reports exactly one pull_request check named "contract-tests" in workflow "CI" with state <state>
+    When delivery collects final-head evidence for the draft
+    Then the outcome is <outcome>
+
+    Examples:
+      | declared           | state   | outcome                                           |
+      | contract-tests     | SUCCESS | readied and merged                                |
+      | CI / contract-tests | SUCCESS | readied and merged                                |
+      | contract-tests     | PENDING | "PR-only checks remain pending"                   |
+      | contract-tests     | FAILURE | "Delivery failed for #42: verification_not_ready" |
