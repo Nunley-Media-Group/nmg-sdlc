@@ -89,13 +89,18 @@ async function fixture({
     fs.writeFileSync(path.join(spec, file), '**Issue**: #42\n**Status**: Approved\n');
   }
   fs.writeFileSync(path.join(root, '.gitignore'), '.nmg-sdlc/\n');
-  git(root, ['init', '-b', '42-ship-it']);
-  git(root, ['add', '.gitignore', 'specs']);
+  git(root, ['init', '-b', 'main']);
+  git(root, ['add', '.gitignore']);
+  git(root, ['commit', '-m', 'chore: baseline']);
+  git(root, ['checkout', '-b', '42-ship-it']);
+  git(root, ['add', 'specs']);
   git(root, ['commit', '-m', 'fixture']);
   const head = git(root, ['rev-parse', 'HEAD']);
   const origin = path.join(runtime, 'origin.git');
   git(root, ['init', '--bare', origin]);
   git(root, ['remote', 'add', 'origin', origin]);
+  // The default branch is published on origin behind the issue branch, as a real repository has it.
+  git(root, ['push', 'origin', 'main']);
   git(root, ['push', '-u', 'origin', '42-ship-it']);
   // Uncommitted partial work makes the controller dispatch the implement worker that blocks.
   fs.writeFileSync(path.join(root, 'partial.txt'), 'in progress\n');
@@ -174,7 +179,7 @@ if (${inheritedPipes} && process.argv[2] === 'controller') {
   command('gh', `const args = process.argv.slice(2);
 const out = value => { console.log(typeof value === 'string' ? value : JSON.stringify(value)); process.exit(0); };
 if (args[0] === 'auth') out('');
-if (args[0] === 'repo') out({nameWithOwner:'acme/widgets'});
+if (args[0] === 'repo') out(args.includes('--jq') ? 'main' : {nameWithOwner:'acme/widgets'});
 if (args[0] === 'api' && args.includes('--paginate')) out([[]]);
 if (args[0] === 'pr' && args[1] === 'list') out([]);
 if (args[0] === 'api') out({id:4200,number:42,state:'open',title:'Ship It',repository_url:'https://api.github.com/repos/acme/widgets'});

@@ -1491,3 +1491,71 @@ describe('Opus supervisor decisions (#491)', () => {
     }
   });
 });
+
+describe('stale local default branch (#502)', () => {
+  const steps = (f) => f.state.starts.map((entry) => entry.name.split('-')[1]);
+  const deliver = ({ state }) => { state.merged = true; state.closed = true; return { status: 'passed', next: null }; };
+  // Moves origin's default branch one commit ahead through a second clone; the fixture's local
+  // default branch stays where it was.
+  const advanceOrigin = (root, branch = 'main') => {
+    const clone = fs.mkdtempSync(path.join(os.tmpdir(), 'execute-advance-'));
+    roots.push(clone);
+    execFileSync('git', ['clone', '--quiet', '--branch', branch, git(root, 'remote', 'get-url', 'origin'), clone],
+      { encoding: 'utf8' });
+    git(clone, 'config', 'user.name', 'Controller Test');
+    git(clone, 'config', 'user.email', 'controller@example.test');
+    fs.writeFileSync(path.join(clone, 'merged.txt'), 'merged elsewhere\n');
+    git(clone, 'add', '.');
+    git(clone, 'commit', '-m', 'feat: merge #9');
+    git(clone, 'push', 'origin', `HEAD:${branch}`);
+  };
+
+  it('routes an empty issue branch created from origin to implement with no version prepared first', () => {
+    const f = fixture({ branch: 'main' });
+    advanceOrigin(f.root);
+    let versionsBeforeImplement = null;
+    f.setWorker((context) => {
+      if (context.step === 'start') {
+        git(context.root, 'fetch', '--quiet', 'origin');
+        git(context.root, 'checkout', '-b', '42-example', 'origin/main');
+        git(context.root, 'push', '-u', 'origin', '42-example');
+        return { status: 'passed', next: 'implement' };
+      }
+      if (context.step === 'implement') {
+        versionsBeforeImplement = f.state.versionPreparations.length;
+        // The implement worker finds nothing to change and publishes no commit.
+        return { status: 'passed', next: 'verify' };
+      }
+      if (context.step === 'verify') { context.passGate(); return { status: 'passed', next: 'deliver' }; }
+      if (context.step === 'deliver') return deliver(context);
+      throw new Error(context.step);
+    });
+    expect(f.execute('#42')).toMatchObject({ status: 0 });
+    expect(steps(f).slice(0, 2)).toEqual(['start', 'implement']);
+    expect(versionsBeforeImplement).toBe(0);
+  });
+
+  it('routes a branch with real commits to verify, preparing the version first, despite the stale local default branch', () => {
+    const f = fixture();
+    advanceOrigin(f.root);
+    let versionsBeforeVerify = null;
+    f.setWorker(({ step, state, passGate }) => {
+      if (step === 'verify') { versionsBeforeVerify = f.state.versionPreparations.length; passGate(); }
+      if (step === 'deliver') { state.merged = true; state.closed = true; }
+      return { status: 'passed', next: { verify: 'deliver', deliver: null }[step] };
+    });
+    expect(f.execute('#42')).toMatchObject({ status: 0 });
+    expect(steps(f)).toEqual(['verify', 'deliver']);
+    expect(versionsBeforeVerify).toBeGreaterThan(0);
+  });
+
+  it('fails closed with default_branch_unreadable and starts no worker when the remote default ref cannot be fetched', () => {
+    const f = fixture();
+    const failingFetch = (command, args, options) => (command === 'git' && args[0] === 'fetch'
+      ? { status: 128, stdout: '', stderr: "fatal: couldn't find remote ref refs/heads/main\n" }
+      : f.run(command, args, options));
+    expect(f.execute('', { run: failingFetch })).toEqual({ status: 1, stdout: '', stderr: 'default_branch_unreadable\n' });
+    expect(f.state.starts).toEqual([]);
+    expect(f.state.versionPreparations).toEqual([]);
+  });
+});
