@@ -20,7 +20,7 @@ function git(cwd, ...args) {
   return result.stdout.trim();
 }
 
-function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'passed', remoteIssueState = 'OPEN', existing = false, lostAck = false, checksState = 'SUCCESS', declaredName = 'contract-tests', checkResponses = {}, smokeOwned = false, humanReview = false, versionPrepared = true, issueTitle = 'Deliver verified changes', versionBump = false, closingReferences = [{ number: 42, url: 'https://github.test/owner/repo/issues/42' }] } = {}) {
+function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'passed', remoteIssueState = 'OPEN', existing = false, lostAck = false, checksState = 'SUCCESS', declaredName = 'contract-tests', checkResponses = {}, smokeOwned = false, humanReview = false, versionPrepared = true, issueTitle = 'Deliver verified changes', labels = ['enhancement'], unreleased = '', requirements = '', versionBump = false, closingReferences = [{ number: 42, url: 'https://github.test/owner/repo/issues/42' }] } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-delivery-current-'));
   const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-delivery-remote-'));
   roots.push(root, remote);
@@ -39,7 +39,7 @@ function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'p
   fs.mkdirSync(path.join(root, spec), { recursive: true });
   const header = '**Issue**: #42\n**Status**: Approved\n\n';
   const documents = {
-    'requirements.md': `### AC1: Deliver verified changes\n\n| FR1 | Deliver current evidence | Must |\n${versionBump ? '\n**Version bump**: major\n' : ''}`,
+    'requirements.md': `### AC1: Deliver verified changes\n\n| FR1 | Deliver current evidence | Must |\n${versionBump ? '\n**Version bump**: major\n' : ''}${requirements}`,
     'design.md': 'Publish exact-head verification before delivery.\n',
     'tasks.md': '### T001: Deliver verified changes\n\n**File(s)**: `scripts/sdlc-deliver.mjs`, `VERSION`, `CHANGELOG.md`, `package.json`\n',
     'feature.gherkin': 'Feature: Delivery\n  Scenario: Deliver current evidence\n    Given verification passed\n    When delivery runs\n    Then verified changes are delivered\n',
@@ -64,7 +64,7 @@ function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'p
   fs.writeFileSync(path.join(root, 'steering', 'manifest.json'), `${JSON.stringify(manifest)}\n`);
   fs.writeFileSync(path.join(root, 'VERSION'), '3.4.5\n');
   fs.writeFileSync(path.join(root, 'package.json'), '{"name":"fixture","version":"3.4.5"}\n');
-  fs.writeFileSync(path.join(root, 'CHANGELOG.md'), '# Changelog\n\n## [Unreleased]\n\n## [3.4.5] - 2026-01-01\n\n- old\n');
+  fs.writeFileSync(path.join(root, 'CHANGELOG.md'), `# Changelog\n\n## [Unreleased]\n\n${unreleased ? `${unreleased}\n\n` : ''}## [3.4.5] - 2026-01-01\n\n- old\n`);
   fs.writeFileSync(path.join(root, 'CONTRIBUTING.md'), '# Contributing\n');
   git(root, 'add', '.');
   git(root, 'commit', '-qm', 'feat: implement delivery #42');
@@ -136,7 +136,7 @@ function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'p
     body: `Closes #42\n`,
   } : null;
   const issueUrl = 'https://github.test/owner/repo/issues/42';
-  const issue = { number: 42, title: issueTitle, body: '', labels: [{ name: 'enhancement' }], state: issueState, url: issueUrl };
+  const issue = { number: 42, title: issueTitle, body: '', labels: labels.map((name) => ({ name })), state: issueState, url: issueUrl };
   const success = [{ name: 'contract-tests', state: checksState, bucket: checksState === 'SUCCESS' ? 'pass' : 'fail', link: 'https://github.test/checks/77', event: 'pull_request' }];
   const checkCalls = { required: 0, all: 0 };
   const run = (binary, args, opts = {}) => {
@@ -463,6 +463,71 @@ console.log(JSON.stringify(value));
       stageUnreleased(f, '### Fixed\n\n- Corrected parser (#4).\n- Corrected cache (#420).');
       expect(prepare(f)).toMatchObject({ status: 0, prepared: { version: '3.5.0' } });
       expect(releaseAt(changelogAt(f), '3.5.0')).toContain('### Changed\n\n- Deliver verified changes (#42)\n');
+    });
+  });
+
+  describe('prepare-version files the generated line under the issue category (#512)', () => {
+    const prepare = (f) => runDeliver({ cwd: f.root, issue: 42, action: 'prepare-version', run: f.run });
+    const changelogAt = (f) => fs.readFileSync(path.join(f.root, 'CHANGELOG.md'), 'utf8');
+    const releaseAt = (changelog, version) => {
+      const start = changelog.indexOf(`## [${version}]`);
+      const end = changelog.indexOf('\n## [', start + 1);
+      return changelog.slice(start, end < 0 ? changelog.length : end);
+    };
+
+    test('AC1 a bug issue line is filed under Fixed with no Changed heading', () => {
+      const f = fixture({ versionPrepared: false, labels: ['bug'] });
+      expect(prepare(f)).toMatchObject({ status: 0, prepared: { issue: 42, version: '3.4.6' } });
+      const section = releaseAt(changelogAt(f), '3.4.6');
+      expect(section.endsWith('### Fixed\n\n- Deliver verified changes (#42)\n')).toBe(true);
+      expect(section).not.toContain('### Changed');
+    });
+
+    test('AC2 the generated bug line is the last bullet of an existing Fixed section', () => {
+      const f = fixture({
+        versionPrepared: false,
+        labels: ['bug'],
+        unreleased: '### Fixed\n\n- Corrected the widget (#7)\n\n### Changed\n\n- Renamed the option (#8)',
+      });
+      expect(prepare(f)).toMatchObject({ status: 0, prepared: { version: '3.4.6' } });
+      const section = releaseAt(changelogAt(f), '3.4.6');
+      expect(section.split('### Fixed')).toHaveLength(2);
+      expect(section).toContain('### Fixed\n\n- Corrected the widget (#7)\n- Deliver verified changes (#42)\n\n### Changed\n\n- Renamed the option (#8)\n');
+    });
+
+    test('AC3 an enhancement line joins an existing Changed section without a Fixed heading', () => {
+      const f = fixture({ versionPrepared: false, unreleased: '### Changed\n\n- Renamed the option (#8)' });
+      expect(prepare(f)).toMatchObject({ status: 0, prepared: { version: '3.5.0' } });
+      const section = releaseAt(changelogAt(f), '3.5.0');
+      expect(section.split('### Changed')).toHaveLength(2);
+      expect(section).toContain('### Changed\n\n- Renamed the option (#8)\n- Deliver verified changes (#42)\n');
+      expect(section).not.toContain('### Fixed');
+    });
+
+    test('AC4 an approved breaking bug fix stays under Changed (BREAKING) with no Fixed heading', () => {
+      const f = fixture({
+        versionPrepared: false,
+        labels: ['bug'],
+        issueTitle: 'BREAKING: Deliver verified changes',
+        requirements: '\n**Version bump**: major\n',
+      });
+      expect(prepare(f)).toMatchObject({ status: 0, prepared: { version: '4.0.0' } });
+      const section = releaseAt(changelogAt(f), '4.0.0');
+      expect(section.endsWith('### Changed (BREAKING)\n\n- BREAKING: Deliver verified changes (#42)\n')).toBe(true);
+      expect(section).not.toContain('### Fixed');
+    });
+
+    test('AC5 a re-run on a bug issue reports the same version and changes nothing', () => {
+      const f = fixture({ versionPrepared: false, labels: ['bug'] });
+      expect(prepare(f)).toMatchObject({ status: 0, prepared: { version: '3.4.6' } });
+      expect(releaseAt(changelogAt(f), '3.4.6')).toContain('### Fixed\n\n- Deliver verified changes (#42)\n');
+      const prepared = f.currentHead;
+      const files = ['VERSION', 'package.json', 'CHANGELOG.md'];
+      const before = files.map((name) => fs.readFileSync(path.join(f.root, name), 'utf8'));
+      expect(prepare(f)).toMatchObject({ status: 0, prepared: { version: '3.4.6' } });
+      expect(f.currentHead).toBe(prepared);
+      expect(files.map((name) => fs.readFileSync(path.join(f.root, name), 'utf8'))).toEqual(before);
+      expect(deliveryCalls(f, 'create')).toHaveLength(0);
     });
   });
 
