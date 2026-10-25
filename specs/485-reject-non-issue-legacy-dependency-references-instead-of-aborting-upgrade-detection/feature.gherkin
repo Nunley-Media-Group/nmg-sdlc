@@ -1,0 +1,40 @@
+**Issue**: #485
+**Date**: 2026-10-25
+**Status**: Approved
+**Author**: NMG
+
+# Generated from: specs/485-reject-non-issue-legacy-dependency-references-instead-of-aborting-upgrade-detection/requirements.md
+Feature: Non-issue legacy dependency references do not abort upgrade detection
+
+  @SCN001 @regression
+  Scenario: AC1 pull-request and table-row references create no candidate
+    Given an issue body containing "| **Version / Commit** | Main after merged PR #307 |" and "requires the fix after PR #307"
+    When parseLegacyDependencyEvidence parses the body
+    Then it returns no edge for "#307"
+
+  @SCN002 @regression
+  Scenario: AC2 references qualified with another project or repository create no candidate
+    Given an issue body containing "PennyScan issue #102 therefore fails" and "depends on Other-Org/other-repo#12"
+    When parseLegacyDependencyEvidence parses the body
+    Then it returns no edge for "#102" or "#12"
+
+  @SCN003 @regression
+  Scenario: AC3 a dangling legacy candidate becomes a finding and detection completes
+    Given a repository issue graph and a legacy candidate edge whose endpoint is not a repository issue
+    When detectIssueDependencyUpgrade runs
+    Then the candidate is absent from additions
+    And findings contain it with reason "dependency_dangling_candidate" and its source line
+    And the detect report contains every other detected category
+
+  @SCN004 @regression
+  Scenario: AC4 genuine sequencing clauses and field lines are preserved
+    Given issue bodies containing "After issue #394 resumes a consumed dispatch" and "Depends on: #10, #11"
+    And #394, #10 and #11 are repository issues
+    When detection runs
+    Then the edges blockedBy #394, blockedBy #10 and blockedBy #11 are proposed
+
+  @SCN005 @regression
+  Scenario: AC5 dangling existing official edges still fail closed
+    Given an existing official blocked-by edge whose target is not readable as a repository issue
+    When detection or sdlc-execute graph validation runs
+    Then it reports "dependency_dangling"
