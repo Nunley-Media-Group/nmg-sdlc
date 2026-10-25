@@ -488,6 +488,35 @@ describe('branch-first execute', () => {
     expect(f.state.starts).toEqual([]);
   });
 
+  it('prints the version_artifact_missing reason with the deliver handoff summary and starts no worker', () => {
+    const f = fixture();
+    f.setPrepareVersion(({ root }) => {
+      fs.mkdirSync(path.join(root, '.nmg-sdlc/handoffs'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.nmg-sdlc/handoffs/42-deliver.json'), JSON.stringify({
+        reasonCode: 'version_artifact_missing',
+        summary: 'CHANGELOG.md is missing; create it with a ## [Unreleased] section',
+      }));
+      return { status: 1, stdout: 'NMG_SDLC_HANDOFF: .nmg-sdlc/handoffs/42-deliver.json\n', stderr: '' };
+    });
+    expect(f.execute('#42')).toMatchObject({
+      status: 1,
+      stderr: expect.stringContaining('version_preparation_failed: version_artifact_missing — CHANGELOG.md is missing'),
+    });
+    expect(f.state.starts).toEqual([]);
+  });
+
+  it('keeps the bare reason when the preparation handoff carries no summary', () => {
+    const f = fixture();
+    f.setPrepareVersion(({ root }) => {
+      fs.mkdirSync(path.join(root, '.nmg-sdlc/handoffs'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.nmg-sdlc/handoffs/42-deliver.json'), JSON.stringify({ reasonCode: 'major_bump_required' }));
+      return { status: 1, stdout: 'NMG_SDLC_HANDOFF: .nmg-sdlc/handoffs/42-deliver.json\n', stderr: '' };
+    });
+    const result = f.execute('#42');
+    expect(result.stderr).toContain('version_preparation_failed: major_bump_required');
+    expect(result.stderr).not.toContain('—');
+  });
+
   it('prepares no version while the branch has uncommitted work', () => {
     const f = fixture({ dirty: true });
     f.setWorker(({ step, state, publish, passGate }) => {

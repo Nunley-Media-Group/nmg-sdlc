@@ -25,6 +25,7 @@ All mutations go through `scripts/sdlc-upgrade.mjs` (`detectUpgrade` / `applyUpg
 | v2-cleanup | Exact runner files and managed `.gitignore` entries |
 | runtime-state-v4 | Move legacy `.omp/sdlc/**` files to the same paths under `.nmg-sdlc/` without overwriting; drop byte-identical duplicates; delete `omp-controller.yml`; prune emptied legacy directories |
 | nmg-sdlc-ignore | After v2 cleanup and runtime-state: swap the legacy `.omp/sdlc/` rule in place for `.nmg-sdlc/` (or append `.nmg-sdlc/`); preserve every unrelated ignore rule |
+| changelog-create | Helper creates root `CHANGELOG.md` containing `# Changelog`, a blank line, and `## [Unreleased]` only when nothing exists there at apply time (live re-check; an existing file returns `already-current` and is never overwritten); runs at order 10.75 |
 
 For the v4 host-language groups, fail-closed reason codes are `steering_host_language_unsafe_path` (symlinked, non-regular, or unreadable registered snippet; skipped with no write), `contributing_unsafe_path` (symlinked or unreadable `CONTRIBUTING.md`), and `skipped:collision` (symlinked or unreadable `AGENTS.md` / `CLAUDE.md`). A steering writer failure returns `failed:<message>` with the writer's reason code.
 On spike-flatten collision: stamp the ADR only when the existing directory already has all four artifacts with matching `**Issue**: #N`. Otherwise `skipped:collision`.

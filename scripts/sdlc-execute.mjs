@@ -598,12 +598,17 @@ function prepareVersion(cwd, run, issue, invocationId) {
     if (SHA.test(headSha ?? '')) return headSha;
   }
   let reason = String(result?.stderr ?? '').trim().split(/\r?\n/)[0] || 'unknown';
+  let summary = '';
   if (String(result?.stdout ?? '').includes('NMG_SDLC_HANDOFF: ')) {
     try {
-      reason = JSON.parse(readFileSync(join(cwd, HANDOFF_DIR, `${issue}-deliver.json`), 'utf8')).reasonCode ?? reason;
+      const handoff = JSON.parse(readFileSync(join(cwd, HANDOFF_DIR, `${issue}-deliver.json`), 'utf8'));
+      reason = handoff.reasonCode ?? reason;
+      summary = typeof handoff.summary === 'string' ? handoff.summary.trim() : '';
     } catch { /* keep the stderr reason */ }
   }
-  throw new Error(`version_preparation_failed: ${reason}`);
+  throw new Error(summary
+    ? `version_preparation_failed: ${reason} — ${summary}`
+    : `version_preparation_failed: ${reason}`);
 }
 
 function currentGateFailure(cwd, run, issue, head, report) {

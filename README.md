@@ -433,6 +433,8 @@ Status is read-only: current branch/spec, verification, GitHub issue/PR state, a
 
 A major bump requires `**Version bump**: major` in approved requirements/design. An issue declaring `BREAKING` without that authorization fails closed. `[Unreleased]` changelog entries roll into the release heading during delivery.
 
+Delivery also requires `CHANGELOG.md` with a `## [Unreleased]` heading. Onboarding creates it when absent, and `/sdlc-upgrade-project` proposes creating it for an onboarded project that lacks it. If `VERSION`, `CHANGELOG.md`, or that heading is missing, `prepare-version` fails with `version_artifact_missing` before it changes any file, and `/sdlc-execute` prints the reason with a summary naming what is missing.
+
 The managed contribution gate correlates the current issue, singular spec identity, affected paths, steering alignment, verification evidence, and guide discoverability. Its documented reduced-evidence exceptions have path-validated predicates; they do not waive project CI or human review. Superseded rewrite-only behavior may use the explicit repository-rewrite contract, never a fabricated issue owner.
 
 This repository's CI runs the script suite, plugin-surface validation, current-spec validation, and applicable workflow inventory checks. Local tests prove the source checkout; a fresh installed session proves installed discovery; actual consumer delivery proves smoke behavior. Keep those evidence layers separate.

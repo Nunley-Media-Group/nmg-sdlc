@@ -3040,6 +3040,46 @@ describe('contributing-v4-host-language', () => {
   });
 });
 
+describe('changelog-create', () => {
+  const changelogItem = (root) => detectItems(root).find((candidate) => candidate.kind === 'changelog-create');
+
+  it('proposes CHANGELOG.md for an onboarded root VERSION without a changelog', () => {
+    const root = makeRoot();
+    write(root, 'VERSION', '0.1.0\n');
+    expect(changelogItem(root)).toMatchObject({
+      id: 'changelog-create', kind: 'changelog-create', rel: 'CHANGELOG.md', actionable: true,
+    });
+  });
+
+  it('emits nothing without a root VERSION file or when CHANGELOG.md already exists', () => {
+    const root = makeRoot();
+    expect(changelogItem(root)).toBeUndefined();
+    write(root, 'VERSION', '0.1.0\n');
+    write(root, 'CHANGELOG.md', '# Changelog\n\n## [Unreleased]\n');
+    expect(changelogItem(root)).toBeUndefined();
+  });
+
+  it('applies the Unreleased changelog and reports no changelog-create item on re-run', () => {
+    const root = makeRoot();
+    write(root, 'VERSION', '0.1.0\n');
+    const item = changelogItem(root);
+    expect(applyIds(root, [item.id]).results).toContainEqual({
+      id: 'changelog-create', status: 'applied', created: ['CHANGELOG.md'],
+    });
+    expect(fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8')).toBe('# Changelog\n\n## [Unreleased]\n');
+    expect(changelogItem(root)).toBeUndefined();
+  });
+
+  it('never applies over a CHANGELOG.md that exists when the approval is applied', () => {
+    const root = makeRoot();
+    write(root, 'VERSION', '0.1.0\n');
+    write(root, 'CHANGELOG.md', '# Mine\n\n## [Unreleased]\n- keep\n');
+    const result = applyIds(root, ['changelog-create']);
+    expect(result.results.some((entry) => entry.id === 'changelog-create' && entry.status === 'applied')).toBe(false);
+    expect(fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8')).toBe('# Mine\n\n## [Unreleased]\n- keep\n');
+  });
+});
+
 describe('agents-to-claude-md', () => {
   const gitIn = (root, ...args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
   const section = '<!-- nmg-sdlc-managed: spec-context -->\n## Spec\n<!-- /nmg-sdlc-managed -->\n';
