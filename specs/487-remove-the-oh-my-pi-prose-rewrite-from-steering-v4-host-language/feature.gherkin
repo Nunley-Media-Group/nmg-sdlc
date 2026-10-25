@@ -1,0 +1,34 @@
+**Issue**: #487
+**Date**: 2026-10-25
+**Status**: Approved
+**Author**: NMG
+
+# Generated from: specs/487-remove-the-oh-my-pi-prose-rewrite-from-steering-v4-host-language/requirements.md
+Feature: steering-v4-host-language never rewrites Oh My Pi prose
+
+  @SCN001 @regression
+  Scenario: AC1 prose host names are not rewritten
+    Given a registered snippet whose only v3 reference is the negated Oh My Pi prose fixture line from AC1
+    When upgrade detection runs
+    Then no actionable steering-v4-host-language item is reported
+    And the line is listed as a report-only prose finding with its file and line number
+
+  @SCN002 @regression
+  Scenario: AC2 applying the category leaves prose byte-for-byte
+    Given a registered snippet containing "herdr integration install omp" and "Oh My Pi and OMP agree"
+    When the approved steering-v4-host-language category applies
+    Then the token becomes "herdr integration install claude"
+    And the line "Oh My Pi and OMP agree" is unchanged
+
+  @SCN003 @regression
+  Scenario: AC3 validation config mapping is preserved
+    Given a manifest validation with config.program "omp" and config.args containing "--print"
+    When the approved category applies
+    Then config.program is "claude" and the argument is "-p"
+
+  @SCN004 @regression
+  Scenario: AC4 contract documentation matches behavior
+    Given the upgrade-project workflow and the v3-detectors reference
+    When the contract tests run
+    Then they describe token and validation mapping plus report-only prose findings
+    And they contain no Oh My Pi or OMP to Claude Code prose substitution
