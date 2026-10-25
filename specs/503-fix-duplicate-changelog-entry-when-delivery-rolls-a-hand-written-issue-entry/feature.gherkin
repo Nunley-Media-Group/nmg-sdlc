@@ -1,0 +1,43 @@
+**Issue**: #503
+**Date**: 2026-10-25
+**Status**: Approved
+**Author**: NMG
+**Related Spec**: specs/484-fix-first-run-delivery-missing-changelog-md-and-push-event-checks-block-sdlc-execute/
+
+# Generated from: specs/503-fix-duplicate-changelog-entry-when-delivery-rolls-a-hand-written-issue-entry/requirements.md
+Feature: Delivery does not duplicate the issue's CHANGELOG entry
+
+  @SCN001 @regression
+  Scenario: AC1 hand-written issue entry is rolled without a generated duplicate
+    Given the Unreleased section contains "### Fixed" with the bullet "- Corrected delivery (#42)."
+    When prepare-version runs for issue 42
+    Then the new version section contains that bullet once
+    And the new version section contains no generated "### Changed" line for issue 42
+    And the Unreleased section is empty
+
+  @SCN002 @regression
+  Scenario: AC2 generated entry is added when no entry references the issue
+    Given the Unreleased section is empty or contains only bullets without "(#42)"
+    When prepare-version runs for issue 42
+    Then the new version section ends with "### Changed" and "- Deliver verified changes (#42)"
+
+  @SCN003 @regression
+  Scenario: AC3 approved breaking change keeps the BREAKING category
+    Given issue 42 declares BREAKING with an approved major version bump
+    And no Unreleased bullet contains "(#42)"
+    When prepare-version runs for issue 42
+    Then the version is bumped to the next major
+    And the generated line is under "### Changed (BREAKING)"
+
+  @SCN004 @regression
+  Scenario: AC4 re-run after rolling a hand-written entry does not bump again
+    Given prepare-version already rolled a hand-written "(#42)" entry into the new version and committed it
+    When prepare-version runs again for issue 42
+    Then VERSION, package.json, and CHANGELOG.md are unchanged and no commit is created
+    And delivery does not fail with "version_not_prepared"
+
+  @SCN005 @regression
+  Scenario: AC5 matching is exact to the issue number
+    Given the Unreleased section contains bullets with "(#4)" and "(#420)" but none with "(#42)"
+    When prepare-version runs for issue 42
+    Then the generated line "- Deliver verified changes (#42)" is added
