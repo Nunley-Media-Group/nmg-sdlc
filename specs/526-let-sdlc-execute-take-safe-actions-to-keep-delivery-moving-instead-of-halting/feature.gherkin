@@ -1,0 +1,42 @@
+**Issue**: #526
+**Date**: 2026-10-26
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/491-make-the-sdlc-execute-session-an-opus-supervisor-that-inspects-and-steers-every-worker-stage/
+
+# File: scripts/__tests__/execute-safe-remediation-contract.test.mjs
+# Generated from: specs/526-let-sdlc-execute-take-safe-actions-to-keep-delivery-moving-instead-of-halting/requirements.md
+Feature: Safe remediation in the /sdlc-execute supervisor
+
+  @SCN001
+  Scenario: Any safe, reversible, progressing action is taken at every stage
+    Given the rendered execute workflow
+    When the supervisor finds a blocker it can clear itself at start, implement, verify, or deliver, or after a non-report controller exit
+    Then the workflow authorizes any action that changes no tracked repository file, loses no unregenerable work or data, touches no shared or production system, and moves toward delivery, without asking the person
+    And directs it to continue with prompt, redispatch with guidance naming the action, or a rerun of supervise
+
+  @SCN002
+  Scenario: Examples illustrate the rule without limiting it
+    Given the rendered execute workflow
+    When a reader looks up what the supervisor may do without asking
+    Then the workflow states the examples are not exhaustive
+    And the examples include restarting the container runtime, booting a simulator or emulator, restarting a host service or port forward, stopping a hung process the run started, excluding .nmg-sdlc/ in .git/info/exclude, waiting out transient failures then rerunning supervise, waiting for running required checks then redispatching deliver, running commands from the project root, and freeing regenerable caches
+
+  @SCN003
+  Scenario: Halt is limited to cases the person must handle
+    Given the rendered execute workflow
+    When a reader looks up when to halt
+    Then halt is limited to an interactive login or credential, a product or spec decision, a destructive, irreversible, shared, or production action, and a blocker that survives a remediation based on a different hypothesis
+
+  @SCN004
+  Scenario: Hard boundaries survive remediation
+    Given the rendered execute workflow
+    When the supervisor applies a remediation
+    Then editing product code, specs, or tracked repository files, committing, pushing, opening PRs, bypassing branch protection or required checks, and herdr server stop remain forbidden
+    And delivery still requires the full-green registered gate at the exact source head
+
+  @SCN005
+  Scenario: A hung worker process is diagnosed instead of continued
+    Given a check-in with no pane or token progress while a worker-started process has used about 0% CPU for several minutes
+    When the supervisor inspects the report
+    Then the workflow directs it to check process activity and stop the hung process or prompt the worker with the diagnosis instead of choosing continue again
