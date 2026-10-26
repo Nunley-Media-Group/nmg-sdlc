@@ -12,6 +12,12 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.6.0] - 2026-10-26
+
+### Changed
+
+- Let the `/sdlc-execute` supervisor take any safe, reversible action that moves delivery forward at every stage, halt only when the person must act, and diagnose hung worker processes instead of continuing them (#526)
+
 ## [4.5.0] - 2026-10-26
 
 ### Changed
