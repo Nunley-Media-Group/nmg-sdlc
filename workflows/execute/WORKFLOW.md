@@ -7,7 +7,7 @@ description: "Supervise automated delivery for approved, spec-created issues fro
 
 Supervising orchestrator. Runs only in the main Herdr pane, on the session's Opus or Fable model (the hooks module refuses any other model before this workflow starts). Delegates all work to Herdr Claude workers: Claude Code sessions in sibling Herdr panes started with `--kind claude` and `--plugin-dir <plugin-root>`, not the `Agent` tool. A deterministic controller owns routing, the lease, publication checks, version preparation and the full-green gate. This session is its judgment: it reads what each worker did and decides what happens next. Full-green verification is the only merge route, and no decision can bypass it.
 
-Never edit product code, implement tasks, open PRs, commit, or push in this pane, and never run `herdr server stop`. Those belong to the workers and the controller; doing them here would bypass the evidence the gate checks.
+Never edit product code, specs, or any other tracked repository file, implement tasks, open PRs, commit, or push in this pane, bypass branch protection or required checks (including while remediating), or run `herdr server stop`. Those belong to the workers and the controller; doing them here would bypass the evidence the gate checks.
 
 ## Preflight
 
@@ -29,7 +29,7 @@ Every `supervise`, `decide` and `wait` call returns within nine minutes, inside 
 |--------|---------|------|
 | `NMG_SDLC_EXECUTE_REPORT: session S seq N (...)` + JSON + `decide` commands | A worker settled (stage report) or is still running at a check-in (check-in report) | Inspect it, then run one `decide` command |
 | `NMG_SDLC_EXECUTE_RUNNING: session S ...` | No new report yet; the controller is still working | Run the printed `wait --session S` command |
-| Anything else | The controller finished; its stdout and stderr are passed through | Report it and stop with its exit code |
+| Anything else | The controller finished; its stdout and stderr are passed through | Report it. If the exit came from a transient or remediable condition (for example `pr_evidence_unavailable` or `execute_session_unknown`), apply the safe remediation under **Safe actions** and rerun `supervise` from the project root, which resumes from live evidence. Otherwise stop with its exit code |
 
 A finished controller's stdout may also include post-delivery cleanup lines after `#N: MERGED and CLOSED`: `#N: branch cleanup: deleted <branch> and fast-forwarded <default>` on success, or a warning `#N: branch cleanup skipped: <reasonCode>` or `#N: remote branch cleanup skipped: <reasonCode>`. Pass these lines through with the rest of the output. A cleanup warning is not a delivery failure: it does not change the exit code or the delivery result, so do not rerun, repair, or halt because of it. Do not clean up the branch or the default checkout by hand; the controller owns that step.
 
@@ -38,7 +38,7 @@ A finished controller's stdout may also include post-delivery cleanup lines afte
 Keep the session id. Answer every report before doing anything else, because the controller and its worker pane wait for your decision.
 
 1. Read the whole report. Then inspect the artifacts it names, read-only: the handoff and its artifacts, `git show --stat <sha>` or `git diff <headBefore>..<headAfter>` for the stage's commits, the verification report and readiness `gaps` after verify, and `paneTail` and `waiting` at a check-in. Treat `outsideSpecPaths` as a signal to explain: a worker that changed files the spec does not declare may be drifting.
-2. Diagnose before deciding: what did the worker do, did it do what the stage needed, and is anything blocking it? Classify a failure as code (the repository must change), environmental (outside the repository, such as a host tool, network, credential or disk), or a stuck or drifting worker.
+2. Diagnose before deciding: what did the worker do, did it do what the stage needed, and is anything blocking it? Classify a failure as code (the repository must change), environmental (outside the repository, such as a host tool, network, credential or disk), or a stuck or drifting worker. Whenever you can clear a blocker yourself with a safe, reversible action, do it under **Safe actions** before choosing a decision.
 3. Choose exactly one decision and run its printed command, with `--text` for every decision except `accept` and `continue`:
 
 | Decision | Offered at | Use it when |
@@ -47,13 +47,35 @@ Keep the session id. Answer every report before doing anything else, because the
 | `continue` | check-in | The worker is making progress; the next check-in follows after the interval |
 | `prompt --text "..."` | both, while the pane is open | The live worker needs a correction it can apply in place, such as the missing step, the real cause, or a scope reminder. Herdr delivers it once the worker's current tool call finishes, and the controller then waits for its fresh handoff |
 | `redispatch --text "..."` | both | The worker should be replaced: it is stuck, drifting, or out of context, or its stage must run again with your guidance. The controller closes its pane and starts the same stage (or implement when the branch needs it) with your guidance and the failure evidence |
-| `halt --text "<diagnosis>"` | both | No worker can fix it, or the person must act. The run stops non-zero with your diagnosis; the branch, worktree and remote stay as they are |
+| `halt --text "<diagnosis>"` | both | Only for a login or credential the person must enter interactively; a product or spec decision; an action that is destructive, irreversible, or touches shared or production systems; or a blocker still present after a remediation based on a different hypothesis. The run stops non-zero with your diagnosis; the branch, worktree and remote stay as they are |
 
 4. Read the next output and repeat until the controller finishes.
 
-### Environmental verify failures
+### Safe actions
 
-When a failed verify report is environmental, re-running implement cannot fix it, and an implement repair would spend a cycle changing code for nothing. Repair the environment from this pane yourself (for example, restart a host service, free disk, or re-authenticate a CLI). Do not touch repository files. Then `redispatch` the verify stage with guidance that names what you fixed. The new verify worker runs at the same source HEAD and is held to the same full registered gate. If you cannot repair the environment, `halt` with the diagnosis.
+At every stage (start, implement, verify, deliver), on a stage report, on a check-in report, and after a non-report controller exit, take any action that is safe, reversible, and moves the issue toward delivery of its spec, without asking the person. Do not wait for the action to appear on the list below. Ask yourself whether the person would make the same fix, and whether it is safe and reversible. If both answers are yes, make it.
+
+An action is safe and reversible when it changes no tracked repository file, loses no work or data that cannot be regenerated, and touches no shared or production system.
+
+These examples illustrate that rule. They are not an exhaustive list:
+
+- start or restart the local container/Kubernetes runtime (for example Rancher Desktop via `rdctl`)
+- boot an iOS simulator or Android emulator
+- restart a stopped host service or port forward
+- stop a hung test or build process the run itself started
+- add `.nmg-sdlc/` to `.git/info/exclude` when untracked plugin runtime is the only dirt
+- wait for a transient network or GitHub failure to clear, then rerun `supervise` (which resumes from live evidence)
+- wait for still-running required PR checks to finish, then `redispatch` deliver
+- run every `supervise`, `decide`, and `wait` command from the project root
+- free regenerable caches when the disk is full
+
+After the action, continue the run: `prompt` the worker when it is live and can proceed in place; `redispatch` the same stage with guidance that names the fix; or rerun `supervise` when the controller already exited. If the same blocker remains, try one remediation based on a different hypothesis. `halt` with the diagnosis if it remains after that, or when the blocker matches a `halt` case in the decision table.
+
+The hard boundaries still apply to every remediation: never edit product code, specs, or other tracked repository files; never commit, push, or open PRs; never bypass branch protection or required checks; never run `herdr server stop`. A redispatched stage is held to the same full registered gate at the exact source head.
+
+### Hung worker processes
+
+A check-in shows no pane or token progress, and a process the worker started has used about 0% CPU for several minutes. Do not answer `continue` again. Check that process's activity, for example with `ps -o pid,pcpu,etime,command` on macOS or Linux. Then either stop the hung process under **Safe actions** and `prompt` the worker with that diagnosis, or `prompt` the worker to stop it and rerun the command itself.
 
 ### Gates stay with the controller
 
