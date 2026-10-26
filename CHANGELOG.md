@@ -12,6 +12,12 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.5.0] - 2026-10-26
+
+### Changed
+
+- Clean up the issue branch and sync the default branch after successful delivery (#523)
+
 ## [4.4.12] - 2026-10-25
 
 ### Changed
