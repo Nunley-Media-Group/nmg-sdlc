@@ -1,0 +1,52 @@
+**Issue**: #523
+**Date**: 2026-10-25
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/441-continue-an-explicit-execute-queue-after-the-previous-issue-is-delivered/
+
+# File: scripts/__tests__/sdlc-execute.test.mjs
+# Generated from: specs/523-clean-up-the-issue-branch-and-sync-the-default-branch-after-successful-delivery/requirements.md
+Feature: Clean up the issue branch and sync the default branch after successful delivery
+
+  @SCN001
+  Scenario: Delivered branch is cleaned up and the default branch is synced
+    Given issue #42 is proven delivered on clean local branch "42-example" at head H
+    And remote branch "42-example" points at H
+    When the controller records the terminal delivery for #42
+    Then remote and local branch "42-example" are deleted
+    And the checkout is the default branch fast-forwarded to origin
+    And the output contains "#42: MERGED and CLOSED" followed by "#42: branch cleanup: deleted 42-example and fast-forwarded main"
+    And the controller exits 0
+
+  @SCN002
+  Scenario: Remote branch already absent
+    Given issue #42 is proven delivered on clean local branch "42-example" at head H
+    And remote branch "42-example" does not exist
+    When the controller records the terminal delivery for #42
+    Then no remote warning is printed
+    And the checkout, fast-forward pull, and local branch deletion complete as in SCN001
+
+  @SCN003
+  Scenario: Unsafe cleanup is skipped with a warning
+    Given issue #42 is proven delivered
+    And the worktree is dirty outside ".nmg-sdlc/", the local head differs, the checkout fails, or the pull is not a fast-forward
+    When the controller records the terminal delivery for #42
+    Then the output contains "#42: MERGED and CLOSED" and "#42: branch cleanup skipped: <reasonCode>" naming that condition
+    And no later cleanup step runs and the local branch and uncommitted changes are preserved
+    And the controller exits 0
+
+  @SCN004
+  Scenario: Remote branch moved after merge
+    Given issue #42 is proven delivered at head H
+    And remote branch "42-example" points at a commit other than H
+    When the controller records the terminal delivery for #42
+    Then remote branch "42-example" still exists
+    And the output contains "#42: remote branch cleanup skipped: remote_head_mismatch"
+    And local cleanup completes as in SCN001
+
+  @SCN005
+  Scenario: Cleanup runs per issue in a queue and on re-entry
+    Given "/sdlc-execute #42 #43" delivers #42, or bare "/sdlc-execute" starts on already-delivered branch "42-example"
+    When the controller records #42's terminal delivery
+    Then #42's cleanup runs before the next queued issue starts
+    And the next issue starts from the synced default branch
