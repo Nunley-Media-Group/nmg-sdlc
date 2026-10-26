@@ -19,6 +19,11 @@ export function parseInteractiveSlash(text: unknown): { command: string; skill: 
 export function withArguments(body: string, args: unknown): string;
 export function interactiveHeadlessMessage(commandName: string): string;
 export function executeModelRefusal(model: unknown): string | null;
+export const EXECUTE_GOAL_MAX_ISSUES: number;
+export function executeGoalCondition(issues: unknown): string | null;
+export function executeGoalRequest(call?: { command?: unknown; stdout?: unknown }): number[] | null;
+export function isExecuteSuperviseCommand(command: unknown): boolean;
+export function executeGoalStoppedLine(reason: unknown): string;
 export function writeSpecMergeIssue(command: unknown): number | null;
 export function writeSpecMergeResult(text: unknown): { issue: number; slug: string; pr: number } | null;
 export function soleJsonObject(text: unknown): Record<string, unknown> | null;

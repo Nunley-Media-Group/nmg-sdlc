@@ -4,8 +4,12 @@ import {
   INTERACTIVE_COMMANDS,
   SDLC_MODELS,
   WRITE_SPEC_FINISHED_LABELS,
+  executeGoalCondition,
+  executeGoalRequest,
+  executeGoalStoppedLine,
   executeModelRefusal,
   interactiveHeadlessMessage,
+  isExecuteSuperviseCommand,
   materializePluginRootCommand,
   materializePluginRootPath,
   recommendedAnswers,
@@ -57,6 +61,14 @@ const writeSpec = {
   // A Finished selection awaits the end of its reply turn.
   exitPending: false,
 }
+// The /sdlc-execute run in this session. supervise is refused until its goal is
+// set; pendingIssues holds the issues a `goal` helper result named, until the
+// turn that ran that helper completes.
+const execute = {
+  active: false,
+  goalSet: false,
+  pendingIssues: null as number[] | null,
+}
 const recordedPublications = new Set<string>()
 let interactive = true
 let autopilot = false
@@ -106,6 +118,8 @@ function startInteractiveCommand(command: string): void {
   } else {
     Object.assign(writeSpec, { active: false, exitPending: false })
   }
+  if (command === 'sdlc-execute') Object.assign(execute, { active: true, goalSet: false, pendingIssues: null })
+  else Object.assign(execute, { active: false, pendingIssues: null })
 }
 
 // A command without a table model (`/sdlc-execute`) keeps the session model.
@@ -187,6 +201,26 @@ async function submitContinuation($: Engine): Promise<void> {
   }
 }
 
+// Sets the run's /goal once its issues are known. supervise stays refused until
+// the goal is set; a failure keeps it refused and has the session print the
+// goal_unavailable stop line instead.
+async function setExecuteGoal($: Engine, issues: number[]): Promise<void> {
+  try {
+    const condition = executeGoalCondition(issues)
+    if (condition === null) throw new Error('goal issues are invalid')
+    if (!(await $.command.list()).some(({ name }) => name === 'goal')) throw new Error('goal command unavailable')
+    // Set before the goal's own turn, so that turn's supervise passes the gate.
+    execute.goalSet = true
+    await $.command.run({ command: 'goal', args: condition })
+  } catch (error) {
+    execute.goalSet = false
+    const reason = error instanceof Error ? error.message : String(error)
+    void $.prompt.submit({
+      text: `NMG SDLC: setting the /goal failed. Print exactly this line and stop without running supervise: ${executeGoalStoppedLine(reason)}`,
+    })
+  }
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -246,11 +280,16 @@ export const register: Register = on => {
   // sees it.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const command = materializePluginRootCommand(e.command, $.plugin.root)
+    if (execute.active && !execute.goalSet && isExecuteSuperviseCommand(command)) {
+      return { deny: 'NMG SDLC: /sdlc-execute sets its /goal before supervise. Run sdlc-execute.mjs goal with the resolved issues and end your turn.' }
+    }
     const ran = await next(command === e.command ? e : { ...e, command })
     if (ran.deny !== undefined) return ran
     const stdout = ran.isError === true
       ? (ran.text ?? '')
       : (ran.result?.stdout ?? ran.text ?? '')
+    const goal = execute.active ? executeGoalRequest({ command, stdout }) : null
+    if (goal !== null) execute.pendingIssues = goal
     const publication = writeSpecPublication({ toolUseId: e.tool_use_id, command, stdout })
     if (publication) {
       recordPublication(e.tool_use_id, publication)
@@ -323,6 +362,11 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
     if (e.agentId !== undefined) return done
+    if (execute.pendingIssues !== null) {
+      const issues = execute.pendingIssues
+      execute.pendingIssues = null
+      if (!e.isAborted && e.reason !== 'error') void setExecuteGoal($, issues)
+    }
     if (writeSpec.pending) {
       writeSpec.exitPending = false
       void submitContinuation($)

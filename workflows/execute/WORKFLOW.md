@@ -19,8 +19,8 @@ Trim `$ARGUMENTS`. Accept `--retain-worker` at most once and `--check-in-seconds
 
 Controller paths (`<plugin-root>/scripts/...`) name the installed nmg-sdlc plugin: the rendered workflow materializes them, and the nmg-sdlc hooks module materializes them in `Bash` commands, so invoke controllers exactly as written.
 
-- With issue tokens, run `node "<plugin-root>/scripts/sdlc-execute.mjs" supervise` with every trimmed token.
-- Bare on a branch that `parseIssueBranch` recognizes (`N-*`), run `supervise` with no issue tokens; the controller selects that issue and resumes it from live evidence.
+- With issue tokens, follow **Set the goal** with every trimmed token.
+- Bare on a branch that `parseIssueBranch` recognizes (`N-*`), follow **Set the goal** with no issue tokens; the controller selects that issue and resumes it from live evidence.
 - Bare on a non-issue branch, follow **Select specified issues** below.
 
 Every `supervise`, `decide` and `wait` call returns within nine minutes, inside the `Bash` tool timeout, so run them in the foreground. Each prints exactly one of:
@@ -32,6 +32,27 @@ Every `supervise`, `decide` and `wait` call returns within nine minutes, inside 
 | Anything else | The controller finished; its stdout and stderr are passed through | Report it. If the exit came from a transient or remediable condition (for example `pr_evidence_unavailable` or `execute_session_unknown`), apply the safe remediation under **Safe actions** and rerun `supervise` from the project root, which resumes from live evidence. Otherwise stop with its exit code |
 
 A finished controller's stdout may also include post-delivery cleanup lines after `#N: MERGED and CLOSED`: `#N: branch cleanup: deleted <branch> and fast-forwarded <default>` on success, or a warning `#N: branch cleanup skipped: <reasonCode>` or `#N: remote branch cleanup skipped: <reasonCode>`. Pass these lines through with the rest of the output. A cleanup warning is not a delivery failure: it does not change the exit code or the delivery result, so do not rerun, repair, or halt because of it. Do not clean up the branch or the default checkout by hand; the controller owns that step.
+
+## Set the goal
+
+Every path reaches this section once its issue set is resolved, before any `supervise` call. The hooks module refuses `supervise` until the run's `/goal` is set. Supervision therefore never runs without a goal that names the whole queue, and that goal can be judged from the conversation alone.
+
+1. Run `node "<plugin-root>/scripts/sdlc-execute.mjs" goal` with the same issue tokens that `supervise` will receive: the trimmed explicit tokens, the resolved numbers in order, or no tokens on a bare issue branch.
+2. If its JSON has `"ok": false`, print its `reasonCode` and stop without calling `supervise`. The helper reports `goal_issues_unresolved` when a bare run is not on an issue branch.
+3. Otherwise end your turn with no further action. Do not run `/goal` yourself: the hooks module sets it after this turn ends, and the goal's own turn starts supervision.
+4. In the goal's turn, run `supervise` with the same tokens as step 1, followed by `--retain-worker` and `--check-in-seconds N` when present in `$ARGUMENTS`. Then supervise its reports as below.
+5. A `supervise` call refused because no goal is set means this turn must end now. Do not retry it in the same turn.
+6. When a hooks-module prompt reports `/sdlc-execute stopped: goal_unavailable: <reason>`, print that line exactly and stop. The refused `supervise` never runs.
+
+A run that resolves no issue set stops in **Select specified issues** and never reaches this section, so it sets no goal.
+
+### Completion and stop lines
+
+The goal is judged from your replies alone, so print the completion lines in the reply itself:
+
+- After the controller finishes, repeat every `#N: MERGED and CLOSED` line from its output verbatim in your reply.
+- On a `halt` decision or a non-remediable controller exit, print `/sdlc-execute stopped: <diagnosis>` as the reply's last line.
+- The person can run `/goal clear` to stop the goal-driven continuation.
 
 ## Supervise each report
 
@@ -91,5 +112,5 @@ Read only when `/sdlc-execute` receives no issue tokens after removing optional 
 4. Otherwise use one `AskUserQuestion` call with one question that sets `multiSelect: true` (header `Issues`). Do not mark any option ` (Recommended)`. The question text lists every returned issue, one per line as `#N — {title}`, followed by `Which spec-created issues should /sdlc-execute run?`
 5. Offer the four lowest-numbered issues as `#N — {title}` issue options (the tool allows at most four), or every issue when fewer than four exist. There is no Cancel chip. Because `AskUserQuestion` needs at least two options, a single returned issue is paired with exactly `Stop — run nothing`; selecting only that option prints nothing further and stops without invoking `supervise`. Submitting the selection is the confirm action; dismissing the question stops without invoking `supervise`. Automatic Other accepts `#N`, `N`, or comma- or whitespace-separated lists under the controller's token rules.
 6. Union selected issue options with Other tokens (multi-select answers are comma-separated labels): issues in ascending displayed order, then Other tokens in typed order; dedupe first occurrence first. Invalid Other or an empty union reopens the same question. A non-empty union starts immediately with no second confirmation.
-7. Run `node "<plugin-root>/scripts/sdlc-execute.mjs" supervise` once with the selected numbers as separate `#N` tokens in the resolved order, followed by `--retain-worker` and `--check-in-seconds N` when present in `$ARGUMENTS`, then supervise its reports as above.
+7. Follow **Set the goal** with the selected numbers as separate `#N` tokens in the resolved order. Its goal turn runs `supervise` with those tokens, followed by `--retain-worker` and `--check-in-seconds N` when present in `$ARGUMENTS`.
 8. If `AskUserQuestion` is unavailable (no UI: `claude -p`, the SDK), print `Run /sdlc-execute in the TUI to choose spec-created issues.` followed by every `list-specified` title, then stop without invoking `supervise`.

@@ -8,7 +8,7 @@ import { closeSync, constants as fsConstants, fstatSync, lstatSync, openSync, re
 import { join, relative, resolve, sep } from 'node:path';
 import { defaultPromptRegistry, renderPrompt, writePromptProvenance } from '../src/sdlc-prompt-snippets.mjs';
 import { packageRoot } from '../src/sdlc-workflows.mjs';
-import { SDLC_EFFORTS, SDLC_MODELS } from '../src/host-events.mjs';
+import { executeGoalCondition, SDLC_EFFORTS, SDLC_MODELS } from '../src/host-events.mjs';
 import { collectEvidence, parseIssueBranch } from './sdlc-status.mjs';
 import { inspectPublicationScope, publicationFileEntries } from './sdlc-safe-recoveries.mjs';
 import { inspectVerificationArtifactRepair, inspectVerificationReadiness, MAX_VERIFICATION_REPORT_BYTES } from './verification-readiness.mjs';
@@ -1179,6 +1179,13 @@ async function sessionCommand(sub, rest) {
     '       sdlc-execute.mjs wait --session S', ''].join('\n') };
 }
 
+// The single issue the current branch names when parseIssueBranch recognizes it; otherwise null.
+function branchGoalIssues() {
+  const result = defaultRun('git', ['branch', '--show-current'], { cwd: process.cwd() });
+  const issue = parseIssueBranch(String(result.stdout ?? '').trim())?.issueNumber;
+  return succeeded(result) && Number.isSafeInteger(issue) ? [issue] : null;
+}
+
 async function runCli(argv = process.argv.slice(2)) {
   const [sub, ...rest] = argv;
   if (['run', 'supervise', 'decide', 'wait'].includes(sub)) {
@@ -1197,6 +1204,15 @@ async function runCli(argv = process.argv.slice(2)) {
         console.log(JSON.stringify({ ok: true, issues: listSpecifiedIssues() }));
       } catch {
         console.log(JSON.stringify({ ok: false, reasonCode: 'issues_unreadable' }));
+        process.exitCode = 1;
+      }
+    } else if (sub === 'goal') {
+      // Names the run's issues for its /goal; reads no GitHub state and changes nothing.
+      const explicit = parseArgs(rest.join(' ')).issues;
+      const issues = explicit.length ? explicit : branchGoalIssues();
+      if (issues) console.log(JSON.stringify({ ok: true, issues, condition: executeGoalCondition(issues) }));
+      else {
+        console.log(JSON.stringify({ ok: false, reasonCode: 'goal_issues_unresolved' }));
         process.exitCode = 1;
       }
     } else if (sub === 'backlog') {

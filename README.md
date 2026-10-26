@@ -306,6 +306,10 @@ Successful implement always hands off next=verify.
 
 Workers are sibling Herdr `--kind claude` panes running Claude Code with this plugin (see [Automated commands and workers](#automated-commands-and-workers)). Execute owns orchestration, not product edits in the main pane. Worker success is determined by validated handoffs, not terminal prose or an exit code alone. Only host-captured final assistant output supplies findings.
 
+### Completion goal
+
+Before its first `supervise` call, `/sdlc-execute` sets a Claude Code `/goal` that names every queued issue in run order. The goal is met when the session's replies show `#N: MERGED and CLOSED` for each issue, or a `/sdlc-execute stopped: <diagnosis>` line for a halt or a non-remediable controller exit. A run whose goal cannot be set prints `/sdlc-execute stopped: goal_unavailable: <reason>`, and the hooks module refuses every `supervise` call for that run. A run that selects no issues sets no goal. Use `/goal` to see the goal's status and `/goal clear` to stop it.
+
 ### Supervision
 
 The `/sdlc-execute` session supervises every stage. Its controller runs detached and yields a report each time a worker settles and while a worker runs. Each `sdlc-execute.mjs supervise`, `decide`, or `wait` call returns within nine minutes, so no call outlasts the `Bash` tool timeout. The controller keeps its lease, owned panes, and failure history across those calls.
