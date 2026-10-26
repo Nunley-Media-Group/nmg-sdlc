@@ -194,6 +194,47 @@ export function recommendedAnswers(questions, { prefer = [] } = {}) {
   return answers;
 }
 
+export const EXECUTE_GOAL_MAX_ISSUES = 20;
+const EXECUTE_GOAL_RE = /sdlc-execute\.mjs["']?\s+goal\b/;
+const EXECUTE_SUPERVISE_RE = /sdlc-execute\.mjs["']?\s+supervise\b/;
+
+/**
+ * The `/goal` condition for `/sdlc-execute` delivering `issues` in order, or
+ * null for an empty, duplicate, non-integer, or over-long list. Completion is
+ * judged from conversation text alone: each issue's `MERGED and CLOSED` line, or
+ * a `/sdlc-execute stopped:` line.
+ */
+export function executeGoalCondition(issues) {
+  if (!Array.isArray(issues) || issues.length === 0 || issues.length > EXECUTE_GOAL_MAX_ISSUES) return null;
+  if (!issues.every(isPositiveSafeInteger) || new Set(issues).size !== issues.length) return null;
+  const refs = issues.map((issue) => `#${issue}`).join(", ");
+  const lines = issues.map((issue) => `the line "#${issue}: MERGED and CLOSED"`).join(" and ");
+  return `/sdlc-execute is delivering ${refs} in this order. Keep supervising its controller with supervise, decide and wait as the execute workflow directs, starting with the supervise command for these issues. This goal is met only when your replies in this conversation contain ${lines}, or contain a line beginning "/sdlc-execute stopped:" followed by the halt or controller-exit diagnosis.`;
+}
+
+/**
+ * The issues a finished `sdlc-execute.mjs goal` Bash call names, in order, or
+ * null: the command must invoke `goal` and its sole JSON result must be
+ * `{ ok: true, issues }` with issues `executeGoalCondition` accepts.
+ */
+export function executeGoalRequest({ command, stdout } = {}) {
+  if (typeof command !== "string" || !EXECUTE_GOAL_RE.test(command)) return null;
+  const result = soleJsonObject(stdout);
+  if (result?.ok !== true || executeGoalCondition(result.issues) === null) return null;
+  return [...result.issues];
+}
+
+/** True when a Bash command invokes the execute controller's `supervise`, whatever its quoting or root spelling. */
+export function isExecuteSuperviseCommand(command) {
+  return typeof command === "string" && EXECUTE_SUPERVISE_RE.test(command);
+}
+
+/** The one-line failure for a run whose `/goal` could not be set. */
+export function executeGoalStoppedLine(reason) {
+  const detail = String(reason ?? "").replace(/\s*[\r\n]+\s*/g, " ").trim();
+  return `/sdlc-execute stopped: goal_unavailable: ${detail}`;
+}
+
 function controllerPath(root, scriptName) {
   return SCRIPT_NAME_PATTERN.test(scriptName) ? joinRoot(root, "scripts", scriptName) : null;
 }
