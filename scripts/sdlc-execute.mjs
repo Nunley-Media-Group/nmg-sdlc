@@ -299,19 +299,61 @@ function closedIssueDelivery(cwd, run, issue) {
     || parseIssueBranch(pr.headRefName)?.issueNumber !== issue) throw undelivered();
   return 'delivered';
 }
+// Whether the worktree holds any change outside .nmg-sdlc/; an unreadable status throws.
+function dirtyOutsideRuntime(cwd, run) {
+  const status = run('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd });
+  if (!succeeded(status)) throw new Error('worktree_status_unavailable');
+  return String(status.stdout ?? '').split(/\r?\n/).filter(Boolean)
+    .some((line) => !line.slice(3).startsWith('.nmg-sdlc/'));
+}
+// The repository default branch name; an empty or failed lookup throws.
+function defaultBranchName(cwd, run) {
+  const base = run('gh', ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'], { cwd });
+  const name = succeeded(base) ? String(base.stdout ?? '').trim() : '';
+  if (!name) throw new Error('default_branch_unreadable');
+  return name;
+}
 // Another issue's branch is left for the default branch only when that issue is delivered at
 // this head and the worktree is clean outside .nmg-sdlc/; otherwise the caller keeps it (returns false).
 function leaveDeliveredBranch(cwd, run, current, branchIssue) {
-  const status = run('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd });
-  if (!succeeded(status)) throw new Error('worktree_status_unavailable');
-  const dirty = String(status.stdout ?? '').split(/\r?\n/).filter(Boolean)
-    .some((line) => !line.slice(3).startsWith('.nmg-sdlc/'));
-  if (dirty || !completed(cwd, run, branchIssue.issueNumber, current.branch, current.head)) return false;
-  const base = run('gh', ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'], { cwd });
-  const defaultBranch = succeeded(base) ? String(base.stdout ?? '').trim() : '';
-  if (!defaultBranch) throw new Error('default_branch_unreadable');
+  if (dirtyOutsideRuntime(cwd, run) || !completed(cwd, run, branchIssue.issueNumber, current.branch, current.head)) return false;
+  const defaultBranch = defaultBranchName(cwd, run);
   if (!succeeded(run('git', ['switch', defaultBranch], { cwd }))) throw new Error('default_checkout_failed');
   return true;
+}
+// Deletes the remote issue branch only while it still points at the proven head. Returns the warning
+// reason to report, or null when the branch was deleted or is already absent.
+function deleteRemoteDeliveredBranch(cwd, run, branch, head) {
+  let remote;
+  try { remote = remoteHead(cwd, run, branch); } catch { return 'remote_head_unreadable'; }
+  if (remote === null) return null;
+  if (remote !== head) return 'remote_head_mismatch';
+  return succeeded(run('git', ['push', 'origin', '--delete', branch], { cwd })) ? null : 'remote_delete_failed';
+}
+// Post-delivery cleanup of the issue branch proven delivered at `current.head`. A refused or failed
+// local step returns its reason and runs no later step; a remote warning never stops local cleanup.
+// It never throws, so its lines cannot change the delivery result or exit status.
+function cleanupDeliveredBranch(cwd, run, issue, current) {
+  const { branch, head } = current;
+  const lines = [];
+  const skipped = (reasonCode) => [...lines, `#${issue}: branch cleanup skipped: ${reasonCode}`];
+  let dirty;
+  try { dirty = dirtyOutsideRuntime(cwd, run); } catch { dirty = true; }
+  if (dirty) return skipped('worktree_dirty');
+  try {
+    const now = checkout(cwd, run);
+    if (now.branch !== branch || now.head !== head) return skipped('local_head_mismatch');
+  } catch { return skipped('local_head_mismatch'); }
+  const remoteWarning = deleteRemoteDeliveredBranch(cwd, run, branch, head);
+  if (remoteWarning) lines.push(`#${issue}: remote branch cleanup skipped: ${remoteWarning}`);
+  let defaultBranch;
+  try { defaultBranch = defaultBranchName(cwd, run); } catch { return skipped('default_branch_unreadable'); }
+  if (!succeeded(run('git', ['switch', defaultBranch], { cwd }))) return skipped('default_checkout_failed');
+  if (!succeeded(run('git', ['pull', '--ff-only', 'origin', defaultBranch], { cwd }))) return skipped('pull_not_fast_forward');
+  const ref = run('git', ['rev-parse', `refs/heads/${branch}`], { cwd });
+  if (!succeeded(ref) || String(ref.stdout ?? '').trim() !== head) return skipped('local_branch_delete_failed');
+  if (!succeeded(run('git', ['branch', '-D', branch], { cwd }))) return skipped('local_branch_delete_failed');
+  return [...lines, `#${issue}: branch cleanup: deleted ${branch} and fast-forwarded ${defaultBranch}`];
 }
 function readRegularEvidence(root, path, maxBytes) {
   const relativePath = relative(resolve(root), resolve(path));
@@ -855,6 +897,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
         const evidence = branchIssue ? statusEvidence(cwd, run) : null;
         if (branchIssue && completed(cwd, run, issue, current.branch, current.head)) {
           output.push(`#${issue}: MERGED and CLOSED`);
+          output.push(...cleanupDeliveredBranch(cwd, run, issue, current));
           break;
         }
         if (!branchIssue && !failure) {
@@ -873,11 +916,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
         }
         let step;
         if (!branchIssue) {
-          const status = run('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd });
-          if (!succeeded(status)) throw new Error('worktree_status_unavailable');
-          if (String(status.stdout ?? '').split(/\r?\n/).filter(Boolean).some(
-            (line) => !line.slice(3).startsWith('.nmg-sdlc/'),
-          )) throw new Error('active_issue_conflict: preserve dirty worktree');
+          if (dirtyOutsideRuntime(cwd, run)) throw new Error('active_issue_conflict: preserve dirty worktree');
           step = 'start';
         } else {
           if (!evidence?.spec?.complete || ['repair_required', 'unverifiable'].includes(evidence.spec.scope?.status)) {

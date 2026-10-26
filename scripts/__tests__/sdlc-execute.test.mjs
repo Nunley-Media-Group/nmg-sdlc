@@ -258,6 +258,20 @@ const closingRef = (number, login = 'example', name = 'controller') => ({ number
 const closedIssue = (number, references) => ({ number, state: 'CLOSED', closedByPullRequestsReferences: references });
 const mergedPr = (number, issue, headRefName) => ({ number, state: 'MERGED', headRefName,
   mergedAt: '2026-09-29T00:00:00Z', mergeCommit: { oid: 'b'.repeat(40) }, closingIssuesReferences: [{ number: issue }] });
+// Moves origin's default branch one commit ahead through a second clone; the fixture's local
+// default branch stays where it was.
+const advanceOrigin = (root, branch = 'main') => {
+  const clone = fs.mkdtempSync(path.join(os.tmpdir(), 'execute-advance-'));
+  roots.push(clone);
+  execFileSync('git', ['clone', '--quiet', '--branch', branch, git(root, 'remote', 'get-url', 'origin'), clone],
+    { encoding: 'utf8' });
+  git(clone, 'config', 'user.name', 'Controller Test');
+  git(clone, 'config', 'user.email', 'controller@example.test');
+  fs.writeFileSync(path.join(clone, 'merged.txt'), 'merged elsewhere\n');
+  git(clone, 'add', '.');
+  git(clone, 'commit', '-m', 'feat: merge #9');
+  git(clone, 'push', 'origin', `HEAD:${branch}`);
+};
 
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 
@@ -415,7 +429,7 @@ describe('branch-first execute', () => {
   it('starts verification immediately from a clean implemented feature branch despite stale checkpoint', () => {
     const f = fixture();
     const response = f.execute('');
-    expect(response).toEqual({ status: 0, stdout: '#42: verify passed\n#42: deliver passed\n#42: MERGED and CLOSED\n', stderr: '' });
+    expect(response).toEqual({ status: 0, stdout: '#42: verify passed\n#42: deliver passed\n#42: MERGED and CLOSED\n#42: branch cleanup: deleted 42-example and fast-forwarded main\n', stderr: '' });
     expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['verify', 'deliver']);
     expect(f.state.merged && f.state.closed).toBe(true);
     expect(f.state.closedPanes).toEqual(f.state.owned);
@@ -604,7 +618,7 @@ describe('branch-first execute', () => {
     f.state.merged = true;
     f.state.closed = true;
     f.state.labels = [];
-    expect(f.execute('')).toEqual({ status: 0, stdout: '#42: MERGED and CLOSED\n', stderr: '' });
+    expect(f.execute('')).toEqual({ status: 0, stdout: '#42: MERGED and CLOSED\n#42: branch cleanup: deleted 42-example and fast-forwarded main\n', stderr: '' });
     expect(f.state.starts).toEqual([]);
   });
 
@@ -756,14 +770,18 @@ describe('branch-first execute', () => {
       }
       if (step === 'implement') {
         expect(state.merged).toBe(false);
-        publish('fix: required smoke #42');
+        // Commit only the source change so runtime state stays untracked, as it is in real projects.
+        fs.writeFileSync(path.join(root, 'required.txt'), 'smoke fix\n');
+        git(root, 'add', 'required.txt');
+        git(root, 'commit', '-m', 'fix: required smoke #42');
+        git(root, 'push', 'origin', 'HEAD:42-example');
         return { status: 'passed', next: 'verify' };
       }
       if (step === 'deliver') { state.merged = true; state.closed = true; return { status: 'passed', next: null }; }
       throw new Error(step);
     });
     expect(f.execute('#42')).toEqual({ status: 0,
-      stdout: '#42: implement passed\n#42: verify passed\n#42: deliver passed\n#42: MERGED and CLOSED\n', stderr: '' });
+      stdout: '#42: implement passed\n#42: verify passed\n#42: deliver passed\n#42: MERGED and CLOSED\n#42: branch cleanup: deleted 42-example and fast-forwarded main\n', stderr: '' });
     expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual([
       'verify', 'implement', 'verify', 'deliver',
     ]);
@@ -997,7 +1015,12 @@ describe('branch-first execute', () => {
     });
     expect(f.execute('#42')).toMatchObject({ status: 0 });
     expect(deliveryCalls).toBe(1);
-    expect(f.execute('')).toMatchObject({ status: 0 });
+    // Post-delivery cleanup removed the issue branch, so the repeat recognizes the delivery off-branch.
+    const run = issueDeliveryRun(f, {
+      issues: { 42: closedIssue(42, [closingRef(9)]) },
+      prs: { 9: mergedPr(9, 42, '42-example') },
+    });
+    expect(f.execute('#42', { run })).toEqual({ status: 0, stdout: '#42: MERGED and CLOSED\n', stderr: '' });
     expect(deliveryCalls).toBe(1);
   });
 });
@@ -1495,20 +1518,6 @@ describe('Opus supervisor decisions (#491)', () => {
 describe('stale local default branch (#502)', () => {
   const steps = (f) => f.state.starts.map((entry) => entry.name.split('-')[1]);
   const deliver = ({ state }) => { state.merged = true; state.closed = true; return { status: 'passed', next: null }; };
-  // Moves origin's default branch one commit ahead through a second clone; the fixture's local
-  // default branch stays where it was.
-  const advanceOrigin = (root, branch = 'main') => {
-    const clone = fs.mkdtempSync(path.join(os.tmpdir(), 'execute-advance-'));
-    roots.push(clone);
-    execFileSync('git', ['clone', '--quiet', '--branch', branch, git(root, 'remote', 'get-url', 'origin'), clone],
-      { encoding: 'utf8' });
-    git(clone, 'config', 'user.name', 'Controller Test');
-    git(clone, 'config', 'user.email', 'controller@example.test');
-    fs.writeFileSync(path.join(clone, 'merged.txt'), 'merged elsewhere\n');
-    git(clone, 'add', '.');
-    git(clone, 'commit', '-m', 'feat: merge #9');
-    git(clone, 'push', 'origin', `HEAD:${branch}`);
-  };
 
   it('routes an empty issue branch created from origin to implement with no version prepared first', () => {
     const f = fixture({ branch: 'main' });
@@ -1557,5 +1566,121 @@ describe('stale local default branch (#502)', () => {
     expect(f.execute('', { run: failingFetch })).toEqual({ status: 1, stdout: '', stderr: 'default_branch_unreadable\n' });
     expect(f.state.starts).toEqual([]);
     expect(f.state.versionPreparations).toEqual([]);
+  });
+});
+
+describe('post-delivery branch cleanup (#523)', () => {
+  const remoteBranchExists = (root) => git(root, 'ls-remote', '--heads', 'origin', '42-example') !== '';
+  const localBranchExists = (root) => spawnSync('git', ['show-ref', '--verify', '--quiet', 'refs/heads/42-example'],
+    { cwd: root }).status === 0;
+  const delivered = (f) => { f.state.merged = true; f.state.closed = true; };
+  const cleaned = '#42: branch cleanup: deleted 42-example and fast-forwarded main\n';
+  // Fails only the command `when` matches; every other command reaches the fixture.
+  const failing = (f, when) => (command, args, options) => (when(command, args)
+    ? { status: 1, stdout: '', stderr: 'injected failure\n' } : f.run(command, args, options));
+
+  it('deletes the proven branch remotely and locally and fast-forwards the default branch (AC1, bare re-entry)', () => {
+    const f = fixture();
+    delivered(f);
+    expect(f.execute('')).toEqual({ status: 0, stdout: `#42: MERGED and CLOSED\n${cleaned}`, stderr: '' });
+    expect(remoteBranchExists(f.root)).toBe(false);
+    expect(localBranchExists(f.root)).toBe(false);
+    expect(git(f.root, 'branch', '--show-current')).toBe('main');
+    expect(git(f.root, 'rev-parse', 'main')).toBe(git(f.root, 'rev-parse', 'origin/main'));
+    expect(f.state.starts).toEqual([]);
+  });
+
+  it('skips the remote deletion silently when the remote branch is already absent (AC2)', () => {
+    const f = fixture();
+    delivered(f);
+    git(f.root, 'push', 'origin', '--delete', '42-example');
+    expect(f.execute('')).toEqual({ status: 0, stdout: `#42: MERGED and CLOSED\n${cleaned}`, stderr: '' });
+    expect(localBranchExists(f.root)).toBe(false);
+    expect(git(f.root, 'branch', '--show-current')).toBe('main');
+  });
+
+  it('preserves the branch and uncommitted changes when the worktree is dirty outside .nmg-sdlc/ (AC3)', () => {
+    const f = fixture({ dirty: true });
+    delivered(f);
+    expect(f.execute('')).toEqual({ status: 0,
+      stdout: '#42: MERGED and CLOSED\n#42: branch cleanup skipped: worktree_dirty\n', stderr: '' });
+    expect(git(f.root, 'branch', '--show-current')).toBe('42-example');
+    expect(localBranchExists(f.root)).toBe(true);
+    expect(remoteBranchExists(f.root)).toBe(true);
+    expect(fs.readFileSync(path.join(f.root, 'helper.py'), 'utf8')).toContain('# preserved partial change');
+  });
+
+  it('preserves the branch when the local head moves after delivery was proven (AC3)', () => {
+    const f = fixture();
+    delivered(f);
+    // completed() reads the issue last; a commit landing then moves HEAD past the proven head.
+    const run = (command, args, options) => {
+      const response = f.run(command, args, options);
+      if (command === 'gh' && args.includes('number,state')) git(f.root, 'commit', '--allow-empty', '-m', 'chore: move after proof');
+      return response;
+    };
+    expect(f.execute('', { run })).toEqual({ status: 0,
+      stdout: '#42: MERGED and CLOSED\n#42: branch cleanup skipped: local_head_mismatch\n', stderr: '' });
+    expect(git(f.root, 'branch', '--show-current')).toBe('42-example');
+    expect(remoteBranchExists(f.root)).toBe(true);
+  });
+
+  it('preserves the branch when the default branch cannot fast-forward to origin (AC3)', () => {
+    const f = fixture();
+    delivered(f);
+    // Local main and origin/main each gain a commit the other lacks, so the pull cannot fast-forward.
+    git(f.root, 'checkout', 'main');
+    fs.writeFileSync(path.join(f.root, 'local.txt'), 'local only\n');
+    git(f.root, 'add', 'local.txt');
+    git(f.root, 'commit', '-m', 'chore: local main');
+    git(f.root, 'checkout', '42-example');
+    advanceOrigin(f.root);
+    expect(f.execute('')).toEqual({ status: 0,
+      stdout: '#42: MERGED and CLOSED\n#42: branch cleanup skipped: pull_not_fast_forward\n', stderr: '' });
+    expect(git(f.root, 'branch', '--show-current')).toBe('main');
+    expect(localBranchExists(f.root)).toBe(true);
+  });
+
+  it.each([
+    ['default_branch_unreadable', (command, args) => command === 'gh' && args.includes('--jq'),
+      '#42: branch cleanup skipped: default_branch_unreadable\n', { localKept: true, remoteKept: false }],
+    ['default_checkout_failed', (command, args) => command === 'git' && args[0] === 'switch',
+      '#42: branch cleanup skipped: default_checkout_failed\n', { localKept: true, remoteKept: false }],
+    ['local_branch_delete_failed', (command, args) => command === 'git' && args[0] === 'branch' && args[1] === '-D',
+      '#42: branch cleanup skipped: local_branch_delete_failed\n', { localKept: true, remoteKept: false }],
+    ['remote_head_unreadable', (command, args) => command === 'git' && args[0] === 'ls-remote',
+      `#42: remote branch cleanup skipped: remote_head_unreadable\n${cleaned}`, { localKept: false, remoteKept: true }],
+    ['remote_delete_failed', (command, args) => command === 'git' && args[0] === 'push' && args.includes('--delete'),
+      `#42: remote branch cleanup skipped: remote_delete_failed\n${cleaned}`, { localKept: false, remoteKept: true }],
+  ])('reports %s and keeps only what the failed step leaves in place', (_reason, when, tail, kept) => {
+    const f = fixture();
+    delivered(f);
+    expect(f.execute('', { run: failing(f, when) })).toEqual({ status: 0, stdout: `#42: MERGED and CLOSED\n${tail}`, stderr: '' });
+    expect(localBranchExists(f.root)).toBe(kept.localKept);
+    expect(remoteBranchExists(f.root)).toBe(kept.remoteKept);
+  });
+
+  it('reports remote_head_mismatch and still deletes the local branch when the remote moved (AC4)', () => {
+    const f = fixture();
+    delivered(f);
+    git(f.root, 'push', '--force', 'origin', 'HEAD~1:refs/heads/42-example');
+    expect(f.execute('')).toEqual({ status: 0,
+      stdout: `#42: MERGED and CLOSED\n#42: remote branch cleanup skipped: remote_head_mismatch\n${cleaned}`, stderr: '' });
+    expect(remoteBranchExists(f.root)).toBe(true);
+    expect(localBranchExists(f.root)).toBe(false);
+    expect(git(f.root, 'branch', '--show-current')).toBe('main');
+  });
+
+  it('finishes the delivered branch before the next queued issue starts from the default branch (AC5)', () => {
+    const f = fixture();
+    delivered(f);
+    const run = issueDeliveryRun(f, {
+      issues: { 43: closedIssue(43, [closingRef(10)]) },
+      prs: { 10: mergedPr(10, 43, '43-next') },
+    });
+    expect(f.execute('#42 #43', { run })).toEqual({ status: 0,
+      stdout: `#42: MERGED and CLOSED\n${cleaned}#43: MERGED and CLOSED\n`, stderr: '' });
+    expect(git(f.root, 'branch', '--show-current')).toBe('main');
+    expect(f.state.starts).toEqual([]);
   });
 });
