@@ -347,6 +347,30 @@ Cancel the owning execute job through the host's cancellation surface or send it
 
 `--retain-worker` keeps this invocation's worker pane on stop or cancellation for inspection; it does not keep the controller running or turn failure into success.
 
+### Post-delivery branch cleanup
+
+When the controller proves an issue delivered on its own issue branch (exact-head merged pull request and issue `CLOSED`), it prints `#N: MERGED and CLOSED` and then cleans up in this order:
+
+1. Deletes the remote issue branch, only while its head still equals the merged head. An already absent remote branch is clean and prints nothing.
+2. Switches to the repository default branch and runs `git pull --ff-only origin <default>`.
+3. Deletes the local issue branch with `git branch -D`, only while its head still equals the merged head.
+
+On success it prints `#N: branch cleanup: deleted <branch> and fast-forwarded <default>`, and the next queued issue starts from the synced default branch. Bare re-entry on an already delivered issue branch runs the same cleanup.
+
+Cleanup never changes the delivery result or the exit status; a cleanup warning is not a delivery failure. A remote warning (`#N: remote branch cleanup skipped: <reason>`) does not stop the local steps. A local refusal or failure (`#N: branch cleanup skipped: <reason>`) stops the remaining steps and keeps the local branch and any uncommitted changes. The remote deletion runs first, so a later local refusal can leave a local branch whose remote copy is already gone; the merged pull request holds the same commits.
+
+| Line | Reason code | Meaning |
+|------|-------------|---------|
+| remote | `remote_head_mismatch` | The remote branch no longer points at the merged head, so it is not deleted |
+| remote | `remote_head_unreadable` | The remote head could not be read, so it is not deleted |
+| remote | `remote_delete_failed` | Deleting the remote branch failed |
+| local | `worktree_dirty` | Changes exist outside `.nmg-sdlc/`, or the worktree status is unreadable |
+| local | `local_head_mismatch` | The checked-out branch or HEAD differs from the merged head, or cannot be read |
+| local | `default_branch_unreadable` | The repository default branch name could not be read |
+| local | `default_checkout_failed` | Switching to the default branch failed |
+| local | `pull_not_fast_forward` | `git pull --ff-only origin <default>` could not fast-forward |
+| local | `local_branch_delete_failed` | The local issue branch is not at the merged head, or its deletion failed |
+
 ## Verification and terminal delivery
 
 ```text

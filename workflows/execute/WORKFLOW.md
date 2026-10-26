@@ -31,6 +31,8 @@ Every `supervise`, `decide` and `wait` call returns within nine minutes, inside 
 | `NMG_SDLC_EXECUTE_RUNNING: session S ...` | No new report yet; the controller is still working | Run the printed `wait --session S` command |
 | Anything else | The controller finished; its stdout and stderr are passed through | Report it and stop with its exit code |
 
+A finished controller's stdout may also include post-delivery cleanup lines after `#N: MERGED and CLOSED`: `#N: branch cleanup: deleted <branch> and fast-forwarded <default>` on success, or a warning `#N: branch cleanup skipped: <reasonCode>` or `#N: remote branch cleanup skipped: <reasonCode>`. Pass these lines through with the rest of the output. A cleanup warning is not a delivery failure: it does not change the exit code or the delivery result, so do not rerun, repair, or halt because of it. Do not clean up the branch or the default checkout by hand; the controller owns that step.
+
 ## Supervise each report
 
 Keep the session id. Answer every report before doing anything else, because the controller and its worker pane wait for your decision.
