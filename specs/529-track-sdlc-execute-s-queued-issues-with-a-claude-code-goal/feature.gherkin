@@ -1,0 +1,47 @@
+**Issue**: #529
+**Date**: 2026-10-26
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/491-make-the-sdlc-execute-session-an-opus-supervisor-that-inspects-and-steers-every-worker-stage/
+
+# File: scripts/__tests__/execute-goal.test.mjs
+# Generated from: specs/529-track-sdlc-execute-s-queued-issues-with-a-claude-code-goal/requirements.md
+Feature: Track /sdlc-execute's queued issues with a Claude Code /goal
+
+  @SCN001
+  Scenario: Explicit issue tokens set a goal before supervision starts
+    Given an interactive Herdr session on an Opus model runs "/sdlc-execute #41 #42"
+    When the goal helper reports issues 41 and 42 and the turn completes
+    Then the hooks module runs /goal with a condition naming "#41: MERGED and CLOSED" and "#42: MERGED and CLOSED" and the "/sdlc-execute stopped:" line
+    And a supervise call made before that goal is set is refused
+
+  @SCN002
+  Scenario: A bare run on an issue branch sets a goal for the branch issue
+    Given the current branch is "42-add-goal"
+    When "sdlc-execute.mjs goal" runs with no issue tokens
+    Then it reports exactly issue 42 with that issue's goal condition
+
+  @SCN003
+  Scenario: Delivery of every queued issue meets the goal
+    Given an execute run with a goal for issues 41 and 42
+    When the controller finishes after delivering both issues
+    Then the workflow requires the reply to repeat "#41: MERGED and CLOSED" and "#42: MERGED and CLOSED" verbatim
+
+  @SCN004
+  Scenario: A halt ends the goal
+    Given an execute run with an active goal
+    When the session halts with diagnosis "credential required"
+    Then the workflow requires the reply to print "/sdlc-execute stopped: credential required"
+
+  @SCN005
+  Scenario: A goal that cannot be set refuses the run
+    Given an execute run whose goal helper reported its issues
+    When the goal command is unavailable in the session
+    Then the session is prompted to print "/sdlc-execute stopped: goal_unavailable: goal command unavailable"
+    And every supervise call for that run is refused
+
+  @SCN006
+  Scenario: A run that selects nothing sets no goal
+    Given "/sdlc-execute" runs bare on a non-issue branch
+    When the goal helper runs with no tokens
+    Then it prints reasonCode "goal_issues_unresolved" and exits 1, and no goal is set
