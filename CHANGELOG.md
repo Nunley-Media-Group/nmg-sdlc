@@ -12,6 +12,8 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.7.0] - 2026-10-26
+
 ### Added
 
 - Set a Claude Code `/goal` for each `/sdlc-execute` run that resolves issues, naming every queued issue in run order, so the supervising session keeps going until each one is merged and closed or the run is stopped; a run whose goal cannot be set stops with `goal_unavailable` (#529)
