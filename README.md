@@ -128,8 +128,6 @@ A model may be a Claude alias (`haiku`, `sonnet`, `opus`, `fable`, `opusplan`, `
 
 ### Autopilot for hands-off drivers
 
-### Autopilot for hands-off drivers
-
 With `NMG_SDLC_AUTOPILOT=1` in a Claude session's environment, the plugin approves every `ExitPlanMode` plan and answers every `AskUserQuestion` with each question's `(Recommended)` option (else its first option). It exists for hands-off drivers such as the live smoke provider, which launches its provisioning pane with it. Never set it in a session you use yourself: it approves plans on your behalf.
 
 ### Runtime state
