@@ -1,0 +1,62 @@
+**Issue**: #535
+**Date**: 2026-11-07
+**Status**: Approved
+**Author**: Rich Nunley
+
+# File: scripts/__tests__/features/sdlc-models.feature
+# Generated from: specs/535-make-sdlc-execute-stage-models-and-efforts-configurable-per-project-via-steering-sdlc-models-json/requirements.md
+Feature: Per-project execute stage models and efforts
+
+  @SCN001
+  Scenario: Onboarding creates the stage model file with defaults
+    Given a project without steering/sdlc-models.json
+    When the onboard plan runs "sdlc-models.mjs ensure --root ."
+    Then steering/sdlc-models.json contains version 1 and model and effort entries for start, implement, verify, deliver, and repair with the plugin defaults
+
+  @SCN002
+  Scenario: Plugin defaults match today except verify effort
+    Given the plugin default table
+    When the defaults are read
+    Then start is haiku/default, implement is haiku/xhigh, verify is opus/high, deliver is haiku/xhigh, and repair is opus/default
+
+  @SCN003
+  Scenario: Upgrade creates or completes the file and preserves project values
+    Given a project whose steering/sdlc-models.json sets verify to sonnet/max and lacks repair and deliver.effort
+    When the upgrade plan applies the sdlc-models item
+    Then repair and deliver.effort gain default values, verify stays sonnet/max, and a second detection reports no sdlc-models item
+
+  @SCN004
+  Scenario: Stage workers use project values
+    Given steering/sdlc-models.json sets verify to model sonnet and effort max
+    When execute dispatches the verify worker
+    Then the worker argv contains "--model sonnet --effort max"
+
+  @SCN005
+  Scenario: Repair re-dispatch uses the project repair entry
+    Given steering/sdlc-models.json sets repair to model opus and effort high
+    When a repairable failure triggers the next verify dispatch
+    Then that worker argv contains "--model opus --effort high" and the dispatch after the stage passes uses the verify entry
+
+  @SCN006
+  Scenario: A missing file falls back to defaults with one warning
+    Given a project without steering/sdlc-models.json
+    When execute dispatches its stages
+    Then every worker argv uses the plugin defaults and the controller output contains the missing-file warning exactly once
+
+  @SCN007
+  Scenario: nmg-router model ids pass through verbatim
+    Given steering/sdlc-models.json sets implement to model "opencode-go/kimi-k3.1-pro" with effort xhigh
+    When execute dispatches the implement worker
+    Then the worker argv contains "--model opencode-go/kimi-k3.1-pro --effort xhigh"
+
+  @SCN008
+  Scenario: Invalid configuration fails closed before any external call
+    Given steering/sdlc-models.json sets verify effort to "extreme"
+    When execute starts
+    Then it exits with status 2, prints a diagnostic naming steering/sdlc-models.json, "verify.effort", and "extreme", and makes no Herdr, Git, or GitHub call
+
+  @SCN009
+  Scenario: The supervisor model check is unaffected
+    Given steering/sdlc-models.json configures every stage model
+    When execute checks the session model
+    Then executeModelRefusal returns the same result as without the file
