@@ -7,6 +7,7 @@ import { createConnection } from 'node:net';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { fileSupervisor } from '../sdlc-execute-supervisor.mjs';
+import { STAGE_MODEL_DEFAULTS, STAGE_MODELS_PATH } from '../sdlc-models.mjs';
 
 const EXECUTE = fileURLToPath(new URL('../sdlc-execute.mjs', import.meta.url));
 const fixtures = [];
@@ -89,8 +90,11 @@ async function fixture({
     fs.writeFileSync(path.join(spec, file), '**Issue**: #42\n**Status**: Approved\n');
   }
   fs.writeFileSync(path.join(root, '.gitignore'), '.nmg-sdlc/\n');
+  // The project commits its stage configuration, so controller output carries no missing-file warning.
+  fs.mkdirSync(path.join(root, path.dirname(STAGE_MODELS_PATH)), { recursive: true });
+  fs.writeFileSync(path.join(root, STAGE_MODELS_PATH), `${JSON.stringify(STAGE_MODEL_DEFAULTS, null, 2)}\n`);
   git(root, ['init', '-b', 'main']);
-  git(root, ['add', '.gitignore']);
+  git(root, ['add', '.gitignore', STAGE_MODELS_PATH]);
   git(root, ['commit', '-m', 'chore: baseline']);
   git(root, ['checkout', '-b', '42-ship-it']);
   git(root, ['add', 'specs']);

@@ -49,6 +49,8 @@ Write specs/{N}-{slug}/ + 4 files with singular **Issue** #N , initial history.
 
 Approved greenfield, brownfield, and source-backfill plan execution runs `node <plugin-root>/scripts/nmg-sdlc-ignore.mjs ensure --root .` after writing the empty greenfield `specs/` tree or issue-owned spec packages, then runs `node <plugin-root>/scripts/spec-created-label.mjs backfill`. Both commands use no per-issue confirmation. Already-initialized onboarding that does not mutate specs skips both commands and still only recommends `/sdlc-upgrade-project`.
 
+Approved greenfield, enhancement, brownfield, and source-backfill plan execution also runs `node <plugin-root>/scripts/sdlc-models.mjs ensure --root .`, which creates `steering/sdlc-models.json` with the plugin default execute stage models and efforts when it is absent. An existing valid file is left unchanged, and an invalid file is reported with its diagnostic and never rewritten. Already-initialized onboarding skips this command too.
+
 ## Already
 
 List existing, ask once with `AskUserQuestion`: delegate to upgrade or exit. On delegate, the plan will note "Run /sdlc-upgrade-project"

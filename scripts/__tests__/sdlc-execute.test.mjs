@@ -7,11 +7,14 @@ import path from 'node:path';
 import { defaultHerdr, runExecute, parseArgs, stageEffort, stageModel, validateHandoff, VALID_STEPS, WORKER_PERMISSION_MODES,
   workerAgentArgs, workerPermissionMode } from '../sdlc-execute.mjs';
 import { packageRoot } from '../../src/sdlc-workflows.mjs';
+import { STAGE_MODEL_DEFAULTS, STAGE_MODELS_PATH } from '../sdlc-models.mjs';
 import { inspectIssueSpecScope } from '../issue-spec-scope.mjs';
 import { canonicalJson } from '../../src/sdlc-steering-runtime.mjs';
 
 const roots = [];
 const env = { HERDR_ENV: '1', HERDR_SOCKET_PATH: '/tmp/herdr-test', HERDR_PANE_ID: 'controller' };
+// The committed project stage configuration every fixture starts with; `stageModels: null` leaves it absent.
+const DEFAULT_STAGE_MODELS_TEXT = `${JSON.stringify(STAGE_MODEL_DEFAULTS, null, 2)}\n`;
 const git = (root, ...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
 const result = (value, status = 0) => ({ status, stdout: typeof value === 'string' ? value : JSON.stringify(value), stderr: '' });
 const digest = (value) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
@@ -30,13 +33,18 @@ function ghPrViewUnknownField(args) {
   return `Unknown JSON field: "${unknown}"\nAvailable fields:\n${[...GH_PR_VIEW_JSON_FIELDS].map((field) => `  ${field}`).join('\n')}\n`;
 }
 
-function fixture({ branch = '42-example', dirty = false, existingImplementation = true, withPrEvidence = false } = {}) {
+function fixture({ branch = '42-example', dirty = false, existingImplementation = true, withPrEvidence = false,
+  stageModels = DEFAULT_STAGE_MODELS_TEXT } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'execute-controller-'));
   roots.push(root);
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.name', 'Controller Test');
   git(root, 'config', 'user.email', 'controller@example.test');
   fs.writeFileSync(path.join(root, 'README.md'), 'baseline\n');
+  if (stageModels !== null) {
+    fs.mkdirSync(path.join(root, 'steering'), { recursive: true });
+    fs.writeFileSync(path.join(root, STAGE_MODELS_PATH), stageModels);
+  }
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'chore: baseline');
   const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'execute-origin-'));
@@ -241,6 +249,58 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
       onOwnedPane: (pane) => state.owned.push(pane), onPaneClosed: (pane) => state.released.push(pane), ...options }) };
 }
 
+const ABSENT_STAGE_MODELS_WARNING = 'Warning: steering/sdlc-models.json is missing; using plugin default stage models and efforts. Run /sdlc-upgrade-project to create it.';
+
+describe('per-project stage models (steering/sdlc-models.json)', () => {
+  const stageFile = (stages) => `${JSON.stringify({ ...STAGE_MODEL_DEFAULTS, ...stages }, null, 2)}\n`;
+  const startOf = (state, step) => state.starts.find((start) => start.name.split('-')[1] === step);
+
+  it('resolves stage, repair, and verbatim provider models from the configuration', () => {
+    const config = { ...STAGE_MODEL_DEFAULTS, verify: { model: 'sonnet', effort: 'max' },
+      repair: { model: 'opus', effort: 'high' }, implement: { model: 'opencode-go/kimi-k3.1-pro', effort: 'xhigh' } };
+    expect(stageModel('verify', null, config)).toBe('sonnet');
+    expect(stageEffort('verify', null, config)).toBe('max');
+    expect(stageModel('verify', { reasonCode: 'verification_not_green' }, config)).toBe('opus');
+    expect(stageEffort('verify', { reasonCode: 'verification_not_green' }, config)).toBe('high');
+    expect(stageEffort('start', null, config)).toBeUndefined();
+    expect(stageModel('implement', null, config)).toBe('opencode-go/kimi-k3.1-pro');
+    expect(workerAgentArgs({ env: {}, model: 'opencode-go/kimi-k3.1-pro', effort: 'xhigh' }))
+      .toEqual(['--plugin-dir', packageRoot, '--permission-mode', 'auto', '--model', 'opencode-go/kimi-k3.1-pro', '--effort', 'xhigh']);
+    expect(() => stageModel('rem', null, config)).toThrow('unknown stage: rem');
+  });
+
+  it('dispatches the verify worker with the project model and effort', () => {
+    const f = fixture({ stageModels: stageFile({ verify: { model: 'sonnet', effort: 'max' } }) });
+    const response = f.execute('');
+    expect(response).toMatchObject({ status: 0, stderr: '' });
+    expect(response.stdout).not.toContain('Warning: steering/sdlc-models.json');
+    expect(startOf(f.state, 'verify')).toMatchObject({ model: 'sonnet', effort: 'max' });
+    expect(startOf(f.state, 'deliver')).toMatchObject({ model: 'haiku', effort: 'xhigh' });
+  });
+
+  it('prints the missing-file warning exactly once and dispatches plugin defaults', () => {
+    const f = fixture({ stageModels: null });
+    const response = f.execute('');
+    expect(response.status).toBe(0);
+    expect(response.stdout.startsWith(`${ABSENT_STAGE_MODELS_WARNING}\n`)).toBe(true);
+    expect(response.stdout.split(ABSENT_STAGE_MODELS_WARNING).length - 1).toBe(1);
+    expect(startOf(f.state, 'verify')).toMatchObject({ model: 'opus', effort: 'high' });
+  });
+
+  it('stops with exit 2 before any Herdr, Git, or GitHub call on an invalid project file', () => {
+    const f = fixture({ stageModels: stageFile({ verify: { model: 'opus', effort: 'extreme' } }) });
+    const calls = [];
+    const response = f.execute('', {
+      run: (command, args, options) => { calls.push(command); return f.run(command, args, options); },
+      herdr: { integrationStatus: () => { throw new Error('herdr_called'); } },
+    });
+    expect(response).toEqual({ status: 2, stdout: '', stderr:
+      'steering/sdlc-models.json: verify.effort = "extreme": must be one of low, medium, high, xhigh, max, default\n' });
+    expect(calls).toEqual([]);
+    expect(f.state.starts).toEqual([]);
+  });
+});
+
 // Answers the off-branch issue-side delivery reads from per-test maps; everything else uses f.run.
 function issueDeliveryRun(f, { issues = {}, prs = {} } = {}) {
   return (command, args, options) => {
@@ -318,8 +378,8 @@ describe('Herdr Claude workers', () => {
     expect(() => stageModel('rem', null)).toThrow('unknown stage: rem');
   });
 
-  it('starts implement and deliver at xhigh effort and every repair re-dispatch at the default effort', () => {
-    expect(VALID_STEPS.map((step) => stageEffort(step, null))).toEqual([undefined, 'xhigh', undefined, 'xhigh']);
+  it('starts verify at high, implement and deliver at xhigh, and every repair re-dispatch at the default effort', () => {
+    expect(VALID_STEPS.map((step) => stageEffort(step, null))).toEqual([undefined, 'xhigh', 'high', 'xhigh']);
     for (const step of ['implement', 'verify', 'deliver']) {
       expect(stageEffort(step, { reasonCode: 'verification_not_green' })).toBeUndefined();
       expect(stageEffort(step, { reasonCode: 'pr_evidence_pending' })).toBe(stageEffort(step, null));
@@ -386,7 +446,8 @@ describe('Herdr Claude workers', () => {
     const { calls, run } = recordingRun();
     const response = runExecute({ args: '#42', cwd: '/nonexistent-nmg-sdlc-root', run,
       env: { HERDR_ENV: '1', HERDR_SOCKET_PATH: '/tmp/s', HERDR_PANE_ID: 'c' } });
-    expect(response).toEqual({ status: 2, stdout: 'Run: herdr integration install claude\n', stderr: '' });
+    // The project file is absent under this nonexistent root, so the one-per-invocation warning leads stdout.
+    expect(response).toEqual({ status: 2, stdout: `${ABSENT_STAGE_MODELS_WARNING}\nRun: herdr integration install claude\n`, stderr: '' });
     expect(calls[0].args).toEqual(['integration', 'status']);
   });
 
@@ -394,11 +455,11 @@ describe('Herdr Claude workers', () => {
     const integration = (stdout) => ({ integrationStatus: () => ({ status: 0, stdout }) });
     expect(runExecute({ args: '#42', env: {} }))
       .toEqual({ status: 2, stdout: 'execute requires a Herdr session\n', stderr: '' });
-    const base = { args: '#42', env, run: () => ({ status: 1, stdout: '', stderr: 'no auth' }) };
+    const base = { args: '#42', cwd: '/nonexistent-nmg-sdlc-root', env, run: () => ({ status: 1, stdout: '', stderr: 'no auth' }) };
     for (const stdout of ['claude: not installed (/h/.claude/hooks/herdr-agent-state.sh)\n',
       'codex: current (v10)\nclaude: not installed\n', 'pi: current\n', '']) {
       expect(runExecute({ ...base, herdr: integration(stdout) }))
-        .toEqual({ status: 2, stdout: 'Run: herdr integration install claude\n', stderr: '' });
+        .toEqual({ status: 2, stdout: `${ABSENT_STAGE_MODELS_WARNING}\nRun: herdr integration install claude\n`, stderr: '' });
     }
     const spawnError = Object.assign(new Error('spawnSync herdr EAGAIN'), { code: 'EAGAIN' });
     for (const [probe, detail] of [[() => ({ status: null, stdout: '', error: spawnError }), 'EAGAIN'],
@@ -406,12 +467,13 @@ describe('Herdr Claude workers', () => {
       [() => ({ status: null, signal: 'SIGKILL', stdout: '' }), 'signal SIGKILL'],
       [() => ({ status: 3, stdout: '' }), 'exit 3']]) {
       expect(runExecute({ ...base, herdr: { integrationStatus: probe } })).toEqual({ status: 2,
-        stdout: 'Run: herdr integration install claude\n', stderr: `herdr integration status failed: ${detail}\n` });
+        stdout: `${ABSENT_STAGE_MODELS_WARNING}\nRun: herdr integration install claude\n`,
+        stderr: `herdr integration status failed: ${detail}\n` });
     }
     for (const stdout of ['claude: current (v3) (/h/.claude/hooks/herdr-agent-state.sh)\n',
       'codex: not installed\nclaude: outdated (v2 < v3)\n']) {
       expect(runExecute({ ...base, herdr: integration(stdout) }))
-        .toEqual({ status: 1, stdout: '', stderr: 'gh auth status failed\n' });
+        .toEqual({ status: 1, stdout: `${ABSENT_STAGE_MODELS_WARNING}\n`, stderr: 'gh auth status failed\n' });
     }
   });
 });
@@ -640,7 +702,7 @@ describe('branch-first execute', () => {
     // The new branch has no commits relative to main, so it is implemented before anything is verified.
     expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['start', 'implement', 'verify', 'deliver']);
     expect(f.state.starts.map((entry) => entry.model)).toEqual(['haiku', 'haiku', 'opus', 'haiku']);
-    expect(f.state.starts.map((entry) => entry.effort)).toEqual([undefined, 'xhigh', undefined, 'xhigh']);
+    expect(f.state.starts.map((entry) => entry.effort)).toEqual([undefined, 'xhigh', 'high', 'xhigh']);
   });
   it('continues an explicit queue on the default branch after the previous issue is delivered', () => {
     const f = fixture({ branch: 'main' });
@@ -926,7 +988,7 @@ describe('branch-first execute', () => {
       'haiku', 'opus', 'opus', 'opus', 'opus', 'opus', 'haiku',
     ]);
     expect(f.state.starts.map((entry) => entry.effort)).toEqual([
-      'xhigh', undefined, undefined, undefined, undefined, undefined, 'xhigh',
+      'xhigh', 'high', undefined, 'high', undefined, 'high', 'xhigh',
     ]);
     expect(f.state.prompts[2].prompt).toContain('gate-1.json');
     expect(f.state.prompts[4].prompt).toContain('gate-2.json');
@@ -1503,12 +1565,12 @@ describe('Opus supervisor decisions (#491)', () => {
   });
 
   it('names a real cause for every failed integration probe and never exit undefined', () => {
-    const base = { args: '#42', env, run: () => ({ status: 1, stdout: '', stderr: 'no auth' }) };
+    const base = { args: '#42', cwd: '/nonexistent-nmg-sdlc-root', env, run: () => ({ status: 1, stdout: '', stderr: 'no auth' }) };
     for (const [probe, detail] of [[() => null, 'probe returned no result'], [() => undefined, 'probe returned no result'],
       [() => 7, 'probe returned no result'], [() => ({ status: null, stdout: '' }), 'probe returned no result'],
       [() => { throw 'socket closed'; }, 'socket closed'], [() => ({ status: 2, stdout: '' }), 'exit 2']]) {
       const response = runExecute({ ...base, herdr: { integrationStatus: probe } });
-      expect(response).toEqual({ status: 2, stdout: 'Run: herdr integration install claude\n',
+      expect(response).toEqual({ status: 2, stdout: `${ABSENT_STAGE_MODELS_WARNING}\nRun: herdr integration install claude\n`,
         stderr: `herdr integration status failed: ${detail}\n` });
       expect(response.stderr).not.toContain('undefined');
     }

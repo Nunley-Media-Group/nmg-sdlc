@@ -1,6 +1,6 @@
 # Brownfield (v4)
 
-Preflight: gh auth, steering if missing (re-use greenfield bootstrap), CHANGELOG.md if missing (`# Changelog` + `## [Unreleased]`; never modify an existing one), contribution assets with the v4 list.
+Preflight: gh auth, steering if missing (re-use greenfield bootstrap), CHANGELOG.md if missing (`# Changelog` + `## [Unreleased]`; never modify an existing one), contribution assets with the v4 list, and `steering/sdlc-models.json` via `node <plugin-root>/scripts/sdlc-models.mjs ensure --root .` (created with plugin defaults when absent; an existing file is never changed).
 
 Reconcile: closed issues (skip dup/notplanned) → specs/{N}-slug/ per issue (title slug), fill 4 files from issue+pr+commits+tree.
 

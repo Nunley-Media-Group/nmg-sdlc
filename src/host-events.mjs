@@ -22,13 +22,11 @@ export const AUTOMATED_COMMANDS = [
   ["sdlc-open-pr", "open-pr", "Deliver verified work through exact-head PR merge"],
 ];
 
-// The Claude Code model alias each nmg-sdlc step runs on: execute stage
-// workers (`claude --model`), repair re-dispatch, and every command except
-// `/sdlc-execute`, which supervises on the session's own Opus or Fable model.
+// The Claude Code model alias each nmg-sdlc command runs on, except `/sdlc-execute`,
+// which supervises on the session's own Opus or Fable model. Execute stage and
+// repair workers take their models from the project's stage configuration.
 // The aliases always resolve to the current model of their tier.
 export const SDLC_MODELS = Object.freeze({
-  stages: Object.freeze({ start: "haiku", implement: "haiku", verify: "opus", deliver: "haiku" }),
-  repair: "opus",
   commands: Object.freeze({
     "sdlc-status": "haiku",
     "sdlc-open-pr": "haiku",
@@ -42,11 +40,10 @@ export const SDLC_MODELS = Object.freeze({
   }),
 });
 
-// The Claude Code effort level for the steps that set one: execute stage
-// workers (`claude --effort`) and command-file frontmatter. A step absent here,
-// and every repair re-dispatch, keeps Claude Code's default effort.
+// The Claude Code effort level for the command files that set one (command-file
+// frontmatter). A command absent here keeps Claude Code's default effort. Execute
+// stage and repair efforts come from the project's stage configuration.
 export const SDLC_EFFORTS = Object.freeze({
-  stages: Object.freeze({ implement: "xhigh", deliver: "xhigh" }),
   commands: Object.freeze({ "sdlc-open-pr": "xhigh" }),
 });
 
