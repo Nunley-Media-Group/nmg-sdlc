@@ -130,7 +130,7 @@ WORKFLOW.md frontmatter declares only `name` and `description`.
 
 Files under `agents/` are installable Claude Code plugin subagents, addressed as `nmg-sdlc:<name>`. Required frontmatter: `name` and `description`. Optional: `model`, `effort`, `tools`.
 
-`model` is `haiku`, `sonnet`, or `opus` and matches `SDLC_MODELS`; never hardcode model ids. `effort`, when present, matches `SDLC_EFFORTS` for the stage the agent serves.
+`model` is `haiku`, `sonnet`, or `opus`, a Claude Code alias rather than a full model id. `effort`, when present, is `low`, `medium`, `high`, `xhigh`, or `max`. Execute stage and repair models and efforts are configured per project in `steering/sdlc-models.json`, not in agent files.
 
 | File | `name` | `model` | `effort` |
 |------|--------|---------|----------|

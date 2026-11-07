@@ -12,6 +12,10 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+### Changed
+
+- Execute stage and repair models and efforts now come from the project file `steering/sdlc-models.json`, created by `/sdlc-onboard-project` and completed by `/sdlc-upgrade-project` without changing project values. The plugin defaults are unchanged except the verify effort, now `high`. Invalid configuration stops `/sdlc-execute` before any Herdr, Git, or GitHub call, and `provider/model` ids pass through verbatim (#535)
+
 ## [4.7.0] - 2026-10-26
 
 ### Added

@@ -29,6 +29,7 @@ import {
 } from './issue-dependencies.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
 import { backfillSpecCreatedLabels } from './spec-created-label.mjs';
+import { completeStageModels, STAGE_MODELS_PATH, validateStageModels } from './sdlc-models.mjs';
 import { NMG_SDLC_IGNORE_LINE } from './nmg-sdlc-ignore.mjs';
 import { canonicalSnippetRecord, createInitializePlan, steeringSourceDigest } from './sdlc-steering.mjs';
 import {
@@ -2495,6 +2496,48 @@ function applyChangelogCreate(root, item) {
   }
 }
 
+// Absent, or valid but missing keys: create or complete steering/sdlc-models.json. A complete or invalid file yields no item.
+function detectSdlcModels(root) {
+  const target = path.join(root, STAGE_MODELS_PATH);
+  const stat = lstatOrNull(target);
+  if (!stat) {
+    return {
+      id: 'sdlc-models',
+      kind: 'sdlc-models',
+      description: `Create ${STAGE_MODELS_PATH} with the plugin default execute stage models and efforts.`,
+      rel: STAGE_MODELS_PATH,
+      actionable: true,
+      action: 'create',
+      missingKeys: [],
+    };
+  }
+  if (!stat.isFile() || stat.isSymbolicLink()) return null;
+  let missingKeys;
+  try {
+    ({ missing: missingKeys } = validateStageModels(JSON.parse(fs.readFileSync(target, 'utf8'))));
+  } catch {
+    return null;
+  }
+  if (!missingKeys.length) return null;
+  return {
+    id: 'sdlc-models',
+    kind: 'sdlc-models',
+    description: `Complete ${STAGE_MODELS_PATH} with plugin default values for missing keys: ${missingKeys.join(', ')}. Existing project values are kept.`,
+    rel: STAGE_MODELS_PATH,
+    actionable: true,
+    action: 'complete',
+    missingKeys,
+  };
+}
+
+function applySdlcModels(root, item) {
+  const result = completeStageModels(root);
+  if (!result.ok) return { id: item.id, status: `failed:${result.message}` };
+  if (result.status === 'created') return { id: item.id, status: 'applied', created: [STAGE_MODELS_PATH] };
+  if (result.status === 'completed') return { id: item.id, status: 'applied', updated: [STAGE_MODELS_PATH] };
+  return { id: item.id, status: 'already-current' };
+}
+
 function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRun } = {}) {
   const items = [];
   const rootAbs = path.resolve(root);
@@ -2804,6 +2847,8 @@ function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRu
   if (contributingHostLanguage) items.push(contributingHostLanguage);
   const changelogCreate = detectChangelogCreate(rootAbs);
   if (changelogCreate) items.push(changelogCreate);
+  const sdlcModels = detectSdlcModels(rootAbs);
+  if (sdlcModels) items.push(sdlcModels);
 
   if (dependencyItem) {
     items.push(dependencyItem);
@@ -3104,7 +3149,7 @@ function applyUpgrade(root, approvedItemIds = [], run, {
 
   // Split cumulative packages before renaming their shared legacy source.
   const order = (a, b) => {
-    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'steering-runtime': 2, 'publication-files': 3, 'cumulative-split': 4, 'directory-rename': 5, 'epic-flatten': 6, 'spike-flatten': 7, 'spike-remove': 7, 'spike-issue-form': 7, 'agents-spike-language': 7, 'agents-host-language': 7.5, 'agents-to-claude-md': 7.75, 'frontmatter-fix': 8, 'v2-cleanup': 9, 'runtime-state-v4': 9.5, 'nmg-sdlc-ignore': 10, 'steering-v4-host-language': 10.5, 'contributing-v4-host-language': 10.5, 'changelog-create': 10.75, 'issue-dependencies': 11, 'already-current': 99 }[k] ?? 50);
+    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'steering-runtime': 2, 'publication-files': 3, 'cumulative-split': 4, 'directory-rename': 5, 'epic-flatten': 6, 'spike-flatten': 7, 'spike-remove': 7, 'spike-issue-form': 7, 'agents-spike-language': 7, 'agents-host-language': 7.5, 'agents-to-claude-md': 7.75, 'frontmatter-fix': 8, 'v2-cleanup': 9, 'runtime-state-v4': 9.5, 'nmg-sdlc-ignore': 10, 'steering-v4-host-language': 10.5, 'contributing-v4-host-language': 10.5, 'changelog-create': 10.75, 'sdlc-models': 10.8, 'issue-dependencies': 11, 'already-current': 99 }[k] ?? 50);
     return pri(a.kind) - pri(b.kind);
   };
   const toApply = [...report.items].filter((it) => approvedSet.has(it.id)).sort(order);
@@ -3149,6 +3194,8 @@ function applyUpgrade(root, approvedItemIds = [], run, {
       res = applyRuntimeIgnore(rootAbs, item);
     } else if (item.kind === 'changelog-create') {
       res = applyChangelogCreate(rootAbs, item);
+    } else if (item.kind === 'sdlc-models') {
+      res = applySdlcModels(rootAbs, item);
     } else if (item.kind === 'issue-dependencies') {
       res = applyIssueDependencyUpgrade(item, { cwd: rootAbs, run });
     } else if (item.kind === 'packaging' || item.kind === 'legacy-layout' || item.kind === 'already-current') {

@@ -140,6 +140,9 @@ v3 kept plugin runtime state under `.omp/sdlc/` and ignored it with the managed 
    - Signal: root `VERSION` is a regular file and root `CHANGELOG.md` is absent (`lstatOrNull` returns nothing).
    - Apply (order 10.75, after `steering-v4-host-language` and `contributing-v4-host-language`) re-checks live state first. Anything present at `CHANGELOG.md` yields `already-current` with no write. Otherwise it writes `# Changelog`, a blank line, then `## [Unreleased]` with a trailing newline. An existing `CHANGELOG.md` is never overwritten.
    - Without this heading, `prepare-version` fails with `version_artifact_missing`, so the item is the upgrade path for onboarded projects that predate the onboarding fix.
+18. **Stage models** (`id: sdlc-models`, `kind: sdlc-models`)
+   - Signal: `steering/sdlc-models.json` is absent (`action: create`), or is a regular file that parses, validates, and lacks keys (`action: complete`, `missingKeys`). Symlinked or non-regular files, invalid JSON, and invalid values emit nothing.
+   - Apply (order 10.8, after `changelog-create` and before `issue-dependencies`) calls `completeStageModels` from `scripts/sdlc-models.mjs` after a live re-check. An absent file is created with plugin defaults (`created`). A valid partial file gains only its missing keys and keeps every project value and key order (`completed`). A complete file returns `already-current` with no write. An invalid file fails with its diagnostic and is never rewritten.
 
 Re-running detect after a successful v4 apply reports none of these items.
 

@@ -4,6 +4,8 @@ Detect → interview (`AskUserQuestion` budget) for vision/tech → initialize t
 
 Init VERSION + CHANGELOG.md (`# Changelog` and `## [Unreleased]` when absent; never modify an existing one) + specs/ .
 
+Run `node <plugin-root>/scripts/sdlc-models.mjs ensure --root .` to create `steering/sdlc-models.json` with the plugin default stage models and efforts when absent. An existing valid file is left unchanged, so project values are never overwritten.
+
 Managed assets use the v4 list in CONTRIBUTING/AGENTS:
 
 Run /sdlc-draft-issue for new work

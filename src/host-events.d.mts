@@ -3,13 +3,10 @@ export const AUTOMATED_COMMANDS: ReadonlyArray<readonly [string, string, string]
 export const DIRECT_COMMANDS: readonly string[];
 export type SdlcModel = "haiku" | "sonnet" | "opus";
 export const SDLC_MODELS: {
-  readonly stages: { readonly start: SdlcModel; readonly implement: SdlcModel; readonly verify: SdlcModel; readonly deliver: SdlcModel };
-  readonly repair: SdlcModel;
   readonly commands: { readonly [command: string]: SdlcModel };
 };
 export type SdlcEffort = "low" | "medium" | "high" | "xhigh" | "max";
 export const SDLC_EFFORTS: {
-  readonly stages: { readonly [step: string]: SdlcEffort };
   readonly commands: { readonly [command: string]: SdlcEffort };
 };
 export const WRITE_SPEC_FINISHED_LABELS: readonly string[];

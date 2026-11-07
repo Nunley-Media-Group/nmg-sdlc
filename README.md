@@ -92,18 +92,41 @@ Every step runs on the Claude Code model suited to its workload, and your sessio
 
 | Step | Model | Effort |
 |------|-------|--------|
-| execute stage `start` | `haiku` | default |
-| execute stage `implement` | `haiku` | `xhigh` |
-| execute stage `verify` | `opus` | default |
-| execute stage `deliver` | `haiku` | `xhigh` |
-| execute repair re-dispatch (`implement`, `verify`, `deliver`) | `opus` | default |
+| execute stage `start` | `start.model` in `steering/sdlc-models.json` (default `haiku`) | `start.effort` (default `default`, no flag) |
+| execute stage `implement` | `implement.model` in `steering/sdlc-models.json` (default `haiku`) | `implement.effort` (default `xhigh`) |
+| execute stage `verify` | `verify.model` in `steering/sdlc-models.json` (default `opus`) | `verify.effort` (default `high`) |
+| execute stage `deliver` | `deliver.model` in `steering/sdlc-models.json` (default `haiku`) | `deliver.effort` (default `xhigh`) |
+| execute repair re-dispatch (`implement`, `verify`, `deliver`) | `repair.model` in `steering/sdlc-models.json` (default `opus`) | `repair.effort` (default `default`, no flag) |
 | `/sdlc-status` | `haiku` | default |
 | `/sdlc-execute` (supervisor session) | your Opus or Fable session model | your setting |
 | `/sdlc-open-pr` | `haiku` | `xhigh` |
 | `/sdlc-verify-code` | `opus` | default |
 | `/sdlc-draft-issue`, `/sdlc-write-spec`, `/sdlc-onboard-project`, `/sdlc-upgrade-project`, `/sdlc-steering`, `/sdlc-run-retro` | `opus` | default |
 
-A repair re-dispatch is the next implement, verify, or deliver worker after a recorded failure, other than `pr_evidence_pending` and `mergeability_reverification_required`. Once a stage passes, the next dispatch uses its stage model again. A hooks-registered command's model holds until you submit your own prompt or slash command (from the composer or Remote Control) or change the session model. The aliases always resolve to the current model of each tier. The maps are `SDLC_MODELS` and `SDLC_EFFORTS` in `src/host-events.mjs`; "default" is your Claude Code effort setting.
+A repair re-dispatch is the next implement, verify, or deliver worker after a recorded failure, other than `pr_evidence_pending` and `mergeability_reverification_required`. Once a stage passes, the next dispatch uses its stage model again. A hooks-registered command's model holds until you submit your own prompt or slash command (from the composer or Remote Control) or change the session model. The aliases always resolve to the current model of each tier. Execute stage and repair values come from the project file described in [Per-project stage models](#per-project-stage-models). The command models and efforts are fixed by the plugin, and "default" effort is your Claude Code effort setting.
+
+### Per-project stage models
+
+The model and effort of each execute stage and of the repair re-dispatch come from the committed project file `steering/sdlc-models.json`. `/sdlc-onboard-project` creates it with the plugin defaults. `/sdlc-upgrade-project` creates it when it is absent, or adds only the missing keys to a valid file, and never changes a value the project already set. The file is project-owned and is not registered in `steering/manifest.json`.
+
+```json
+{
+  "version": 1,
+  "start": { "model": "haiku", "effort": "default" },
+  "implement": { "model": "haiku", "effort": "xhigh" },
+  "verify": { "model": "opus", "effort": "high" },
+  "deliver": { "model": "haiku", "effort": "xhigh" },
+  "repair": { "model": "opus", "effort": "default" }
+}
+```
+
+Effort `default` passes no `--effort` flag, so the worker keeps your Claude Code effort setting. The other efforts are `low`, `medium`, `high`, `xhigh`, and `max`.
+
+A model may be a Claude alias (`haiku`, `sonnet`, `opus`, `fable`, `opusplan`, `best`, or `sonnet[1m]`, `opus[1m]`, `fable[1m]`), a `claude-*` id, or a `provider/model` id such as nmg-router's `opencode-go/kimi-k3.1-pro`. A `provider/model` id is passed to `claude --model` verbatim. nmg-sdlc never checks whether it is logged in or available.
+
+`/sdlc-execute` validates the file before any Herdr, Git, or GitHub call. Invalid JSON, an unknown top-level or entry key, a model in none of the accepted forms, or an effort outside the list above stops the run with exit status 2. The diagnostic names `steering/sdlc-models.json`, the key, and the value. An absent file, or a valid file that lacks some keys, uses the plugin default for each missing key. The controller then prints one warning per invocation that the file is missing or incomplete and that `/sdlc-upgrade-project` creates or completes it. The file never changes the models of slash commands or of the `/sdlc-execute` supervisor session.
+
+### Autopilot for hands-off drivers
 
 ### Autopilot for hands-off drivers
 
@@ -140,6 +163,7 @@ For package-bounded publication repair, use `node <plugin-root>/scripts/sdlc-upg
 Onboarding/upgrade manage:
 
 - `steering/manifest.json`, runtime descriptors, and registered project context.
+- `steering/sdlc-models.json`: execute stage and repair models and efforts (see [Per-project stage models](#per-project-stage-models)). Onboarding creates it with plugin defaults when it is absent. Upgrade creates it when absent, or adds only missing keys to a valid file, and never changes a project value or rewrites an invalid file.
 - `CONTRIBUTING.md` and its README link.
 - The bounded spec-context section in root `CLAUDE.md`.
 - `.github/workflows/nmg-sdlc-contribution-gate.yml`.
@@ -180,6 +204,7 @@ Interactive behavior maps one to one: OMP `ask` chips are `AskUserQuestion` ques
 | `steering/snippets/*.md` | Project-owned guidance loaded only by registered consumers, slots, and order |
 | `steering/extensions/*.mjs` | Explicitly trusted project validation providers |
 | `validations[]` | Required/optional deterministic gates and applicability conditions |
+| `steering/sdlc-models.json` | Project-owned execute stage models and efforts (see [Per-project stage models](#per-project-stage-models)); not registered in `steering/manifest.json` |
 
 Use steering to state supported runtimes, commands, product boundaries, review policy, and declared version mirrors. Register a command's actual program, argument array, working directory, and required environment names. Do not put secrets into steering or shell-compose verification commands. Canonical validations have no wall-clock deadline; cancellation and confirmed process loss are distinct outcomes, not passes.
 
@@ -424,6 +449,8 @@ Status is read-only: current branch/spec, verification, GitHub issue/PR state, a
 - **Commands missing or controller paths unresolved:** check in `/plugin` that `nmg-sdlc` is installed and enabled (or that the session was started with `claude --plugin-dir <checkout>`); use a fresh session with the intended version, then apply project upgrades.
 - **`Run /sdlc-… in the TUI.`:** an interactive command was run under `claude -p` or the SDK; run it in a Claude Code TUI session.
 - **Herdr integration missing:** run `herdr integration install claude` and confirm with `herdr integration status`.
+- **`steering/sdlc-models.json:` diagnostic:** `/sdlc-execute` stopped before any Herdr, Git, or GitHub call because the stage configuration is invalid. Fix the key and value the diagnostic names (see [Per-project stage models](#per-project-stage-models)), then rerun.
+- **`Warning: steering/sdlc-models.json is missing …`:** plugin default stage models are in use. Run `/sdlc-upgrade-project` to create the file or add its missing keys.
 - **No eligible issue / unapproved spec:** finish issue/spec publication and inspect official blockers; do not manually apply labels as a substitute for approval.
 - **Dirty tree / branch mismatch:** preserve the work and restore the correct issue context. Do not reset or stash unrelated changes automatically.
 - **Controller lease held:** check whether its owner is still active.

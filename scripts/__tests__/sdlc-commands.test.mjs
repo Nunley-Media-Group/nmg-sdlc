@@ -58,12 +58,12 @@ describe('interactive command rendering', () => {
     const names = [...INTERACTIVE_COMMANDS, ...AUTOMATED_COMMANDS].map(([name]) => name)
       .filter((name) => name !== 'sdlc-execute').sort();
     expect(Object.keys(SDLC_MODELS.commands).sort()).toEqual(names);
-    expect(SDLC_MODELS.stages).toEqual({ start: 'haiku', implement: 'haiku', verify: 'opus', deliver: 'haiku' });
-    expect(SDLC_MODELS.repair).toBe('opus');
-    for (const model of [...Object.values(SDLC_MODELS.commands), ...Object.values(SDLC_MODELS.stages), SDLC_MODELS.repair]) {
+    expect(SDLC_MODELS).not.toHaveProperty('stages');
+    expect(SDLC_MODELS).not.toHaveProperty('repair');
+    for (const model of Object.values(SDLC_MODELS.commands)) {
       expect(['haiku', 'sonnet', 'opus']).toContain(model);
     }
-    expect(Object.isFrozen(SDLC_MODELS) && Object.isFrozen(SDLC_MODELS.stages) && Object.isFrozen(SDLC_MODELS.commands)).toBe(true);
+    expect(Object.isFrozen(SDLC_MODELS) && Object.isFrozen(SDLC_MODELS.commands)).toBe(true);
   });
 
   it('lets only an Opus or Fable session model supervise /sdlc-execute', () => {

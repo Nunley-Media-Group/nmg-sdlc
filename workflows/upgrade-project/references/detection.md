@@ -25,4 +25,6 @@
 
 15. Changelog create: when root `VERSION` is a regular file and root `CHANGELOG.md` is absent, emit actionable `id: changelog-create`, `kind: changelog-create` (`rel: CHANGELOG.md`). `prepare-version` needs that file with a `## [Unreleased]` heading, so this is the migration path for onboarded projects that predate the onboarding fix. Nothing is emitted when `CHANGELOG.md` exists.
 
+16. Stage models: when `steering/sdlc-models.json` is absent, emit actionable `id: sdlc-models`, `kind: sdlc-models`, `action: create`. When it is a regular file that parses, validates, and lacks keys, emit the same id with `action: complete` and `missingKeys` (dotted, such as `repair` or `verify.effort`). A complete file emits nothing. A symlinked or non-regular file emits nothing, and an invalid file emits nothing and is never rewritten.
+
 All detectors are read-only until plan approval and helper apply. Dependency apply re-reads the graph digest before the first POST and preserves issue body text.

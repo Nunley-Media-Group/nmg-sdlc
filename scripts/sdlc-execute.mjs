@@ -8,7 +8,8 @@ import { closeSync, constants as fsConstants, fstatSync, lstatSync, openSync, re
 import { join, relative, resolve, sep } from 'node:path';
 import { defaultPromptRegistry, renderPrompt, writePromptProvenance } from '../src/sdlc-prompt-snippets.mjs';
 import { packageRoot } from '../src/sdlc-workflows.mjs';
-import { executeGoalCondition, SDLC_EFFORTS, SDLC_MODELS } from '../src/host-events.mjs';
+import { executeGoalCondition } from '../src/host-events.mjs';
+import { loadStageModels, STAGE_MODEL_DEFAULTS, stageModelsWarning } from './sdlc-models.mjs';
 import { collectEvidence, parseIssueBranch } from './sdlc-status.mjs';
 import { inspectPublicationScope, publicationFileEntries } from './sdlc-safe-recoveries.mjs';
 import { inspectVerificationArtifactRepair, inspectVerificationReadiness, MAX_VERIFICATION_REPORT_BYTES } from './verification-readiness.mjs';
@@ -164,18 +165,20 @@ export function workerPermissionMode(env = process.env) {
 }
 // Failures that wait on outside evidence rather than a repair: the next dispatch keeps its stage model.
 const REPAIR_EXEMPT_REASONS = new Set(['pr_evidence_pending', 'mergeability_reverification_required']);
-/** Claude Code model alias for a stage worker: the stage's model, or the repair model when the
- * invocation recorded a repairable failure for the issue. */
-export function stageModel(step, failure) {
-  if (!Object.hasOwn(SDLC_MODELS.stages, step)) throw new Error(`unknown stage: ${step}`);
-  if (repairDispatch(step, failure)) return SDLC_MODELS.repair;
-  return SDLC_MODELS.stages[step];
+/** The steering/sdlc-models.json entry a stage worker runs on: the repair entry for a repair
+ * re-dispatch, otherwise the stage's own entry. */
+function stageEntry(step, failure, config) {
+  if (!VALID_STEPS.includes(step)) throw new Error(`unknown stage: ${step}`);
+  return repairDispatch(step, failure) ? config.repair : config[step];
 }
-/** Claude Code effort level for a stage worker: the stage's effort, or none (Claude Code's default)
- * for a stage without one and for every repair re-dispatch. */
-export function stageEffort(step, failure) {
-  if (!Object.hasOwn(SDLC_MODELS.stages, step)) throw new Error(`unknown stage: ${step}`);
-  return repairDispatch(step, failure) ? undefined : SDLC_EFFORTS.stages[step];
+/** Claude Code model alias for a stage worker, from the project configuration. */
+export function stageModel(step, failure, config = STAGE_MODEL_DEFAULTS) {
+  return stageEntry(step, failure, config).model;
+}
+/** Claude Code effort level for a stage worker; `default` yields none, so no `--effort` flag is passed. */
+export function stageEffort(step, failure, config = STAGE_MODEL_DEFAULTS) {
+  const effort = stageEntry(step, failure, config).effort;
+  return effort === 'default' ? undefined : effort;
 }
 function repairDispatch(step, failure) {
   return step !== 'start' && Boolean(failure) && !REPAIR_EXEMPT_REASONS.has(failure.reasonCode);
@@ -704,6 +707,11 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
   }
   let selected;
   try { selected = parseArgs(args); } catch { return fail(usage(), 2); }
+  // The project stage configuration is validated before any Herdr, Git, or GitHub call.
+  let stageModels;
+  try { stageModels = loadStageModels(cwd); } catch (error) { return { status: 2, stdout: '', stderr: `${error.message}\n` }; }
+  const stageWarning = stageModelsWarning(stageModels);
+  const warned = (result) => (stageWarning ? { ...result, stdout: `${stageWarning}\n${result.stdout}` } : result);
   const api = herdr ?? defaultHerdr(run, cwd, env);
   let integration;
   try { integration = api.integrationStatus(); } catch (error) { integration = { status: null, error }; }
@@ -712,10 +720,10 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
   )) {
     // A probe that never ran (spawn error, signal, no result) is not proof the integration is missing.
     const detail = probeFailure(integration);
-    return { status: 2, stdout: 'Run: herdr integration install claude\n',
-      stderr: detail ? `herdr integration status failed: ${detail}\n` : '' };
+    return warned({ status: 2, stdout: 'Run: herdr integration install claude\n',
+      stderr: detail ? `herdr integration status failed: ${detail}\n` : '' });
   }
-  if (!succeeded(run('gh', ['auth', 'status'], { cwd }))) return fail('gh auth status failed');
+  if (!succeeded(run('gh', ['auth', 'status'], { cwd }))) return warned(fail('gh auth status failed'));
 
   const invocationId = randomUUID();
   let lease;
@@ -727,7 +735,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
     onLeaseAcquired(invocationId);
   } catch (error) {
     if (lease) releaseControllerLease(lease);
-    return fail(error?.reasonCode ?? error?.message ?? 'controller_lease_held');
+    return warned(fail(error?.reasonCode ?? error?.message ?? 'controller_lease_held'));
   }
   const interval = checkInMs ?? (selected.checkInSeconds ? selected.checkInSeconds * 1000 : DEFAULT_CHECK_IN_MS);
   const decide = (report) => {
@@ -864,9 +872,9 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
     if (active && selected.defaultBacklog) issues = [active.issueNumber];
     else if (!active && selected.defaultBacklog) {
       const candidates = listSpecifiedIssues({ cwd, run });
-      if (!candidates.length) return { status: 0, stdout: 'No open spec-created issues.\n', stderr: '' };
+      if (!candidates.length) return warned({ status: 0, stdout: 'No open spec-created issues.\n', stderr: '' });
       if (typeof api.pickIssue !== 'function') {
-        return fail(`select an eligible issue: ${candidates.map((item) => `#${item.number}`).join(', ')}`, 2);
+        return warned(fail(`select an eligible issue: ${candidates.map((item) => `#${item.number}`).join(', ')}`, 2));
       }
       const chosen = api.pickIssue(candidates);
       if (!candidates.some((item) => item.number === chosen)) throw new Error('issue_selection_invalid');
@@ -999,7 +1007,8 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
         owned.add(pane);
         onOwnedPane(pane);
         if (!succeeded(api.agentStart({
-          name, paneId: pane, model: stageModel(step, failure), effort: stageEffort(step, failure),
+          name, paneId: pane, model: stageModel(step, failure, stageModels.config),
+          effort: stageEffort(step, failure, stageModels.config),
         }))) throw new Error('agent_start_failed');
         forced = null;
         guidance = null;
@@ -1131,8 +1140,8 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
         if (step === 'start') throw new Error(`${failure.reasonCode}: ${failure.summary}`);
       }
     }
-    return { status: 0, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: '' };
-  } catch (error) { return fail(error?.reasonCode ?? error?.message ?? 'controller_failed'); }
+    return warned({ status: 0, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: '' });
+  } catch (error) { return warned(fail(error?.reasonCode ?? error?.message ?? 'controller_failed')); }
   finally {
     let cleaned = false;
     try { cleanup(); cleaned = true; } finally {
@@ -1188,6 +1197,14 @@ function branchGoalIssues() {
 
 async function runCli(argv = process.argv.slice(2)) {
   const [sub, ...rest] = argv;
+  // An invalid project stage configuration stops these before any Herdr, Git, or GitHub call.
+  if (['goal', 'list-specified', 'run', 'supervise'].includes(sub)) {
+    try { loadStageModels(process.cwd()); } catch (error) {
+      process.stderr.write(`${error.message}\n`);
+      process.exitCode = 2;
+      return;
+    }
+  }
   if (['run', 'supervise', 'decide', 'wait'].includes(sub)) {
     const result = await sessionCommand(sub, rest);
     if (result.stdout) process.stdout.write(result.stdout);
