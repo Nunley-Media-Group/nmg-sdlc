@@ -1,0 +1,94 @@
+**Issue**: #538
+**Date**: 2026-11-08
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/535-make-sdlc-execute-stage-models-and-efforts-configurable-per-project-via-steering-sdlc-models-json/
+
+# File: scripts/__tests__/features/execute-subagents.feature
+# Generated from: specs/538-replace-herdr-panes-with-hooks-module-subagents-for-sdlc-execute/requirements.md
+Feature: Hooks-module subagent workers for /sdlc-execute
+
+  @SCN001
+  Scenario: Stages run as hooks-module subagents without Herdr
+    Given an approved spec-created issue and an Opus session with no HERDR_ environment variables
+    When the person runs "/sdlc-execute #N"
+    Then each dispatched stage runs as a subagent of type "nmg-sdlc:execute-<entry>" spawned by the hooks module
+    And no "herdr" command is invoked
+    And the issue's exact-head PR is merged and the issue is closed under the full-green gate
+
+  @SCN002
+  Scenario: Stage subagents use the configured model and effort
+    Given steering/sdlc-models.json sets verify to "sonnet"/"max", repair to "opencode-go/kimi-k3.1-pro"/"default"
+    When the controller dispatches verify and then redispatches it as a repair
+    Then the verify subagent's model steps use "sonnet" with effort "max"
+    And the repair subagent registers model "opencode-go/kimi-k3.1-pro" with no effort and its step effort is left unchanged
+
+  @SCN003
+  Scenario: Invalid configuration stops before any subagent starts
+    Given steering/sdlc-models.json sets verify.effort to "extreme"
+    When /sdlc-execute starts
+    Then it exits 2 with "steering/sdlc-models.json: verify.effort" in the diagnostic
+    And no git or gh command runs and no spawn request is written
+
+  @SCN004
+  Scenario: Check-in reports carry the worker's activity
+    Given an implement subagent whose last tool call was 300 seconds ago
+    When the check-in interval of 300 seconds elapses
+    Then the check-in report has reason "activity_unchanged" and an activity object with recent tool calls, latest transcript text and seconds since last activity
+    And the idle supervising session receives a prompt to fetch and answer the report
+
+  @SCN005
+  Scenario: Prompt guidance enters the running worker's conversation
+    Given a running verify subagent
+    When the supervising session decides prompt with text "Re-run the failing contract test"
+    Then that text is appended to the subagent's conversation
+    And the controller waits for the subagent's fresh handoff
+
+  @SCN006
+  Scenario: Redispatch stops the running worker first
+    Given a running implement subagent
+    When the supervising session decides redispatch
+    Then the subagent is stopped with status "killed" before the replacement spawn request is written
+    And any further tool call from the stopped subagent is denied
+
+  @SCN007
+  Scenario: Headless execute runs to completion and reports its status
+    Given "claude -p --session-id <uuid> --plugin-dir <checkout> '/sdlc-execute #N'" on an Opus model
+    When the run executes
+    Then the process stays alive until the controller finishes and its last output is "#N: MERGED and CLOSED"
+    And "claude -p --resume <uuid> '/sdlc-execute --result'" prints that line and exits 0
+
+  @SCN008
+  Scenario: The retain-worker flag is rejected
+    Given the arguments "--retain-worker #N"
+    When /sdlc-execute parses them
+    Then it stops with a usage error naming "--retain-worker" before setting a goal
+    And "--check-in-seconds 60 #N" still parses
+
+  @SCN009
+  Scenario: Interactive commands run headless only under autopilot
+    Given NMG_SDLC_AUTOPILOT=1
+    When "claude -p --plugin-dir <checkout> '/sdlc-write-spec #N'" runs
+    Then the workflow publishes the approved spec with plan approval and questions answered by autopilot
+    And without NMG_SDLC_AUTOPILOT the same invocation prints "Run /sdlc-write-spec in the TUI." and exits 2
+
+  @SCN010
+  Scenario: The smoke gate provisions and delivers without Herdr
+    Given the nmg-sdlc-smoke provider with no explicit issue queue
+    When it provisions and delivers a smoke issue
+    Then it runs headless claude -p sessions for draft-issue, write-spec and execute with the candidate plugin directory
+    And no "herdr" command is invoked and the pass still requires the exact-head merged PR and the closed issue
+
+  @SCN011
+  Scenario: Upgrade rewrites the Herdr CONTRIBUTING sentence idempotently
+    Given a CONTRIBUTING.md containing "drives Herdr Claude worker panes through implementation, verification, and delivery"
+    When the upgrade plan applies
+    Then the sentence reads "runs Claude Code stage subagents through implementation, verification, and delivery" and all other bytes are unchanged
+    And a second upgrade detects nothing
+
+  @SCN012
+  Scenario: A refused worker start fails the run
+    Given the hooks module denies the implement subagent spawn
+    When the controller dispatches implement
+    Then the run exits non-zero with "worker_start_refused" and the denial reason
+    And no deliver stage runs
