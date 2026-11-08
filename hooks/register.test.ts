@@ -299,15 +299,16 @@ describe('interactive commands', () => {
     expect(world.prompts).toEqual([{ text: '# sdlc-execute workflow', asUser: true }])
   })
 
-  test('a headless sdlc-execute answers with its rendered workflow, with no refusal and no preamble', async ($, on) => {
+  // A command's own `{ text }` answer is only printed: under `claude -p` the run would end with no model turn.
+  test('a headless sdlc-execute submits its rendered workflow as the prompt, with no refusal, no preamble and no printed text', async ($, on) => {
     const world = engine(on, { interactive: false })
     world.sessionModel = 'claude-opus-5-5'
     await start($, world, false)
     const result = await run($, world, 'sdlc-execute', '#42')
-    expect(result).toEqual({ text: '# sdlc-execute workflow' })
+    expect(result).toEqual({})
     expect(world.renders.at(-1)).toEqual(expect.arrayContaining(['--consumer', 'sdlc-execute', '--args', '#42']))
     expect(world.plans).toEqual([])
-    expect(world.prompts).toEqual([])
+    expect(world.prompts).toEqual([{ text: '# sdlc-execute workflow', asUser: true }])
   })
 
   test('a headless sdlc-execute on a non-Opus session is still refused before rendering', async ($, on) => {
@@ -382,14 +383,14 @@ describe('headless runs', () => {
     expect(world.bashInputs.at(-1)).toMatchObject({ command: merge, run_in_background: false, timeout: 600000 })
   })
 
-  test('a headless interactive command under autopilot answers with the plan preamble and its workflow, and approves EnterPlanMode', async ($, on) => {
+  test('a headless interactive command under autopilot submits the plan preamble and its workflow as the prompt, and approves EnterPlanMode', async ($, on) => {
     const world = engine(on, { interactive: false, env: { NMG_SDLC_AUTOPILOT: '1' } })
     await start($, world, false)
     const result = await run($, world, 'sdlc-draft-issue', 'a parser bug')
-    expect(result).toEqual({ text: `${headlessPlanPreamble('sdlc-draft-issue')}# sdlc-draft-issue workflow` })
+    expect(result).toEqual({})
     expect(world.renders.at(-1)).toEqual(expect.arrayContaining(['--consumer', 'sdlc-draft-issue', '--args', 'a parser bug']))
     expect(world.plans).toEqual([])
-    expect(world.prompts).toEqual([])
+    expect(world.prompts).toEqual([{ text: `${headlessPlanPreamble('sdlc-draft-issue')}# sdlc-draft-issue workflow`, asUser: true }])
     expect(await $.classic.PermissionRequest({ tool_name: 'EnterPlanMode', tool_input: {} }))
       .toEqual({ decision: { behavior: 'allow', updatedInput: {} } })
   })

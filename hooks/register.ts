@@ -164,7 +164,7 @@ let bridge: Bridge | null = null
 // Whether the main loop is mid-turn, and when it last became idle; a report is announced only after idleness.
 let mainBusy = false
 let mainIdleSince = 0
-// A headless run has no UI: its interactive commands answer with their workflow text.
+// A headless run has no UI: its commands submit their workflow as the prompt, without `/plan`.
 let headlessRun = false
 
 function errorText(error: unknown): string {
@@ -643,14 +643,14 @@ export const register: Register = on => {
       startInteractiveCommand(name)
       await startModelOverride($, name)
       headlessRun = headless
-      if (headless) {
-        // The rendered workflow is the headless run's prompt; execute enters no plan mode.
-        return { text: `${name === 'sdlc-execute' ? '' : headlessPlanPreamble(name)}${rendered.text}` }
-      }
       // Neither `/plan` nor the workflow prompt can start from inside this
-      // command's own dispatch; a timer starts them once it has settled.
-      if (DIRECT_COMMANDS.includes(name)) {
-        $.clock.after(1, () => { void $.prompt.submit({ text: rendered.text, asUser: true }) })
+      // command's own dispatch; a timer starts them once it has settled. A
+      // command's own `{ text }` answer is only printed, so a headless run
+      // (`claude -p`) also submits its workflow as the prompt, without `/plan`:
+      // the preamble has an interactive command enter plan mode itself.
+      if (headless || DIRECT_COMMANDS.includes(name)) {
+        const text = headless && !DIRECT_COMMANDS.includes(name) ? `${headlessPlanPreamble(name)}${rendered.text}` : rendered.text
+        $.clock.after(1, () => { void $.prompt.submit({ text, asUser: true }) })
         return {}
       }
       $.clock.after(1, async () => {

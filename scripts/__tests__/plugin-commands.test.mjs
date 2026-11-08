@@ -41,8 +41,10 @@ describe('Claude Code plugin commands', () => {
     expect(source).toContain('await $.prompt.submit({ text, asUser: true })');
     expect(source).toContain("'sdlc-execute': '[--check-in-seconds N] [#N ...]'");
     expect(source).not.toContain('--retain-worker');
-    expect(source).toContain('if (DIRECT_COMMANDS.includes(name)) {');
-    expect(source).toContain('$.prompt.submit({ text: rendered.text, asUser: true })');
+    // A headless run submits its workflow as the prompt: a command's own `{ text }` answer is only printed.
+    expect(source).toContain('if (headless || DIRECT_COMMANDS.includes(name)) {');
+    expect(source).toContain('$.clock.after(1, () => { void $.prompt.submit({ text, asUser: true }) })');
+    expect(source).not.toMatch(/return \{ text: `\$\{name === 'sdlc-execute'/);
     expect(source).toContain('scripts/sdlc-render-prompt.mjs');
     expect(source).not.toMatch(/herdr/i);
     for (const [name] of INTERACTIVE_COMMANDS) {
