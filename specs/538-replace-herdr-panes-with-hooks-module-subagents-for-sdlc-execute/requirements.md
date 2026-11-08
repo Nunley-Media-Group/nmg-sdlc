@@ -33,7 +33,9 @@ The Claude Code hooks-module API can do everything the controller does through p
 - stop it (`TaskStop` through `$.tool.call`);
 - submit a prompt to the main session from a timer (`$.clock.every`, `$.prompt.submit`).
 
-A command that is the whole prompt of a headless run can set that process's exit code.
+A command that is the whole prompt of a headless run can set that process's exit code. A command's own `{ text }` answer is display-only and starts no model turn. A command starts a model turn by submitting a prompt from a timer (`$.clock.after`, `$.prompt.submit`).
+
+Headless `claude -p` sessions have no `EnterPlanMode`, `ExitPlanMode` or `AskUserQuestion` tool, so the interactive commands cannot run there. Autopilot (`NMG_SDLC_AUTOPILOT=1`) answered those gates for unattended drivers. Its only driver is the smoke gate's provisioning step, which typed `/sdlc-draft-issue` and `/sdlc-write-spec` into a Herdr pane. The `/sdlc-execute` controller and its supervising session already make every delivery decision, so autopilot has no remaining role once provisioning moves to the verify stage.
 
 ## Acceptance Criteria
 
@@ -98,22 +100,23 @@ A command that is the whole prompt of a headless run can set that process's exit
 **Then** the run stops with a usage error that names `--retain-worker`, before setting a goal or making any mutation
 **And** `--check-in-seconds N` remains accepted
 
-### AC9: Interactive commands run headless under autopilot
+### AC9: Autopilot is removed and interactive commands stay TUI-only
 
-**Given** `NMG_SDLC_AUTOPILOT=1`
-**When** `claude -p --plugin-dir <checkout> "/sdlc-draft-issue <need>"` or `"/sdlc-write-spec #N"` runs
-**Then** the real workflow runs to completion, with plan approval and questions answered by autopilot
-**And** draft-issue creates the issue, and write-spec publishes the approved spec
-**And** without `NMG_SDLC_AUTOPILOT=1` the same headless invocation still prints `Run /<name> in the TUI.`, exits 2, and makes no mutation
+**Given** a headless `claude -p --plugin-dir <checkout> "/sdlc-draft-issue <need>"` or `"/sdlc-write-spec #N"` run, with or without `NMG_SDLC_AUTOPILOT=1` in its environment
+**When** the command is dispatched
+**Then** it prints `Run /<name> in the TUI.`, exits 2, and makes no mutation
+**And** in any session the hooks module approves no `ExitPlanMode` and answers no `AskUserQuestion` because of `NMG_SDLC_AUTOPILOT`; the write-spec Finished approval is unchanged
+**And** no plugin runtime file, workflow, `references/interactive-gates.md`, README, `CLAUDE.md` or `CONTRIBUTING.md` reads or documents `NMG_SDLC_AUTOPILOT`. `references/rewrite-contract.{json,md}`, `references/rewrite-verification.md` and the cutover ADR record it only as removed by #538
 
-### AC10: Smoke gate runs without Herdr
+### AC10: Smoke gate delivers the verify-provisioned issue without Herdr
 
-**Given** the live smoke gate in `steering/extensions/nmg-sdlc-smoke.mjs`
-**When** it provisions and delivers a smoke issue
-**Then** it runs `/sdlc-draft-issue` and `/sdlc-write-spec` through headless `claude -p --plugin-dir <candidate>` sessions with `NMG_SDLC_AUTOPILOT=1`
+**Given** the live smoke gate in `steering/extensions/nmg-sdlc-smoke.mjs` with no explicit issue queue
+**When** it runs
+**Then** it reads the smoke issue from the provisioning record `.nmg-sdlc/smoke/provisioned.json`, and passes only when that issue is in `Nunley-Media-Group/nmg-sdlc-smoke`, is open, carries `spec-created`, and has a merged `docs: approve spec for #N` PR
+**And** it never drafts an issue or writes a spec itself; a missing, invalid or stale record fails with `nmg-sdlc-smoke smoke issue not provisioned`
 **And** it runs delivery through a headless `claude -p --session-id <uuid> --plugin-dir <candidate> "/sdlc-execute #N"` session in the delivery clone, and reads the controller status from that session's recorded result
 **And** it invokes no `herdr` command
-**And** it keeps its current exact-head merged-PR and closed-issue pass conditions
+**And** it keeps its current exact-head merged-PR and closed-issue pass conditions, and an explicit `NMG_SDLC_SMOKE_ISSUES` queue still takes priority over the record
 
 ### AC11: Upgrade rewrites the managed CONTRIBUTING sentence
 
@@ -128,6 +131,15 @@ A command that is the whole prompt of a headless run can set that process's exit
 **When** the controller dispatches that stage
 **Then** the run reports `worker_start_refused` with the refusal reason and exits non-zero without delivering or merging
 
+### AC13: The verify stage provisions the smoke issue through the real interactive commands
+
+**Given** nmg-sdlc's own verification, whose registered gates include `repository.nmg-sdlc-smoke`
+**When** the verify worker runs, before it runs the registered gates
+**Then** the project steering snippet routed to `worker:verify` has it reuse the recorded smoke issue when that issue is open and undelivered, or else provision a fresh one
+**And** provisioning starts an interactive `claude --plugin-dir <candidate>` session in a detached tmux session in a fresh smoke clone, runs the real `/sdlc-draft-issue <need>` and then `/sdlc-write-spec #N`, and answers every question and plan dialog itself by reading the pane
+**And** when issue N has `spec-created` and a merged `docs: approve spec for #N` PR, the worker ends the tmux session, removes the clone, and writes `.nmg-sdlc/smoke/provisioned.json`
+**And** a failure to drive the terminal (tmux missing, the pane unreadable, an unrecognized dialog) is reported as environmental, and a misbehaving draft-issue or write-spec workflow is reported as an nmg-sdlc defect in the verification report
+
 ## Functional Requirements
 
 | ID | Requirement | Priority |
@@ -137,12 +149,14 @@ A command that is the whole prompt of a headless run can set that process's exit
 | FR3 | Supervision is event-driven. Stage reports follow subagent completion, and check-ins come from hooks-module timers that submit a prompt to the supervising session. No supervision `Bash` call waits for a worker to run | Must |
 | FR4 | `continue`, `prompt`, `redispatch` and `halt` keep their meanings. `prompt` adds guidance to the running subagent's conversation; `redispatch` and `halt` stop it first | Must |
 | FR5 | The Herdr preflight, the Herdr environment variables, the Herdr integration probe, `--retain-worker`, the Herdr session-start toast and every `herdr` invocation are removed from the plugin and the smoke gate | Must |
-| FR6 | Interactive `/sdlc-*` commands run to completion headless when `NMG_SDLC_AUTOPILOT=1`. Without it they keep the existing fail-closed headless refusal. `/sdlc-execute` runs headless without autopilot | Must |
-| FR7 | The smoke gate provisions and delivers through headless `claude -p --plugin-dir <candidate>` sessions | Must |
+| FR6 | Autopilot (`NMG_SDLC_AUTOPILOT`) is removed. Interactive `/sdlc-*` commands keep the fail-closed headless refusal unconditionally. `/sdlc-execute` runs headless by submitting its rendered workflow as the prompt | Must |
+| FR7 | The smoke gate delivers the issue named by the verify worker's provisioning record through a headless `claude -p --plugin-dir <candidate>` `/sdlc-execute` session, and never drafts or specifies an issue itself | Must |
 | FR8 | Upgrade rewrites the managed v3 and v4 Herdr `CONTRIBUTING.md` sentences to the subagent sentence, idempotently | Must |
 | FR9 | Stage agent definitions in `agents/*.md` no longer state Herdr-only dispatch and carry no `model` or `effort` frontmatter. Their bodies become the stage subagents' system prompts | Should |
-| FR10 | README, `CONTRIBUTING.md`, `CLAUDE.md`, `references/claude-code-tooling.md`, `references/contribution-guide.md`, the execute workflow and the steering snippets describe subagent-based delivery, headless runs, autopilot and `/sdlc-execute --result` | Must |
+| FR10 | README, `CONTRIBUTING.md`, `CLAUDE.md`, `references/claude-code-tooling.md`, `references/contribution-guide.md`, the execute workflow and the steering snippets describe subagent-based delivery, headless `/sdlc-execute` runs and `/sdlc-execute --result`. They no longer document autopilot, and `CHANGELOG.md` records its removal as a breaking change | Must |
 | FR11 | When `/sdlc-execute` finishes, its controller records the terminal status and final result lines under the supervising Claude session id. `/sdlc-execute --result` prints that record and exits with the recorded status | Must |
+| FR12 | A project steering snippet routed only to `worker:verify` (`steering/snippets/project-smoke.md`) directs smoke provisioning as AC13 describes. Provisioning is nmg-sdlc's own steering, not plugin behavior, and tmux is required only on machines that verify nmg-sdlc itself | Must |
+| FR13 | A new ADR, `docs/decisions/2026-11-08-execute-stage-subagents.md`, supersedes cutover ADR decisions 4 (autopilot) and 6 (worker permission mode), and the cutover ADR marks both as superseded. The `execute` and `claude-code-plugin` capabilities in `references/rewrite-contract.{json,md}`, and the Herdr-worker and autopilot rows in `references/rewrite-verification.md`, describe the #538 behavior | Must |
 
 ## Out of Scope
 
@@ -150,10 +164,11 @@ A command that is the whole prompt of a headless run can set that process's exit
 - Changing the full-green gate, verification semantics, or delivery merge rules
 - Agent teams, teammates, and worktree or remote isolation for stage workers
 - A visual dashboard or pane UI for workers beyond Claude Code's built-in subagent view
-- Rewriting historical specs, released `CHANGELOG.md` entries, ADRs, or `references/rewrite-contract.*`
+- Rewriting historical specs or released `CHANGELOG.md` entries. ADRs and `references/rewrite-*` change only as FR13 describes
 
 ## Change History
 
 | Issue | Date | Summary |
 |-------|------|---------|
 | #538 | 2026-11-08 | Initial feature spec |
+| #538 | 2026-11-08 | Amendment: `claude -p` has no plan or question tools, so autopilot is removed (AC9, FR6). The verify worker provisions the smoke issue through real TUI draft-issue and write-spec sessions driven in tmux (AC13, FR12), and the smoke gate delivers that recorded issue (AC10, FR7) |

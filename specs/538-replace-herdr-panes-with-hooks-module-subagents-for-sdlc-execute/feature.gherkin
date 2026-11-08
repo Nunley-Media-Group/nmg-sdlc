@@ -66,18 +66,33 @@ Feature: Hooks-module subagent workers for /sdlc-execute
     And "--check-in-seconds 60 #N" still parses
 
   @SCN009
-  Scenario: Interactive commands run headless only under autopilot
-    Given NMG_SDLC_AUTOPILOT=1
+  Scenario: Autopilot is gone and interactive commands stay TUI-only
+    Given NMG_SDLC_AUTOPILOT=1 in the environment
     When "claude -p --plugin-dir <checkout> '/sdlc-write-spec #N'" runs
-    Then the workflow publishes the approved spec with plan approval and questions answered by autopilot
-    And without NMG_SDLC_AUTOPILOT the same invocation prints "Run /sdlc-write-spec in the TUI." and exits 2
+    Then it prints "Run /sdlc-write-spec in the TUI." and exits 2 with no mutation
+    And in a TUI session with NMG_SDLC_AUTOPILOT=1 the hooks module approves no plan and answers no question on its own
 
   @SCN010
-  Scenario: The smoke gate provisions and delivers without Herdr
+  Scenario: The smoke gate delivers the verify-provisioned issue without Herdr
     Given the nmg-sdlc-smoke provider with no explicit issue queue
-    When it provisions and delivers a smoke issue
-    Then it runs headless claude -p sessions for draft-issue, write-spec and execute with the candidate plugin directory
-    And no "herdr" command is invoked and the pass still requires the exact-head merged PR and the closed issue
+    And ".nmg-sdlc/smoke/provisioned.json" names an open smoke issue with "spec-created" and a merged "docs: approve spec for #N" PR
+    When the gate runs
+    Then it delivers that issue through a headless "claude -p --session-id <uuid> --plugin-dir <candidate> '/sdlc-execute #N'" session
+    And it runs no draft-issue or write-spec command, invokes no "herdr" command, and the pass still requires the exact-head merged PR and the closed issue
+
+  @SCN013
+  Scenario: The smoke gate fails when no smoke issue was provisioned
+    Given the nmg-sdlc-smoke provider with no explicit issue queue
+    And no ".nmg-sdlc/smoke/provisioned.json" record, or one naming a closed issue
+    When the gate runs
+    Then it fails with "nmg-sdlc-smoke smoke issue not provisioned" and the reason
+
+  @SCN014
+  Scenario: The verify worker provisions the smoke issue through the real interactive commands
+    Given nmg-sdlc's own verification with "repository.nmg-sdlc-smoke" registered and no recorded open smoke issue
+    When the verify worker runs with the "project.smoke" snippet
+    Then it drives "/sdlc-draft-issue <need>" and "/sdlc-write-spec #N" in an interactive claude session inside tmux, answering each dialog itself
+    And it writes ".nmg-sdlc/smoke/provisioned.json" naming issue N once N has "spec-created" and a merged spec PR, before running the registered gates
 
   @SCN011
   Scenario: Upgrade rewrites the Herdr CONTRIBUTING sentence idempotently

@@ -2,7 +2,7 @@
 
 **Release**: 4.0.0
 **Runtime**: Claude Code
-**Orchestration**: Herdr Claude workers
+**Orchestration**: Claude Code stage subagents (Herdr Claude workers until #538)
 **Exception**: `repository-rewrite`
 
 This is the owner-approved current capability contract for the breaking 4.0.0 cutover from Oh My Pi to Claude Code. It is not an executable issue spec and does not claim a synthetic GitHub issue. Ordinary feature and bug delivery continues to use singular `specs/{N}-{slug}/` packages. Superseded issue specs, and the 3.1.0 rewrite contract this one replaces, remain available in Git history and are intentionally absent from the working tree.
@@ -56,9 +56,9 @@ Acceptance:
 - Given approved issue text, when publishing, then exactly one feature or bug issue is created with testable BDD acceptance criteria.
 - Given the issue is created, when the workflow completes, then /sdlc-write-spec #N is the next action.
 
-## Execute SDLC with Herdr Claude Workers (`execute`)
+## Execute SDLC with Claude Code Stage Subagents (`execute`)
 
-Orchestrate approved issue delivery through isolated sibling Herdr Claude workers.
+Orchestrate approved issue delivery through background stage subagents that the nmg-sdlc hooks module starts, observes, steers and stops (changed by #538).
 
 - Surface: `/sdlc-execute [#N ...]`
 - Sources: `workflows/execute/`, `scripts/sdlc-execute.mjs`, `agents/`
@@ -66,9 +66,9 @@ Orchestrate approved issue delivery through isolated sibling Herdr Claude worker
 
 Acceptance:
 
-- Given issue numbers or a ready backlog, when execute starts in the main Herdr pane, then each issue runs through start, implement, verify, and deliver stages.
-- Given a worker stage, when launched, then the orchestrator supplies explicit #N context and uses a sibling Herdr --kind claude session.
-- Given a worker launch, when the controller starts the Herdr agent, then it passes --plugin-dir for the controller's own plugin root and --permission-mode from NMG_SDLC_WORKER_PERMISSION_MODE when that names a supported mode, else auto.
+- Given issue numbers or a ready backlog, when execute starts in a Claude Code session on an Opus or Fable model, then each issue runs through start, implement, verify, and deliver stages.
+- Given a worker stage, when launched, then the orchestrator supplies explicit #N context and the hooks module spawns a background stage subagent of type nmg-sdlc:execute-<entry>.
+- Given a worker launch, when the hooks module registers the stage subagent, then it uses the model and effort from steering/sdlc-models.json and the permission mode from NMG_SDLC_WORKER_PERMISSION_MODE when that names a supported mode, else auto.
 - Given a failed handoff, when a stage ends, then execution stops with intervention instead of silently continuing.
 - Given one issue merges, when more work remains, then the default branch is synchronized before the next issue starts.
 - Given the orchestrator is running, when product edits are needed, then those edits remain delegated to the owning worker.
@@ -87,7 +87,7 @@ Acceptance:
 - Given an interactive command runs in the TUI, when it starts, then the hooks module runs builtin /plan and submits the rendered workflow as the person's prompt; without a UI it prints Run /<command> in the TUI. and exits 2.
 - Given the TUI or claude -p, when an automated /sdlc-* command runs, then its commands/ file expands the owning workflow with ${CLAUDE_PLUGIN_ROOT} in place of <plugin-root>.
 - Given write-spec Finished is selected, when the reply ends with ExitPlanMode, then the hooks module approves that one call and plan mode ends without a dialog.
-- Given NMG_SDLC_AUTOPILOT=1 in the session environment, when a plan or question gate is reached, then the hooks module approves ExitPlanMode and answers AskUserQuestion with each question's Recommended option.
+- Given claude -p, when /sdlc-execute runs, then the hooks module submits its rendered workflow as the headless prompt; interactive commands keep the TUI-only refusal and no environment variable answers their plan or question gates (changed by #538).
 
 ## Onboard Project (`onboard-project`)
 
