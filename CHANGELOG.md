@@ -12,6 +12,8 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.9.0] - 2026-11-08
+
 ### Added
 
 - `/sdlc-execute` runs headless with `claude -p --session-id <uuid> --plugin-dir <checkout> --model opus "/sdlc-execute #N"`, which delivers the queue to completion; `claude -p --resume <uuid> "/sdlc-execute --result"` prints the recorded result lines and exits with the controller's status (#538)
