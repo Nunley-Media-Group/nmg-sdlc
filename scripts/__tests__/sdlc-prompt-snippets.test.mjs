@@ -99,7 +99,7 @@ describe('prompt snippet registry', () => {
       },
     });
     expect(rendered.text).toBe([
-      'nmg-sdlc start worker for #42: a Herdr Claude worker started by /sdlc-execute.',
+      'nmg-sdlc start worker for #42: a stage subagent started by /sdlc-execute.',
       'Execute this inlined workflow for #42 without questions: never call AskUserQuestion, EnterPlanMode, or ExitPlanMode.',
       'Write and validate the handoff, then stop.',
       '',

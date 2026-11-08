@@ -31,3 +31,5 @@ export function writeSpecFinishedSelection(answers: Record<string, unknown> | nu
 export function recommendedAnswers(questions: unknown, options?: { prefer?: readonly string[] }): Record<string, string>;
 export function materializePluginRootCommand(command: string, root: string): string;
 export function materializePluginRootPath<T extends string | undefined>(path: T, root: string): T;
+export const HEADLESS_MERGE_TIMEOUT_MS: number;
+export function foregroundMergeInput<T>(input: T): (T & { run_in_background: false; timeout: number }) | null;

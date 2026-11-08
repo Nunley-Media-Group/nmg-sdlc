@@ -39,10 +39,12 @@ describe('Claude Code plugin commands', () => {
     expect(source).toContain('for (const [name, , description] of INTERACTIVE_COMMANDS)');
     expect(source).toContain("$.command.run({ command: 'plan', args: '' })");
     expect(source).toContain('await $.prompt.submit({ text, asUser: true })');
-    expect(source).toContain("'sdlc-execute': '[--retain-worker] [--check-in-seconds N] [#N ...]'");
+    expect(source).toContain("'sdlc-execute': '[--check-in-seconds N] [#N ...]'");
+    expect(source).not.toContain('--retain-worker');
     expect(source).toContain('if (DIRECT_COMMANDS.includes(name)) {');
     expect(source).toContain('$.prompt.submit({ text: rendered.text, asUser: true })');
     expect(source).toContain('scripts/sdlc-render-prompt.mjs');
+    expect(source).not.toMatch(/herdr/i);
     for (const [name] of INTERACTIVE_COMMANDS) {
       expect(fs.existsSync(path.join(repoRoot, 'commands', `${name}.md`))).toBe(false);
     }
@@ -93,7 +95,7 @@ describe('Claude Code plugin commands', () => {
   });
 
   it('keeps the hooks module free of Node imports', () => {
-    for (const file of ['hooks/register.ts', 'src/host-events.mjs']) {
+    for (const file of ['hooks/register.ts', 'src/host-events.mjs', 'src/execute-host.mjs']) {
       expect(`${file}\n${read(file)}`).not.toMatch(/from ['"]node:|require\(|import\(/);
     }
   });

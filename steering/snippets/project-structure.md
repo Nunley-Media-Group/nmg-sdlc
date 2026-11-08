@@ -76,14 +76,14 @@ scripts/
 | Layer | Does | Does Not Do |
 |-------|------|-------------|
 | Plugin manifest | Declares identity and version | Define workflow logic |
-| Hooks module | Registers interactive `/sdlc-*` commands and `/sdlc-execute`, enters native plan mode for the interactive ones, materializes `<plugin-root>`, drives write-spec Continue/Finished and autopilot | Interview users, import Node built-ins, or spawn Herdr workers |
+| Hooks module | Registers interactive `/sdlc-*` commands and `/sdlc-execute`, enters native plan mode for the interactive ones, materializes `<plugin-root>`, drives write-spec Continue/Finished and autopilot, and starts execute stage subagents | Interview users, import Node built-ins, or run execute stages outside their subagents |
 | Command files | Expand `/sdlc-status`, `/sdlc-verify-code`, and `/sdlc-open-pr` into their workflows | Hold hand-edited logic; they are generated |
 | Runtime libraries | Load steering, render prompts, run deterministic validations | Own lifecycle decisions that belong in workflows |
 | Workflow entrypoints | Define triggers and concise workflow skeletons | Inline all variants or duplicate shared contracts |
 | Shared references | Hold rules consumed by two or more workflows | Hold one-workflow-only details |
 | Per-workflow references | Hold variants, algorithms, and extended examples for one workflow | Become public command entrypoints |
 | Templates | Define generated artifact structure | Contain mutable project state |
-| Agents | Define Claude Code plugin subagent contracts | Bypass the Herdr isolation boundary for pipeline steps |
+| Agents | Define Claude Code plugin subagent contracts | Bypass the stage subagent isolation boundary for pipeline steps |
 | Scripts | Validate, classify, or inspect contracts deterministically | Own lifecycle decisions that belong in workflows |
 | Specs | Record approved requirements/design/tasks and historical behavior | Serve as active plugin loader content |
 | Steering | Define stable product and engineering decisions | Replace feature-specific specs |
@@ -151,7 +151,7 @@ Skill frontmatter contains only `name` and `description`. Detailed content belon
 
 ### Agent File
 
-Agent files are Claude Code plugin subagents (`nmg-sdlc:<name>`). Required frontmatter: `name` and `description`. Optional: `model` (`haiku`, `sonnet`, `opus`, or `inherit`), `effort` (`low`, `medium`, `high`, `xhigh`, or `max`), `tools`. Bodies follow the inlined workflow for `#N`, forbid `AskUserQuestion` and `ExitPlanMode`, write the handoff file, print `NMG_SDLC_HANDOFF: .nmg-sdlc/handoffs/<N>-<step>.json`, and stop.
+Agent files are Claude Code plugin subagents (`nmg-sdlc:<name>`). Required frontmatter: `name` and `description`. Optional: `tools`; agent files declare no `model` or `effort`, since stage settings come from `steering/sdlc-models.json`. Bodies follow the inlined workflow for `#N`, forbid `AskUserQuestion` and `ExitPlanMode`, write the handoff file, print `NMG_SDLC_HANDOFF: .nmg-sdlc/handoffs/<N>-<step>.json`, and stop.
 
 ### Plugin Manifest
 
@@ -159,7 +159,7 @@ Agent files are Claude Code plugin subagents (`nmg-sdlc:<name>`). Required front
 {
   "name": "nmg-sdlc",
   "version": "4.0.0",
-  "description": "Spec-driven delivery for Claude Code and Herdr"
+  "description": "Spec-driven delivery for Claude Code"
 }
 ```
 

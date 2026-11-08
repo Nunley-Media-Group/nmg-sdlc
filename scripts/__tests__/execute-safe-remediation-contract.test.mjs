@@ -69,17 +69,18 @@ describe('rendered /sdlc-execute safe remediation contract (SCN001–SCN005)', (
     expect(intro).toContain('Never edit product code, specs, or any other tracked repository file');
     expect(intro).toContain('open PRs, commit, or push');
     expect(intro).toContain('bypass branch protection or required checks');
-    expect(intro).toContain('run `herdr server stop`');
     expect(safeActions).toContain('never edit product code, specs, or other tracked repository files');
     expect(safeActions).toContain('never commit, push, or open PRs');
     expect(safeActions).toContain('never bypass branch protection or required checks');
-    expect(safeActions).toContain('never run `herdr server stop`');
     expect(safeActions).toContain('held to the same full registered gate at the exact source head');
+    // Herdr pane and server commands left with the Herdr transport; the rendered workflow names none of them.
+    expect(workflow.toLowerCase()).not.toContain('herdr');
     expect(gates).toContain('full-green registered gate at the exact source head');
   });
 
   it('SCN005: diagnoses a hung worker process instead of choosing continue again', () => {
-    expect(hungWorker).toContain('no pane or token progress');
+    expect(hungWorker).toContain('`activity_unchanged`');
+    expect(hungWorker).toContain('`activity` object shows no recent tool calls or transcript text');
     expect(hungWorker).toContain('about 0% CPU for several minutes');
     expect(hungWorker).toContain("Check that process's activity");
     expect(hungWorker).toContain('stop the hung process');

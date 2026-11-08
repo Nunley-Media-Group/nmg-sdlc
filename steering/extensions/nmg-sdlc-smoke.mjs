@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   closeSync,
   existsSync,
@@ -231,14 +231,6 @@ function recordedDelivery(readFile, work, issue) {
   } catch {
     return null;
   }
-}
-
-function validHerdrEnvironment(env) {
-  return env.HERDR_ENV === "1"
-    && typeof env.HERDR_SOCKET_PATH === "string"
-    && env.HERDR_SOCKET_PATH.length > 0
-    && typeof env.HERDR_PANE_ID === "string"
-    && env.HERDR_PANE_ID.length > 0;
 }
 
 function allowedOrigin(value) {
@@ -560,110 +552,13 @@ function recoveryRecord(readFile, work, invocationId, issue) {
 }
 
 const SMOKE_SLUG = `${SMOKE_OWNER}/${SMOKE_NAME}`;
-const PROVISION_POLL_MS = 3000;
-// Poll-count bounds, not wall-clock deadlines: consecutive polls with no progress, consecutive
-// polls showing a Claude Code dialog that autopilot cannot answer, and polls waiting for a
-// freshly started agent to accept input.
-const PROVISION_STALL_POLLS = 20;
-const PROVISION_DIALOG_POLLS = 3;
-const PROVISION_READY_POLLS = 100;
-const PROVISION_START_TIMEOUT_MS = 120000;
 const WORKER_PERMISSION_MODES = new Set(["default", "acceptEdits", "auto", "dontAsk", "bypassPermissions"]);
 
-// The provisioning pane uses the same permission mode as `/sdlc-execute` Herdr workers.
+// The headless provisioning and delivery sessions use the same permission mode as `/sdlc-execute` worker sessions.
 export function workerPermissionMode(env = process.env) {
   const mode = env?.NMG_SDLC_WORKER_PERMISSION_MODE;
   return WORKER_PERMISSION_MODES.has(mode) ? mode : "auto";
 }
-
-// Claude Code dialogs that the nmg-sdlc autopilot never answers, recognized from the visible pane
-// text. Autopilot (NMG_SDLC_AUTOPILOT=1) resolves ExitPlanMode and AskUserQuestion through the
-// hooks module's PermissionRequest hook before any dialog paints, so a visible plan-approval or
-// question dialog means autopilot is not engaged in the pane. Ordered most specific first.
-const CLAUDE_DIALOGS = Object.freeze([
-  {
-    kind: "workspace_trust",
-    label: "workspace trust prompt",
-    patterns: [
-      /Do you trust the files in this folder\?/i,
-      /Is this a project you created or one you trust/i,
-      /Yes, I trust this folder/i,
-      /Quick safety check/i,
-      /Accessing workspace:/i,
-    ],
-  },
-  {
-    kind: "plan_approval",
-    label: "plan approval dialog (autopilot inactive)",
-    patterns: [/Would you like to proceed\?/i, /No, keep planning/i],
-  },
-  {
-    kind: "permission",
-    label: "permission prompt",
-    patterns: [
-      /Do you want to proceed\?/i,
-      /Do you want to (?:make this edit to|create|overwrite|allow)\b/i,
-      /Yes, and don['’]t ask again/i,
-      /No, and tell Claude what to do differently/i,
-    ],
-  },
-  {
-    kind: "question",
-    label: "question dialog (autopilot inactive)",
-    patterns: [/Enter to select\s*·.*Esc to cancel/i],
-  },
-]);
-
-export function claudeDialog(screen) {
-  // A narrow pane wraps dialog labels across lines, so whitespace runs compare as one space.
-  const text = String(screen ?? "").replace(/\s+/g, " ");
-  return CLAUDE_DIALOGS.find((dialog) => dialog.patterns.some((pattern) => pattern.test(text))) ?? null;
-}
-
-function defaultSleep(ms) {
-  return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
-}
-
-// Herdr calls for the provider-owned provisioning pane. The pane is split with
-// NMG_SDLC_AUTOPILOT=1 so the Claude Code session it launches answers its own gates, and the
-// session loads the candidate plugin with `--plugin-dir`.
-export function createHerdrAdapter(executeCommand, env, signal) {
-  const herdr = (args) => executeCommand("herdr", args, { env, signal });
-  return {
-    paneSplit: (cwd) => herdr([
-      "pane", "split", "--current", "--direction", "right", "--cwd", cwd, "--no-focus",
-      "--env", "NMG_SDLC_AUTOPILOT=1",
-    ]),
-    paneClose: (pane) => herdr(["pane", "close", pane]),
-    agentStart: (name, pane, { pluginRoot, permissionMode }) => herdr([
-      "agent", "start", name, "--kind", "claude", "--pane", pane,
-      "--timeout", String(PROVISION_START_TIMEOUT_MS),
-      "--", "--plugin-dir", pluginRoot, "--permission-mode", permissionMode,
-    ]),
-    agentGet: (name) => herdr(["agent", "get", name]),
-    agentPrompt: (name, text) => herdr(["agent", "prompt", name, text]),
-    agentRead: (name) => herdr(["agent", "read", name, "--source", "visible", "--format", "text"]),
-    // Pane-level calls work before the agent name is bound (a trust prompt blocks readiness).
-    paneGet: (pane) => herdr(["pane", "get", pane]),
-    paneRead: (pane) => herdr(["pane", "read", pane, "--source", "visible", "--format", "text"]),
-    paneSendKeys: (pane, keys) => herdr(["pane", "send-keys", pane, ...keys]),
-  };
-}
-
-function herdrResult(result) {
-  return result?.status === 0 ? parseJson(result)?.result ?? null : null;
-}
-
-function samePath(left, right) {
-  if (typeof left !== "string" || typeof right !== "string" || !left || !right) return false;
-  const real = (path) => {
-    try { return realpathSync(path); } catch { return resolve(path); }
-  };
-  return real(left) === real(right);
-}
-
-// Keys that accept Claude Code's workspace-trust dialog, whose preselected option is `No, exit`.
-const TRUST_ACCEPT_KEYS = Object.freeze(["down", "enter"]);
 
 async function newSmokeIssues(executeCommand, env, signal, baseline) {
   const listed = await executeCommand("gh", [
@@ -689,128 +584,53 @@ async function publishedSpec(executeCommand, env, signal, issue) {
   return pull ? { issueUrl: view.url, pull } : null;
 }
 
-// A provisioning driver killed before its `finally` leaves its pane open. The recorded random agent
-// name must still resolve to the recorded pane before it is closed, so a reused pane id is never touched.
-async function closeAbandonedProvisionPane(herdr, recorded) {
-  if (typeof recorded?.pane !== "string" || typeof recorded?.agent !== "string") return [];
-  const got = await herdr.agentGet(recorded.agent);
-  if (herdrResult(got)?.agent?.pane_id !== recorded.pane) {
-    return [commandEvidence(`herdr agent get ${recorded.agent} (abandoned provisioning pane already gone)`, got)];
-  }
-  const closed = await herdr.paneClose(recorded.pane);
-  return [commandEvidence(`herdr pane close ${recorded.pane} (abandoned provisioning)`, closed)];
+// The delivery session is one headless `/sdlc-execute` run in the delivery clone: a fresh session id
+// per invocation, the candidate plugin loaded with --plugin-dir, and the queue as issue references.
+function deliverySessionArgs({ pluginRoot, permissionMode, sessionId, issues }) {
+  return [
+    "-p",
+    "--session-id", sessionId,
+    "--plugin-dir", pluginRoot,
+    "--model", "opus",
+    "--permission-mode", permissionMode,
+    `/sdlc-execute ${issues.map((issue) => `#${issue}`).join(" ")}`,
+  ];
 }
 
-// Every Claude Code session started in a fresh clone first shows the workspace-trust dialog, and
-// the nested /sdlc-execute starts its workers in the delivery clone, where nothing can answer it.
-// The provider trusts that clone first from a short-lived pane it owns, keying the dialog only
-// while the pane's working directory is the clone this run created; Claude Code keeps the trust.
-export async function trustSmokeClone({ herdr, clone, sleep, pollMs, signal, pluginRoot, permissionMode }) {
-  const evidence = [];
-  const split = await herdr.paneSplit(clone);
-  evidence.push(commandEvidence("herdr pane split (trust delivery clone)", split, clone));
-  const pane = herdrResult(split)?.pane?.pane_id ?? null;
-  if (!pane) return { status: "incomplete", summary: "nmg-sdlc-smoke delivery trust pane unavailable", evidence };
-  const name = `smoke-trust-${randomBytes(4).toString("hex")}`;
-  try {
-    const started = await herdr.agentStart(name, pane, { pluginRoot, permissionMode });
-    evidence.push(commandEvidence(`herdr agent start ${name} (trust delivery clone)`, started, clone));
-    let keyed = false;
-    for (let polls = 0; polls <= PROVISION_READY_POLLS; polls += 1) {
-      if (signal?.aborted) return { status: "incomplete", summary: "nmg-sdlc-smoke delivery trust cancelled", evidence };
-      const screen = await herdr.paneRead(pane);
-      const dialog = screen?.status === 0 ? claudeDialog(screen.stdout) : null;
-      if (dialog?.kind === "workspace_trust") {
-        if (!keyed) {
-          const info = herdrResult(await herdr.paneGet(pane))?.pane;
-          if (!samePath(info?.foreground_cwd ?? info?.cwd, clone)) {
-            return { status: "failed", summary: `nmg-sdlc-smoke delivery trust not accepted: pane ${pane} cwd is not the owned clone`, evidence };
-          }
-          const sent = await herdr.paneSendKeys(pane, TRUST_ACCEPT_KEYS);
-          evidence.push(commandEvidence(`herdr pane send-keys ${pane} ${TRUST_ACCEPT_KEYS.join(" ")} (accept workspace trust for delivery clone)`, sent, clone));
-          if (sent?.status !== 0) return { status: "incomplete", summary: "nmg-sdlc-smoke delivery trust keys failed", evidence };
-          keyed = true;
-        }
-      } else if (dialog) {
-        return { status: "failed", summary: `nmg-sdlc-smoke delivery trust stalled at ${dialog.label}`, evidence };
-      } else if (herdrResult(await herdr.agentGet(name))?.agent?.interactive_ready === true) {
-        return { status: "passed", evidence };
-      }
-      await sleep(pollMs);
-    }
-    return { status: "incomplete", summary: "nmg-sdlc-smoke delivery clone trust not confirmed", evidence };
-  } finally {
-    evidence.push(commandEvidence(`herdr pane close ${pane} (trust delivery clone)`, await herdr.paneClose(pane)));
-  }
+// The controller status is the `status` in its result record under the delivery clone. A missing,
+// unreadable or non-integer record is a nonzero status, so only the exact current-invocation proof passes.
+function executeResultStatus(readFile, work, sessionId, launched) {
+  const record = readJsonFile(readFile, join(work, ".nmg-sdlc", "execute", "results", `${sessionId}.json`));
+  if (Number.isSafeInteger(record?.status)) return record.status;
+  return Number.isSafeInteger(launched?.status) && launched.status !== 0 ? launched.status : 1;
 }
 
-// Drafts (unless `issue` is already recorded) and specifies one fresh smoke issue through the
-// real interactive workflows in a provider-owned Herdr Claude pane. The pane runs with
-// NMG_SDLC_AUTOPILOT=1, so the nmg-sdlc hooks module approves every plan and answers every
-// question with its Recommended option; the provider only types the commands, watches GitHub
-// for publication evidence, and detects stalls.
+// Drafts (unless `issue` is already recorded) and specifies one fresh smoke issue through headless
+// `claude -p` sessions in the provisioning clone. Each session runs with NMG_SDLC_AUTOPILOT=1, so the
+// nmg-sdlc hooks module answers its own plan and question gates. A session's exit is not the proof:
+// the draft passes only when exactly one new issue appears above the baseline, and the spec passes
+// only on the published-spec GitHub evidence.
 async function provisionSmokeIssue({
   need,
   issue: recordedIssue,
-  herdr,
   executeCommand,
   createTemp,
   remove,
   env,
   signal,
-  sleep,
-  pollMs,
   pluginRoot,
   permissionMode,
   onClone,
-  onPane,
   onIssue,
 }) {
   const evidence = [];
   const clone = createTemp(join(tmpdir(), "nmg-sdlc-smoke-provision-"));
   onClone(clone);
+  const provisionEnv = { ...env, NMG_SDLC_AUTOPILOT: "1" };
+  const headless = (prompt) => ["-p", "--plugin-dir", pluginRoot, "--permission-mode", permissionMode, prompt];
   let issue = recordedIssue ?? null;
   let createdIssues = issue ? [issue] : [];
-  let pane = null;
-  let name = null;
-  let sessionPath = null;
-  let agentStatus = null;
-  let trustAttempted = false;
-  const snapshot = async (dialog = null) => {
-    const screen = pane ? await herdr.paneRead(pane) : null;
-    return [
-      { kind: "artifact", summary: "provisioning screen", artifact: bounded(screen?.stdout ?? "") },
-      { kind: "artifact", summary: "provisioning agent status", artifact: String(agentStatus) },
-      ...(dialog ? [{ kind: "artifact", summary: "provisioning dialog", artifact: dialog.kind }] : []),
-    ];
-  };
-  const visibleDialog = async () => {
-    if (!pane) return null;
-    const screen = await herdr.paneRead(pane);
-    return screen?.status === 0 ? claudeDialog(screen.stdout) : null;
-  };
-  // The one keyed exception: a fresh clone always shows Claude Code's workspace-trust dialog
-  // (trust is keyed per repository root). It is accepted once, and only while the provider-owned
-  // pane's working directory is the clone this run created. Every other dialog is never keyed.
-  // Returns true when the dialog is gone after the attempt.
-  const acceptOwnedTrust = async () => {
-    if (trustAttempted) return false;
-    trustAttempted = true;
-    const info = herdrResult(await herdr.paneGet(pane))?.pane;
-    const cwd = info?.foreground_cwd ?? info?.cwd;
-    if (!samePath(cwd, clone)) {
-      evidence.push(commandEvidence(`workspace trust not accepted: pane ${pane} cwd is not the owned clone`, {
-        status: 0, stdout: JSON.stringify({ paneCwd: cwd ?? null, clone }),
-      }));
-      return false;
-    }
-    const keyed = await herdr.paneSendKeys(pane, TRUST_ACCEPT_KEYS);
-    evidence.push(commandEvidence(`herdr pane send-keys ${pane} ${TRUST_ACCEPT_KEYS.join(" ")} (accept workspace trust for owned clone)`, keyed, clone));
-    if (keyed?.status !== 0) return false;
-    await sleep(pollMs);
-    return (await visibleDialog())?.kind !== "workspace_trust";
-  };
-  const stop = (status, summary, extra = []) => ({
+  const stop = (status, summary) => ({
     status,
     summary,
     evidence: [
@@ -820,13 +640,11 @@ async function provisionSmokeIssue({
         summary: `provisioning created smoke issue #${number}`,
         artifact: `https://github.com/${SMOKE_SLUG}/issues/${number}`,
       })),
-      ...extra,
-      ...(sessionPath ? [{ kind: "artifact", summary: "provisioning session", artifact: sessionPath }] : []),
       retainedCloneEvidence(clone),
     ],
   });
-  const checked = async (summary, program, args, cwd) => {
-    const result = await executeCommand(program, args, { cwd, env, signal });
+  const checked = async (summary, program, args, cwd, childEnv = env) => {
+    const result = await executeCommand(program, args, { cwd, env: childEnv, signal });
     evidence.push(commandEvidence(summary, result, cwd ?? null));
     return result;
   };
@@ -860,106 +678,29 @@ async function provisionSmokeIssue({
       }
     }
 
-    const split = await herdr.paneSplit(clone);
-    evidence.push(commandEvidence("herdr pane split --env NMG_SDLC_AUTOPILOT=1 (provisioning)", split, clone));
-    pane = herdrResult(split)?.pane?.pane_id ?? null;
-    if (!pane) return stop("incomplete", "nmg-sdlc-smoke provisioning pane unavailable");
-    name = `smoke-provision-${randomBytes(4).toString("hex")}`;
-    onPane({ pane, agent: name });
-    const started = await herdr.agentStart(name, pane, { pluginRoot, permissionMode });
-    evidence.push(commandEvidence(
-      `herdr agent start ${name} --kind claude -- --plugin-dir ${pluginRoot} --permission-mode ${permissionMode}`,
-      started,
-    ));
-    if (started.status !== 0) {
-      // A fresh clone's workspace-trust prompt keeps Claude Code from becoming ready.
-      const dialog = await visibleDialog();
-      if (!dialog) return stop("incomplete", "nmg-sdlc-smoke provisioning agent start failed", await snapshot());
-      if (dialog.kind !== "workspace_trust" || !(await acceptOwnedTrust())) {
-        return stop("failed", `nmg-sdlc-smoke provisioning stalled at ${dialog.label}`, await snapshot(dialog));
+    if (!issue) {
+      const drafted = await checked("claude -p /sdlc-draft-issue (provisioning)", "claude",
+        headless(`/sdlc-draft-issue ${need}`), clone, provisionEnv);
+      if (environmentalFailure(drafted)) return stop("incomplete", `nmg-sdlc-smoke provisioning draft ${drafted.reasonCode}`);
+      const created = await newSmokeIssues(executeCommand, env, signal, baseline);
+      if (!created) return stop("incomplete", "nmg-sdlc-smoke provisioning issue list unavailable");
+      createdIssues = created;
+      if (created.length > 1) {
+        return stop("failed", `nmg-sdlc-smoke provisioning created multiple issues ${created.map((n) => `#${n}`).join(", ")}`);
       }
-    }
-    for (let polls = 0; ; polls += 1) {
-      if (signal?.aborted) return stop("incomplete", "nmg-sdlc-smoke provisioning cancelled");
-      // Herdr can report a narrow pane's trust dialog as ready, and a prompt's Enter would then
-      // confirm its preselected `No, exit`; the dialog is checked before readiness is trusted.
-      const dialog = await visibleDialog();
-      if (dialog?.kind === "workspace_trust") {
-        if (!(await acceptOwnedTrust())) {
-          return stop("failed", `nmg-sdlc-smoke provisioning stalled at ${dialog.label}`, await snapshot(dialog));
-        }
-        continue;
-      }
-      if (herdrResult(await herdr.agentGet(name))?.agent?.interactive_ready === true) break;
-      if (polls >= PROVISION_READY_POLLS) return stop("incomplete", "nmg-sdlc-smoke provisioning agent not ready");
-      await sleep(pollMs);
+      if (created.length === 0) return stop("failed", "nmg-sdlc-smoke provisioning draft created no issue");
+      [issue] = created;
+      onIssue(issue);
     }
 
-    let published = null;
-    for (const phase of issue ? ["spec"] : ["draft", "spec"]) {
-      // The hooks module turns the typed interactive command into native plan mode plus its workflow.
-      const text = phase === "draft" ? `/sdlc-draft-issue ${need}` : `/sdlc-write-spec ${issue}`;
-      const prompted = await herdr.agentPrompt(name, text);
-      evidence.push(commandEvidence(`herdr agent prompt ${text}`, prompted));
-      if (environmentalFailure(prompted)) return stop("incomplete", `nmg-sdlc-smoke provisioning prompt ${prompted.reasonCode}`);
-      if (prompted.status !== 0) return stop("failed", "nmg-sdlc-smoke provisioning prompt rejected");
-      let quiet = 0;
-      let dialogPolls = 0;
-      for (;;) {
-        if (signal?.aborted) return stop("incomplete", "nmg-sdlc-smoke provisioning cancelled");
-        await sleep(pollMs);
-        const got = await herdr.agentGet(name);
-        if (environmentalFailure(got)) return stop("incomplete", `nmg-sdlc-smoke provisioning agent ${got.reasonCode}`);
-        const agent = herdrResult(got)?.agent;
-        if (!agent) return stop("incomplete", "nmg-sdlc-smoke provisioning agent lost");
-        const status = agent.agent_status;
-        agentStatus = status;
-        if (typeof agent.agent_session?.value === "string") sessionPath = agent.agent_session.value;
-
-        if (phase === "draft" && status !== "working") {
-          const created = await newSmokeIssues(executeCommand, env, signal, baseline);
-          if (created?.length > 1) {
-            createdIssues = created;
-            return stop("failed", `nmg-sdlc-smoke provisioning created multiple issues ${created.map((n) => `#${n}`).join(", ")}`);
-          }
-          if (created?.length === 1) {
-            [issue] = created;
-            createdIssues = created;
-            onIssue(issue);
-            break;
-          }
-        }
-        // Publication, not the session, ends the spec phase: write-spec's post-publication
-        // Continue loop runs read-only in plan mode, and the pane is closed before it can
-        // approve a plan for another issue.
-        if (phase === "spec") {
-          published = await publishedSpec(executeCommand, env, signal, issue);
-          if (published) break;
-        }
-
-        if (status === "working") {
-          quiet = 0;
-          dialogPolls = 0;
-          continue;
-        }
-        // Settled without progress. A dialog autopilot never answers (workspace trust, a
-        // permission ask the permission mode refuses, or a plan/question dialog when autopilot is
-        // not engaged) cannot resolve itself, so it stalls sooner than a silent pane.
-        const dialog = await visibleDialog();
-        if (dialog?.kind === "workspace_trust" && await acceptOwnedTrust()) {
-          quiet = 0;
-          dialogPolls = 0;
-          continue;
-        }
-        dialogPolls = dialog ? dialogPolls + 1 : 0;
-        if (dialog && dialogPolls >= PROVISION_DIALOG_POLLS) {
-          return stop("failed", `nmg-sdlc-smoke provisioning stalled during ${phase} at ${dialog.label}`, await snapshot(dialog));
-        }
-        quiet += 1;
-        if (quiet >= PROVISION_STALL_POLLS) {
-          return stop("failed", `nmg-sdlc-smoke provisioning stalled during ${phase}`, await snapshot());
-        }
-      }
+    // A resumed provisioning rechecks the GitHub evidence before it launches write-spec again.
+    let published = await publishedSpec(executeCommand, env, signal, issue);
+    if (!published) {
+      const specced = await checked(`claude -p /sdlc-write-spec #${issue} (provisioning)`, "claude",
+        headless(`/sdlc-write-spec #${issue}`), clone, provisionEnv);
+      if (environmentalFailure(specced)) return stop("incomplete", `nmg-sdlc-smoke provisioning spec ${specced.reasonCode}`);
+      published = await publishedSpec(executeCommand, env, signal, issue);
+      if (!published) return stop("failed", `nmg-sdlc-smoke provisioning spec #${issue} not published`);
     }
 
     remove(clone, { recursive: true, force: true });
@@ -973,17 +714,10 @@ async function provisionSmokeIssue({
           summary: `provisioned smoke issue #${issue} ${published.issueUrl}; spec PR ${published.pull.url} MERGED`,
           artifact: published.pull.url,
         },
-        ...(sessionPath ? [{ kind: "artifact", summary: "provisioning session", artifact: sessionPath }] : []),
       ],
     };
   } catch (error) {
     return stop("incomplete", `nmg-sdlc-smoke provisioning ${error instanceof Error ? error.message : String(error)}`);
-  } finally {
-    // Publication, not the session, ends provisioning: close the owned pane.
-    if (pane) {
-      const closed = await herdr.paneClose(pane);
-      if (closed?.status === 0) onPane(null);
-    }
   }
 }
 
@@ -1076,7 +810,7 @@ async function retainedCloneIdentity(executeCommand, state, env, signal) {
 // The gate proves this checkout's controller: when the project under verification is itself an
 // nmg-sdlc plugin root, use it instead of an installed plugin that NMG_SDLC_PLUGIN_ROOT may name
 // (Claude Code's plugin cache under ~/.claude/plugins/ carries no Git candidate identity). The
-// same root is the provisioning pane's `--plugin-dir`. Nested smoke verification runs in a
+// same root is the `--plugin-dir` of the provisioning and delivery sessions. Nested smoke verification runs in a
 // non-plugin clone and keeps the outer invocation's propagated root.
 function smokePluginRoot(projectRoot, options) {
   try {
@@ -1098,9 +832,6 @@ export function createSmokeProvider({
   verifyCurrentEvidence = inspectRecoveredVerificationEvidence,
   verifyRecoveredDelivery = inspectRecoveredDeliveryHandoff,
   verifyRetainedClone = retainedCloneIdentity,
-  herdr = null,
-  sleep = defaultSleep,
-  pollMs = PROVISION_POLL_MS,
   env = process.env,
 } = {}) {
   const deliverSmoke = async (request, provisioning) => {
@@ -1111,7 +842,6 @@ export function createSmokeProvider({
     }
     let issues = queue.kind === "explicit" ? queue.issues : null;
 
-    let controller;
     let pluginRoot;
     try {
       if (!plugin) throw new Error("plugin modules unavailable");
@@ -1119,7 +849,8 @@ export function createSmokeProvider({
         env,
         importMetaUrl: new URL("../../scripts/plugin-controller-path.mjs", import.meta.url).href,
       });
-      controller = plugin.resolvePluginController("sdlc-execute.mjs", { env: { NMG_SDLC_PLUGIN_ROOT: pluginRoot } });
+      // The delivery session runs /sdlc-execute from this plugin root, so its controller must resolve here.
+      plugin.resolvePluginController("sdlc-execute.mjs", { env: { NMG_SDLC_PLUGIN_ROOT: pluginRoot } });
     } catch (error) {
       return envelope("failed", `nmg-sdlc-smoke ${error.message}`, identity);
     }
@@ -1151,10 +882,7 @@ export function createSmokeProvider({
       }
       return envelope("passed", "nmg-sdlc-smoke nested execution blocked (satisfied by enclosing owned delivery)", identity, evidence);
     }
-    if (!validHerdrEnvironment(env)) {
-      return envelope("failed", "nmg-sdlc-smoke Herdr environment missing", identity);
-    }
-    const herdrClient = herdr ?? createHerdrAdapter(executeCommand, env, request.signal);
+    const permissionMode = workerPermissionMode(env);
 
     let scope;
     try {
@@ -1200,7 +928,6 @@ export function createSmokeProvider({
         issues = null;
         supersedeFailedState = true;
       } else if (state.phase === "provisioning") {
-        provisioning.push(...await closeAbandonedProvisionPane(herdrClient, state.provisionPane));
         if (!provisioned && sameOuterRequest(state, request)) {
           return envelope("failed", "nmg-sdlc-smoke provisioning interrupted", identity, [
             ...(typeof state.provisionClone === "string" ? [retainedCloneEvidence(state.provisionClone)] : []),
@@ -1280,7 +1007,6 @@ export function createSmokeProvider({
         phase: "provisioning",
         provisioned,
         provisionClone: null,
-        provisionPane: null,
       };
       let recorded = provisioningState;
       const record = (change) => {
@@ -1292,18 +1018,14 @@ export function createSmokeProvider({
       const outcome = await provisionSmokeIssue({
         need: queue.need,
         issue: provisioned?.issue,
-        herdr: herdrClient,
         executeCommand,
         createTemp,
         remove,
         env,
         signal: request.signal,
-        sleep,
-        pollMs,
         pluginRoot,
-        permissionMode: workerPermissionMode(env),
+        permissionMode,
         onClone: (provisionClone) => record({ provisionClone }),
-        onPane: (provisionPane) => record({ provisionPane }),
         onIssue: (issue) => record({ issues: [issue], provisioned: { issue, published: false } }),
       });
       provisioning.push(...outcome.evidence);
@@ -1532,13 +1254,12 @@ export function createSmokeProvider({
         return retain("failed", `nmg-sdlc-smoke execute exited ${state.executeStatus}`, evidence);
       }
       const priorStatus = state.executeStatus;
-      state = { ...state, phase: "running", executeStatus: null };
+      const sessionId = randomUUID();
+      state = { ...state, phase: "running", executeStatus: null, executeSessionId: sessionId };
       recoveryStore.write(scope.recoveryKey, state, { replace: true });
-      const resumed = await executeCommand(process.execPath, [
-        controller,
-        "run",
-        ...remaining.map((issue) => `#${issue}`),
-      ], {
+      const resumed = await executeCommand("claude", deliverySessionArgs({
+        pluginRoot, permissionMode, sessionId, issues: remaining,
+      }), {
         cwd: work,
         env: {
           ...env,
@@ -1548,8 +1269,9 @@ export function createSmokeProvider({
         },
         signal: request.signal,
       });
+      const resumedStatus = environmentalFailure(resumed) ? null : executeResultStatus(readFile, work, sessionId, resumed);
       evidence.push(commandEvidence(
-        `sdlc-execute run ${remaining.map((issue) => `#${issue}`).join(" ")} (resumed after ${delivered.map(({ issue }) => `#${issue}`).join(", ")})`,
+        `claude /sdlc-execute ${remaining.map((issue) => `#${issue}`).join(" ")} (resumed after ${delivered.map(({ issue }) => `#${issue}`).join(", ")}, session ${sessionId})`,
         resumed,
         work,
       ));
@@ -1570,7 +1292,7 @@ export function createSmokeProvider({
       state = {
         ...state,
         phase: "failed",
-        executeStatus: environmental || resumed.status === 0 ? priorStatus : resumed.status,
+        executeStatus: environmental || resumedStatus === 0 ? priorStatus : resumedStatus,
         expected: receipts,
       };
       recoveryStore.write(scope.recoveryKey, state, { replace: true });
@@ -1578,9 +1300,9 @@ export function createSmokeProvider({
       if (receipts.length === issues.length) {
         return verifyRemoteDelivery({ expected: receipts, baselines, evidence, recovered: true });
       }
-      return retain("failed", resumed.status === 0
+      return retain("failed", resumedStatus === 0
         ? `nmg-sdlc-smoke issue #${issues[receipts.length]} missing invocation delivery proof`
-        : `nmg-sdlc-smoke resumed execute exited ${resumed.status}`, evidence);
+        : `nmg-sdlc-smoke resumed execute exited ${resumedStatus}`, evidence);
     }
 
     work = createTemp(join(tmpdir(), "nmg-sdlc-smoke-"));
@@ -1617,9 +1339,6 @@ export function createSmokeProvider({
       if (dirty.status !== 0 || String(dirty.stdout ?? "").trim() !== "") {
         return retain("failed", "nmg-sdlc-smoke clone dirty", [cloneEvidence, commandEvidence("git status --porcelain", dirty, work)]);
       }
-      const trusted = await trustSmokeClone({ herdr: herdrClient, clone: work, sleep, pollMs,
-        signal: request.signal, pluginRoot, permissionMode: workerPermissionMode(env) });
-      if (trusted.status !== "passed") return retain(trusted.status, trusted.summary, [cloneEvidence, ...trusted.evidence]);
       const cloneHead = await executeCommand("git", ["rev-parse", "HEAD"], {
         cwd: work,
         env,
@@ -1661,6 +1380,7 @@ export function createSmokeProvider({
         return retain("incomplete", "nmg-sdlc-smoke candidate identity unavailable", [cloneEvidence, ...baselineEvidence]);
       }
       const tokenSecret = randomBytes(32).toString("hex");
+      const sessionId = randomUUID();
       state = {
         schemaVersion: 1,
         recoveryKey: scope.recoveryKey,
@@ -1676,17 +1396,16 @@ export function createSmokeProvider({
         phase: "running",
         executeStatus: null,
         nestedRunId: null,
+        executeSessionId: sessionId,
         expected: [],
         validationConfig: canonical(request.config),
         candidateTree: launchedCandidate,
         ...(provisioned ? { provisioned } : {}),
       };
       recoveryStore.write(scope.recoveryKey, state, { replace: supersedeFailedState });
-      const execute = await executeCommand(process.execPath, [
-        controller,
-        "run",
-        ...issues.map((issue) => `#${issue}`),
-      ], {
+      const execute = await executeCommand("claude", deliverySessionArgs({
+        pluginRoot, permissionMode, sessionId, issues,
+      }), {
         cwd: work,
         env: {
           ...env,
@@ -1699,18 +1418,19 @@ export function createSmokeProvider({
       const evidence = [
         cloneEvidence,
         ...baselineEvidence,
-        commandEvidence(`sdlc-execute run ${issues.map((issue) => `#${issue}`).join(" ")}`, execute, work),
+        commandEvidence(`claude /sdlc-execute ${issues.map((issue) => `#${issue}`).join(" ")} (session ${sessionId})`, execute, work),
       ];
       if (environmentalFailure(execute)) {
         recoveryStore.write(scope.recoveryKey, { ...state, phase: "incomplete" }, { replace: true });
         return retain("incomplete", `nmg-sdlc-smoke execute ${execute.reasonCode}`, evidence);
       }
-      if (execute.status !== 0) {
+      const launchStatus = executeResultStatus(readFile, work, sessionId, execute);
+      if (launchStatus !== 0) {
         const nested = nestedRunIdentity(readFile, work, issues, scope.recoveryKey);
         state = {
           ...state,
           phase: "failed",
-          executeStatus: execute.status,
+          executeStatus: launchStatus,
           nestedRunId: nested.invocationId,
           expected: nested.expected,
         };
@@ -1744,7 +1464,7 @@ export function createSmokeProvider({
             recovered: false,
           });
         }
-        return retain("failed", `nmg-sdlc-smoke execute exited ${execute.status}`, invocationEvidence);
+        return retain("failed", `nmg-sdlc-smoke execute exited ${launchStatus}`, invocationEvidence);
       }
       const completedNested = nestedRunIdentity(readFile, work, issues, scope.recoveryKey);
       const persistedRunning = recoveryStore.read(scope.recoveryKey);

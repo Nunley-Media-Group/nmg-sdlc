@@ -1,8 +1,8 @@
-# Claude Code and Herdr Tooling
+# Claude Code Tooling
 
 **Consumed by**: every interactive and automated workflow.
 
-nmg-sdlc runs as a Claude Code plugin. Its hooks module (`hooks/register.ts`) registers the interactive `/sdlc-*` commands, enters native plan mode for them, registers `/sdlc-execute` outside plan mode, and materializes `<plugin-root>` in Bash commands and Read paths. The other automated commands are plugin command files under `commands/`. Workers are Claude Code sessions in sibling Herdr panes.
+nmg-sdlc runs as a Claude Code plugin. Its hooks module (`hooks/register.ts`) registers the interactive `/sdlc-*` commands, enters native plan mode for them, registers `/sdlc-execute` outside plan mode, and materializes `<plugin-root>` in Bash commands and Read paths. The other automated commands are plugin command files under `commands/`. `/sdlc-execute` runs in the TUI or headless under `claude -p`, and starts each delivery stage as a background subagent (`nmg-sdlc:execute-<entry>`) that runs with the supervising session's plugins.
 
 | Need | Tool |
 |------|------|
@@ -14,7 +14,7 @@ nmg-sdlc runs as a Claude Code plugin. Its hooks module (`hooks/register.ts`) re
 | Persist a plan | the plan-mode plan file (its path is in plan mode's system reminder) |
 | Finish a plan | `ExitPlanMode` |
 | Load a skill | `Skill` (for example `skill-creator`) |
-| Deliver | Herdr CLI (`herdr pane`, `herdr agent`, `herdr notification`, `herdr integration`) |
+| Deliver | Stage subagent `nmg-sdlc:execute-<entry>`, started by the `/sdlc-execute` hooks module; no external CLI is required |
 
 ## Interview rules
 

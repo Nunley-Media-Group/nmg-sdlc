@@ -262,6 +262,18 @@ export function materializePluginRootCommand(command, root) {
   );
 }
 
+export const HEADLESS_MERGE_TIMEOUT_MS = 600000;
+
+/**
+ * A headless write-spec merge Bash call that the background flag moved aside, as the same call in the
+ * foreground with a bounded timeout. Null for any other call, so its result is read in place.
+ */
+export function foregroundMergeInput(input) {
+  if (!input || typeof input !== "object" || input.run_in_background !== true) return null;
+  if (writeSpecMergeIssue(input.command) === null) return null;
+  return { ...input, run_in_background: false, timeout: HEADLESS_MERGE_TIMEOUT_MS };
+}
+
 /** Rewrites a leading `<plugin-root>` in a file path to the plugin's absolute path. */
 export function materializePluginRootPath(path, root) {
   if (typeof path !== "string" || typeof root !== "string" || root.length === 0) return path;

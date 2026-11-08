@@ -1210,8 +1210,11 @@ const V3_STEERING_TOKEN_RE = new RegExp(
   'g',
 );
 const V3_STEERING_PROSE_RE = /Oh My Pi|\bOMP\b/;
-const V3_CONTRIBUTING_SENTENCE = 'drives Herdr omp worker panes through implementation, verification, and delivery';
-const V4_CONTRIBUTING_SENTENCE = 'drives Herdr Claude worker panes through implementation, verification, and delivery';
+const SUBAGENT_CONTRIBUTING_SENTENCE = 'runs Claude Code stage subagents through implementation, verification, and delivery';
+const LEGACY_CONTRIBUTING_SENTENCES = [
+  'drives Herdr omp worker panes through implementation, verification, and delivery',
+  'drives Herdr Claude worker panes through implementation, verification, and delivery',
+];
 const SPEC_CONTEXT_OPEN = '<!-- nmg-sdlc-managed: spec-context -->';
 const SPEC_CONTEXT_CLOSE = '<!-- /nmg-sdlc-managed -->';
 
@@ -1338,12 +1341,13 @@ function detectContributingHostLanguage(root) {
   const target = path.join(root, 'CONTRIBUTING.md');
   if (!isSafeRegularFile(target)) return null;
   const text = safeRead(target);
-  if (!text || !text.includes(V3_CONTRIBUTING_SENTENCE)) return null;
-  const occurrences = text.split(V3_CONTRIBUTING_SENTENCE).length - 1;
+  if (!text) return null;
+  const occurrences = LEGACY_CONTRIBUTING_SENTENCES.reduce((count, sentence) => count + (text.split(sentence).length - 1), 0);
+  if (occurrences === 0) return null;
   return {
     id: 'contributing-v4-host-language',
     kind: 'contributing-v4-host-language',
-    description: 'Rewrite the v3 Herdr omp worker-pane sentence in CONTRIBUTING.md to Claude.',
+    description: 'Rewrite the v3 or v4 Herdr worker-pane sentence in CONTRIBUTING.md to the subagent sentence.',
     rel: 'CONTRIBUTING.md',
     occurrences,
     actionable: true,
@@ -1354,7 +1358,10 @@ function applyContributingHostLanguage(root, item) {
   const target = path.join(root, 'CONTRIBUTING.md');
   const text = isSafeRegularFile(target) ? safeRead(target) : null;
   if (text === null) return { id: item.id, status: 'skipped:unverifiable', reasonCode: 'contributing_unsafe_path' };
-  const updated = text.split(V3_CONTRIBUTING_SENTENCE).join(V4_CONTRIBUTING_SENTENCE);
+  const updated = LEGACY_CONTRIBUTING_SENTENCES.reduce(
+    (current, sentence) => current.split(sentence).join(SUBAGENT_CONTRIBUTING_SENTENCE),
+    text,
+  );
   if (updated === text) return { id: item.id, status: 'already-current' };
   fs.writeFileSync(target, updated);
   return { id: item.id, status: 'applied' };

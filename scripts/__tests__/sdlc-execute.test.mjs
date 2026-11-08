@@ -4,15 +4,16 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { defaultHerdr, runExecute, parseArgs, stageEffort, stageModel, validateHandoff, VALID_STEPS, WORKER_PERMISSION_MODES,
-  workerAgentArgs, workerPermissionMode } from '../sdlc-execute.mjs';
+import { runExecute, parseArgs, stageEffort, stageModel, validateHandoff, VALID_STEPS, WORKER_PERMISSION_MODES,
+  workerPermissionMode } from '../sdlc-execute.mjs';
+import { validateHostRequest } from '../../src/execute-host.mjs';
 import { packageRoot } from '../../src/sdlc-workflows.mjs';
 import { STAGE_MODEL_DEFAULTS, STAGE_MODELS_PATH } from '../sdlc-models.mjs';
 import { inspectIssueSpecScope } from '../issue-spec-scope.mjs';
 import { canonicalJson } from '../../src/sdlc-steering-runtime.mjs';
 
 const roots = [];
-const env = { HERDR_ENV: '1', HERDR_SOCKET_PATH: '/tmp/herdr-test', HERDR_PANE_ID: 'controller' };
+const env = {};
 // The committed project stage configuration every fixture starts with; `stageModels: null` leaves it absent.
 const DEFAULT_STAGE_MODELS_TEXT = `${JSON.stringify(STAGE_MODEL_DEFAULTS, null, 2)}\n`;
 const git = (root, ...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
@@ -99,11 +100,12 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
   fs.mkdirSync(runtime, { recursive: true });
   fs.writeFileSync(path.join(runtime, 'run.json'), '{stale corrupted checkpoint');
   fs.writeFileSync(path.join(runtime, 'safe-recoveries.json'), '{stale corrupted ledger');
-  const state = { merged: false, closed: false, starts: [], prompts: [], reminders: [], closedPanes: [], owned: [], released: [], sourcePushes: 0,
-    versionPreparations: [] };
+  const state = { merged: false, closed: false, starts: [], prompts: [], reminders: [], appends: [], stops: [], log: [],
+    waits: [], finished: 0, sourcePushes: 0, versionPreparations: [], commands: [] };
   // `sdlc-deliver.mjs prepare-version`: synchronized (no commit) unless a test arranges a bump or a failure.
   let onPrepareVersion = () => null;
   const run = (command, args, options = {}) => {
+    state.commands.push(command);
     if (command === 'git') {
       const response = spawnSync('git', args, { cwd: options.cwd ?? root, encoding: 'utf8' });
       return { status: response.status, stdout: response.stdout, stderr: response.stderr };
@@ -210,43 +212,86 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
     if (step === 'deliver') { state.merged = true; state.closed = true; }
     return { status: 'passed', next: { start: 'implement', implement: 'verify', verify: 'deliver', deliver: null }[step] };
   };
-  const herdr = {
-    integrationStatus: () => result('claude: installed\n'),
-    paneLayout: (pane) => result({ id: 'cli:pane:layout', result: { type: 'pane_layout', layout: {
-      area: { width: 200, height: 10 },
-      panes: [{ pane_id: 'other-pane', rect: { width: 200, height: 10 } }, { pane_id: pane, rect: { width: 40, height: 120 } }],
-    } } }),
-    paneSplit: ({ direction, environment }) => {
-      state.directions = [...(state.directions ?? []), direction];
-      state.environments = [...(state.environments ?? []), environment];
-      return result({ result: { pane: { pane_id: `pane-${state.owned.length + 1}` } } });
-    },
-    paneClose: (pane) => { state.closedPanes.push(pane); return result(''); },
-    listAgents: () => result([]),
-    agentStart: ({ name, paneId, model, effort }) => { state.starts.push({ name, paneId, model, effort }); return result(''); },
-    agentPrompt: ({ name, prompt }) => {
-      const step = /-([a-z]+)-[0-9a-f]{8}$/.exec(name)?.[1];
-      if (prompt.startsWith('nmg-sdlc controller:')) {
-        state.reminders.push({ name, prompt });
-        const outcome = onReminder({ step, prompt, state, root, publish, passGate });
-        if (outcome) writeHandoff(step, outcome);
-        return result('');
-      }
+  // The fake stage-subagent host. spawn runs the worker fixture synchronously, as the hooks module's subagent
+  // would. Each worker's record carries its scripted status, activity and turn end (the `context.record` the worker
+  // callback receives): a running worker takes timed waits (`slices`), then runs `onFinish` when its turn ends.
+  const hooks = { advance: () => {}, onAppend: () => true };
+  const agents = new Map();
+  let agentCount = 0;
+  const endTurn = (record) => {
+    record.status = 'idle';
+    const finish = record.onFinish;
+    record.onFinish = null;
+    if (finish) finish();
+  };
+  const host = {
+    spawn(request) {
+      const { issue, step, entry, agent, name, model, effort, permissionMode, cwd, prompt } = request;
+      agentCount += 1;
+      const agentId = `agent-${agentCount}`;
+      state.starts.push({ agentId, issue, step, entry, agent, name, model, effort, permissionMode, cwd });
+      state.log.push(`spawn:${agentId}`);
+      if (hooks.spawnDeny) throw new Error(`worker_start_refused: ${hooks.spawnDeny}`);
       state.prompts.push({ name, prompt });
       if (state.prompts.length > 10) throw new Error('fixture repeated dispatch without progress');
-      const outcome = onWorker({ step, prompt, state, root, publish, passGate });
-      if (outcome?.handoff === false) return result('');
-      writeHandoff(step, outcome);
-      return result('');
+      const record = { schemaVersion: 1, agentId, step, status: 'idle', toolCalls: [], latestText: '',
+        lastActivityAt: 0, slices: 0, slicesDone: 0, onSlice: null, onWait: null, onFinish: null };
+      agents.set(agentId, record);
+      const outcome = onWorker({ step, prompt, state, root, publish, passGate, record });
+      if (outcome?.handoff !== false) writeHandoff(step, outcome);
+      return { agentId };
     },
-    agentWait: () => result(''),
-    agentGet: () => result({ agent_status: 'done' }),
+    activity: (agentId) => agents.get(agentId) ?? null,
+    append({ agentId, text }) {
+      const record = agents.get(agentId);
+      state.appends.push({ agentId, prompt: text });
+      const accepted = hooks.onAppend({ text, record, state, passGate, writeHandoff, root }) !== false;
+      // A settled worker resumes its turn with the guidance; a busy one takes it at its next model request.
+      if (accepted && record.status === 'idle') Object.assign(record, { status: 'running', slices: 0, onFinish: null });
+      return accepted;
+    },
+    send({ agentId, text }) {
+      const record = agents.get(agentId);
+      state.reminders.push({ agentId, prompt: text });
+      const outcome = onReminder({ step: record.step, prompt: text, state, root, publish, passGate });
+      if (outcome) writeHandoff(record.step, outcome);
+      return true;
+    },
+    stop(agentId) {
+      state.stops.push(agentId);
+      state.log.push(`stop:${agentId}`);
+      if (hooks.stopDeny) throw new Error(`worker_stop_failed: ${hooks.stopDeny}`);
+      agents.get(agentId).status = 'killed';
+      return true;
+    },
+    wait({ agentId, until, timeoutMs } = {}) {
+      const record = agents.get(agentId);
+      state.waits.push({ agentId, until, timeoutMs });
+      if (state.waits.length > 60) throw new Error('controller kept waiting without progress');
+      record.onWait?.({ until, timeoutMs }, record);
+      // Only an active subagent has anything to wait for; a settled, failed or killed one returns at once.
+      const active = ['pending', 'running', 'waiting'].includes(record.status);
+      if (!active || (until === 'working' && (record.status === 'pending' || record.status === 'running'))) {
+        return { timedOut: false, record };
+      }
+      if (timeoutMs !== undefined && record.slices > 0) {
+        record.slices -= 1;
+        record.slicesDone += 1;
+        hooks.advance(timeoutMs);
+        record.onSlice?.(record.slicesDone, record);
+        return { timedOut: true, record };
+      }
+      if (until !== 'working') endTurn(record);
+      return { timedOut: false, record };
+    },
+    finish() {
+      state.finished += 1;
+    },
   };
-  return { root, state, run, herdr, publish, passGate, writeHandoff, setWorker: (fn) => { onWorker = fn; },
+  return { root, state, run, host, hooks, publish, passGate, writeHandoff, setWorker: (fn) => { onWorker = fn; },
     setPrepareVersion: (fn) => { onPrepareVersion = fn; },
     setReminder: (fn) => { onReminder = fn; },
-    execute: (args = '', options = {}) => runExecute({ args, cwd: root, env, run, herdr,
-      onOwnedPane: (pane) => state.owned.push(pane), onPaneClosed: (pane) => state.released.push(pane), ...options }) };
+    execute: (args = '', options = {}) => runExecute({ args, cwd: root, env, run, host, ...options }) };
 }
 
 const ABSENT_STAGE_MODELS_WARNING = 'Warning: steering/sdlc-models.json is missing; using plugin default stage models and efforts. Run /sdlc-upgrade-project to create it.';
@@ -264,8 +309,6 @@ describe('per-project stage models (steering/sdlc-models.json)', () => {
     expect(stageEffort('verify', { reasonCode: 'verification_not_green' }, config)).toBe('high');
     expect(stageEffort('start', null, config)).toBeUndefined();
     expect(stageModel('implement', null, config)).toBe('opencode-go/kimi-k3.1-pro');
-    expect(workerAgentArgs({ env: {}, model: 'opencode-go/kimi-k3.1-pro', effort: 'xhigh' }))
-      .toEqual(['--plugin-dir', packageRoot, '--permission-mode', 'auto', '--model', 'opencode-go/kimi-k3.1-pro', '--effort', 'xhigh']);
     expect(() => stageModel('rem', null, config)).toThrow('unknown stage: rem');
   });
 
@@ -287,12 +330,12 @@ describe('per-project stage models (steering/sdlc-models.json)', () => {
     expect(startOf(f.state, 'verify')).toMatchObject({ model: 'opus', effort: 'high' });
   });
 
-  it('stops with exit 2 before any Herdr, Git, or GitHub call on an invalid project file', () => {
+  it('stops with exit 2 before any spawn, Git, or GitHub call on an invalid project file', () => {
     const f = fixture({ stageModels: stageFile({ verify: { model: 'opus', effort: 'extreme' } }) });
     const calls = [];
     const response = f.execute('', {
       run: (command, args, options) => { calls.push(command); return f.run(command, args, options); },
-      herdr: { integrationStatus: () => { throw new Error('herdr_called'); } },
+      host: { spawn: () => { throw new Error('spawn_called'); } },
     });
     expect(response).toEqual({ status: 2, stdout: '', stderr:
       'steering/sdlc-models.json: verify.effort = "extreme": must be one of low, medium, high, xhigh, max, default\n' });
@@ -335,12 +378,8 @@ const advanceOrigin = (root, branch = 'main') => {
 
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 
-describe('Herdr Claude workers', () => {
-  const recordingRun = () => {
-    const calls = [];
-    const run = (command, args, options) => { calls.push({ command, args, options }); return { status: 0, stdout: '' }; };
-    return { calls, run };
-  };
+describe('stage subagent dispatch (#538)', () => {
+  const stageFile = (stages) => `${JSON.stringify({ ...STAGE_MODEL_DEFAULTS, ...stages }, null, 2)}\n`;
 
   it('selects the worker permission mode from NMG_SDLC_WORKER_PERMISSION_MODE', () => {
     expect(WORKER_PERMISSION_MODES).toEqual(['default', 'acceptEdits', 'auto', 'dontAsk', 'bypassPermissions']);
@@ -357,14 +396,13 @@ describe('Herdr Claude workers', () => {
     }
   });
 
-  it('loads the controller plugin root into every worker', () => {
-    expect(workerAgentArgs({ env: {} })).toEqual(['--plugin-dir', packageRoot, '--permission-mode', 'auto']);
-    expect(workerAgentArgs({ env: { NMG_SDLC_WORKER_PERMISSION_MODE: 'acceptEdits' }, pluginRoot: '/opt/nmg' }))
-      .toEqual(['--plugin-dir', '/opt/nmg', '--permission-mode', 'acceptEdits']);
-    expect(workerAgentArgs({ env: {}, model: 'haiku' }))
-      .toEqual(['--plugin-dir', packageRoot, '--permission-mode', 'auto', '--model', 'haiku']);
-    expect(workerAgentArgs({ env: {}, model: 'haiku', effort: 'xhigh' }))
-      .toEqual(['--plugin-dir', packageRoot, '--permission-mode', 'auto', '--model', 'haiku', '--effort', 'xhigh']);
+  it('spawns every stage with the permission mode from NMG_SDLC_WORKER_PERMISSION_MODE, falling back to auto', () => {
+    for (const [workerEnv, mode] of [[{ NMG_SDLC_WORKER_PERMISSION_MODE: 'dontAsk' }, 'dontAsk'],
+      [{ NMG_SDLC_WORKER_PERMISSION_MODE: 'yolo' }, 'auto'], [{}, 'auto']]) {
+      const f = fixture();
+      expect(f.execute('#42', { env: workerEnv })).toMatchObject({ status: 0 });
+      expect(f.state.starts.map((start) => start.permissionMode)).toEqual([mode, mode]);
+    }
   });
 
   it('starts each fresh stage on its model and a repair re-dispatch on opus', () => {
@@ -388,101 +426,93 @@ describe('Herdr Claude workers', () => {
     expect(() => stageEffort('rem', null)).toThrow('unknown stage: rem');
   });
 
-  it('passes the stage model to claude after the permission mode', () => {
-    const { calls, run } = recordingRun();
-    defaultHerdr(run, '/repo', {}).agentStart({ name: 's42-implement-abcdef12', paneId: 'w1:p2', model: 'haiku', effort: 'xhigh' });
-    expect(calls[0].args).toEqual(['agent', 'start', 's42-implement-abcdef12', '--kind', 'claude', '--pane', 'w1:p2',
-      '--', '--plugin-dir', packageRoot, '--permission-mode', 'auto', '--model', 'haiku', '--effort', 'xhigh']);
-  });
-
-  it('starts claude-kind agents with --plugin-dir and --permission-mode after --', () => {
-    const { calls, run } = recordingRun();
-    defaultHerdr(run, '/repo', {}).agentStart({ name: 's42-verify-abcdef12', paneId: 'w1:p2' });
-    defaultHerdr(run, '/repo', { NMG_SDLC_WORKER_PERMISSION_MODE: 'dontAsk' })
-      .agentStart({ name: 's42-deliver-abcdef12', paneId: 'w1:p3' });
-    defaultHerdr(run, '/repo', { NMG_SDLC_WORKER_PERMISSION_MODE: 'yolo' })
-      .agentStart({ name: 's42-start-abcdef12', paneId: 'w1:p4' });
-    expect(calls.map(({ command, args, options }) => [command, args, options.cwd])).toEqual([
-      ['herdr', ['agent', 'start', 's42-verify-abcdef12', '--kind', 'claude', '--pane', 'w1:p2',
-        '--', '--plugin-dir', packageRoot, '--permission-mode', 'auto'], '/repo'],
-      ['herdr', ['agent', 'start', 's42-deliver-abcdef12', '--kind', 'claude', '--pane', 'w1:p3',
-        '--', '--plugin-dir', packageRoot, '--permission-mode', 'dontAsk'], '/repo'],
-      ['herdr', ['agent', 'start', 's42-start-abcdef12', '--kind', 'claude', '--pane', 'w1:p4',
-        '--', '--plugin-dir', packageRoot, '--permission-mode', 'auto'], '/repo'],
-    ]);
-    expect(calls.flatMap((call) => call.args)).not.toContain('--config');
-  });
-
-  it('defaults the worker environment to the process environment', () => {
-    const { calls, run } = recordingRun();
-    const previous = process.env.NMG_SDLC_WORKER_PERMISSION_MODE;
-    process.env.NMG_SDLC_WORKER_PERMISSION_MODE = 'bypassPermissions';
-    try { defaultHerdr(run, '/repo').agentStart({ name: 'w', paneId: 'p' }); } finally {
-      if (previous === undefined) delete process.env.NMG_SDLC_WORKER_PERMISSION_MODE;
-      else process.env.NMG_SDLC_WORKER_PERMISSION_MODE = previous;
-    }
-    expect(calls[0].args.slice(-2)).toEqual(['--permission-mode', 'bypassPermissions']);
-  });
-
-  it('submits prompts and waits through the agent surface without extra submit keys', () => {
-    const { calls, run } = recordingRun();
-    const api = defaultHerdr(run, '/repo', {});
-    const prompt = 'line one\n\nline "two" with $vars and `ticks`';
-    api.agentPrompt({ name: 'w', prompt });
-    api.agentWait({ name: 'w', until: 'working' });
-    api.agentWait({ name: 'w' });
-    api.agentWait({ name: 'w', until: 'working', timeout: 60000 });
-    api.agentGet('w');
-    expect(calls.map((call) => call.args)).toEqual([
-      ['agent', 'prompt', 'w', prompt],
-      ['agent', 'wait', 'w', '--until', 'working'],
-      ['agent', 'wait', 'w'],
-      ['agent', 'wait', 'w', '--until', 'working', '--timeout', '60000'],
-      ['agent', 'get', 'w'],
+  it('carries each entry model and effort on its spawn request, with a default effort as null', () => {
+    const f = fixture({ dirty: true, stageModels: stageFile({
+      implement: { model: 'opencode-go/kimi-k3.1-pro', effort: 'xhigh' },
+      verify: { model: 'opus[1m]', effort: 'max' },
+      deliver: { model: 'claude-opus-5-5', effort: 'default' },
+    }) });
+    expect(f.execute('#42')).toMatchObject({ status: 0 });
+    expect(f.state.starts.map(({ step, entry, agent, model, effort, permissionMode }) => (
+      { step, entry, agent, model, effort, permissionMode }))).toEqual([
+      { step: 'implement', entry: 'implement', agent: 'spec-implementer', model: 'opencode-go/kimi-k3.1-pro', effort: 'xhigh', permissionMode: 'auto' },
+      { step: 'verify', entry: 'verify', agent: 'architecture-reviewer', model: 'opus[1m]', effort: 'max', permissionMode: 'auto' },
+      { step: 'deliver', entry: 'deliver', agent: 'deliverer', model: 'claude-opus-5-5', effort: null, permissionMode: 'auto' },
     ]);
   });
 
-  it('checks the claude integration through the default Herdr surface', () => {
-    const { calls, run } = recordingRun();
-    const response = runExecute({ args: '#42', cwd: '/nonexistent-nmg-sdlc-root', run,
-      env: { HERDR_ENV: '1', HERDR_SOCKET_PATH: '/tmp/s', HERDR_PANE_ID: 'c' } });
-    // The project file is absent under this nonexistent root, so the one-per-invocation warning leads stdout.
-    expect(response).toEqual({ status: 2, stdout: `${ABSENT_STAGE_MODELS_WARNING}\nRun: herdr integration install claude\n`, stderr: '' });
-    expect(calls[0].args).toEqual(['integration', 'status']);
+  it('builds spawn requests the hooks module accepts for the configured models, including opus[1m] and claude-opus-5-5', () => {
+    const f = fixture({ dirty: true, stageModels: stageFile({
+      implement: { model: 'opencode-go/kimi-k3.1-pro', effort: 'xhigh' },
+      verify: { model: 'opus[1m]', effort: 'max' },
+      deliver: { model: 'claude-opus-5-5', effort: 'default' },
+    }) });
+    expect(f.execute('#42')).toMatchObject({ status: 0 });
+    const session = '0f8fbc1e-5b8e-4a3c-9d2a-6e1f0c3b7a11';
+    const requests = f.state.starts.map((start, index) => ({ schemaVersion: 1, session, n: index + 1, kind: 'spawn',
+      issue: start.issue, entry: start.entry, agent: start.agent, name: start.name, model: start.model,
+      effort: start.effort, permissionMode: start.permissionMode, promptFile: `request-${index + 1}.prompt.md`,
+      cwd: start.cwd }));
+    expect(requests.map((request) => validateHostRequest(request))).toEqual(requests.map(() => ({ ok: true })));
+    expect(validateHostRequest({ ...requests[0], model: 'not a model!' })).toMatchObject({ ok: false });
   });
 
-  it('requires a Herdr session and the claude integration', () => {
-    const integration = (stdout) => ({ integrationStatus: () => ({ status: 0, stdout }) });
-    expect(runExecute({ args: '#42', env: {} }))
-      .toEqual({ status: 2, stdout: 'execute requires a Herdr session\n', stderr: '' });
-    const base = { args: '#42', cwd: '/nonexistent-nmg-sdlc-root', env, run: () => ({ status: 1, stdout: '', stderr: 'no auth' }) };
-    for (const stdout of ['claude: not installed (/h/.claude/hooks/herdr-agent-state.sh)\n',
-      'codex: current (v10)\nclaude: not installed\n', 'pi: current\n', '']) {
-      expect(runExecute({ ...base, herdr: integration(stdout) }))
-        .toEqual({ status: 2, stdout: `${ABSENT_STAGE_MODELS_WARNING}\nRun: herdr integration install claude\n`, stderr: '' });
-    }
-    const spawnError = Object.assign(new Error('spawnSync herdr EAGAIN'), { code: 'EAGAIN' });
-    for (const [probe, detail] of [[() => ({ status: null, stdout: '', error: spawnError }), 'EAGAIN'],
-      [() => { throw new Error('socket gone'); }, 'socket gone'],
-      [() => ({ status: null, signal: 'SIGKILL', stdout: '' }), 'signal SIGKILL'],
-      [() => ({ status: 3, stdout: '' }), 'exit 3']]) {
-      expect(runExecute({ ...base, herdr: { integrationStatus: probe } })).toEqual({ status: 2,
-        stdout: `${ABSENT_STAGE_MODELS_WARNING}\nRun: herdr integration install claude\n`,
-        stderr: `herdr integration status failed: ${detail}\n` });
-    }
-    for (const stdout of ['claude: current (v3) (/h/.claude/hooks/herdr-agent-state.sh)\n',
-      'codex: not installed\nclaude: outdated (v2 < v3)\n']) {
-      expect(runExecute({ ...base, herdr: integration(stdout) }))
-        .toEqual({ status: 1, stdout: `${ABSENT_STAGE_MODELS_WARNING}\n`, stderr: 'gh auth status failed\n' });
-    }
+  it('redispatches a repairable failure on the repair entry, and its stage entry once the failure is cleared', () => {
+    const f = fixture();
+    let verifications = 0;
+    f.setWorker(({ step, publish, passGate, state }) => {
+      if (step === 'verify' && verifications++ === 0) {
+        return { status: 'failed', next: 'implement', reasonCode: 'same_check', summary: 'same failing check', artifacts: [] };
+      }
+      if (step === 'implement') { publish('fix: repair #42'); return { status: 'passed', next: 'verify' }; }
+      if (step === 'verify') { passGate(); return { status: 'passed', next: 'deliver' }; }
+      if (step === 'deliver') { state.merged = true; state.closed = true; return { status: 'passed', next: null }; }
+      throw new Error(step);
+    });
+    expect(f.execute('#42')).toMatchObject({ status: 0 });
+    expect(f.state.starts.map((start) => [start.step, start.entry])).toEqual([
+      ['verify', 'verify'], ['implement', 'repair'], ['verify', 'verify'], ['deliver', 'deliver'],
+    ]);
+    expect(f.state.starts[1]).toMatchObject({ model: 'opus', effort: null });
+  });
+
+  it('runs no herdr command: every stage goes through the host, with no integration probe', () => {
+    const f = fixture();
+    expect(f.execute('#42')).toMatchObject({ status: 0 });
+    expect(f.state.commands).not.toContain('herdr');
+    expect(f.state.starts).toHaveLength(2);
+  });
+
+  it('exits 2 without a host, before any Git, GitHub or spawn call', () => {
+    const calls = [];
+    expect(runExecute({ args: '#42', env: {}, run: (command) => { calls.push(command); return { status: 0, stdout: '' }; } }))
+      .toEqual({ status: 2, stdout: '', stderr: 'execute requires /sdlc-execute in a Claude Code session\n' });
+    expect(calls).toEqual([]);
+  });
+
+  it('checks gh auth and nothing else before a spawn when there is no probe to run first', () => {
+    const calls = [];
+    const response = runExecute({ args: '#42', cwd: '/nonexistent-nmg-sdlc-root', env: {},
+      host: { spawn: () => { throw new Error('spawn_called'); } },
+      run: (command, args) => { calls.push([command, ...args.slice(0, 2)]); return { status: 1, stdout: '', stderr: 'no auth' }; } });
+    expect(response).toEqual({ status: 1, stdout: `${ABSENT_STAGE_MODELS_WARNING}\n`, stderr: 'gh auth status failed\n' });
+    expect(calls).toEqual([['gh', 'auth', 'status']]);
+  });
+
+  it('stops a denied spawn with worker_start_refused and the reason, dispatching no deliver and no prompt', () => {
+    const f = fixture({ dirty: true });
+    f.hooks.spawnDeny = 'nmg-sdlc: stage subagents are not allowed in this session';
+    expect(f.execute('#42')).toEqual({ status: 1, stdout: '',
+      stderr: `worker_start_refused: ${f.hooks.spawnDeny}\n` });
+    expect(f.state.starts.map((start) => start.step)).toEqual(['implement']);
+    expect(f.state.prompts).toEqual([]);
   });
 });
-
 describe('branch-first execute', () => {
   it('accepts only the four active stages and no stale recovery flag', () => {
     expect(VALID_STEPS).toEqual(['start', 'implement', 'verify', 'deliver']);
     expect(parseArgs('')).toEqual({ issues: [], defaultBacklog: true });
-    expect(parseArgs('#42 --retain-worker')).toMatchObject({ issues: [42], retainWorker: true });
+    expect(() => parseArgs('#42 --retain-worker')).toThrow('--retain-worker is removed');
     expect(() => parseArgs('--recover-stale')).toThrow();
     expect(() => validateHandoff({ schemaVersion: 1, issue: 42, step: 'review1', status: 'passed',
       intervention: false, summary: '', artifacts: [], next: null, reasonCode: null })).toThrow();
@@ -494,9 +524,6 @@ describe('branch-first execute', () => {
     expect(response).toEqual({ status: 0, stdout: '#42: verify passed\n#42: deliver passed\n#42: MERGED and CLOSED\n#42: branch cleanup: deleted 42-example and fast-forwarded main\n', stderr: '' });
     expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['verify', 'deliver']);
     expect(f.state.merged && f.state.closed).toBe(true);
-    expect(f.state.closedPanes).toEqual(f.state.owned);
-    expect(f.state.directions).toEqual(['down', 'down']);
-    expect(f.state.released).toEqual(f.state.owned);
     expect(fs.readFileSync(path.join(f.root, '.nmg-sdlc/run.json'), 'utf8')).toContain('stale corrupted');
   });
 
@@ -608,16 +635,6 @@ describe('branch-first execute', () => {
     expect(f.state.versionPreparations.length).toBeGreaterThan(0);
   });
 
-  it('forwards the outer smoke invocation to verify and deliver workers', () => {
-    const f = fixture();
-    const smoke = { NMG_SDLC_SMOKE_OWNED: '1', NMG_SDLC_SMOKE_RECOVERY: `${'a'.repeat(64)}.${'b'.repeat(64)}` };
-    expect(f.execute('', { env: { ...env, ...smoke } })).toMatchObject({ status: 0 });
-    expect(f.state.environments).toEqual([
-      expect.objectContaining(smoke),
-      smoke,
-    ]);
-  });
-
   it('reverifies a locally edited green report rather than delivering uncommitted evidence', () => {
     const f = fixture();
     f.passGate();
@@ -673,6 +690,8 @@ describe('branch-first execute', () => {
     expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual([
       'verify', 'verify', 'verify', 'deliver',
     ]);
+    // The exempt pr_evidence_pending failure keeps every re-dispatch on its stage entry, never repair.
+    expect(f.state.starts.map((entry) => entry.entry)).toEqual(['verify', 'verify', 'verify', 'deliver']);
   });
 
   it('recognizes an exact-head merged PR and closed issue without a label or new worker', () => {
@@ -702,7 +721,7 @@ describe('branch-first execute', () => {
     // The new branch has no commits relative to main, so it is implemented before anything is verified.
     expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['start', 'implement', 'verify', 'deliver']);
     expect(f.state.starts.map((entry) => entry.model)).toEqual(['haiku', 'haiku', 'opus', 'haiku']);
-    expect(f.state.starts.map((entry) => entry.effort)).toEqual([undefined, 'xhigh', 'high', 'xhigh']);
+    expect(f.state.starts.map((entry) => entry.effort)).toEqual([null, 'xhigh', 'high', 'xhigh']);
   });
   it('continues an explicit queue on the default branch after the previous issue is delivered', () => {
     const f = fixture({ branch: 'main' });
@@ -876,7 +895,7 @@ describe('branch-first execute', () => {
   it('picks a specified issue on the non-issue branch without replaying a checkpoint', () => {
     const f = fixture({ branch: 'main' });
     let presented;
-    const picker = { ...f.herdr, pickIssue: (candidates) => {
+    const picker = { ...f.host, pickIssue: (candidates) => {
       presented = candidates;
       return 42;
     } };
@@ -891,7 +910,7 @@ describe('branch-first execute', () => {
       if (step === 'deliver') { state.merged = true; state.closed = true; return { status: 'passed', next: null }; }
       throw new Error(step);
     });
-    expect(f.execute('', { herdr: picker })).toMatchObject({ status: 0 });
+    expect(f.execute('', { host: picker })).toMatchObject({ status: 0 });
     expect(presented).toEqual([{ number: 42, title: 'Example' }]);
   });
 
@@ -935,31 +954,6 @@ describe('branch-first execute', () => {
     expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['implement', 'verify', 'deliver']);
   });
 
-  it('proves an already vanished owned pane absent before reconciling its push', () => {
-    const f = fixture({ dirty: true });
-    let first = true;
-    const herdr = { ...f.herdr,
-      paneClose: (pane) => {
-        if (first) { first = false; return result('', 1); }
-        return f.herdr.paneClose(pane);
-      },
-      listPanes: () => result([]),
-    };
-    f.setWorker(({ step, publish, passGate, state }) => {
-      if (step === 'implement') {
-        publish('fix: pane vanished after publication #42');
-        return { handoff: false };
-      }
-      if (step === 'verify') { passGate(); return { status: 'passed', next: 'deliver' }; }
-      if (step === 'deliver') { state.merged = true; state.closed = true; return { status: 'passed', next: null }; }
-      throw new Error(step);
-    });
-    expect(f.execute('#42', { herdr })).toMatchObject({ status: 0 });
-    expect(f.state.released).toEqual(f.state.owned);
-    expect(f.state.closedPanes).toHaveLength(2);
-    expect(f.state.sourcePushes).toBe(1);
-  });
-
   it('preserves dirty partial work and repairs more than two distinct failures without an attempt cap', () => {
     const f = fixture({ dirty: true });
     let failedVerifications = 0;
@@ -988,44 +982,18 @@ describe('branch-first execute', () => {
       'haiku', 'opus', 'opus', 'opus', 'opus', 'opus', 'haiku',
     ]);
     expect(f.state.starts.map((entry) => entry.effort)).toEqual([
-      'xhigh', 'high', undefined, 'high', undefined, 'high', 'xhigh',
+      'xhigh', 'high', null, 'high', null, 'high', 'xhigh',
     ]);
     expect(f.state.prompts[2].prompt).toContain('gate-1.json');
     expect(f.state.prompts[4].prompt).toContain('gate-2.json');
     expect(fs.readFileSync(path.join(f.root, 'helper.py'), 'utf8')).toContain('preserved partial change');
   });
 
-  it('rejects explicit different issue on active branch without starting a pane', () => {
+  it('rejects explicit different issue on active branch without starting a worker', () => {
     const f = fixture({ dirty: true });
     expect(f.execute('#43')).toMatchObject({ status: 1, stderr: expect.stringContaining('active_issue_conflict') });
     expect(f.state.starts).toEqual([]);
   });
-
-  it('preserves a foreign live worker and refuses a competing dispatch', () => {
-    const f = fixture();
-    const herdr = { ...f.herdr,
-      listAgents: () => result([{ name: 's42-verify-foreign', pane_id: 'foreign', agent_status: 'working' }]),
-      agentGet: () => result({ agent_status: 'working' }),
-    };
-    expect(f.execute('#42', { herdr })).toMatchObject({
-      status: 1, stderr: expect.stringContaining('foreign_worker_live'),
-    });
-    expect(f.state.starts).toEqual([]);
-    expect(f.state.closedPanes).toEqual([]);
-  });
-
-  it.each([['#42', true], ['#42 --retain-worker', false]])(
-    'stops with agent_start_failed on a model-routed launch and sends no prompt (%s)', (args, closed) => {
-      const f = fixture({ dirty: true });
-      const herdr = { ...f.herdr, agentStart: ({ name, paneId, model }) => {
-        f.state.starts.push({ name, paneId, model });
-        return result('', 1);
-      } };
-      expect(f.execute(args, { herdr })).toMatchObject({ status: 1, stderr: expect.stringContaining('agent_start_failed') });
-      expect(f.state.starts.map((entry) => entry.model)).toEqual(['haiku']);
-      expect(f.state.prompts).toEqual([]);
-      expect(f.state.closedPanes).toEqual(closed ? f.state.owned : []);
-    });
 
   it('stops on a real intervention without treating it as another repair attempt', () => {
     const f = fixture();
@@ -1037,7 +1005,6 @@ describe('branch-first execute', () => {
     expect(f.execute('#42')).toMatchObject({ status: 1,
       stderr: expect.stringContaining('provider_unavailable: required provider cannot be reached') });
     expect(f.state.starts).toHaveLength(1);
-    expect(f.state.closedPanes).toEqual(f.state.owned);
   });
 
   it('runs full verification again after delivery publishes a new mergeability head', () => {
@@ -1090,50 +1057,37 @@ describe('branch-first execute', () => {
 describe('worker supervision while its background work runs (#470)', () => {
   const marker = (f) => path.join(f.root, '.nmg-sdlc/handoffs/42-verify.json.waiting');
   const deliver = ({ state }) => { state.merged = true; state.closed = true; return { status: 'passed', next: null }; };
-  // Fails fast instead of hanging if the controller never stops waiting.
-  const boundedWaits = (f, onWait = () => {}) => {
-    const waits = [];
-    return { waits, agentWait: (args) => {
-      waits.push(args);
-      if (waits.length > 50) throw new Error('controller kept waiting without progress');
-      onWait(args);
-      return result('');
-    } };
-  };
 
-  it('keeps the pane of a worker waiting on its background gate and processes the later handoff', () => {
+  it('keeps a worker waiting on its background gate until its later handoff', () => {
     const f = fixture();
-    let agent = 'done';
     let gateRunning = false;
     f.setWorker((context) => {
       if (context.step === 'verify') {
         fs.mkdirSync(path.dirname(marker(f)), { recursive: true });
         fs.writeFileSync(marker(f), 'sdlc-verify-steering.mjs\n');
         gateRunning = true;
+        // Settled with its marker: the background gate's notification resumes the turn, and the turn then ends
+        // with the passing handoff once the controller has removed the marker.
+        context.record.onWait = ({ timeoutMs }, record) => {
+          if (timeoutMs !== 60000 || !gateRunning) return;
+          gateRunning = false;
+          record.status = 'running';
+          record.onFinish = () => {
+            expect(fs.existsSync(marker(f))).toBe(false);
+            f.passGate();
+            f.writeHandoff('verify', { status: 'passed', next: 'deliver' });
+          };
+        };
         return { handoff: false };
       }
       if (context.step === 'deliver') return deliver(context);
       throw new Error(context.step);
     });
-    const { waits, agentWait } = boundedWaits(f, (args) => {
-      if (args.timeout && gateRunning) {
-        // The background gate finishes and its notification resumes the worker's turn.
-        expect(f.state.closedPanes).toEqual([]);
-        gateRunning = false;
-        agent = 'working';
-      } else if (!args.until && agent === 'working') {
-        expect(fs.existsSync(marker(f))).toBe(false);
-        f.passGate();
-        f.writeHandoff('verify', { status: 'passed', next: 'deliver' });
-        agent = 'done';
-      }
-    });
-    const herdr = { ...f.herdr, agentWait, agentGet: () => result({ agent_status: agent }) };
-    expect(f.execute('#42', { herdr })).toMatchObject({ status: 0 });
-    expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['verify', 'deliver']);
-    expect(waits).toContainEqual({ name: f.state.starts[0].name, until: 'working', timeout: 60000 });
+    expect(f.execute('#42')).toMatchObject({ status: 0 });
+    expect(f.state.starts.map((entry) => entry.step)).toEqual(['verify', 'deliver']);
+    expect(f.state.waits).toContainEqual({ agentId: f.state.starts[0].agentId, until: 'working', timeoutMs: 60000 });
     expect(f.state.reminders).toEqual([]);
-    expect(f.state.closedPanes).toEqual(f.state.owned);
+    expect(f.state.stops).toEqual([]);
   });
 
   it('removes a stale waiting marker and reminds a settled worker once before it counts as stopped', () => {
@@ -1150,15 +1104,14 @@ describe('worker supervision while its background work runs (#470)', () => {
       passGate();
       return { status: 'passed', next: 'deliver' };
     });
-    const { agentWait } = boundedWaits(f);
-    expect(f.execute('#42', { herdr: { ...f.herdr, agentWait } })).toMatchObject({ status: 0 });
+    expect(f.execute('#42')).toMatchObject({ status: 0 });
     expect(f.state.reminders).toHaveLength(1);
     expect(f.state.reminders[0].prompt).toContain('.nmg-sdlc/handoffs/42-verify.json');
     expect(f.state.reminders[0].prompt).toContain('.nmg-sdlc/handoffs/42-verify.json.waiting');
-    expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['verify', 'deliver']);
+    expect(f.state.starts.map((entry) => entry.step)).toEqual(['verify', 'deliver']);
   });
 
-  it('retries verify, not an implement repair, after a verify worker stops without a handoff', () => {
+  it('retries verify, not an implement repair, after a verify worker settles without a handoff (missing_handoff)', () => {
     const f = fixture();
     let verifications = 0;
     f.setWorker((context) => {
@@ -1169,29 +1122,28 @@ describe('worker supervision while its background work runs (#470)', () => {
     });
     expect(f.execute('#42')).toMatchObject({ status: 0 });
     expect(f.state.reminders).toHaveLength(1);
-    expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['verify', 'verify', 'deliver']);
+    expect(f.state.starts.map((entry) => entry.step)).toEqual(['verify', 'verify', 'deliver']);
     expect(f.state.prompts[1].prompt).toContain('missing_handoff');
-    expect(f.state.closedPanes).toEqual(f.state.owned);
   });
 
-  it.each([['', 'process_lost'], ['blocked', 'missing_handoff']])(
-    'closes a worker reported as %j without a reminder or resume wait', (lostState, reasonCode) => {
+  it.each([['failed', 'process_lost'], ['killed', 'process_lost']])(
+    'ends a %s worker without a handoff as %s, with no reminder and no resume wait', (agentStatus, reasonCode) => {
       const f = fixture();
       let verifications = 0;
       f.setWorker((context) => {
-        if (context.step === 'verify' && verifications++ === 0) return { handoff: false };
+        if (context.step === 'verify' && verifications++ === 0) {
+          context.record.status = agentStatus;
+          return { handoff: false };
+        }
         if (context.step === 'verify') { context.passGate(); return { status: 'passed', next: 'deliver' }; }
         if (context.step === 'deliver') return deliver(context);
         throw new Error(context.step);
       });
-      const { waits, agentWait } = boundedWaits(f);
-      const herdr = { ...f.herdr, agentWait,
-        agentGet: () => result({ agent_status: verifications === 1 ? lostState : 'done' }) };
-      expect(f.execute('#42', { herdr })).toMatchObject({ status: 0 });
+      expect(f.execute('#42')).toMatchObject({ status: 0 });
       expect(f.state.reminders).toEqual([]);
-      expect(waits.some((args) => args.timeout)).toBe(false);
+      expect(f.state.waits.some((wait) => wait.timeoutMs !== undefined)).toBe(false);
       expect(f.state.prompts[1].prompt).toContain(reasonCode);
-      expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['verify', 'verify', 'deliver']);
+      expect(f.state.starts.map((entry) => entry.step)).toEqual(['verify', 'verify', 'deliver']);
     });
 
   it('verifies a branch with no commits once this invocation implemented it at that head', () => {
@@ -1209,39 +1161,42 @@ describe('worker supervision while its background work runs (#470)', () => {
       throw new Error(context.step);
     });
     expect(f.execute('#42')).toMatchObject({ status: 0 });
-    expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['start', 'implement', 'verify', 'deliver']);
+    expect(f.state.starts.map((entry) => entry.step)).toEqual(['start', 'implement', 'verify', 'deliver']);
   });
 });
-
 describe('Opus supervisor decisions (#491)', () => {
-  const steps = (f) => f.state.starts.map((entry) => entry.name.split('-')[1]);
+  const steps = (f) => f.state.starts.map((entry) => entry.step);
   const deliver = ({ state }) => { state.merged = true; state.closed = true; return { status: 'passed', next: null }; };
-  // Herdr prints the timeout error on stderr with exit 1.
-  const timeout = () => ({ status: 1, stdout: '', stderr: `${JSON.stringify({ error: { code: 'timeout', message: 'timed out waiting for agent status' }, id: 'cli:agent:wait' })}\n` });
-  // Records each report, answers it from `answer(report, index)` (default accept/continue), and
-  // captures the controller state the report was taken in.
+  // Records each report, answers it from `answer(report, index)` (default accept/continue), and captures the
+  // controller state the report was taken in.
   const supervisor = (f, answer = () => null) => {
     const reports = [];
     const supervise = (report) => {
-      reports.push({ ...report, closedAtReport: [...f.state.closedPanes], startsAtReport: f.state.starts.length });
+      reports.push({ ...report, stopsAtReport: [...f.state.stops], startsAtReport: f.state.starts.length });
       return answer(report, reports.length - 1) ?? { action: report.kind === 'stage' ? 'accept' : 'continue' };
     };
     return { reports, supervise };
   };
-  // A herdr whose guidance prompts are recorded and handed to `onGuidance` instead of the worker fixture.
-  const guidedHerdr = (f, onGuidance = () => {}, extra = {}) => {
-    const guidance = [];
-    return { guidance, herdr: { ...f.herdr, ...extra, agentPrompt: (args) => {
-      if (args.prompt.startsWith('nmg-sdlc supervisor guidance')) {
-        guidance.push(args);
-        onGuidance(args);
-        return result('');
-      }
-      return (extra.agentPrompt ?? f.herdr.agentPrompt)(args);
-    } } };
+  // A verify worker that keeps running for `slices` timed waits, then writes its passing handoff. Each verify
+  // spawn runs its own slices; `onSlice(n, record)` runs after each slice with the injected clock advanced.
+  const runningWorker = (f, { slices, clock, onSlice = () => {} }) => {
+    f.hooks.advance = (ms) => { clock.now += ms; };
+    f.setWorker((context) => {
+      if (context.step !== 'verify') return deliver(context);
+      Object.assign(context.record, {
+        status: 'running',
+        slices,
+        onSlice: (n, record) => onSlice(n, record),
+        onFinish: () => {
+          f.passGate();
+          f.writeHandoff('verify', { status: 'passed', next: 'deliver' });
+        },
+      });
+      return { handoff: false };
+    });
   };
 
-  it('returns a stage report at every boundary before the pane closes or the next stage starts', () => {
+  it('returns a stage report at every boundary before the next stage starts', () => {
     const f = fixture({ dirty: true });
     f.setWorker((context) => {
       if (context.step === 'implement') {
@@ -1257,10 +1212,11 @@ describe('Opus supervisor decisions (#491)', () => {
     expect(steps(f)).toEqual(['implement', 'verify', 'deliver']);
     expect(reports.map((report) => `${report.kind}:${report.stage}`)).toEqual(['stage:implement', 'stage:verify', 'stage:deliver']);
     reports.forEach((report, index) => {
-      expect(report.closedAtReport).not.toContain(report.pane);
+      expect(report.stopsAtReport).toEqual([]);
       expect(report.startsAtReport).toBe(index + 1);
-      expect(report).toMatchObject({ issue: 42, worker: f.state.starts[index].name, pane: f.state.owned[index],
+      expect(report).toMatchObject({ issue: 42, worker: f.state.starts[index].name, agentId: f.state.starts[index].agentId,
         decisions: ['accept', 'prompt', 'redispatch', 'halt'], failureHistory: [] });
+      expect(report).not.toHaveProperty('pane');
       expect(report.headBefore).toMatch(/^[0-9a-f]{40}$/);
       expect(report.headAfter).toMatch(/^[0-9a-f]{40}$/);
     });
@@ -1273,7 +1229,7 @@ describe('Opus supervisor decisions (#491)', () => {
     expect(verify.gate).toBe('pass');
     expect(verify.verification).toMatchObject({ report: 'specs/42-example/verification-report.md',
       readiness: { status: 'pass', reasonCode: 'ordinary_pass', gaps: [] }, issues: [] });
-    expect(f.state.closedPanes).toEqual(f.state.owned);
+    expect(f.state.stops).toEqual([]);
   });
 
   it('reports a verify stage with its readiness gaps and the report critical and remaining issues', () => {
@@ -1291,30 +1247,31 @@ describe('Opus supervisor decisions (#491)', () => {
     expect(reports[0].gate).toBe('not_green');
   });
 
-  it('prompts the live worker and reports its fresh handoff before continuing', () => {
+  it('prompts the live worker through one host append and reports its fresh handoff before continuing', () => {
     const f = fixture();
     f.setWorker((context) => {
       if (context.step === 'verify') return { status: 'failed', next: 'implement', reasonCode: 'smoke_failed', summary: 'smoke failed', artifacts: [] };
       return deliver(context);
     });
-    const { guidance, herdr } = guidedHerdr(f, () => {
+    f.hooks.onAppend = () => {
       f.passGate();
       f.writeHandoff('verify', { status: 'passed', next: 'deliver' });
-    });
+      return true;
+    };
     const { reports, supervise } = supervisor(f, (report, index) =>
       (index === 0 ? { action: 'prompt', text: 'the smoke host is back; rerun the gate' } : null));
-    expect(f.execute('#42', { supervise, herdr })).toMatchObject({ stderr: '', status: 0 });
-    expect(guidance).toHaveLength(1);
-    expect(guidance[0].name).toBe(f.state.starts[0].name);
-    expect(guidance[0].prompt).toContain('the smoke host is back; rerun the gate');
-    expect(guidance[0].prompt).toContain('write and validate a fresh handoff at .nmg-sdlc/handoffs/42-verify.json');
+    expect(f.execute('#42', { supervise })).toMatchObject({ stderr: '', status: 0 });
+    expect(f.state.appends).toHaveLength(1);
+    expect(f.state.appends[0].agentId).toBe(f.state.starts[0].agentId);
+    expect(f.state.appends[0].prompt).toContain('the smoke host is back; rerun the gate');
+    expect(f.state.appends[0].prompt).toContain('write and validate a fresh handoff at .nmg-sdlc/handoffs/42-verify.json');
     expect(reports.map((report) => [report.stage, report.handoff.status, report.handoffFresh])).toEqual([
       ['verify', 'failed', true], ['verify', 'passed', true], ['deliver', 'passed', true]]);
-    expect(reports[1].closedAtReport).toEqual([]);
+    expect(reports[1].stopsAtReport).toEqual([]);
     expect(steps(f)).toEqual(['verify', 'deliver']);
   });
 
-  it('re-dispatches the stage with the supervisor guidance beside the failure evidence', () => {
+  it('re-dispatches the stage with the supervisor guidance beside the failure evidence, stopping the old subagent first', () => {
     const f = fixture({ dirty: true });
     let implementations = 0;
     f.setWorker((context) => {
@@ -1329,7 +1286,8 @@ describe('Opus supervisor decisions (#491)', () => {
       (index === 0 ? { action: 'redispatch', text: 'use the existing parser' } : null));
     expect(f.execute('#42', { supervise })).toMatchObject({ status: 0 });
     expect(steps(f)).toEqual(['implement', 'implement', 'verify', 'deliver']);
-    expect(f.state.closedPanes.slice(0, 1)).toEqual([f.state.owned[0]]);
+    expect(f.state.stops).toEqual([f.state.starts[0].agentId]);
+    expect(f.state.log.slice(0, 3)).toEqual(['spawn:agent-1', 'stop:agent-1', 'spawn:agent-2']);
     expect(f.state.prompts[1].prompt).toContain('Supervisor guidance: use the existing parser');
     expect(f.state.prompts[1].prompt).toContain('tests_failed: parser tests failed');
     expect(f.state.prompts[2].prompt).not.toContain('Supervisor guidance');
@@ -1379,26 +1337,31 @@ describe('Opus supervisor decisions (#491)', () => {
     expect(reports.slice(0, 2).map((report) => report.gate)).toEqual(['not_green', 'not_green']);
   });
 
-  it.each([[false, true], [true, false]])('halts with the diagnosis (retain worker: %s)', (retain, closed) => {
+  it('halts with the diagnosis after stopping the stage subagent, leaving branch, worktree and remote unchanged', () => {
     const f = fixture();
     f.setWorker(() => ({ status: 'failed', next: 'implement', reasonCode: 'verification_not_ready', summary: 'disk full', artifacts: [] }));
-    const before = git(f.root, 'rev-parse', 'HEAD');
+    const snapshot = () => ({
+      head: git(f.root, 'rev-parse', 'HEAD'),
+      worktree: git(f.root, 'status', '--porcelain', '--', '.', ':(exclude).nmg-sdlc'),
+      remote: git(f.root, 'ls-remote', 'origin', 'refs/heads/42-example'),
+    });
+    const before = snapshot();
     const { supervise } = supervisor(f, () => ({ action: 'halt', text: 'host disk full' }));
-    expect(f.execute(retain ? '--retain-worker #42' : '#42', { supervise }))
+    expect(f.execute('#42', { supervise }))
       .toEqual({ status: 1, stdout: '', stderr: 'supervisor_halt: host disk full\n' });
     expect(steps(f)).toEqual(['verify']);
-    expect(f.state.closedPanes).toEqual(closed ? f.state.owned : []);
-    expect(git(f.root, 'rev-parse', 'HEAD')).toBe(before);
+    expect(f.state.stops).toEqual([f.state.starts[0].agentId]);
+    expect(f.state.log).toEqual(['spawn:agent-1', 'stop:agent-1']);
+    expect(snapshot()).toEqual(before);
     expect(git(f.root, 'branch', '--show-current')).toBe('42-example');
     expect(fs.existsSync(path.join(f.root, '.nmg-sdlc/controller.lock'))).toBe(false);
   });
 
-  it('keeps an accepted stage pane open under --retain-worker', () => {
+  it('rejects the removed --retain-worker flag with the usage line and starts nothing', () => {
     const f = fixture();
-    const { supervise } = supervisor(f);
-    expect(f.execute('--retain-worker #42', { supervise })).toMatchObject({ status: 0 });
-    expect(steps(f)).toEqual(['verify', 'deliver']);
-    expect(f.state.closedPanes).toEqual([]);
+    expect(f.execute('--retain-worker #42')).toEqual({ status: 2, stdout: '',
+      stderr: 'Usage: /sdlc-execute [--check-in-seconds N] [#N ...]\n' });
+    expect(f.state.starts).toEqual([]);
   });
 
   it('never accepts a decision the report does not offer', () => {
@@ -1410,81 +1373,57 @@ describe('Opus supervisor decisions (#491)', () => {
       .toMatchObject({ status: 1, stderr: 'supervisor_decision_invalid: halt\n' });
   });
 
-  // A verify worker that keeps working for `slices` timed waits, then writes its passing handoff.
-  const runningWorker = (f, { slices, clock, onSlice = () => {} }) => {
-    let agent = 'done';
-    let waited = 0;
-    f.setWorker((context) => {
-      if (context.step === 'verify') { agent = 'working'; return { handoff: false }; }
-      return deliver(context);
-    });
-    return {
-      agentGet: () => result({ agent_status: agent }),
-      agentWait: (args) => {
-        if (args.until === 'working' || agent !== 'working') return result('');
-        if (waited++ < slices) {
-          expect(args.timeout).toBeGreaterThan(0);
-          clock.now += args.timeout;
-          onSlice(waited);
-          return timeout();
-        }
-        f.passGate();
-        f.writeHandoff('verify', { status: 'passed', next: 'deliver' });
-        agent = 'done';
-        return result('');
-      },
-    };
-  };
-
-  it('checks in on a running worker each interval with its pane, marker and commits, and continues', () => {
+  it('checks in on a running worker each interval with its activity and marker, and continues', () => {
     const f = fixture();
     const clock = { now: 0 };
     const marker = path.join(f.root, '.nmg-sdlc/handoffs/42-verify.json.waiting');
-    let pane = 'running the registered gate';
-    const worker = runningWorker(f, { slices: 4, clock, onSlice: (slice) => {
+    runningWorker(f, { slices: 4, clock, onSlice: (slice, record) => {
       if (slice === 2) {
         fs.mkdirSync(path.dirname(marker), { recursive: true });
         fs.writeFileSync(marker, 'node scripts/sdlc-verify-steering.mjs --issue 42\n');
       }
-      if (slice === 3) pane = 'smoke delivering #237';
+      if (slice === 3) Object.assign(record, { latestText: 'smoke delivering #237', lastActivityAt: clock.now });
     } });
     const { reports, supervise } = supervisor(f);
-    const herdr = { ...f.herdr, ...worker, paneRead: () => result(`${pane}\n`) };
-    expect(f.execute('#42', { supervise, herdr, now: () => clock.now, checkInMs: 1000 })).toMatchObject({ status: 0 });
+    expect(f.execute('#42', { supervise, now: () => clock.now, checkInMs: 1000 })).toMatchObject({ status: 0 });
     const checkIns = reports.filter((report) => report.kind === 'checkin');
     expect(checkIns.length).toBeGreaterThanOrEqual(2);
-    expect(checkIns[0]).toMatchObject({ issue: 42, stage: 'verify', worker: f.state.starts[0].name, pane: f.state.owned[0],
-      reason: 'interval', paneTail: 'running the registered gate', waiting: null, commits: [], outsideSpecPaths: [],
-      failureHistory: [], decisions: ['continue', 'prompt', 'redispatch', 'halt'] });
+    expect(checkIns[0]).toMatchObject({ issue: 42, stage: 'verify', worker: f.state.starts[0].name,
+      agentId: f.state.starts[0].agentId, reason: 'interval', waiting: null, commits: [], outsideSpecPaths: [],
+      failureHistory: [], activity: { status: 'running', toolCalls: [], latestText: '' },
+      decisions: ['continue', 'prompt', 'redispatch', 'halt'] });
+    expect(checkIns[0]).not.toHaveProperty('paneTail');
     expect(checkIns[0].sinceDispatchSeconds).toBeGreaterThanOrEqual(1);
     expect(checkIns.some((report) => report.waiting?.command === 'node scripts/sdlc-verify-steering.mjs --issue 42')).toBe(true);
-    expect(checkIns.some((report) => report.paneTail === 'smoke delivering #237')).toBe(true);
-    checkIns.forEach((report) => expect(report.closedAtReport).toEqual([]));
+    expect(checkIns.some((report) => report.activity.latestText === 'smoke delivering #237')).toBe(true);
+    checkIns.forEach((report) => expect(report.stopsAtReport).toEqual([]));
     expect(reports.at(-2)).toMatchObject({ kind: 'stage', stage: 'verify' });
     expect(steps(f)).toEqual(['verify', 'deliver']);
   });
 
-  it('checks in as soon as the pane output stops changing, once per unchanged span', () => {
+  it('checks in as soon as the activity stops changing, once per unchanged span', () => {
     const f = fixture();
     const clock = { now: 0 };
-    const worker = runningWorker(f, { slices: 9, clock });
+    runningWorker(f, { slices: 9, clock, onSlice: (slice, record) => {
+      // Activity is observed once, at 30 s, and then stops changing.
+      if (slice === 1) Object.assign(record, { lastActivityAt: clock.now });
+    } });
     const { reports, supervise } = supervisor(f);
-    const herdr = { ...f.herdr, ...worker, paneRead: () => result('stuck on a prompt\n') };
-    // 30 s slices against a 100 s interval: first pane read at 30 s, interval check-in at 120 s,
-    // the stall at 150 s (before the next interval would fall due at 220 s), then, the interval
-    // counting from the last check-in, the next interval at 270 s.
-    expect(f.execute('#42', { supervise, herdr, now: () => clock.now, checkInMs: 100_000 })).toMatchObject({ status: 0 });
+    // 30 s slices against a 100 s interval: the interval check-in at 120 s, the activity check-in at 150 s
+    // (120 s after the last observed change), then the interval counting from 150 s, at 270 s.
+    expect(f.execute('#42', { supervise, now: () => clock.now, checkInMs: 100_000 })).toMatchObject({ status: 0 });
     const checkIns = reports.filter((report) => report.kind === 'checkin');
     expect(checkIns.map((report) => [report.reason, report.sinceDispatchSeconds])).toEqual([
-      ['interval', 120], ['pane_unchanged', 150], ['interval', 270]]);
-    expect(checkIns[1]).toMatchObject({ paneTail: 'stuck on a prompt', paneChangedSecondsAgo: 120 });
+      ['interval', 120], ['activity_unchanged', 150], ['interval', 270]]);
+    expect(checkIns[1]).toMatchObject({ activity: { status: 'running', lastActivitySecondsAgo: 120 } });
+    expect(checkIns[1]).not.toHaveProperty('paneTail');
   });
 
   it('reports a stale waiting marker as a stall once', () => {
     const f = fixture();
     const clock = { now: Date.now() };
     const marker = path.join(f.root, '.nmg-sdlc/handoffs/42-verify.json.waiting');
-    const worker = runningWorker(f, { slices: 3, clock, onSlice: (slice) => {
+    runningWorker(f, { slices: 3, clock, onSlice: (slice) => {
       if (slice !== 1) return;
       fs.mkdirSync(path.dirname(marker), { recursive: true });
       fs.writeFileSync(marker, 'npm test\n');
@@ -1492,11 +1431,12 @@ describe('Opus supervisor decisions (#491)', () => {
       fs.utimesSync(marker, old, old);
     } });
     const { reports, supervise } = supervisor(f);
-    const herdr = { ...f.herdr, ...worker };
-    expect(f.execute('#42', { supervise, herdr, now: () => clock.now, checkInMs: 600_000 })).toMatchObject({ status: 0 });
+    expect(f.execute('#42', { supervise, now: () => clock.now, checkInMs: 600_000 })).toMatchObject({ status: 0 });
     const checkIns = reports.filter((report) => report.kind === 'checkin');
     expect(checkIns).toHaveLength(1);
-    expect(checkIns[0]).toMatchObject({ reason: 'waiting_marker_stale', paneTail: null, waiting: { command: 'npm test' } });
+    expect(checkIns[0]).toMatchObject({ reason: 'waiting_marker_stale', waiting: { command: 'npm test' },
+      activity: { status: 'running' } });
+    expect(checkIns[0]).not.toHaveProperty('paneTail');
     expect(checkIns[0].waiting.ageSeconds).toBeGreaterThanOrEqual(3600);
   });
 
@@ -1504,79 +1444,66 @@ describe('Opus supervisor decisions (#491)', () => {
     const f = fixture();
     const clock = { now: 0 };
     let pending = null;
-    const worker = runningWorker(f, { slices: 4, clock, onSlice: (slice) => {
+    runningWorker(f, { slices: 4, clock, onSlice: (slice) => {
       // The worker is mid tool call: the queued guidance lands only when that call finishes.
       if (slice === 3 && pending) { f.state.delivered = pending; pending = null; }
     } });
-    const { guidance, herdr } = guidedHerdr(f, (args) => { pending = args.prompt; }, worker);
+    f.hooks.onAppend = ({ text }) => { pending = text; return true; };
     const { reports, supervise } = supervisor(f, (report) =>
-      (report.kind === 'checkin' && report.reason === 'interval' && !guidance.length
+      (report.kind === 'checkin' && report.reason === 'interval' && !f.state.appends.length
         ? { action: 'prompt', text: 'skip the flaky retry and report the failure' } : null));
-    expect(f.execute('#42', { supervise, herdr, now: () => clock.now, checkInMs: 30_000 })).toMatchObject({ status: 0 });
-    expect(guidance).toHaveLength(1);
-    expect(guidance[0]).toEqual({ name: f.state.starts[0].name, prompt: expect.stringContaining('skip the flaky retry') });
-    expect(guidance[0].prompt).toContain('Act on this guidance within the current step');
-    expect(f.state.delivered).toBe(guidance[0].prompt);
-    expect(f.state.closedPanes).toEqual(f.state.owned);
+    expect(f.execute('#42', { supervise, now: () => clock.now, checkInMs: 30_000 })).toMatchObject({ status: 0 });
+    expect(f.state.appends).toHaveLength(1);
+    expect(f.state.appends[0]).toEqual({ agentId: f.state.starts[0].agentId, prompt: expect.stringContaining('skip the flaky retry') });
+    expect(f.state.appends[0].prompt).toContain('Act on this guidance within the current step');
+    expect(f.state.delivered).toBe(f.state.appends[0].prompt);
+    expect(f.state.stops).toEqual([]);
     expect(reports.filter((report) => report.kind === 'stage').map((report) => report.stage)).toEqual(['verify', 'deliver']);
     expect(steps(f)).toEqual(['verify', 'deliver']);
   });
 
-  it('re-dispatches a running worker from a check-in with the guidance', () => {
+  it('re-dispatches a running worker from a check-in with the guidance, stopping it first', () => {
     const f = fixture();
     const clock = { now: 0 };
-    // The first verify keeps working through one slice; the re-dispatched one finishes.
-    const worker = runningWorker(f, { slices: 1, clock });
-    const { reports, supervise } = supervisor(f, (report) =>
-      (report.kind === 'checkin' ? { action: 'redispatch', text: 'the worker is looping; start verification again' } : null));
-    const herdr = { ...f.herdr, ...worker };
-    expect(f.execute('#42', { supervise, herdr, now: () => clock.now, checkInMs: 30_000 })).toMatchObject({ status: 0 });
+    // The first verify keeps working through one slice; the re-dispatched one also runs one slice and finishes.
+    runningWorker(f, { slices: 1, clock });
+    const { reports, supervise } = supervisor(f, (report, index) =>
+      (index === 0 ? { action: 'redispatch', text: 'the worker is looping; start verification again' } : null));
+    expect(f.execute('#42', { supervise, now: () => clock.now, checkInMs: 30_000 })).toMatchObject({ status: 0 });
     expect(reports[0]).toMatchObject({ kind: 'checkin', stage: 'verify' });
-    expect(f.state.closedPanes[0]).toBe(f.state.owned[0]);
+    expect(f.state.stops).toEqual([f.state.starts[0].agentId]);
+    expect(f.state.log.slice(0, 3)).toEqual(['spawn:agent-1', 'stop:agent-1', 'spawn:agent-2']);
     expect(steps(f)).toEqual(['verify', 'verify', 'deliver']);
     expect(f.state.prompts[1].prompt).toContain('Supervisor guidance: the worker is looping; start verification again');
   });
 
-  it('halts a running worker from a check-in', () => {
+  it('halts a running worker from a check-in, stopping it before the halt', () => {
     const f = fixture();
     const clock = { now: 0 };
-    const worker = runningWorker(f, { slices: 5, clock });
+    runningWorker(f, { slices: 5, clock });
     const { supervise } = supervisor(f, (report) =>
       (report.kind === 'checkin' ? { action: 'halt', text: 'worker is editing unrelated files' } : null));
-    expect(f.execute('#42', { supervise, herdr: { ...f.herdr, ...worker }, now: () => clock.now, checkInMs: 30_000 }))
+    expect(f.execute('#42', { supervise, now: () => clock.now, checkInMs: 30_000 }))
       .toEqual({ status: 1, stdout: '', stderr: 'supervisor_halt: worker is editing unrelated files\n' });
     expect(steps(f)).toEqual(['verify']);
-    expect(f.state.closedPanes).toEqual(f.state.owned);
+    expect(f.state.stops).toEqual([f.state.starts[0].agentId]);
     expect(fs.existsSync(path.join(f.root, '.nmg-sdlc/controller.lock'))).toBe(false);
   });
 
   it('accepts a configurable check-in interval in the execute arguments', () => {
     expect(parseArgs('--check-in-seconds 120 #42')).toEqual({ issues: [42], defaultBacklog: false, checkInSeconds: 120 });
+    expect(parseArgs('--check-in-seconds 60')).toMatchObject({ checkInSeconds: 60, defaultBacklog: true });
     for (const args of ['--check-in-seconds', '--check-in-seconds 0 #42', '--check-in-seconds 1.5', '--check-in-seconds 86401',
       '--check-in-seconds 60 --check-in-seconds 60']) {
-      expect(() => parseArgs(args)).toThrow('Usage: /sdlc-execute [--retain-worker] [--check-in-seconds N] [#N ...]');
+      expect(() => parseArgs(args)).toThrow('Usage: /sdlc-execute [--check-in-seconds N] [#N ...]');
     }
   });
 
-  it('reads a worker pane tail through the default Herdr surface', () => {
-    const calls = [];
-    defaultHerdr((command, args) => { calls.push([command, ...args]); return { status: 0, stdout: '' }; }, '/project').paneRead('w1:p2');
-    expect(calls).toEqual([['herdr', 'pane', 'read', 'w1:p2', '--source', 'recent', '--lines', '40']]);
-  });
-
-  it('names a real cause for every failed integration probe and never exit undefined', () => {
-    const base = { args: '#42', cwd: '/nonexistent-nmg-sdlc-root', env, run: () => ({ status: 1, stdout: '', stderr: 'no auth' }) };
-    for (const [probe, detail] of [[() => null, 'probe returned no result'], [() => undefined, 'probe returned no result'],
-      [() => 7, 'probe returned no result'], [() => ({ status: null, stdout: '' }), 'probe returned no result'],
-      [() => { throw 'socket closed'; }, 'socket closed'], [() => ({ status: 2, stdout: '' }), 'exit 2']]) {
-      const response = runExecute({ ...base, herdr: { integrationStatus: probe } });
-      expect(response).toEqual({ status: 2, stdout: `${ABSENT_STAGE_MODELS_WARNING}\nRun: herdr integration install claude\n`,
-        stderr: `herdr integration status failed: ${detail}\n` });
-      expect(response.stderr).not.toContain('undefined');
-    }
+  it('rejects --retain-worker in parseArgs with a usage error that names the removed flag', () => {
+    expect(() => parseArgs(['--retain-worker', '#1'])).toThrow('--retain-worker');
+    expect(() => parseArgs('#42 --retain-worker')).toThrow('--retain-worker is removed');
   });
 });
-
 describe('stale local default branch (#502)', () => {
   const steps = (f) => f.state.starts.map((entry) => entry.name.split('-')[1]);
   const deliver = ({ state }) => { state.merged = true; state.closed = true; return { status: 'passed', next: null }; };

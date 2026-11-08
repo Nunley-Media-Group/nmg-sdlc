@@ -6,7 +6,7 @@ This document defines the product vision, target users, and success metrics. All
 
 ## Mission
 
-**nmg-sdlc is a Claude Code plugin and a Herdr workflow that turns GitHub issues into verified, production-ready implementations through a spec-driven SDLC.**
+**nmg-sdlc is a Claude Code plugin that turns GitHub issues into verified, production-ready implementations through a spec-driven SDLC.**
 
 It is not a Codex plugin. Users invoke `/sdlc-draft-issue`, `/sdlc-write-spec`, `/sdlc-execute`, and `/sdlc-status` as plugin commands.
 
@@ -14,12 +14,12 @@ It is not a Codex plugin. Users invoke `/sdlc-draft-issue`, `/sdlc-write-spec`, 
 
 ## Target Users
 
-### Primary: Developer in Claude Code / Herdr
+### Primary: Developer in Claude Code
 
 | Characteristic | Implication |
 |----------------|-------------|
 | Uses Claude Code daily | Public commands are `/sdlc-*`; interactive ones enter native plan mode with `AskUserQuestion` and `ExitPlanMode` |
-| Runs Herdr for delivery | Automated stages run as sibling Claude panes, not in-process `Agent` subagents |
+| Runs automated delivery from Claude Code | Each delivery stage runs as a background stage subagent (`nmg-sdlc:execute-<entry>`) started by the hooks module; `/sdlc-execute` also runs headless under `claude -p` |
 | Works from GitHub issues | Work is issue-driven with linked branches and traceable specs |
 | Wants structured process | BDD specs provide guardrails without excessive ceremony |
 | Values quality gates | Verification catches implementation drift before delivery |
@@ -37,7 +37,7 @@ It is not a Codex plugin. Users invoke `/sdlc-draft-issue`, `/sdlc-write-spec`, 
 ## Core Value Proposition
 
 1. **Native interactive surface** — `/sdlc-draft-issue`, `/sdlc-write-spec`, `/sdlc-onboard-project`, `/sdlc-upgrade-project`, `/sdlc-steering`, and `/sdlc-run-retro` run inside native plan mode with `AskUserQuestion` + `ExitPlanMode`.
-2. **Automated delivery** — after an approved spec, `/sdlc-execute` drives Herdr `--kind claude` workers until merge or a failed handoff.
+2. **Automated delivery** — after an approved spec, `/sdlc-execute` drives its stage subagents until merge or a failed handoff.
 3. **Stack-agnostic BDD** — any language or framework supplies conventions through project `steering/`.
 4. **One issue, one spec** — `specs/{N}-{slug}/` is owned by a single issue. There is no epic type.
 5. **Evidence-backed delivery** — specs, verification results, Git state, and GitHub state remain distinct and auditable.
@@ -75,7 +75,7 @@ Classify failures before repair. Fix plugin defects in the plugin; preserve and 
 | Pipeline continuity | Draft → spec → execute works end to end | Proves the workflow is practical |
 | Terminal delivery integrity | Success requires exact-head merge and issue closure | Prevents PR creation from being overstated as delivery |
 | Dependency integrity | Open official blockers, unreadable evidence, dangling targets, and open cycles keep an issue out of execute | Keeps sequencing fail-closed and consistent |
-| Gate integrity | Interactive skills wait in native plan mode; workers never call `AskUserQuestion` | Preserves user authority without blocking Herdr |
+| Gate integrity | Interactive skills wait in native plan mode; workers never call `AskUserQuestion` | Preserves user authority without blocking automated delivery |
 | Exercise verification | Changed skills are exercised against disposable projects | Proves behavior, not just prose |
 | Live smoke integrity | Every verify delivers fresh smoke issues against `Nunley-Media-Group/nmg-sdlc-smoke` — provisioned by the gate itself unless an explicit queue is set — and passes only with exact-head merged-PR and closed-issue evidence | Proves real consumer delivery, not status-only discovery |
 | Managed-asset preservation | Unrelated project content remains byte-for-byte unchanged | Makes onboarding and upgrade safe |
@@ -89,7 +89,7 @@ Classify failures before repair. Fix plugin defects in the plugin; preserve and 
 
 - Issue grooming with BDD acceptance criteria (`/sdlc-draft-issue`)
 - Approved specs for one issue (`/sdlc-write-spec #N`)
-- Automated delivery through Herdr (`/sdlc-execute [#N …]`)
+- Automated delivery through stage subagents (`/sdlc-execute [#N …]`)
 - Linked branch and status management (`start-issue` worker)
 - Spec-driven implementation followed by inline verification review (acceptance/task/architecture/BDD) and full-green gate (`write-code`, `verify-code`); live smoke against nmg-sdlc-smoke mandatory on every verify
 - Terminal versioned PR delivery, exact-head merge, and issue closure (`open-pr`)
@@ -120,7 +120,7 @@ Classify failures before repair. Fix plugin defects in the plugin; preserve and 
 1. /sdlc-draft-issue
 2. /sdlc-write-spec #N
 3. /sdlc-execute [#N …]
-4. Herdr workers start, implement, verify, and deliver until exact-head merge and issue close
+4. Stage subagents start, implement, verify, and deliver until exact-head merge and issue close
 ```
 
 ### Journey 2: Adopt or Upgrade a Project
@@ -163,7 +163,7 @@ Classify failures before repair. Fix plugin defects in the plugin; preserve and 
 ```text
 draft-issue        → ordinary feature or bug issues
 write-spec         → approved specs/{N}-{slug}/
-execute            → Herdr worker pipeline to exact-head merge
+execute            → stage subagent pipeline to exact-head merge
 start-issue        → linked branch and In Progress status
 write-code         → implementation covering approved tasks
 verify-code        → acceptance/task/architecture/BDD review + full-green evidence report (smoke mandatory)
@@ -192,7 +192,7 @@ Each skill's postconditions must continue to satisfy its downstream consumer's p
 | Data | Usage | Shared |
 |------|-------|--------|
 | GitHub issues/PRs | Read or write only for the requested workflow | Only within the user's authorized GitHub scope |
-| Source code | Analyzed in the active Claude Code / Herdr session | Per the user's host configuration |
+| Source code | Analyzed in the active Claude Code session | Per the user's host configuration |
 | Steering/spec docs | Project context and committed history | At the user's discretion |
 
 ---

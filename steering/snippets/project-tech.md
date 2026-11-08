@@ -6,7 +6,7 @@ This document defines the technical architecture, development standards, verific
 
 ## Architecture Overview
 
-nmg-sdlc is a Claude Code plugin with workflows, subagents, a hooks module, a Herdr CLI supervisor, and Node classifiers:
+nmg-sdlc is a Claude Code plugin with workflows, subagents, a hooks module, and Node classifiers:
 
 ```text
 .claude-plugin/plugin.json + hooks/hooks.json → hooks/register.ts
@@ -16,9 +16,9 @@ Native plan-mode interactive commands
 draft-issue → write-spec → onboard-project / upgrade-project / steering / run-retro
         │
         ▼
-/sdlc-execute (hooks module, outside plan mode, main Herdr pane)
+/sdlc-execute (hooks module, outside plan mode, supervising session)
         │
-        ├── herdr pane split + herdr agent start --kind claude
+        ├── hooks-module stage subagents (nmg-sdlc:execute-<entry>)
         ├── .nmg-sdlc/run.json + handoffs
         └── GitHub issue/PR evidence
 
@@ -45,7 +45,7 @@ Interactive skills interview with `AskUserQuestion`, write the plan to the plan-
 | Workflow and reference contracts | Markdown + YAML frontmatter | Rendered by `src/sdlc-commands.mjs` and `scripts/sdlc-render-prompt.mjs` |
 | Automated commands | `commands/*.md` | Claude Code plugin commands |
 | Subagents | `agents/*.md` | Claude Code plugin subagents (`nmg-sdlc:<name>`) |
-| Delivery supervisor | Herdr CLI | Herdr 0.8.0 hook contract (`HERDR_ENV=1`, `HERDR_SOCKET_PATH`, `HERDR_PANE_ID`) and the Claude integration (`herdr integration install claude`) |
+| Delivery supervisor | `scripts/sdlc-execute.mjs` controller | Claude Code sessions running `/sdlc-execute`, with hooks-module stage subagents (`nmg-sdlc:execute-<entry>`); no external CLI |
 | BDD specifications | Gherkin | Gherkin 6+ |
 | Contract and inspection scripts | Node.js ESM | Node.js 20+ |
 | Test suite | Jest ESM | Jest 29+ |
@@ -128,18 +128,18 @@ WORKFLOW.md frontmatter declares only `name` and `description`.
 
 ### Agent Files
 
-Files under `agents/` are installable Claude Code plugin subagents, addressed as `nmg-sdlc:<name>`. Required frontmatter: `name` and `description`. Optional: `model`, `effort`, `tools`.
+Files under `agents/` are installable Claude Code plugin subagents, addressed as `nmg-sdlc:<name>`. Required frontmatter: `name` and `description`. Optional: `tools`. Agent files declare no `model` or `effort`.
 
-`model` is `haiku`, `sonnet`, or `opus`, a Claude Code alias rather than a full model id. `effort`, when present, is `low`, `medium`, `high`, `xhigh`, or `max`. Execute stage and repair models and efforts are configured per project in `steering/sdlc-models.json`, not in agent files.
+Each agent body is the system prompt of its stage subagent. `/sdlc-execute` registers it as `execute-<entry>` with the model and effort that `steering/sdlc-models.json` sets for that stage, so the stage's model and effort come from that file, not from the agent file.
 
-| File | `name` | `model` | `effort` |
-|------|--------|---------|----------|
-| `agents/starter.md` | `starter` | `haiku` | — |
-| `agents/spec-implementer.md` | `spec-implementer` | `haiku` | `xhigh` |
-| `agents/architecture-reviewer.md` | `architecture-reviewer` | `opus` | — |
-| `agents/deliverer.md` | `deliverer` | `haiku` | `xhigh` |
+| File | Stage | Stage subagent |
+|------|-------|----------------|
+| `agents/starter.md` | start | `execute-start` |
+| `agents/spec-implementer.md` | implement | `execute-implement` |
+| `agents/architecture-reviewer.md` | verify | `execute-verify` |
+| `agents/deliverer.md` | deliver | `execute-deliver` |
 
-`execute` does not use the `Agent` tool for pipeline steps. Herdr sessions are the isolation boundary.
+`/sdlc-execute` does not call the `Agent` tool for pipeline steps. The hooks module starts each stage as a background `nmg-sdlc:execute-<entry>` subagent, and that subagent's own context is the isolation boundary.
 
 ### Plugin Manifest
 
@@ -162,8 +162,9 @@ Do not add an `omp` key to `package.json` or restore `src/extension.ts`.
 
 | Responsibility | Behavior |
 |----------------|----------|
-| Interactive commands | Registers the six interactive `/sdlc-*` commands; running one renders its workflow, runs builtin `/plan`, then submits the workflow as the person's prompt. Without a UI (`claude -p`, the SDK) it prints `Run /<command> in the TUI.` and exits 2 |
-| Execute model gate | `/sdlc-execute` runs only on an Opus or Fable session model, with no model override; any other or unreadable model gets the switch-to-Opus refusal before rendering, so no Herdr, Git, or GitHub call runs. The session supervises the detached controller through `sdlc-execute.mjs supervise`/`decide`/`wait` |
+| Interactive commands | Registers the six interactive `/sdlc-*` commands; running one renders its workflow, runs builtin `/plan`, then submits the workflow as the person's prompt. Without a UI (`claude -p`, the SDK) it prints `Run /<command> in the TUI.` and exits 2 unless `NMG_SDLC_AUTOPILOT=1` runs it headless |
+| Execute model gate | `/sdlc-execute` runs only on an Opus or Fable session model, with no model override; any other or unreadable model gets the switch-to-Opus refusal before rendering, so no Git or GitHub call runs. The session supervises the detached controller through `sdlc-execute.mjs supervise`; `NMG_SDLC_EXECUTE_WORKER` ends its turn, and check-in reports arrive as prompts |
+| Execute stages | The hooks module starts each delivery stage as a background `nmg-sdlc:execute-<entry>` subagent with the model and effort from `steering/sdlc-models.json`; `/sdlc-execute` runs in the TUI or headless under `claude -p` | Run stage work outside those subagents, or enter plan mode for `/sdlc-execute` |
 | Plugin root | Rewrites `<plugin-root>`, `${NMG_SDLC_PLUGIN_ROOT}`, and `$NMG_SDLC_PLUGIN_ROOT` in Bash commands, and a leading `<plugin-root>` in Read paths, to the installed plugin's absolute path |
 | write-spec Continue | Records each merged publication from the verbatim `publish-approved-spec.mjs merge` Bash result; once the turn ends with an empty prompt box it re-enters plan mode with the Continue prompt |
 | write-spec Finished | A Finished `AskUserQuestion` answer arms one approval of the reply's closing `ExitPlanMode` call, so plan mode ends with no dialog; a reply without that call gets one prompt, then a warning toast |
@@ -244,7 +245,7 @@ Onboarding owns managed assets for new projects. Upgrade owns reconciliation and
 
 ### Core Principle: Contract and Exercise Verification
 
-Skill Markdown is executable instruction content. Verification therefore combines static contract tests, deterministic fixture exercises, and live Claude Code / Herdr exercises where the acceptance criteria require actual tool behavior.
+Skill Markdown is executable instruction content. Verification therefore combines static contract tests, deterministic fixture exercises, and live Claude Code exercises where the acceptance criteria require actual tool behavior.
 
 Every executable issue acceptance criterion has a corresponding Gherkin scenario or an explicit documented reason why runtime execution is the evidence source.
 
@@ -268,7 +269,7 @@ Every executable issue acceptance criterion has a corresponding Gherkin scenario
 
 Do not pollute production repositories to prove issue/PR content. When a remote mutation is not essential, evaluate the exact command/body artifact through a deterministic fixture.
 
-The live smoke gate may mutate only `Nunley-Media-Group/nmg-sdlc-smoke`, and only through the real `/sdlc-draft-issue`, `/sdlc-write-spec`, and `scripts/sdlc-execute.mjs run` workflows and their workers; the provider never performs ad-hoc GitHub writes. Without an explicit queue, the gate provisions one fresh issue itself, with no operator input: it drafts it with `config.provision.need` and writes its Approved spec in a provider-owned Herdr Claude pane launched with `NMG_SDLC_AUTOPILOT=1`, so every `AskUserQuestion` takes its Recommended option and every `ExitPlanMode` plan is approved. It ends provisioning on GitHub publication evidence, then closes the pane. Operators never provision smoke issues or answer smoke gates. `NMG_SDLC_SMOKE_ISSUES` is only an optional explicit override. Delivered issues are terminal and must not be reused.
+The live smoke gate may mutate only `Nunley-Media-Group/nmg-sdlc-smoke`, and only through the real `/sdlc-draft-issue`, `/sdlc-write-spec`, and `/sdlc-execute` workflows and their stage subagents; the provider never performs ad-hoc GitHub writes. Without an explicit queue, the gate provisions one fresh issue itself, with no operator input: it drafts it with `config.provision.need` and writes its Approved spec in a provider-owned headless `claude -p` session launched with `NMG_SDLC_AUTOPILOT=1`, so every `AskUserQuestion` takes its Recommended option and every `ExitPlanMode` plan is approved. It ends provisioning on GitHub publication evidence, then ends that session. Operators never provision smoke issues or answer smoke gates. `NMG_SDLC_SMOKE_ISSUES` is only an optional explicit override. Delivered issues are terminal and must not be reused.
 
 ### Smoke Experiment Scope and Progress
 
@@ -279,7 +280,7 @@ The smoke repository is a verification surface for **nmg-sdlc**, not an addition
 3. Run one configured experiment at a time. A subsequent attempt requires a concrete changed plugin fix or hypothesis and its expected observation. An unchanged failure, repeated remediation packet, consumed issue queue, or lack of new diagnostic evidence is a stop, not permission to retry.
 4. An unrelated smoke-project failure is outside the plugin worker's repair authority. Record its exact evidence and the unproved plugin acceptance criterion; do not launch fresh repair sessions to fix that smoke defect. Keep the gate non-passing and use an intervention handoff when no authorized in-scope repair remains.
 5. A plugin defect remains in scope: fix it, prove the failing boundary with a focused reproduction, and rerun only the necessary live experiment under these progress limits. Never declare smoke success from unit tests, status output, old merged PRs, or a manually manufactured passed handoff.
-6. Preserve failed experiment evidence. Cancellation closes only invocation-owned controllers and workers unless retention was explicitly requested. Never stop Herdr or unrelated panes as experiment cleanup.
+6. Preserve failed experiment evidence. Cancellation closes only invocation-owned controllers and stage subagents. Never stop unrelated sessions or processes as experiment cleanup.
 
 These limits (one-at-a-time changed-input progress) apply inside a worker as well as across controller remediation sessions. They do not impose a wall-clock deadline on a healthy observable command and do not bypass any exact-head, credential, approval, or human-review requirement.
 
@@ -303,7 +304,7 @@ Never infer a stronger layer from a weaker one.
 | Gate | Condition | Action | Pass Criteria |
 |------|-----------|--------|---------------|
 | Contract tests | `scripts/__tests__/` exists | `cd scripts && npm test` | Exit 0; no unexpected skips or orphaned imports |
-| Live smoke project | Always | Use the explicit queue in `NMG_SDLC_SMOKE_ISSUES` when set; otherwise provision one fresh issue with an Approved spec itself through the real draft-issue and write-spec workflows in a provider-owned Herdr pane; clone `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git` without shallow history; record each configured issue's exact closing-PR baseline; then run `node &lt;plugin-root&gt;/scripts/sdlc-execute.mjs run #N [...]` once for the configured issues in order (a rerun after execute delivered only a leading part of the queue resumes the undelivered remainder in the retained clone under the same invocation token), with cwd set to the clone and `NMG_SDLC_SMOKE_OWNED=1`; read each workflow-recorded pre-merge delivery proof before accepting controller success | For every configured issue, an exact closing PR outside the pre-run baseline is GitHub `MERGED`, its number and `headRefOid` exactly equal the invocation's pre-merge delivery proof, and the issue is GitHub `CLOSED`; a nonzero execute exit may pass only when all current-invocation proof is exact; pre-existing merged PRs and status JSON cannot pass |
+| Live smoke project | Always | Use the explicit queue in `NMG_SDLC_SMOKE_ISSUES` when set; otherwise provision one fresh issue with an Approved spec itself through the real draft-issue and write-spec workflows in a provider-owned headless `claude -p` session launched with `NMG_SDLC_AUTOPILOT=1`; clone `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git` without shallow history; record each configured issue's exact closing-PR baseline; then run `/sdlc-execute` once for the configured issues in order in a headless session, `claude -p --session-id &lt;uuid&gt; --plugin-dir &lt;plugin-root&gt; --model opus "/sdlc-execute #N [...]"`, and read its result with `claude -p --resume &lt;uuid&gt; "/sdlc-execute --result"` (a rerun after execute delivered only a leading part of the queue resumes the undelivered remainder in the retained clone under the same invocation token), with cwd set to the clone and `NMG_SDLC_SMOKE_OWNED=1`; read each workflow-recorded pre-merge delivery proof before accepting controller success | For every configured issue, an exact closing PR outside the pre-run baseline is GitHub `MERGED`, its number and `headRefOid` exactly equal the invocation's pre-merge delivery proof, and the issue is GitHub `CLOSED`; a nonzero headless execute exit may pass only when all current-invocation proof is exact; pre-existing merged PRs and status JSON cannot pass |
 | Skill inventory | Skill/reference/agent surface changed | `node scripts/skill-inventory-audit.mjs --check` | Exit 0 and baseline current |
 | Claude Code plugin surface | Plugin surface changed | `node scripts/verify-plugin-surface.mjs --root . --label repository` | Exit 0 |
 | Skill creator validation | Skill-bundled files changed in a worker | Invoke the `skill-creator` skill with the `Skill` tool, then validate each affected bundle as directed | All affected bundles satisfy the skill-creator contract |
@@ -374,9 +375,6 @@ Exercise live proof uses `claude -p --plugin-dir <checkout>` loading this reposi
 | Variable | Purpose |
 |----------|---------|
 | `GITHUB_TOKEN` | Authenticated GitHub operations and private marketplace access |
-| `HERDR_ENV` | Must be `1` for `/sdlc-execute` |
-| `HERDR_SOCKET_PATH` | Herdr 0.8.0 socket for execute |
-| `HERDR_PANE_ID` | Calling pane id for execute splits |
 | `NMG_SDLC_SMOKE_OWNED` | Must be `1` only while the verification-owned controller mutates `Nunley-Media-Group/nmg-sdlc-smoke`; it authorizes no other repository or mutation path |
 | `NMG_SDLC_SMOKE_ISSUES` | Optional explicit comma- or whitespace-separated smoke issue numbers with approved specs; when unset the always-on smoke gate provisions its own fresh issue. Never reuse delivered issues |
 
@@ -384,8 +382,8 @@ Exercise live proof uses `claude -p --plugin-dir <checkout>` loading this reposi
 
 | Variable | Purpose |
 |----------|---------|
-| `NMG_SDLC_WORKER_PERMISSION_MODE` | Herdr worker `--permission-mode`: one of `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`; any other value or unset means `auto` |
-| `NMG_SDLC_AUTOPILOT` | `1` only in a hands-off driver's Claude session (such as the smoke provider's provisioning pane): the hooks module approves every `ExitPlanMode` and answers every `AskUserQuestion` with its Recommended option |
+| `NMG_SDLC_WORKER_PERMISSION_MODE` | Permission mode for execute stage subagents: one of `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`; any other value or unset means `auto` |
+| `NMG_SDLC_AUTOPILOT` | `1` only in a hands-off driver's Claude session (such as the smoke provider's headless provisioning session): the hooks module approves every `ExitPlanMode` and answers every `AskUserQuestion` with its Recommended option |
 
 `NMG_SDLC_AUTOPILOT` is the only variable that changes interactive plan-mode behavior, and only for the session that sets it; never set it in a person's own session. No optional environment variable may broaden mutation scope.
 

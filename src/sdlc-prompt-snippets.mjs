@@ -192,7 +192,7 @@ export function writePromptProvenance(projectRoot, provenance) {
 }
 
 const WORKER_HEADER = [
-  "nmg-sdlc {{step}} worker for #{{issue}}: a Herdr Claude worker started by /sdlc-execute.",
+  "nmg-sdlc {{step}} worker for #{{issue}}: a stage subagent started by /sdlc-execute.",
   "Execute this inlined workflow for #{{issue}} without questions: never call AskUserQuestion, EnterPlanMode, or ExitPlanMode.",
   "Write and validate the handoff, then stop.",
   "",

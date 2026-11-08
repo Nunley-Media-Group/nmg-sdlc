@@ -25,7 +25,8 @@ describe('contribution guide contract', () => {
     expect(contract).toContain('SDLC-Exception: docs-only');
     expect(contract).not.toContain('epics cannot be started');
     expect(contract).not.toContain('$nmg-sdlc:');
-    expect(contract).toContain('Herdr Claude worker panes');
+    expect(contract).toContain('runs Claude Code stage subagents through implementation, verification, and delivery');
+    expect(contract).not.toContain('Herdr Claude worker panes');
     expect(contract).not.toMatch(/\bomp\b/i);
   });
 });

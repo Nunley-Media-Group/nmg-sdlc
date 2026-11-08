@@ -1,7 +1,7 @@
 {
   "name": "nmg-sdlc",
   "version": "4.8.0",
-  "description": "Spec-driven delivery for Claude Code and Herdr",
+  "description": "Spec-driven delivery for Claude Code",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -10,7 +10,6 @@
   "keywords": [
     "claude-code-plugin",
     "sdlc",
-    "herdr",
     "bdd"
   ]
 }

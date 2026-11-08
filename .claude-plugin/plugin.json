@@ -1,7 +1,7 @@
 {
   "name": "nmg-sdlc",
   "version": "4.8.0",
-  "description": "Spec-driven delivery for Claude Code and Herdr",
+  "description": "Spec-driven delivery for Claude Code",
   "author": {
     "name": "Nunley Media Group"
   },
@@ -9,7 +9,6 @@
   "repository": "https://github.com/Nunley-Media-Group/nmg-sdlc",
   "keywords": [
     "sdlc",
-    "herdr",
     "bdd",
     "spec-driven"
   ]
