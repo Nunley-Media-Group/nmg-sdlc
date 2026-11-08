@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { defaultPromptRegistry, renderPrompt } from '../../src/sdlc-prompt-snippets.mjs';
+
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -75,7 +77,7 @@ describe('repo steering contract (v4)', () => {
     expect(steering).toContain('claude -p --plugin-dir <checkout>');
     expect(steering).toContain('The hooks module starts each stage as a background `nmg-sdlc:execute-<entry>` subagent');
     expect(steering).toContain('NMG_SDLC_WORKER_PERMISSION_MODE');
-    expect(steering).toContain('NMG_SDLC_AUTOPILOT');
+    expect(steering).not.toContain('NMG_SDLC_AUTOPILOT');
   });
 
   test('contains no unresolved repo-specific database or UI placeholders', () => {
@@ -127,6 +129,42 @@ describe('repo steering contract (v4)', () => {
     expect(structure).not.toMatch(/Optional: `model`/);
     expect(tech).not.toMatch(/^\| `agents\/[a-z-]+\.md` \| `[a-z-]+` \| `(haiku|sonnet|opus)` \|/m);
     expect(tech).not.toContain('SDLC_MODELS');
+  });
+
+  test('routes the smoke provisioning snippet only to the verify worker (#538)', () => {
+    const manifest = JSON.parse(read('steering/manifest.json'));
+    const entry = manifest.snippets.find(({ id }) => id === 'project.smoke');
+    expect(entry).toEqual({
+      id: 'project.smoke',
+      path: 'steering/snippets/project-smoke.md',
+      consumers: ['worker:verify'],
+      slot: 'body',
+      order: 510,
+    });
+    const smoke = manifest.validations.find(({ id }) => id === 'repository.nmg-sdlc-smoke');
+    expect(smoke.config.provision.record).toBe('.nmg-sdlc/smoke/provisioned.json');
+
+    const snippet = read('steering/snippets/project-smoke.md');
+    for (const required of [
+      'tmux new-session', 'tmux capture-pane', '/sdlc-draft-issue', '/sdlc-write-spec',
+      '.nmg-sdlc/smoke/provisioned.json', 'nmg-sdlc-smoke smoke issue not provisioned',
+      '**Environmental:**', '**nmg-sdlc defect:**', 'NMG_SDLC_SMOKE_ISSUES',
+    ]) {
+      expect(snippet).toContain(required);
+    }
+    for (const heading of ['Reuse', 'Clone', 'Draft', 'Specify', 'Clean up', 'Classify failures', 'Bound the work']) {
+      expect(snippet).toMatch(new RegExp(`^## \\d\\. ${heading}$`, 'm'));
+    }
+    expect(snippet).not.toContain('NMG_SDLC_AUTOPILOT');
+
+    const marker = '# nmg-sdlc Smoke Provisioning';
+    const rendered = (step) => renderPrompt(defaultPromptRegistry(repoRoot, { projectRoot: repoRoot }), {
+      consumer: `worker:${step}`,
+      vars: { step, issue: '7', controllerRunId: 'run-7', handoffPath: `.nmg-sdlc/handoffs/7-${step}.json` },
+    }).text;
+    expect(rendered('verify')).toContain(marker);
+    expect(rendered('implement')).not.toContain(marker);
+    expect(rendered('deliver')).not.toContain(marker);
   });
 
 });

@@ -75,10 +75,41 @@ describe('Herdr removal (T013, FR5, FR10)', () => {
     expect(findings).toEqual([]);
   });
 
-  it('README documents autopilot, the session id option and the execute result command', () => {
+  it('README documents the session id option and the execute result command', () => {
     const readme = read('README.md');
-    expect(readme).toContain('NMG_SDLC_AUTOPILOT');
     expect(readme).toContain('--session-id');
     expect(readme).toContain('/sdlc-execute --result');
+  });
+});
+
+// AC9 (#538): autopilot is removed. No runtime file, workflow, interactive-gates reference or public
+// document may read or document NMG_SDLC_AUTOPILOT. History (specs/, CHANGELOG.md, ADRs and the
+// references/rewrite-* records of its removal) is not scanned.
+describe('NMG_SDLC_AUTOPILOT removal (#538)', () => {
+  const workflowFiles = fs.readdirSync(path.join(repoRoot, 'workflows'), { recursive: true })
+    .map((name) => path.posix.join('workflows', String(name).split(path.sep).join('/')))
+    .filter((file) => file.endsWith('.md') || file.endsWith('.mjs'))
+    .sort();
+  const AUTOPILOT_FILES = [
+    'hooks/register.ts',
+    ...filesIn('src', /\.(mjs|d\.mts)$/),
+    ...filesIn('scripts', /\.mjs$/),
+    ...filesIn('steering/extensions', /\.mjs$/),
+    ...filesIn('steering/snippets', /\.md$/),
+    ...workflowFiles,
+    'references/interactive-gates.md',
+    'README.md',
+    'CLAUDE.md',
+    'CONTRIBUTING.md',
+  ];
+
+  it('scans the workflows and the runtime, so the check cannot pass vacuously', () => {
+    expect(AUTOPILOT_FILES).toEqual(expect.arrayContaining([
+      'workflows/execute/WORKFLOW.md', 'workflows/verify-code/references/exercise-testing.md', 'src/host-events.mjs',
+    ]));
+  });
+
+  it('no runtime file, workflow or public document names NMG_SDLC_AUTOPILOT', () => {
+    expect(AUTOPILOT_FILES.flatMap((file) => findingsIn(file, (line) => line.includes('NMG_SDLC_AUTOPILOT')))).toEqual([]);
   });
 });

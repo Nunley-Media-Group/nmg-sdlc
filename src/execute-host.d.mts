@@ -45,7 +45,6 @@ export function activityRecord(
 ): { status: string; toolCalls: ToolCallRecord[]; latestText: string; lastActivitySecondsAgo: number };
 
 export function checkInNotice(args: { session: string; seq: number; pluginRoot: string }): string;
-export function headlessPlanPreamble(name: string): string;
 export function agentBody(text: string): string;
 export type ExecuteResult = { text: string; exitCode: number };
 export function executeResultText(record: unknown): ExecuteResult | null;

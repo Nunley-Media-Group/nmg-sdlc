@@ -3,17 +3,14 @@ import {
   DIRECT_COMMANDS,
   INTERACTIVE_COMMANDS,
   SDLC_MODELS,
-  WRITE_SPEC_FINISHED_LABELS,
   executeGoalCondition,
   executeGoalRequest,
   executeGoalStoppedLine,
   executeModelRefusal,
-  foregroundMergeInput,
   interactiveHeadlessMessage,
   isExecuteSuperviseCommand,
   materializePluginRootCommand,
   materializePluginRootPath,
-  recommendedAnswers,
   writeSpecFinishedSelection,
   writeSpecMergeIssue,
   writeSpecMergeResult,
@@ -25,7 +22,6 @@ import {
   emptyAgentRecord,
   executeResultPath,
   executeResultText,
-  headlessPlanPreamble,
   hostResponse,
   missingResultText,
   recordToolCall,
@@ -148,7 +144,6 @@ const execute = {
 }
 const recordedPublications = new Set<string>()
 let interactive = true
-let autopilot = false
 // The one prompt that asks the model to leave plan mode after Finished was sent.
 let exitNudged = false
 // The running command's model: main-loop requests name it until the person
@@ -164,7 +159,7 @@ let bridge: Bridge | null = null
 // Whether the main loop is mid-turn, and when it last became idle; a report is announced only after idleness.
 let mainBusy = false
 let mainIdleSince = 0
-// A headless run has no UI: its commands submit their workflow as the prompt, without `/plan`.
+// A headless /sdlc-execute run has no UI; its goal handshake completes before its turn ends.
 let headlessRun = false
 
 function errorText(error: unknown): string {
@@ -621,7 +616,6 @@ export const register: Register = on => {
     for (const [name, , description] of INTERACTIVE_COMMANDS) {
       await $.command.register({ name, description, argumentHint: ARGUMENT_HINTS[name] || undefined })
     }
-    autopilot = (await $.env.get('NMG_SDLC_AUTOPILOT')) === '1'
     return started
   })
 
@@ -630,8 +624,8 @@ export const register: Register = on => {
       // `--result` reads the recorded outcome of an earlier run; it mutates nothing and needs no model gate.
       if (name === 'sdlc-execute' && e.args.trim() === '--result') return executeResult($)
       const headless = !interactive || (await $.session.surfaces()).length === 0
-      // Headless interactive commands run only under autopilot, which answers their questions and approves their plans.
-      if (headless && name !== 'sdlc-execute' && !autopilot) {
+      // Interactive commands need plan mode and AskUserQuestion, which a headless session lacks.
+      if (headless && name !== 'sdlc-execute') {
         return { text: interactiveHeadlessMessage(name).trimEnd(), exitCode: 2 }
       }
       if (name === 'sdlc-execute') {
@@ -645,12 +639,10 @@ export const register: Register = on => {
       headlessRun = headless
       // Neither `/plan` nor the workflow prompt can start from inside this
       // command's own dispatch; a timer starts them once it has settled. A
-      // command's own `{ text }` answer is only printed, so a headless run
-      // (`claude -p`) also submits its workflow as the prompt, without `/plan`:
-      // the preamble has an interactive command enter plan mode itself.
-      if (headless || DIRECT_COMMANDS.includes(name)) {
-        const text = headless && !DIRECT_COMMANDS.includes(name) ? `${headlessPlanPreamble(name)}${rendered.text}` : rendered.text
-        $.clock.after(1, () => { void $.prompt.submit({ text, asUser: true }) })
+      // command's own `{ text }` answer is only printed, so a direct command
+      // (`/sdlc-execute`, TUI or `claude -p`) submits its workflow as the prompt.
+      if (DIRECT_COMMANDS.includes(name)) {
+        $.clock.after(1, () => { void $.prompt.submit({ text: rendered.text, asUser: true }) })
         return {}
       }
       $.clock.after(1, async () => {
@@ -707,14 +699,13 @@ export const register: Register = on => {
 
   // Workflows name plugin scripts as `<plugin-root>/scripts/<name>.mjs`; the
   // installed plugin's absolute path replaces the placeholder before the shell
-  // sees it. A headless run moves a backgrounded write-spec merge into the foreground.
+  // sees it.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    const input = ((!interactive ? foregroundMergeInput(e) : null) ?? e) as typeof e
-    const command = materializePluginRootCommand(input.command, $.plugin.root)
+    const command = materializePluginRootCommand(e.command, $.plugin.root)
     if (execute.active && !execute.goalSet && isExecuteSuperviseCommand(command)) {
       return { deny: 'NMG SDLC: /sdlc-execute sets its /goal before supervise. Run sdlc-execute.mjs goal with the resolved issues and end your turn.' }
     }
-    const ran = await next(command === input.command ? input : { ...input, command })
+    const ran = await next(command === e.command ? e : { ...e, command })
     if (ran.deny !== undefined) return ran
     const stdout = ran.isError === true
       ? (ran.text ?? '')
@@ -772,28 +763,10 @@ export const register: Register = on => {
   // After a write-spec Finished selection the workflow's last act is
   // ExitPlanMode; that one call is approved here, so plan mode ends with no
   // dialog and the session returns to the mode it had before plan mode.
-  // Under autopilot a headless interactive command also enters plan mode with no person answering.
   on('classic.PermissionRequest', async ($, e, next) => {
     if (e.tool_name === 'ExitPlanMode' && writeSpec.active && writeSpec.exitPending) {
       Object.assign(writeSpec, { active: false, exitPending: false })
       return { decision: approvePlan(e.tool_input) }
-    }
-    if ((e.tool_name === 'ExitPlanMode' || e.tool_name === 'EnterPlanMode') && autopilot) {
-      return { decision: approvePlan(e.tool_input) }
-    }
-    if (autopilot && e.tool_name === 'AskUserQuestion') {
-      const input = (e.tool_input ?? {}) as { questions?: unknown }
-      return {
-        decision: {
-          behavior: 'allow',
-          // During write-spec, autopilot ends after the selected issue: a
-          // Finished option wins over the recommended next issue.
-          updatedInput: {
-            ...input,
-            answers: recommendedAnswers(input.questions, writeSpec.active ? { prefer: WRITE_SPEC_FINISHED_LABELS } : {}),
-          },
-        },
-      }
     }
     return next(e)
   })

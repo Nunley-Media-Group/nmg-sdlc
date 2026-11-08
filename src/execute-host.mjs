@@ -126,12 +126,6 @@ export function checkInNotice({ session, seq, pluginRoot }) {
   return `nmg-sdlc /sdlc-execute report ${seq} is waiting. Run: node "${pluginRoot}/scripts/sdlc-execute.mjs" wait --session ${session} --after ${seq - 1}`;
 }
 
-/** Tells a headless interactive command to enter plan mode first, under autopilot. */
-export function headlessPlanPreamble(name) {
-  return `nmg-sdlc: /${name} is running headless under NMG_SDLC_AUTOPILOT=1 with no UI. `
-    + 'Call EnterPlanMode first, then follow the workflow below; questions and plan approval are answered by autopilot.\n\n';
-}
-
 /** Removes the leading YAML frontmatter from an agent file, leaving the system prompt body. */
 export function agentBody(text) {
   const source = String(text ?? '');

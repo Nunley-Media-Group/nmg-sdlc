@@ -203,7 +203,7 @@ describe('hooks module goal gate and handshake (T003, AC1, AC5)', () => {
 
   it('refuses supervise before the goal is set, without reaching next', () => {
     const deny = source.indexOf("return { deny: 'NMG SDLC: /sdlc-execute sets its /goal before supervise.");
-    const forward = source.indexOf('const ran = await next(command === input.command');
+    const forward = source.indexOf('const ran = await next(command === e.command');
 
     expect(deny).toBeGreaterThan(0);
     expect(deny).toBeLessThan(forward);

@@ -167,8 +167,9 @@ function explicitIssues(issues) {
     : null;
 }
 
-// Explicit queues (config.issues or a non-blank env value) take priority. Without one, a
-// configured provision need makes the gate draft and specify its own fresh smoke issue.
+// Explicit queues (config.issues or a non-blank env value) take priority. Without one, the gate
+// delivers the issue named by the verify worker's provisioning record. The provider never drafts
+// or specifies an issue, and ignores `provision.need`.
 function resolveQueue(config, env) {
   if (Object.hasOwn(config ?? {}, "issues")) {
     const issues = explicitIssues(config.issues);
@@ -182,8 +183,8 @@ function resolveQueue(config, env) {
     const issues = explicitIssues(tokens.map((token) => Number(token.replace(/^#/, ""))));
     return issues ? { kind: "explicit", issues } : null;
   }
-  const need = config.provision?.need;
-  return typeof need === "string" && need.trim() ? { kind: "provision", need: need.trim() } : null;
+  const recordPath = config.provision?.record;
+  return typeof recordPath === "string" && recordPath.trim() ? { kind: "recorded", recordPath: recordPath.trim() } : null;
 }
 
 function closingIssue(result) {
@@ -497,7 +498,7 @@ export function validNestedOwnership(store, token, request, issues) {
   const match = String(token ?? "").match(/^([0-9a-f]{64})\.([0-9a-f]{64})$/);
   if (!match) return null;
   const state = store.read(match[1]);
-  // A provisioning queue (issues === null) reaches nested execution only through the outer
+  // A recorded queue (issues === null) reaches nested execution only through the outer
   // invocation's recorded provisioned issue.
   const expectedIssues = issues ?? (state?.provisioned ? [state.provisioned.issue] : null);
   if (
@@ -554,34 +555,71 @@ function recoveryRecord(readFile, work, invocationId, issue) {
 const SMOKE_SLUG = `${SMOKE_OWNER}/${SMOKE_NAME}`;
 const WORKER_PERMISSION_MODES = new Set(["default", "acceptEdits", "auto", "dontAsk", "bypassPermissions"]);
 
-// The headless provisioning and delivery sessions use the same permission mode as `/sdlc-execute` worker sessions.
+// The headless delivery session uses the same permission mode as `/sdlc-execute` worker sessions.
 export function workerPermissionMode(env = process.env) {
   const mode = env?.NMG_SDLC_WORKER_PERMISSION_MODE;
   return WORKER_PERMISSION_MODES.has(mode) ? mode : "auto";
 }
 
-async function newSmokeIssues(executeCommand, env, signal, baseline) {
-  const listed = await executeCommand("gh", [
-    "issue", "list", "-R", SMOKE_SLUG, "--state", "all", "--author", "@me", "--limit", "20", "--json", "number",
-  ], { env, signal });
-  const rows = listed.status === 0 ? parseJson(listed) : null;
-  if (!Array.isArray(rows)) return null;
-  return rows.map((row) => row?.number).filter((number) => Number.isSafeInteger(number) && number > baseline);
+const NOT_PROVISIONED = "nmg-sdlc-smoke smoke issue not provisioned";
+
+// The verify worker records the smoke issue it provisioned as
+// `{ schemaVersion: 1, repo: "Nunley-Media-Group/nmg-sdlc-smoke", issue, provisionedAt }`.
+// Returns `{ issue }` for a well-formed record, otherwise `{ reason }`.
+function readProvisionRecord(readFile, projectRoot, recordPath) {
+  let text;
+  try {
+    text = readFile(resolve(projectRoot, recordPath), "utf8");
+  } catch (error) {
+    return { reason: error?.code === "ENOENT" ? "record missing" : "record unreadable" };
+  }
+  let record;
+  try {
+    record = JSON.parse(text);
+  } catch {
+    return { reason: "record unparsable" };
+  }
+  if (record?.schemaVersion !== 1) return { reason: "record schemaVersion invalid" };
+  if (record.repo !== SMOKE_SLUG) return { reason: `record repo ${JSON.stringify(record.repo ?? null)} is not ${SMOKE_SLUG}` };
+  if (!Number.isSafeInteger(record.issue) || record.issue <= 0) return { reason: "record issue invalid" };
+  return { issue: record.issue };
 }
 
+// The recorded issue is deliverable only while it is OPEN, authored by the authenticated gh user,
+// labelled `spec-created`, and its `docs: approve spec for #N` PR is merged. Returns the published
+// evidence, or `{ status, reason }` naming why it is not deliverable.
 async function publishedSpec(executeCommand, env, signal, issue) {
-  const viewed = await executeCommand("gh", [
-    "issue", "view", String(issue), "-R", SMOKE_SLUG, "--json", "labels,url",
-  ], { env, signal });
+  const evidence = [];
+  const gh = async (summary, args) => {
+    const result = await executeCommand("gh", args, { env, signal });
+    evidence.push(commandEvidence(summary, result));
+    return result;
+  };
+  const stop = (status, reason) => ({ status, reason, evidence });
+  const user = await gh("gh api user", ["api", "user", "--jq", ".login"]);
+  if (environmentalFailure(user)) return stop("incomplete", `gh user ${user.reasonCode}`);
+  const login = user.status === 0 ? String(user.stdout ?? "").trim() : "";
+  if (!login) return stop("failed", "authenticated gh user unavailable");
+  const viewed = await gh(`gh issue view #${issue}`, [
+    "issue", "view", String(issue), "-R", SMOKE_SLUG, "--json", "state,author,labels,url",
+  ]);
+  if (environmentalFailure(viewed)) return stop("incomplete", `issue view ${viewed.reasonCode}`);
   const view = viewed.status === 0 ? parseJson(viewed) : null;
-  if (!Array.isArray(view?.labels) || !view.labels.some((label) => label?.name === "spec-created")) return null;
+  if (!view || typeof view !== "object") return stop("failed", `#${issue} unavailable`);
+  if (view.state !== "OPEN") return stop("failed", `#${issue} closed`);
+  if (view.author?.login !== login) return stop("failed", `#${issue} foreign author`);
+  if (!Array.isArray(view.labels) || !view.labels.some((label) => label?.name === "spec-created")) {
+    return stop("failed", `#${issue} no spec-created label`);
+  }
   const title = `docs: approve spec for #${issue}`;
-  const listed = await executeCommand("gh", [
+  const listed = await gh(`gh pr list merged spec PR #${issue}`, [
     "pr", "list", "-R", SMOKE_SLUG, "--state", "merged", "--search", `"${title}" in:title`, "--json", "number,title,url",
-  ], { env, signal });
+  ]);
+  if (environmentalFailure(listed)) return stop("incomplete", `spec PR list ${listed.reasonCode}`);
   const pulls = listed.status === 0 ? parseJson(listed) : null;
   const pull = Array.isArray(pulls) ? pulls.find((candidate) => candidate?.title === title) : null;
-  return pull ? { issueUrl: view.url, pull } : null;
+  if (!pull) return stop("failed", `#${issue} no merged spec PR`);
+  return { status: "passed", issueUrl: view.url, pull, evidence };
 }
 
 // The delivery session is one headless `/sdlc-execute` run in the delivery clone: a fresh session id
@@ -603,122 +641,6 @@ function executeResultStatus(readFile, work, sessionId, launched) {
   const record = readJsonFile(readFile, join(work, ".nmg-sdlc", "execute", "results", `${sessionId}.json`));
   if (Number.isSafeInteger(record?.status)) return record.status;
   return Number.isSafeInteger(launched?.status) && launched.status !== 0 ? launched.status : 1;
-}
-
-// Drafts (unless `issue` is already recorded) and specifies one fresh smoke issue through headless
-// `claude -p` sessions in the provisioning clone. Each session runs with NMG_SDLC_AUTOPILOT=1, so the
-// nmg-sdlc hooks module answers its own plan and question gates. A session's exit is not the proof:
-// the draft passes only when exactly one new issue appears above the baseline, and the spec passes
-// only on the published-spec GitHub evidence.
-async function provisionSmokeIssue({
-  need,
-  issue: recordedIssue,
-  executeCommand,
-  createTemp,
-  remove,
-  env,
-  signal,
-  pluginRoot,
-  permissionMode,
-  onClone,
-  onIssue,
-}) {
-  const evidence = [];
-  const clone = createTemp(join(tmpdir(), "nmg-sdlc-smoke-provision-"));
-  onClone(clone);
-  const provisionEnv = { ...env, NMG_SDLC_AUTOPILOT: "1" };
-  const headless = (prompt) => ["-p", "--plugin-dir", pluginRoot, "--permission-mode", permissionMode, prompt];
-  let issue = recordedIssue ?? null;
-  let createdIssues = issue ? [issue] : [];
-  const stop = (status, summary) => ({
-    status,
-    summary,
-    evidence: [
-      ...evidence,
-      ...createdIssues.map((number) => ({
-        kind: "github",
-        summary: `provisioning created smoke issue #${number}`,
-        artifact: `https://github.com/${SMOKE_SLUG}/issues/${number}`,
-      })),
-      retainedCloneEvidence(clone),
-    ],
-  });
-  const checked = async (summary, program, args, cwd, childEnv = env) => {
-    const result = await executeCommand(program, args, { cwd, env: childEnv, signal });
-    evidence.push(commandEvidence(summary, result, cwd ?? null));
-    return result;
-  };
-  try {
-    const cloned = await checked(`git clone --single-branch ${SMOKE_REPO} (provisioning)`, "git", [
-      "clone", "--single-branch", SMOKE_REPO, clone,
-    ]);
-    if (environmentalFailure(cloned) || cloned.status !== 0) {
-      return stop("incomplete", `nmg-sdlc-smoke provisioning clone ${cloned.reasonCode ?? `exited ${cloned.status}`}`);
-    }
-    const origin = await checked("git remote get-url origin (provisioning)", "git", ["remote", "get-url", "origin"], clone);
-    if (environmentalFailure(origin)) return stop("incomplete", `nmg-sdlc-smoke provisioning origin ${origin.reasonCode}`);
-    if (origin.status !== 0 || !allowedOrigin(origin.stdout)) {
-      return stop("failed", "nmg-sdlc-smoke provisioning origin not allowlisted");
-    }
-    const dirty = await checked("git status --porcelain (provisioning)", "git", ["status", "--porcelain"], clone);
-    if (environmentalFailure(dirty)) return stop("incomplete", `nmg-sdlc-smoke provisioning clean-check ${dirty.reasonCode}`);
-    if (dirty.status !== 0 || String(dirty.stdout ?? "").trim() !== "") {
-      return stop("failed", "nmg-sdlc-smoke provisioning clone dirty");
-    }
-    let baseline = null;
-    if (!issue) {
-      const latest = await checked("gh issue list latest (provisioning baseline)", "gh", [
-        "issue", "list", "-R", SMOKE_SLUG, "--state", "all", "--limit", "1", "--json", "number",
-      ]);
-      if (environmentalFailure(latest)) return stop("incomplete", `nmg-sdlc-smoke provisioning baseline ${latest.reasonCode}`);
-      const rows = latest.status === 0 ? parseJson(latest) : null;
-      baseline = Array.isArray(rows) ? (rows.length ? rows[0]?.number : 0) : null;
-      if (!Number.isSafeInteger(baseline) || baseline < 0) {
-        return stop("failed", "nmg-sdlc-smoke provisioning issue baseline unavailable");
-      }
-    }
-
-    if (!issue) {
-      const drafted = await checked("claude -p /sdlc-draft-issue (provisioning)", "claude",
-        headless(`/sdlc-draft-issue ${need}`), clone, provisionEnv);
-      if (environmentalFailure(drafted)) return stop("incomplete", `nmg-sdlc-smoke provisioning draft ${drafted.reasonCode}`);
-      const created = await newSmokeIssues(executeCommand, env, signal, baseline);
-      if (!created) return stop("incomplete", "nmg-sdlc-smoke provisioning issue list unavailable");
-      createdIssues = created;
-      if (created.length > 1) {
-        return stop("failed", `nmg-sdlc-smoke provisioning created multiple issues ${created.map((n) => `#${n}`).join(", ")}`);
-      }
-      if (created.length === 0) return stop("failed", "nmg-sdlc-smoke provisioning draft created no issue");
-      [issue] = created;
-      onIssue(issue);
-    }
-
-    // A resumed provisioning rechecks the GitHub evidence before it launches write-spec again.
-    let published = await publishedSpec(executeCommand, env, signal, issue);
-    if (!published) {
-      const specced = await checked(`claude -p /sdlc-write-spec #${issue} (provisioning)`, "claude",
-        headless(`/sdlc-write-spec #${issue}`), clone, provisionEnv);
-      if (environmentalFailure(specced)) return stop("incomplete", `nmg-sdlc-smoke provisioning spec ${specced.reasonCode}`);
-      published = await publishedSpec(executeCommand, env, signal, issue);
-      if (!published) return stop("failed", `nmg-sdlc-smoke provisioning spec #${issue} not published`);
-    }
-
-    remove(clone, { recursive: true, force: true });
-    return {
-      status: "passed",
-      issue,
-      evidence: [
-        ...evidence,
-        {
-          kind: "github",
-          summary: `provisioned smoke issue #${issue} ${published.issueUrl}; spec PR ${published.pull.url} MERGED`,
-          artifact: published.pull.url,
-        },
-      ],
-    };
-  } catch (error) {
-    return stop("incomplete", `nmg-sdlc-smoke provisioning ${error instanceof Error ? error.message : String(error)}`);
-  }
 }
 
 export function inspectRecoveredVerificationEvidence(
@@ -810,7 +732,7 @@ async function retainedCloneIdentity(executeCommand, state, env, signal) {
 // The gate proves this checkout's controller: when the project under verification is itself an
 // nmg-sdlc plugin root, use it instead of an installed plugin that NMG_SDLC_PLUGIN_ROOT may name
 // (Claude Code's plugin cache under ~/.claude/plugins/ carries no Git candidate identity). The
-// same root is the `--plugin-dir` of the provisioning and delivery sessions. Nested smoke verification runs in a
+// same root is the `--plugin-dir` of the delivery session. Nested smoke verification runs in a
 // non-plugin clone and keeps the outer invocation's propagated root.
 function smokePluginRoot(projectRoot, options) {
   try {
@@ -834,7 +756,7 @@ export function createSmokeProvider({
   verifyRetainedClone = retainedCloneIdentity,
   env = process.env,
 } = {}) {
-  const deliverSmoke = async (request, provisioning) => {
+  const deliverSmoke = async (request, recordedEvidence) => {
     const identity = request.identity;
     const queue = resolveQueue(request.config, env);
     if (!queue) {
@@ -905,53 +827,42 @@ export function createSmokeProvider({
     let supersedeFailedState = false;
     const receiptlessFailure = () => state?.phase === "failed" && !(state.expected ?? []).length;
     let provisioned = null;
-    if (queue.kind === "provision" && state) {
-      provisioned = Number.isSafeInteger(state.provisioned?.issue) ? state.provisioned : null;
-      if (provisioned) issues = [provisioned.issue];
-      if (provisioned?.published
-        && ["terminal", "cleanup_pending"].includes(state.phase)
-        && !sameOuterRequest(state, request)) {
-        // A delivered issue is terminal and never reused: a changed verification identity
-        // provisions a fresh issue instead of advancing the old delivery.
-        if (state.phase === "cleanup_pending" && typeof state.clonePath === "string") {
-          try {
-            remove(state.clonePath, { recursive: true, force: true });
-          } catch (error) {
-            return envelope("incomplete", "nmg-sdlc-smoke cleanup_failed", identity, [
-              commandEvidence("remove retained smoke clone", { error }),
-              retainedCloneEvidence(state.clonePath),
+    if (queue.kind === "recorded") {
+      const record = readProvisionRecord(readFile, request.projectRoot, queue.recordPath);
+      if (!record.issue) return envelope("failed", `${NOT_PROVISIONED}: ${record.reason}`, identity);
+      issues = [record.issue];
+      if (state) {
+        const held = Number.isSafeInteger(state.provisioned?.issue) ? state.provisioned.issue : null;
+        const terminal = ["terminal", "cleanup_pending"].includes(state.phase);
+        if (held === record.issue) {
+          // A delivered issue is terminal and never reused: only the same outer request replays it.
+          if (terminal && !sameOuterRequest(state, request)) {
+            return envelope("failed", `${NOT_PROVISIONED}: #${record.issue} already delivered`, identity, [
+              ...(state.phase === "cleanup_pending" && typeof state.clonePath === "string"
+                ? [retainedCloneEvidence(state.clonePath)] : []),
             ]);
           }
-        }
-        state = null;
-        provisioned = null;
-        issues = null;
-        supersedeFailedState = true;
-      } else if (state.phase === "provisioning") {
-        if (!provisioned && sameOuterRequest(state, request)) {
-          return envelope("failed", "nmg-sdlc-smoke provisioning interrupted", identity, [
-            ...(typeof state.provisionClone === "string" ? [retainedCloneEvidence(state.provisionClone)] : []),
+          provisioned = state.provisioned;
+        } else if (terminal || receiptlessFailure() || !Array.isArray(state.issues) || !state.issues.length) {
+          // State for a different (or no) recorded issue that delivered nothing still in flight is
+          // superseded by the newly recorded issue; a retained terminal clone is removed first.
+          if (state.phase === "cleanup_pending" && typeof state.clonePath === "string") {
+            try {
+              remove(state.clonePath, { recursive: true, force: true });
+            } catch (error) {
+              return envelope("incomplete", "nmg-sdlc-smoke cleanup_failed", identity, [
+                commandEvidence("remove retained smoke clone", { error }),
+                retainedCloneEvidence(state.clonePath),
+              ]);
+            }
+          }
+          state = null;
+          supersedeFailedState = true;
+        } else {
+          return envelope("failed", "nmg-sdlc-smoke recovery identity mismatch", identity, [
+            ...(typeof state.clonePath === "string" ? [retainedCloneEvidence(state.clonePath)] : []),
           ]);
         }
-        // A recorded issue is reused (its spec is finished if needed); an unrecorded interrupted
-        // provisioning under a changed verification identity is a new experiment. Either way the
-        // superseded provisioning clone is removed.
-        if (typeof state.provisionClone === "string") {
-          try {
-            remove(state.provisionClone, { recursive: true, force: true });
-          } catch (error) {
-            return envelope("incomplete", "nmg-sdlc-smoke cleanup_failed", identity, [
-              commandEvidence("remove superseded provisioning clone", { error }),
-              retainedCloneEvidence(state.provisionClone),
-            ]);
-          }
-        }
-        state = null;
-        supersedeFailedState = true;
-      } else if (!provisioned) {
-        return envelope("failed", "nmg-sdlc-smoke recovery identity mismatch", identity, [
-          ...(typeof state.clonePath === "string" ? [retainedCloneEvidence(state.clonePath)] : []),
-        ]);
       }
     }
     if (state && (!equal(state.scope, scope) || !equal(state.issues, issues))) {
@@ -994,45 +905,21 @@ export function createSmokeProvider({
       ]);
     }
 
-    if (queue.kind === "provision" && (!provisioned || !provisioned.published)) {
-      const provisioningState = {
-        schemaVersion: 1,
-        recoveryKey: scope.recoveryKey,
-        scope,
-        outerIdentity: identity,
-        validationId: request.validationId,
-        validationConfig: canonical(request.config),
-        pluginRoot,
-        issues: provisioned ? [provisioned.issue] : [],
-        phase: "provisioning",
-        provisioned,
-        provisionClone: null,
-      };
-      let recorded = provisioningState;
-      const record = (change) => {
-        recorded = { ...recorded, ...change };
-        recoveryStore.write(scope.recoveryKey, recorded, { replace: true });
-      };
-      recoveryStore.write(scope.recoveryKey, recorded, { replace: supersedeFailedState });
-      supersedeFailedState = true;
-      const outcome = await provisionSmokeIssue({
-        need: queue.need,
-        issue: provisioned?.issue,
-        executeCommand,
-        createTemp,
-        remove,
-        env,
-        signal: request.signal,
-        pluginRoot,
-        permissionMode,
-        onClone: (provisionClone) => record({ provisionClone }),
-        onIssue: (issue) => record({ issues: [issue], provisioned: { issue, published: false } }),
+    // Only a retained recovery state for this issue skips the GitHub check; a fresh run (including one
+    // that superseded a receipt-less failure) rechecks the recorded issue first.
+    if (queue.kind === "recorded" && !(state && provisioned?.published)) {
+      const [issue] = issues;
+      const published = await publishedSpec(executeCommand, env, request.signal, issue);
+      recordedEvidence.push(...published.evidence);
+      if (published.status !== "passed") {
+        return envelope(published.status, `${NOT_PROVISIONED}: ${published.reason}`, identity);
+      }
+      recordedEvidence.push({
+        kind: "github",
+        summary: `provisioned smoke issue #${issue} ${published.issueUrl}; spec PR ${published.pull.url} MERGED`,
+        artifact: published.pull.url,
       });
-      provisioning.push(...outcome.evidence);
-      if (outcome.status !== "passed") return envelope(outcome.status, outcome.summary, identity);
-      provisioned = { issue: outcome.issue, published: true };
-      issues = [outcome.issue];
-      record({ issues, provisioned, provisionClone: null });
+      provisioned = { issue, published: true };
     }
 
     let work = state?.clonePath ?? null;
@@ -1512,9 +1399,9 @@ export function createSmokeProvider({
     }
   };
   return async function smokeProvider(request) {
-    const provisioning = [];
-    const result = await deliverSmoke(request, provisioning);
-    return provisioning.length ? { ...result, evidence: [...provisioning, ...result.evidence] } : result;
+    const recordedEvidence = [];
+    const result = await deliverSmoke(request, recordedEvidence);
+    return recordedEvidence.length ? { ...result, evidence: [...recordedEvidence, ...result.evidence] } : result;
   };
 }
 

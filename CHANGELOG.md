@@ -17,13 +17,14 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 ### Added
 
 - `/sdlc-execute` runs headless with `claude -p --session-id <uuid> --plugin-dir <checkout> --model opus "/sdlc-execute #N"`, which delivers the queue to completion; `claude -p --resume <uuid> "/sdlc-execute --result"` prints the recorded result lines and exits with the controller's status (#538)
-- `NMG_SDLC_AUTOPILOT=1` lets interactive `/sdlc-*` commands run headless under `claude -p`; without it they print `Run /<name> in the TUI.` and exit 2 (#538)
 - Supervised `/sdlc-execute` sessions print `NMG_SDLC_EXECUTE_SESSION: <uuid>` first and receive check-in reports as prompts with an `activity` object at the `--check-in-seconds N` interval (default 300) (#538)
 
 ### Changed (BREAKING)
 
 - `/sdlc-execute` runs each delivery stage as a background subagent that the nmg-sdlc hooks module starts (`nmg-sdlc:execute-<entry>`) instead of a separate terminal-pane worker. Stage models and efforts still come from `steering/sdlc-models.json`, and delivery needs no pane environment variables or per-machine worker integration (#538)
 - Migration: drop the per-machine worker integration install step and any `--retain-worker` flag from scripts; a driver that ran `/sdlc-execute` in a worker pane runs the headless `claude -p` command above and reads the outcome with `--resume` (#538)
+- `NMG_SDLC_AUTOPILOT` is removed: the hooks module no longer approves plans or answers questions on its own, and interactive `/sdlc-*` commands run only in the TUI (headless they print `Run /<name> in the TUI.` and exit 2). Migration: drive an interactive Claude Code session instead, for example in a detached tmux session (#538)
+- The `repository.nmg-sdlc-smoke` gate no longer drafts or specifies its own issue; nmg-sdlc's verify worker provisions it through the `project.smoke` steering snippet and records it in `.nmg-sdlc/smoke/provisioned.json`, and the gate delivers that recorded issue (#538)
 
 ### Removed
 

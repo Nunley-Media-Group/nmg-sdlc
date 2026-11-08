@@ -87,7 +87,7 @@ A headless run starts the controller from the command line and keeps its process
 - Start one with `claude -p --session-id <uuid> --plugin-dir <nmg-sdlc checkout> "/sdlc-execute #N"` on an Opus or Fable model. Choose the `<uuid>` yourself so the result can be recovered later.
 - The run's last output is the controller's final result lines: `#N: MERGED and CLOSED` for each delivered issue, or `/sdlc-execute stopped: <diagnosis>`.
 - `claude -p --resume <uuid> "/sdlc-execute --result"` prints those recorded lines and exits with the controller's exit status. The record is `.nmg-sdlc/execute/results/<uuid>.json`. When no record exists, it prints `No /sdlc-execute result is recorded for session <uuid>.` and exits 2. It changes nothing.
-- `/sdlc-execute` itself runs headless without `NMG_SDLC_AUTOPILOT`. Headless interactive commands, such as `/sdlc-draft-issue` and `/sdlc-write-spec`, run only under `NMG_SDLC_AUTOPILOT=1`. Without it they print `Run /<name> in the TUI.` and exit 2.
+- Only `/sdlc-execute` runs headless. Interactive commands, such as `/sdlc-draft-issue` and `/sdlc-write-spec`, need the TUI's plan and question tools: headless, they print `Run /<name> in the TUI.` and exit 2.
 
 ## Supervise each report
 

@@ -18,7 +18,6 @@ export {
   interactiveHeadlessMessage,
   isInteractiveCommand,
   parseInteractiveSlash,
-  recommendedAnswers,
   withArguments,
   writeSpecFinishedSelection,
   writeSpecMergeIssue,

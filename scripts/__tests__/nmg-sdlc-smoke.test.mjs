@@ -20,9 +20,8 @@ const PLUGIN_ROOT = path.resolve(SOURCE_ROOT);
 // The gate needs no terminal-multiplexer context: it runs with whatever environment it is given.
 const BASE_ENV = Object.freeze({});
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-// A delivery session is the headless /sdlc-execute run and carries --session-id; provisioning sessions do not.
+// A delivery session is the headless /sdlc-execute run and carries --session-id.
 const isDelivery = (call) => call.program === 'claude' && call.args.includes('--session-id');
-const isProvisioningSession = (call) => call.program === 'claude' && !call.args.includes('--session-id');
 // The exact delivery command: a fresh session id, the candidate plugin, opus, and the queue as the prompt.
 const deliveryArgs = (issues, { permissionMode = 'auto' } = {}) => [
   '-p', '--session-id', expect.stringMatching(SESSION_ID), '--plugin-dir', PLUGIN_ROOT,
@@ -308,7 +307,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
       when: { kind: 'always' },
       config: {
         issuesEnv: 'NMG_SDLC_SMOKE_ISSUES',
-        provision: { need: expect.stringMatching(/\S/) },
+        provision: { need: expect.stringMatching(/\S/), record: '.nmg-sdlc/smoke/provisioned.json' },
       },
     });
     expect(validation.config).not.toHaveProperty('issues');
@@ -1242,292 +1241,282 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
   });
 });
 
-const NEED = 'Add one small new capability.';
-const PROVISION_CONFIG = Object.freeze({ issuesEnv: 'NMG_SDLC_SMOKE_ISSUES', provision: { need: NEED } });
+const RECORD_PATH = '.nmg-sdlc/smoke/provisioned.json';
+const RECORDED_CONFIG = Object.freeze({
+  issuesEnv: 'NMG_SDLC_SMOKE_ISSUES',
+  provision: { need: 'Add one small new capability.', record: RECORD_PATH },
+});
 const SMOKE_PR = 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull';
+const validRecord = (extra = {}) => ({
+  schemaVersion: 1,
+  repo: 'Nunley-Media-Group/nmg-sdlc-smoke',
+  issue: 179,
+  provisionedAt: '2026-11-08T00:00:00Z',
+  ...extra,
+});
 
-// A fake GitHub for headless provisioning. Each `claude -p` provisioning session acts on it the way
-// /sdlc-draft-issue and /sdlc-write-spec leave evidence: a draft adds issues, a write-spec publishes
-// the spec label and PR. Reused across harness runs, so a retry sees the first run's state.
-function provisionGitHub({ issues = [178], draft = [179], draftStatus = 0, publishes = true } = {}) {
-  const github = { issues: [...issues], draft, draftStatus, publishes, specs: new Set() };
-  github.override = (program, args, commandOptions) => {
-    if (isProvisioningSession({ program, args })) {
-      const prompt = args.at(-1);
-      if (prompt.startsWith('/sdlc-draft-issue')) github.issues.push(...github.draft);
-      if (prompt.startsWith('/sdlc-write-spec') && github.publishes) {
-        github.specs.add(Number(prompt.match(/#(\d+)$/)[1]));
-      }
-      return result(prompt.startsWith('/sdlc-draft-issue') ? github.draftStatus : 0);
-    }
+// A fake GitHub holding the verify-provisioned smoke issue: its state, author, labels and the
+// merged `docs: approve spec for #N` PR the recorded-issue check reads.
+function recordedGitHub({
+  state = 'OPEN', author = 'smoke-bot', login = 'smoke-bot', labels = ['spec-created'], specPr = true,
+} = {}) {
+  return (program, args) => {
     if (program !== 'gh') return null;
-    if (args[0] === 'issue' && args[1] === 'list' && args.includes('--author')) {
-      return result(0, JSON.stringify(github.issues.map((number) => ({ number }))));
-    }
-    if (args[0] === 'issue' && args[1] === 'list') {
-      return result(0, JSON.stringify(github.issues.length ? [{ number: Math.max(...github.issues) }] : []));
-    }
+    if (args[0] === 'api' && args[1] === 'user') return result(0, `${login}\n`);
     if (args[0] === 'issue' && args[1] === 'view') {
       const number = Number(args[2]);
       return result(0, JSON.stringify({
-        labels: github.specs.has(number) ? [{ name: 'spec-created' }] : [],
+        state,
+        author: { login: author },
+        labels: labels.map((name) => ({ name })),
         url: `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/${number}`,
       }));
     }
     if (args[0] === 'pr' && args[1] === 'list') {
       const number = Number(args[args.indexOf('--search') + 1].match(/#(\d+)/)[1]);
-      return result(0, JSON.stringify(github.specs.has(number)
+      return result(0, JSON.stringify(specPr
         ? [{ number: number + 1, title: `docs: approve spec for #${number}`, url: `${SMOKE_PR}/${number + 1}` }]
         : []));
     }
     return null;
   };
-  return github;
 }
 
-function provisioningHarness(github, options = {}) {
-  return harness({
-    config: PROVISION_CONFIG,
+// `record` is the provisioning record's content: an object (written as JSON), a raw string, or
+// absent (the file does not exist).
+function recordedHarness(settings = {}) {
+  const { github = {}, ...options } = settings;
+  const record = Object.hasOwn(settings, 'record') ? settings.record : validRecord();
+  delete options.record;
+  const fake = recordedGitHub(github);
+  const fixture = harness({
+    config: RECORDED_CONFIG,
     ...options,
     override: (program, args, commandOptions, calls) => options.override?.(program, args, commandOptions, calls)
-      ?? github.override(program, args, commandOptions),
+      ?? fake(program, args),
   });
+  const baseRead = fixture.readFileSync.getMockImplementation();
+  fixture.readFileSync.mockImplementation((file, encoding) => {
+    if (String(file) === path.join('/plugin', RECORD_PATH)) {
+      if (record === undefined) throw Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' });
+      return typeof record === 'string' ? record : JSON.stringify(record);
+    }
+    return baseRead(file, encoding);
+  });
+  return fixture;
 }
 
-const headlessSession = (prompt) => ['-p', '--plugin-dir', PLUGIN_ROOT, '--permission-mode', 'auto', prompt];
-const sessionPrompts = (fixture) => fixture.calls.filter(isProvisioningSession).map((call) => call.args.at(-1));
+const callText = (call) => [call.program, ...call.args].join(' ');
 
-describe('nmg-sdlc smoke provisioning through headless Claude sessions', () => {
-  const interruptedState = (extra = {}) => ({
-    schemaVersion: 1,
-    recoveryKey: TEST_SCOPE.recoveryKey,
-    scope: TEST_SCOPE,
-    outerIdentity: {
-      headSha: 'a'.repeat(40), treeState: 'clean', dirtyDiffHash: null,
-      specHash: 'sha256:test', steeringHash: 'sha256:steering', validationConfigHash: 'sha256:validation',
-    },
-    validationId: 'repository.nmg-sdlc-smoke',
-    validationConfig: PROVISION_CONFIG,
-    issues: [],
-    phase: 'provisioning',
-    provisioned: null,
-    provisionClone: '/tmp/nmg-sdlc-smoke-provision-old',
-    ...extra,
-  });
-
-  it('AC10: drafts and specifies a fresh issue in headless sessions, then delivers it', async () => {
-    const fixture = provisioningHarness(provisionGitHub());
+describe('nmg-sdlc smoke gate delivering the verify-provisioned issue', () => {
+  it('AC10: delivers the recorded issue in one headless session and never drafts or specifies', async () => {
+    const fixture = recordedHarness();
     const outcome = await fixture.provider(fixture.request);
 
     expect(outcome).toMatchObject({ status: 'passed', summary: 'nmg-sdlc-smoke delivered #179' });
-    const sessions = fixture.calls.filter(isProvisioningSession);
-    expect(sessions.map((call) => call.args)).toEqual([
-      headlessSession(`/sdlc-draft-issue ${NEED}`),
-      headlessSession('/sdlc-write-spec #179'),
-    ]);
-    for (const session of sessions) {
-      expect(session.options.cwd).toBe(fixture.clone);
-      expect(session.options.env).toMatchObject({ NMG_SDLC_AUTOPILOT: '1' });
-    }
-    const delivery = fixture.calls.filter(isDelivery);
-    expect(delivery).toHaveLength(1);
-    expect(delivery[0]).toMatchObject({
+    const claude = fixture.calls.filter(({ program }) => program === 'claude');
+    expect(claude).toHaveLength(1);
+    expect(claude[0]).toMatchObject({
       args: deliveryArgs([179]),
-      options: { cwd: fixture.clone, env: expect.objectContaining({ NMG_SDLC_SMOKE_OWNED: '1' }) },
+      options: {
+        cwd: fixture.clone,
+        env: expect.objectContaining({
+          NMG_SDLC_PLUGIN_ROOT: PLUGIN_ROOT,
+          NMG_SDLC_SMOKE_OWNED: '1',
+          NMG_SDLC_SMOKE_RECOVERY: expect.stringMatching(/^[0-9a-f]{64}\.[0-9a-f]{64}$/),
+        }),
+      },
     });
+    for (const call of fixture.calls) {
+      expect(callText(call)).not.toMatch(/sdlc-draft-issue|sdlc-write-spec|herdr/i);
+      expect(call.options.env ?? {}).not.toHaveProperty('NMG_SDLC_AUTOPILOT');
+    }
     expect(new Set(fixture.calls.map(({ program }) => program))).toEqual(new Set(['claude', 'gh', 'git']));
     expect(outcome.evidence).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'github', artifact: `${SMOKE_PR}/180` }),
-      expect.objectContaining({ kind: 'github', summary: expect.stringContaining('issue #179') }),
     ]));
     expect(fixture.states.get(TEST_SCOPE.recoveryKey)).toMatchObject({
-      issues: [179], provisioned: { issue: 179, published: true },
+      phase: 'terminal', issues: [179], provisioned: { issue: 179, published: true },
     });
   });
 
-  it('provisioning and delivery sessions use the configured worker permission mode', async () => {
-    const fixture = provisioningHarness(provisionGitHub(), {
-      env: { ...BASE_ENV, NMG_SDLC_WORKER_PERMISSION_MODE: 'acceptEdits' },
-    });
+  it('AC10: the delivery session uses the configured worker permission mode', async () => {
+    const fixture = recordedHarness({ env: { ...BASE_ENV, NMG_SDLC_WORKER_PERMISSION_MODE: 'acceptEdits' } });
     await expect(fixture.provider(fixture.request)).resolves.toMatchObject({ status: 'passed' });
-    for (const session of fixture.calls.filter(isProvisioningSession)) {
-      expect(session.args).toContain('acceptEdits');
-    }
     expect(fixture.calls.find(isDelivery).args).toEqual(deliveryArgs([179], { permissionMode: 'acceptEdits' }));
   });
 
-  it('fails when the draft session creates no new issue, without a spec session or delivery', async () => {
-    const fixture = provisioningHarness(provisionGitHub({ draft: [] }));
-    const outcome = await fixture.provider(fixture.request);
-
-    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning draft created no issue' });
-    expect(sessionPrompts(fixture)).toEqual([`/sdlc-draft-issue ${NEED}`]);
-    expect(fixture.calls.some(isDelivery)).toBe(false);
-    expect(retained(outcome)).toBe(true);
-  });
-
-  it('fails when the draft session creates more than one new issue', async () => {
-    const fixture = provisioningHarness(provisionGitHub({ draft: [179, 180] }));
-    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
-      status: 'failed', summary: 'nmg-sdlc-smoke provisioning created multiple issues #179, #180',
+  it('AC10: takes the delivery status from the session result record', async () => {
+    const fixture = recordedHarness({
+      override: (program, args, commandOptions) => {
+        if (!isDelivery({ program, args })) return null;
+        const directory = path.join(commandOptions.cwd, '.nmg-sdlc', 'execute', 'results');
+        fs.mkdirSync(directory, { recursive: true });
+        fs.writeFileSync(path.join(directory, `${args[args.indexOf('--session-id') + 1]}.json`), JSON.stringify({
+          schemaVersion: 1, claudeSessionId: args[args.indexOf('--session-id') + 1], status: 0, lines: ['ok'],
+        }));
+        return result(1, '', { stderr: 'session exited nonzero' });
+      },
     });
-    expect(sessionPrompts(fixture)).toEqual([`/sdlc-draft-issue ${NEED}`]);
-    expect(fixture.calls.some(isDelivery)).toBe(false);
-  });
-
-  it('passes the draft on exactly one new issue whatever the draft session exit status', async () => {
-    const fixture = provisioningHarness(provisionGitHub({ draftStatus: 1 }));
     await expect(fixture.provider(fixture.request)).resolves.toMatchObject({ status: 'passed' });
+    expect(fixture.states.get(TEST_SCOPE.recoveryKey)).toMatchObject({ executeStatus: 0 });
   });
 
-  it('fails the spec phase on GitHub evidence and keeps the created issue as evidence', async () => {
-    const fixture = provisioningHarness(provisionGitHub({ publishes: false }));
+  it('AC10: a missing result record is a nonzero status', async () => {
+    const fixture = recordedHarness({ writeResult: false });
+    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({ status: 'passed' });
+    expect(fixture.states.get(TEST_SCOPE.recoveryKey)).toMatchObject({ executeStatus: 1 });
+  });
+
+  it.each([
+    ['a missing record', { record: undefined }, 'record missing'],
+    ['an unparsable record', { record: '{not json' }, 'record unparsable'],
+    ['a wrong repo', { record: validRecord({ repo: 'someone/else' }) }, 'record repo "someone/else"'],
+    ['a non-positive issue', { record: validRecord({ issue: 0 }) }, 'record issue invalid'],
+    ['a closed issue', { github: { state: 'CLOSED' } }, '#179 closed'],
+    ['a missing spec-created label', { github: { labels: [] } }, '#179 no spec-created label'],
+    ['an unmerged spec PR', { github: { specPr: false } }, '#179 no merged spec PR'],
+    ['a foreign author', { github: { author: 'someone-else' } }, '#179 foreign author'],
+  ])('AC10: fails %s as not provisioned and names the reason', async (_label, options, reason) => {
+    const fixture = recordedHarness(options);
     const outcome = await fixture.provider(fixture.request);
 
-    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning spec #179 not published' });
-    expect(outcome.evidence).toContainEqual(expect.objectContaining({
-      kind: 'github', artifact: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/179',
-    }));
-    expect(fixture.calls.some(isDelivery)).toBe(false);
+    expect(outcome.status).toBe('failed');
+    expect(outcome.summary).toContain('nmg-sdlc-smoke smoke issue not provisioned');
+    expect(outcome.summary).toContain(reason);
+    expect(fixture.calls.some(({ program }) => program === 'claude')).toBe(false);
+    expect(fixture.calls.some(({ program, args }) => program === 'git' && args[0] === 'clone')).toBe(false);
   });
 
-  it('a retry of the same identity reuses the recorded issue and only finishes its spec', async () => {
+  it('AC10: fails a recorded issue that another outer request already delivered', async () => {
     const states = new Map();
-    const github = provisionGitHub({ publishes: false });
-    const first = provisioningHarness(github, { states });
-    await expect(first.provider(first.request)).resolves.toMatchObject({ status: 'failed' });
-    expect(states.get(TEST_SCOPE.recoveryKey)).toMatchObject({
-      phase: 'provisioning', provisioned: { issue: 179, published: false },
-    });
-
-    github.publishes = true;
-    const retry = provisioningHarness(github, { states });
-    await expect(retry.provider(retry.request)).resolves.toMatchObject({ status: 'passed' });
-    expect(sessionPrompts(retry)).toEqual(['/sdlc-write-spec #179']);
-    expect(retry.calls.find(isDelivery).args).toEqual(deliveryArgs([179]));
-  });
-
-  it('a resumed provisioning rechecks the published spec and launches no session when it already exists', async () => {
-    const states = new Map();
-    const github = provisionGitHub({ publishes: false });
-    const first = provisioningHarness(github, { states });
-    await expect(first.provider(first.request)).resolves.toMatchObject({ status: 'failed' });
-
-    github.specs.add(179);
-    const retry = provisioningHarness(github, { states });
-    await expect(retry.provider(retry.request)).resolves.toMatchObject({ status: 'passed' });
-    expect(sessionPrompts(retry)).toEqual([]);
-  });
-
-  it('a changed identity after a delivered provisioned issue provisions a fresh issue', async () => {
-    const states = new Map();
-    const github = provisionGitHub();
-    const first = provisioningHarness(github, { states });
+    const first = recordedHarness({ states });
     await expect(first.provider(first.request)).resolves.toMatchObject({ status: 'passed' });
-    expect(states.get(TEST_SCOPE.recoveryKey)).toMatchObject({
-      phase: 'terminal', provisioned: { issue: 179, published: true },
-    });
 
-    github.draft = [182];
-    const retry = provisioningHarness(github, { states });
+    const retry = recordedHarness({ states });
     const outcome = await retry.provider({
       ...retry.request,
       identity: { ...retry.request.identity, headSha: 'b'.repeat(40) },
     });
 
-    expect(outcome).toMatchObject({ status: 'passed', summary: 'nmg-sdlc-smoke delivered #182' });
-    expect(sessionPrompts(retry)).toEqual([`/sdlc-draft-issue ${NEED}`, '/sdlc-write-spec #182']);
-    expect(retry.calls.find(isDelivery).args).toEqual(deliveryArgs([182]));
-    expect(states.get(TEST_SCOPE.recoveryKey)).toMatchObject({
-      phase: 'terminal', provisioned: { issue: 182, published: true },
+    expect(outcome).toMatchObject({
+      status: 'failed', summary: 'nmg-sdlc-smoke smoke issue not provisioned: #179 already delivered',
     });
+    expect(retry.calls.some(({ program }) => program === 'claude')).toBe(false);
   });
 
-  it('the same identity after a delivered provisioned issue replays terminal proof without provisioning', async () => {
+  it('AC10: the same outer request replays terminal proof for the recorded issue', async () => {
     const states = new Map();
-    const first = provisioningHarness(provisionGitHub(), { states });
+    const first = recordedHarness({ states });
     await expect(first.provider(first.request)).resolves.toMatchObject({ status: 'passed' });
 
-    const replay = provisioningHarness(provisionGitHub(), {
+    const replay = recordedHarness({
       states,
-      // Terminal replay checks GitHub only; the closing-PR proof must still show the delivered PR.
-      override: (program, args) => (program === 'gh' && args[0] === 'api' ? result(0, JSON.stringify({
-        data: { repository: { issue: {
-          state: 'CLOSED',
-          url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/179',
-          closedByPullRequestsReferences: {
-            nodes: [{
-              number: 179,
-              state: 'MERGED',
-              url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull/179',
-              headRefOid: replay.deliveryHead(179),
-            }],
-            pageInfo: { hasNextPage: false },
-          },
-        } } },
-      })) : null),
+      // The issue is closed now; the terminal path checks only the exact-head closing PR.
+      github: { state: 'CLOSED' },
+      override: (program, args) => (program === 'gh' && args[0] === 'api' && args[1] === 'graphql'
+        ? result(0, JSON.stringify({
+          data: { repository: { issue: {
+            state: 'CLOSED',
+            url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/179',
+            closedByPullRequestsReferences: {
+              nodes: [{
+                number: 179,
+                state: 'MERGED',
+                url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull/179',
+                headRefOid: replay.deliveryHead(179),
+              }],
+              pageInfo: { hasNextPage: false },
+            },
+          } } },
+        }))
+        : null),
     });
     const outcome = await replay.provider(replay.request);
 
     expect(outcome).toMatchObject({ status: 'passed', summary: 'nmg-sdlc-smoke delivered #179' });
-    expect(sessionPrompts(replay)).toEqual([]);
-    expect(replay.calls.some(isDelivery)).toBe(false);
+    expect(replay.calls.some(({ program }) => program === 'claude')).toBe(false);
+    expect(replay.calls.some(({ program, args }) => program === 'gh' && args[0] === 'issue')).toBe(false);
   });
 
-  it('an interrupted provisioning without a recorded issue fails closed for the same identity', async () => {
-    const states = new Map([[TEST_SCOPE.recoveryKey, interruptedState()]]);
-    const fixture = provisioningHarness(provisionGitHub(), { states });
-    const outcome = await fixture.provider(fixture.request);
+  it('AC10: a newly recorded issue supersedes a terminal state for the previous one', async () => {
+    const states = new Map();
+    const first = recordedHarness({ states });
+    await expect(first.provider(first.request)).resolves.toMatchObject({ status: 'passed' });
 
-    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning interrupted' });
-    expect(fixture.calls.filter(isProvisioningSession)).toHaveLength(0);
-    expect(retained(outcome)).toBe(true);
+    const next = recordedHarness({ states, record: validRecord({ issue: 182 }) });
+    const outcome = await next.provider({
+      ...next.request,
+      identity: { ...next.request.identity, headSha: 'b'.repeat(40) },
+    });
+
+    expect(outcome).toMatchObject({ status: 'passed', summary: 'nmg-sdlc-smoke delivered #182' });
+    expect(next.calls.find(isDelivery).args).toEqual(deliveryArgs([182]));
+    expect(states.get(TEST_SCOPE.recoveryKey)).toMatchObject({ provisioned: { issue: 182, published: true } });
   });
 
-  it('a changed identity removes the abandoned provisioning clone and provisions fresh', async () => {
-    const states = new Map([[TEST_SCOPE.recoveryKey, interruptedState()]]);
-    const fixture = provisioningHarness(provisionGitHub(), { states });
-    fixture.request.identity = { ...fixture.request.identity, headSha: 'b'.repeat(40) };
-    const outcome = await fixture.provider(fixture.request);
-
-    expect(outcome).toMatchObject({ status: 'passed', summary: 'nmg-sdlc-smoke delivered #179' });
-    expect(fixture.rmSync).toHaveBeenCalledWith('/tmp/nmg-sdlc-smoke-provision-old', { recursive: true, force: true });
-    expect(sessionPrompts(fixture)).toEqual([`/sdlc-draft-issue ${NEED}`, '/sdlc-write-spec #179']);
-  });
-
-  it('classifies a draft session launch failure as incomplete and retains the clone', async () => {
-    const fixture = provisioningHarness(provisionGitHub(), {
-      override: (program, args) => (isProvisioningSession({ program, args })
-        ? result(null, '', { reasonCode: 'launch_failed', error: new Error('spawn failed') })
+  it('AC10: fails the exact-head proof when the delivered PR head does not match', async () => {
+    const fixture = recordedHarness({
+      override: (program, args, _options, calls) => (program === 'gh' && args[0] === 'api' && args[1] === 'graphql'
+        && calls.some(isDelivery)
+        ? result(0, JSON.stringify({
+          data: { repository: { issue: {
+            state: 'CLOSED',
+            url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/179',
+            closedByPullRequestsReferences: {
+              nodes: [{ number: 179, state: 'MERGED', url: `${SMOKE_PR}/179`, headRefOid: 'f'.repeat(40) }],
+              pageInfo: { hasNextPage: false },
+            },
+          } } },
+        }))
         : null),
     });
     const outcome = await fixture.provider(fixture.request);
-
-    expect(outcome).toMatchObject({ status: 'incomplete', summary: expect.stringContaining('launch_failed') });
-    expect(retained(outcome)).toBe(true);
-    expect(fixture.rmSync).not.toHaveBeenCalled();
+    expect(outcome).toMatchObject({
+      status: 'failed', summary: 'nmg-sdlc-smoke issue #179 missing new exact-head merged PR proof',
+    });
   });
 
-  it('an explicit queue never provisions', async () => {
-    const fixture = provisioningHarness(provisionGitHub(), {
-      env: { ...BASE_ENV, NMG_SDLC_SMOKE_ISSUES: '#11, 12' },
+  it('AC10: fails when the recorded issue is still open after delivery', async () => {
+    const fixture = recordedHarness({
+      override: (program, args) => (program === 'gh' && args[0] === 'api' && args[1] === 'graphql'
+        ? result(0, JSON.stringify({
+          data: { repository: { issue: {
+            state: 'OPEN',
+            url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/179',
+            closedByPullRequestsReferences: { nodes: [], pageInfo: { hasNextPage: false } },
+          } } },
+        }))
+        : null),
     });
+    const outcome = await fixture.provider(fixture.request);
+    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke issue #179 is not CLOSED' });
+  });
+
+  it('AC10: NMG_SDLC_SMOKE_ISSUES takes priority over a present record', async () => {
+    const fixture = recordedHarness({ env: { ...BASE_ENV, NMG_SDLC_SMOKE_ISSUES: '#11, 12' } });
     await expect(fixture.provider(fixture.request)).resolves.toMatchObject({ status: 'passed' });
 
-    expect(fixture.calls.filter(isProvisioningSession)).toEqual([]);
     expect(fixture.calls.find(isDelivery).args).toEqual(deliveryArgs([11, 12]));
+    expect(fixture.calls.some(({ program, args }) => program === 'gh' && args[0] === 'issue')).toBe(false);
+    expect(fixture.readFileSync).not.toHaveBeenCalledWith(path.join('/plugin', RECORD_PATH), expect.anything());
   });
 
-  it('an invalid non-blank explicit value still fails without provisioning', async () => {
-    const fixture = provisioningHarness(provisionGitHub(), {
-      env: { ...BASE_ENV, NMG_SDLC_SMOKE_ISSUES: '#7 nope' },
-    });
+  it('an invalid non-blank explicit value still fails without reading the record', async () => {
+    const fixture = recordedHarness({ env: { ...BASE_ENV, NMG_SDLC_SMOKE_ISSUES: '#7 nope' } });
 
     await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
       status: 'failed',
       summary: 'nmg-sdlc-smoke issues config invalid',
     });
     expect(fixture.calls).toEqual([]);
+  });
+
+  it('a provision need without a record path is an invalid config', async () => {
+    const fixture = recordedHarness({ config: { issuesEnv: 'NMG_SDLC_SMOKE_ISSUES', provision: { need: 'x' } } });
+    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
+      status: 'failed', summary: 'nmg-sdlc-smoke issues config invalid',
+    });
   });
 });
 

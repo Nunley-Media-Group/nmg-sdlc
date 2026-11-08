@@ -171,26 +171,6 @@ export function writeSpecFinishedSelection(answers) {
       || answer.split(/,\s*/).includes(label)));
 }
 
-const RECOMMENDED_SUFFIX = /\s*\(Recommended\)\s*$/;
-
-/**
- * Autopilot answer for an AskUserQuestion input: each question answered with
- * an option whose label (less any ` (Recommended)`) is in `prefer`, else its
- * option labelled `(Recommended)`, else its first option.
- */
-export function recommendedAnswers(questions, { prefer = [] } = {}) {
-  const answers = {};
-  for (const question of Array.isArray(questions) ? questions : []) {
-    if (typeof question?.question !== "string") continue;
-    const options = Array.isArray(question.options) ? question.options : [];
-    const pick = options.find((option) => prefer.includes(String(option?.label ?? "").replace(RECOMMENDED_SUFFIX, "")))
-      ?? options.find((option) => RECOMMENDED_SUFFIX.test(option?.label ?? ""))
-      ?? options[0];
-    if (typeof pick?.label === "string") answers[question.question] = pick.label;
-  }
-  return answers;
-}
-
 export const EXECUTE_GOAL_MAX_ISSUES = 20;
 const EXECUTE_GOAL_RE = /sdlc-execute\.mjs["']?\s+goal\b/;
 const EXECUTE_SUPERVISE_RE = /sdlc-execute\.mjs["']?\s+supervise\b/;
@@ -260,18 +240,6 @@ export function materializePluginRootCommand(command, root) {
       return JSON.stringify(path);
     },
   );
-}
-
-export const HEADLESS_MERGE_TIMEOUT_MS = 600000;
-
-/**
- * A headless write-spec merge Bash call that the background flag moved aside, as the same call in the
- * foreground with a bounded timeout. Null for any other call, so its result is read in place.
- */
-export function foregroundMergeInput(input) {
-  if (!input || typeof input !== "object" || input.run_in_background !== true) return null;
-  if (writeSpecMergeIssue(input.command) === null) return null;
-  return { ...input, run_in_background: false, timeout: HEADLESS_MERGE_TIMEOUT_MS };
 }
 
 /** Rewrites a leading `<plugin-root>` in a file path to the plugin's absolute path. */

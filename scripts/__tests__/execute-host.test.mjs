@@ -12,7 +12,6 @@ import {
   emptyAgentRecord,
   executeResultPath,
   executeResultText,
-  headlessPlanPreamble,
   HOST_HEARTBEAT_MS,
   hostResponse,
   missingResultText,
@@ -292,13 +291,6 @@ describe('controller notices', () => {
     expect(text).toContain('report 4 is waiting');
     expect(text).toContain(`wait --session ${SESSION} --after 3`);
     expect(text).toContain('/opt/nmg/scripts/sdlc-execute.mjs');
-  });
-
-  it('tells a headless interactive command to enter plan mode first under autopilot', () => {
-    const text = headlessPlanPreamble('sdlc-write-spec');
-    expect(text).toContain('/sdlc-write-spec');
-    expect(text).toContain('EnterPlanMode');
-    expect(text).toContain('NMG_SDLC_AUTOPILOT=1');
   });
 });
 

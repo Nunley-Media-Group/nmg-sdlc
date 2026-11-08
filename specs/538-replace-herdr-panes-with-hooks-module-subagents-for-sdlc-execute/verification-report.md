@@ -3,253 +3,150 @@
 **Date**: 2026-11-08
 **Issue**: #538
 **Reviewer**: nmg-sdlc verify worker (architecture-reviewer)
-**Scope**: Implementation verification against spec
+**Scope**: Implementation verification against the amended Approved spec
+**Controller run id**: dbac7959-7e86-4ae5-8176-4b38cf145860
 
-**Verification head**: a94d45e5efb15380df88f5267078a6a46cbabd8c
+**Verification head**: 39bda3e6e2aaa177a38ca53015cf6c13fb164362
 
 ---
 
 ## Executive Summary
 
+### Implementation Status: Fail
+
+HEAD `39bda3e` is the spec amendment commit (`docs: amend #538 spec to remove autopilot and move smoke provisioning to verify`). The amendment changed AC9, AC10 and AC13 (and FR6, FR7, FR12, tasks T004, T007, T009, T011–T014). No implementation commit follows it, so the code still matches the pre-amendment spec:
+
+- **AC9 / FR6 — autopilot removal: not implemented.** `hooks/register.ts:624` still reads `NMG_SDLC_AUTOPILOT`, and `hooks/register.ts:633-636` still lets headless interactive commands run under autopilot.
+- **AC10 / FR7 — smoke gate delivers the recorded issue: not implemented.** `steering/extensions/nmg-sdlc-smoke.mjs:609-699` still drafts and specifies its own issue through `claude -p` with `NMG_SDLC_AUTOPILOT=1`, and never reads `.nmg-sdlc/smoke/provisioned.json`.
+- **AC13 / FR12 / T014 — verify-stage provisioning snippet: not implemented.** `steering/snippets/project-smoke.md` does not exist, and `steering/manifest.json` registers no `project.smoke` snippet.
+
+The registered gate was **stopped deliberately** before it reached `repository.nmg-sdlc-smoke`, and was not rerun. The current smoke provider still self-provisions, so running it would have drafted a real issue in `Nunley-Media-Group/nmg-sdlc-smoke`, which the amended AC10 forbids. `repository.tests` was cancelled mid-run as a result (exit 130, result `incomplete: command cancelled`).
+
 | Category | Score (1-5) |
 |----------|-------------|
 | Spec Compliance | 2 |
 | Architecture (SOLID) | 4 |
-| Security | 4 |
+| Security | 3 |
 | Performance | 4 |
 | Testability | 3 |
 | Error Handling | 4 |
-| **Overall** | 3.5 |
+| **Overall (architecture average)** | **3.6** |
 
-### Implementation Status: Fail
-**Total Issues**: 2 (1 Critical, 1 Low)
-
-The Herdr transport is replaced cleanly by the file host (`scripts/sdlc-execute-host.mjs`), the shared Node-free protocol (`src/execute-host.mjs`, `src/stage-models.mjs`) and the hooks-module bridge (`hooks/register.ts`). Contract tests pass: 1288 Jest tests and 47 hooks-module tests. Every static gate also passes.
-
-The required live smoke gate `repository.nmg-sdlc-smoke` **failed** with `nmg-sdlc-smoke provisioning draft created no issue`. The headless `claude -p --plugin-dir <checkout> "/sdlc-draft-issue <need>"` run under `NMG_SDLC_AUTOPILOT=1` printed the rendered workflow text as its output and exited, so the model never ran the workflow. This is a confirmed plugin defect in the new headless command path (`hooks/register.ts:648`). It blocks AC9 and AC10. AC1 and AC7 have no live proof, because `/sdlc-execute` headless uses the same `{ text: rendered.text }` answer.
-
----
-
-## Issue Scope
+### Issue Scope
 
 - Active issue: #538
 - Spec: `specs/538-replace-herdr-panes-with-hooks-module-subagents-for-sdlc-execute`
 - Manifest: `implicit single issue`
 - Resolver status: `implicit_single_issue`
-- Delivery: AC [AC1–AC12]; FR [FR1–FR11]; tasks [T001–T013]; scenarios [SCN001–SCN012]
+- Delivery: AC [AC1–AC13]; FR [FR1–FR13]; tasks [T001–T014]; scenarios [SCN001–SCN014]
 - Regression: AC []; FR []; scenarios []
 
-<!-- nmg-sdlc-issue-scope: {"issueNumber":538,"specPath":"specs/538-replace-herdr-panes-with-hooks-module-subagents-for-sdlc-execute","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1","AC2","AC3","AC4","AC5","AC6","AC7","AC8","AC9","AC10","AC11","AC12"],"functionalRequirements":["FR1","FR2","FR3","FR4","FR5","FR6","FR7","FR8","FR9","FR10","FR11"],"tasks":["T001","T002","T003","T004","T005","T006","T007","T008","T009","T010","T011","T012","T013"],"scenarios":["SCN001","SCN002","SCN003","SCN004","SCN005","SCN006","SCN007","SCN008","SCN009","SCN010","SCN011","SCN012"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]}} -->
+<!-- nmg-sdlc-issue-scope: {"issueNumber":538,"specPath":"specs/538-replace-herdr-panes-with-hooks-module-subagents-for-sdlc-execute","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1","AC2","AC3","AC4","AC5","AC6","AC7","AC8","AC9","AC10","AC11","AC12","AC13"],"functionalRequirements":["FR1","FR2","FR3","FR4","FR5","FR6","FR7","FR8","FR9","FR10","FR11","FR12","FR13"],"tasks":["T001","T002","T003","T004","T005","T006","T007","T008","T009","T010","T011","T012","T013","T014"],"scenarios":["SCN001","SCN002","SCN003","SCN004","SCN005","SCN006","SCN007","SCN008","SCN009","SCN010","SCN011","SCN012","SCN013","SCN014"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]}} -->
 
-## Delivery Validation
+### Delivery Validation
 
-- Local verification: Not complete (required `repository.nmg-sdlc-smoke` failed)
+- Local verification: Not complete
 - PR evidence: Not required
 
 ---
 
 ## Deterministic Steering Artifact and Ceiling
 
-Artifact: `.nmg-sdlc/verification/538.json` (controller run `52bdfe5e-1a20-443a-bc0d-e72e54d02320`, head `a94d45e5efb15380df88f5267078a6a46cbabd8c`, clean tree).
+`node <plugin-root>/scripts/sdlc-verify-steering.mjs --project . --issue 538 --spec specs/538-… --base main --controller-run-id dbac7959-7e86-4ae5-8176-4b38cf145860`
 
-- Coverage: declared 2, recorded 2, complete `true`; no missing, duplicate, or unknown ids.
-- Ceiling: **Fail**.
+- The runner exited 130 because the supervisor interrupted it on purpose. It wrote `.nmg-sdlc/verification/538.json` with `ok: false` and `ceiling: Incomplete`.
+- Coverage: `declared: 2`, `recorded: 2`, `complete: true`
+- The report status is **Fail** because spec acceptance criteria are not implemented, which is stricter than the gate's Incomplete ceiling.
 
-| Validation | Required | Status | Evidence |
-|------------|----------|--------|----------|
-| `repository.tests` (`npm test -- --runInBand` in `scripts/`) | yes | passed | exit 0; Test Suites: 60 passed, 1 skipped; Tests: 1288 passed, 2 skipped |
-| `repository.nmg-sdlc-smoke` | yes | **failed** | `nmg-sdlc-smoke provisioning draft created no issue`. The `claude -p /sdlc-draft-issue (provisioning)` stdout is the hooks preamble plus the rendered draft-issue workflow (about 8 KB), with no model work. The smoke issue baseline stays at #290 and no new issue was created |
+| Validation | Provider | Required | Result | Evidence |
+|------------|----------|----------|--------|----------|
+| `repository.tests` | `builtin.command` (`npm test -- --runInBand`, cwd `scripts`) | yes | Incomplete | `command cancelled`: jest child stopped by the supervisor |
+| `repository.nmg-sdlc-smoke` | `project.nmg-sdlc-smoke` | yes | Incomplete | Never reached. Stopped on purpose to avoid the old self-provisioning provider mutating the smoke repository (AC10) |
 
----
-
-## Acceptance Criteria Verification
-
-| AC | Description | Status | Evidence |
-|----|-------------|--------|----------|
-| AC1 | Stages run as hooks-module subagents without Herdr | Incomplete | Implemented in `hooks/register.ts` (`spawnWorker`, `$.agent.register`/`$.agent.spawn`) and `scripts/sdlc-execute-host.mjs` (`createFileHost`). `scripts/__tests__/herdr-removal.test.mjs` shows no `herdr` invocation. No live merge/close proof: the smoke gate failed before delivery |
-| AC2 | Per-stage model/effort from sdlc-models.json | Pass | `overrideStep` applies the worker `model`/`effort` to every subagent step, and omits effort for `default` (`hooks/register.ts`, `spawnWorker` effort spread). Validator shared via `src/stage-models.mjs`. Covered by `register.test.ts` and `sdlc-models.test.mjs` |
-| AC3 | Invalid/partial config keeps behavior | Pass | `validateStageModels` and `StageModelsError` diagnostic unchanged in `src/stage-models.mjs`; `scripts/sdlc-models.mjs` re-exports them; `sdlc-models.test.mjs`, `sdlc-execute.test.mjs` |
-| AC4 | Check-in reports show activity | Pass | `activityRecord` in `src/execute-host.mjs`; `interval`/`activity_unchanged`/`waiting_marker_stale` in the supervisor; `announceReport` + `checkInNotice` in `hooks/register.ts`; `execute-host.test.mjs`, `sdlc-execute-supervisor.test.mjs` |
-| AC5 | Prompt guidance reaches running worker | Pass | `appendToWorker` → `$.session.append`, falling back to `$.session.send`; tested in `register.test.ts` |
-| AC6 | Redispatch/halt stop the worker | Pass | `stopWorker` (`TaskStop`, status check, deny-after-stop `tool.call` hook); `worker_stop_failed` in the file host; tested |
-| AC7 | Headless runs complete and report exit status | **Fail** | `/sdlc-execute --result` reads `.nmg-sdlc/execute/results/<id>.json` (unit-tested). The headless `/sdlc-execute` answer is `{ text: rendered.text }` (`hooks/register.ts:648`). The live smoke shows that answer from the same branch prints the text and ends the run without a model turn |
-| AC8 | `--retain-worker` rejected | Pass | `scripts/sdlc-execute.mjs:62-63` usage error; argument hint updated; `sdlc-execute.test.mjs` |
-| AC9 | Interactive commands run headless under autopilot | **Fail** | Live smoke: `claude -p --plugin-dir <checkout> "/sdlc-draft-issue <need>"` with `NMG_SDLC_AUTOPILOT=1` printed the preamble plus workflow and exited, creating no issue. The without-autopilot refusal path is unchanged (unit-tested) |
-| AC10 | Smoke gate runs without Herdr | **Fail** | `steering/extensions/nmg-sdlc-smoke.mjs` now uses headless `claude -p` with autopilot and invokes no `herdr` command, but provisioning fails as described under AC9, so the gate cannot pass |
-| AC11 | Upgrade rewrites managed CONTRIBUTING sentence | Pass | `scripts/sdlc-upgrade.mjs:1213-1216,1350-1362`; idempotence tested in `sdlc-upgrade.test.mjs` |
-| AC12 | Worker start failure fails visibly | Pass | `spawnWorker` returns deny on a missing definition, rejected registration, or refused spawn; the file host throws `worker_start_refused`; tested |
+**Gate Summary**: 0/2 passed, 0 failed, 2 incomplete
 
 ---
 
-## Task Completion
+## Acceptance Criteria
 
-| Task | Description | Status | Notes |
-|------|-------------|--------|-------|
-| T001 | Node-free stage-model and host-protocol modules | Complete | `src/stage-models.mjs`, `src/execute-host.mjs` + `.d.mts` |
-| T002 | Replace controller Herdr transport with file host | Complete | `scripts/sdlc-execute-host.mjs`, `scripts/sdlc-execute.mjs` |
-| T003 | Supervisor and controller lease | Complete | heartbeat-based reclaim in `scripts/sdlc-controller-lease.mjs` |
-| T004 | Hooks module stage subagents and headless runs | Incomplete | Subagent bridge complete; the headless command answer does not start a model turn (see Remaining Issues) |
-| T005 | Stage agent definitions | Complete | no `model`/`effort` frontmatter; Herdr-only dispatch text removed |
-| T006 | Execute workflow rewrite | Complete | `workflows/execute/WORKFLOW.md` |
-| T007 | Smoke gate to headless Claude sessions | Complete (code) | Implemented, but blocked at runtime by the T004 defect |
-| T008 | Upgrade CONTRIBUTING sentence | Complete | |
-| T009 | Public docs and changelog | Complete | README, CONTRIBUTING, CLAUDE.md, tooling reference, snippets, CHANGELOG |
-| T010–T013 | Tests | Complete | All pass, but `register.test.ts` asserts the `{ text }` headless answer through the test engine, which does not model the real host's headless behavior |
+The criteria marked Incomplete have code evidence on this branch, but no test or smoke result proves them, because the gate was cancelled.
 
----
+| AC | Status | Evidence |
+|----|--------|----------|
+| AC1: Stages run as hooks-module subagents without Herdr | Incomplete | `hooks/register.ts:484` (`$.agent.register`) and `:498` (`$.agent.spawn`). The exact-head merge needs the smoke gate, which was not run |
+| AC2: Per-stage model/effort from sdlc-models.json | Incomplete | `scripts/sdlc-execute.mjs:14` and `:167` (stage and repair entry selection). Tests not run |
+| AC3: Invalid or partial stage configuration | Incomplete | `scripts/sdlc-models.mjs:47`, `scripts/sdlc-execute.mjs:624` (`stageModelsWarning`). Tests not run |
+| AC4: Check-ins show worker activity | Incomplete | `scripts/sdlc-execute.mjs:676` (`interval` / `activity_unchanged` / `waiting_marker_stale`), `hooks/register.ts:385` (`$.clock.every` bridge), `:588` check-in prompt |
+| AC5: Prompt guidance reaches the worker | Incomplete | `hooks/register.ts:531` (`$.session.append`) |
+| AC6: Redispatch/halt stop the worker | Incomplete | `hooks/register.ts:555` (`TaskStop` via `$.tool.call`) |
+| AC7: Headless runs and `/sdlc-execute --result` | Incomplete | `hooks/register.ts:606-631`, `src/execute-host.mjs:142` |
+| AC8: `--retain-worker` rejected | Incomplete | `scripts/sdlc-execute.mjs:62-63` |
+| AC9: Autopilot removed; interactive commands stay TUI-only | **Fail** | `hooks/register.ts:624` reads `NMG_SDLC_AUTOPILOT`, and `:633-636` runs headless interactive commands under it. `src/execute-host.mjs:131` holds the autopilot headless message. Docs still describe autopilot: `README.md:19,119,174,427`, `CONTRIBUTING.md:18`, `references/interactive-gates.md:24`, `workflows/execute/WORKFLOW.md:90`, `workflows/verify-code/references/exercise-testing.md:29,47`, `steering/snippets/project-tech.md:165,171,272,307,386,388` |
+| AC10: Smoke gate delivers the verify-provisioned issue | **Fail** | `steering/extensions/nmg-sdlc-smoke.mjs:609-699` still provisions through `claude -p /sdlc-draft-issue` and `/sdlc-write-spec` with `NMG_SDLC_AUTOPILOT=1` (`:629`). It does not read `.nmg-sdlc/smoke/provisioned.json`, and has no `nmg-sdlc-smoke smoke issue not provisioned` failure |
+| AC11: Upgrade rewrites the CONTRIBUTING sentence | Incomplete | `scripts/sdlc-upgrade.mjs:1213` (`SUBAGENT_CONTRIBUTING_SENTENCE`). Tests not run |
+| AC12: Worker start refusal fails visibly | Incomplete | `scripts/sdlc-execute-host.mjs:87-95` (`worker_start_refused`) |
+| AC13: Verify stage provisions the smoke issue | **Fail** | `steering/snippets/project-smoke.md` is missing, `steering/manifest.json` has no `project.smoke` entry, and the rendered verify worker prompt has no provisioning steps |
 
-## Architecture Assessment
+### Tasks
 
-### SOLID Compliance
+| Task | Status | Note |
+|------|--------|------|
+| T001–T003, T005, T006, T008, T010 | Done (pre-amendment) | Files present. Tests not run |
+| T004 | **Not done for amendment** | Hooks module still services autopilot and headless interactive runs |
+| T007 | **Not done for amendment** | Provider still self-provisions. The recorded-issue read is absent |
+| T009 | **Not done for amendment** | README/CONTRIBUTING/steering still document autopilot. CHANGELOG does not record its removal as breaking |
+| T011, T012, T013 | **Not done for amendment** | `hooks/register.test.ts`, `scripts/__tests__/nmg-sdlc-smoke.test.mjs`, `execute-host.test.mjs`, `herdr-removal.test.mjs` and `steering-contract.test.mjs` still assert autopilot behavior |
+| T014 | **Not done** | Snippet, manifest registration and contract test absent |
 
-| Principle | Score (1-5) | Notes |
-|-----------|-------------|-------|
-| Single Responsibility | 4 | Clear split between pure protocol (`src/execute-host.mjs`), Node transport (`scripts/sdlc-execute-host.mjs`) and host bridge (`hooks/register.ts`). `hooks/register.ts` keeps growing (≈900 lines) |
-| Open/Closed | 4 | Request kinds are table-driven |
-| Liskov Substitution | 4 | `host` replaces `herdr` behind the same controller seams |
-| Interface Segregation | 4 | File host exposes a narrow `{ spawn, activity, append, send, stop, wait, hostAlive, finish }` |
-| Dependency Inversion | 4 | Controller depends on an injected host; the hooks module imports no Node built-ins |
+### Regression Obligations
 
-### Layer Separation
-
-Respects the structure steering: the hooks module stays Node-free, and shared logic lives in `src/`.
-
-### Dependency Flow
-
-`hooks/register.ts` → `src/execute-host.mjs` → `src/stage-models.mjs`. Scripts → `src/`. No reverse edges.
+None declared.
 
 ---
 
-## Security Assessment
+## Architecture Review
 
-- [x] Input validation: `validateHostRequest` checks every request field (UUID session, known entry/agent, valid model, effort, and permission mode) before any spawn
-- [x] Injection prevention: smoke and controller use argument arrays; no shell interpolation of request values
-- [x] Data protection: session files written atomically with mode 0600
-- [x] Stopped workers are denied every further tool call
-
-## Performance Assessment
-
-- [x] Bounded records: 10 tool calls, 2000-character latest text, 200-character summaries
-- [x] Bridge tick of 1 s with a re-entrancy guard; latest text refreshed at most every 15 s
-- [x] Synchronous `Atomics.wait` polling only in the detached controller
-
-## Error Handling
-
-Stable reason codes: `worker_start_refused`, `worker_stop_failed`, `supervising_session_lost`, `missing_handoff`, and `process_lost`. Swallowed errors in `tick` are retried on the next tick. Each refusal is answered with an explicit deny.
+| Area | Score (1-5) | Findings |
+|------|-------------|----------|
+| SOLID Principles | 4 | Clear split: Node-free host protocol (`src/execute-host.mjs`), file host (`scripts/sdlc-execute-host.mjs`), in-process subagent servicing (`hooks/register.ts`). Autopilot remains a second responsibility in the hooks module that the amendment removes |
+| Security | 3 | The autopilot path auto-approves `ExitPlanMode` and answers `AskUserQuestion` in any session that sets the variable. The amended spec removes this surface. The smoke provider still makes provider-owned GitHub writes through headless drafting |
+| Performance | 4 | Supervision is event-driven through `$.clock.every` and `$.prompt.submit`, so no Bash wait loops |
+| Testability | 3 | Good unit seams through the file host. Current tests pin the superseded autopilot contract and need to be rewritten with the amendment |
+| Error Handling | 4 | `worker_start_refused`, `--retain-worker` usage error and the stage-model diagnostic are explicit and stable |
 
 ---
 
-## Test Coverage
+## Test Results
 
-### Coverage Summary
+- `cd scripts && npm test -- --runInBand`: **cancelled** (Incomplete). The supervisor stopped the run before it finished.
+- Live smoke (`repository.nmg-sdlc-smoke`): **not run**. Stopped on purpose (see Executive Summary).
+- Exercise tests (`exercise-claude.mjs`): not run. They are moot until AC9/AC10/AC13 are implemented.
+- BDD scenarios: SCN001–SCN014 are defined in `feature.gherkin`. The code that SCN009, SCN010 and SCN013–SCN014 cover is missing.
 
-- Feature file: 12 scenarios (SCN001–SCN012), each mapped to an AC
-- Jest: 1288 passed, 2 skipped (60 suites passed, 1 skipped)
-- Hooks module (`claude plugin test .`): 47 pass, 0 fail
-- Gap: no test exercises the real host's handling of a `command.run` `{ text }` answer in a headless run; the live smoke gate is the only evidence, and it fails
+## Real Smoke Lifecycle Evidence
 
----
-
-## Exercise Test Results
-
-| Field | Value |
-|-------|-------|
-| **Skill Exercised** | `/sdlc-draft-issue` (headless under autopilot), via the smoke provider |
-| **Exercise Method** | `claude -p --plugin-dir <checkout> --permission-mode <mode> "/sdlc-draft-issue <need>"` in a fresh `nmg-sdlc-smoke` clone, `NMG_SDLC_AUTOPILOT=1` |
-| **Interactive gate handling** | Autopilot (never reached) |
-
-### Captured Output Summary
-
-The stdout begins `nmg-sdlc: /sdlc-draft-issue is running headless under NMG_SDLC_AUTOPILOT=1 with no UI. Call EnterPlanMode first, …` and continues with the full rendered draft-issue workflow. No tool calls were made, and no GitHub issue was created (baseline #290 unchanged).
-
-### AC Evaluation
-
-| AC | Verdict | Evidence |
-|----|---------|----------|
-| AC9 | Fail | Workflow text printed as command output; no model turn |
-| AC10 | Fail | Provisioning failed: `draft created no issue` |
-
----
-
-## Steering Doc Verification Gates
-
-| Gate | Status | Evidence |
-|------|--------|----------|
-| Contract tests (`repository.tests`) | Pass | exit 0; 1288 passed |
-| Live smoke project (`repository.nmg-sdlc-smoke`) | **Fail** | `nmg-sdlc-smoke provisioning draft created no issue` |
-| Skill inventory | Pass | `node scripts/skill-inventory-audit.mjs --check`: clean (90 items mapped) |
-| Claude Code plugin surface | Pass | `node scripts/verify-plugin-surface.mjs --root . --label repository`: passed |
-| Hooks module tests | Pass | `claude plugin test .`: 47 pass |
-| Git hygiene | Pass | `git diff --check main...HEAD`: exit 0 |
-| Prompt quality | Pass | Workflow/agent edits keep the automated no-question contract |
-
-**Gate Summary**: 6/7 passed, 1 failed, 0 incomplete
+None. The gate was stopped before it reached the smoke provider. Running the current provider would have drafted a new issue in `Nunley-Media-Group/nmg-sdlc-smoke`, which violates the amended AC10. No smoke-repository mutation was made by this verification.
 
 ---
 
 ## Fixes Applied
 
-None. This verify step's publication scope allows writes only to this report, and the defect needs a design change in the hooks module (T004).
+| Severity | Category | Location | Issue | Fix | Routing |
+|----------|----------|----------|-------|-----|---------|
+| — | — | — | None | The missing work is a full implementation pass across runtime, provider, docs and tests, not a safe local fix | — |
 
 ## Remaining Issues
 
-### Critical Issues
-
-| Field | Value |
-|-------|-------|
-| **Severity** | Critical |
-| **Category** | Architecture / Spec compliance |
-| **Location** | `hooks/register.ts:645-649` (`command.run` headless branch) |
-| **Issue** | In a headless run, the hook answers its own command with `{ text: [headlessPlanPreamble(name)] + rendered.text }`. Under the host's `CommandRunResult` contract (`.claude-plugin/types/claude-code/index.d.ts`, around line 1858), a hook's own answer "runs no command: its `text` is shown as the command's output". It does not become the model's prompt. In `claude -p "/<cmd>"` the run prints the text and ends, so no model turn runs. The design assumption ("answers `{ text: rendered.text }` so the workflow runs as the headless prompt") is false on the real host |
-| **Impact** | Headless interactive commands under autopilot (AC9), the smoke gate's provisioning and delivery (AC10), and headless `/sdlc-execute` (AC7, and AC1 for headless runs) do not run their workflows. The required smoke gate cannot pass |
-| **Reason Not Fixed** | Needs an implementation change outside the verify publication scope, and a confirmed host mechanism for starting a model turn from a headless command. Possible routes are to submit the rendered workflow as a prompt (`$.prompt.submit`) or to carry it as model-visible `context`; either needs a focused live reproduction under `claude -p` before the smoke gate is rerun. The hooks-module test engine accepts the current answer, so `register.test.ts` needs a case that reflects the real headless semantics |
-
-### Low Priority
-
-| Field | Value |
-|-------|-------|
-| **Severity** | Low |
-| **Category** | Documentation |
-| **Location** | `scripts/sdlc-upgrade.mjs:2559`, `workflows/upgrade-project/WORKFLOW.md:13`, `workflows/upgrade-project/references/detection.md:3`, `workflows/upgrade-project/references/v3-detectors.md:55` |
-| **Issue** | The `packaging-v4-claude-code-herdr` detector still tells v3 projects that v4 "requires Herdr" / "plus Herdr" |
-| **Impact** | Upgrading users get stale Herdr guidance; it does not affect delivery |
-| **Reason Not Fixed** | Outside verify publication scope; fold into the next implementation pass |
-
----
-
-## Positive Observations
-
-- The transport swap is cleanly contained, and controller routing, gates and handoff validation are unchanged (FR2).
-- Request validation and deny-after-stop give strong fail-closed behavior.
-- The test suite was rewritten substantially and stays green.
-
-## Recommendations Summary
-
-### Before PR (Must)
-- [ ] Make headless `/sdlc-*` commands (autopilot interactive commands and `/sdlc-execute`) start a real model turn with the rendered workflow. Prove it with a focused `claude -p --plugin-dir <checkout>` reproduction, then rerun the full registered gate including `repository.nmg-sdlc-smoke`
-
-### Short Term (Should)
-- [ ] Remove the stale "requires Herdr" text from the `packaging-v4-claude-code-herdr` detector
-
----
-
-## Files Reviewed
-
-| File | Issues | Notes |
-|------|--------|-------|
-| `hooks/register.ts` | 1 | Headless `command.run` answer |
-| `src/execute-host.mjs` | 0 | |
-| `src/stage-models.mjs` | 0 | |
-| `scripts/sdlc-execute-host.mjs` | 0 | |
-| `scripts/sdlc-execute.mjs` | 0 | |
-| `scripts/sdlc-upgrade.mjs` | 1 | Low: stale Herdr detector text |
-| `steering/extensions/nmg-sdlc-smoke.mjs` | 0 | Correct, blocked by the hooks defect |
-| `agents/*.md` | 0 | |
-
----
+| Severity | Category | Location | Issue | Reason Not Fixed |
+|----------|----------|----------|-------|------------------|
+| High | Spec compliance | `hooks/register.ts`, `src/execute-host.mjs`, docs, tests | AC9/FR6: autopilot not removed (T004, T009, T011, T013) | Implementation scope, so route to implement |
+| High | Spec compliance | `steering/extensions/nmg-sdlc-smoke.mjs`, `scripts/__tests__/nmg-sdlc-smoke.test.mjs` | AC10/FR7: provider self-provisions instead of reading `.nmg-sdlc/smoke/provisioned.json` (T007, T012) | Implementation scope, so route to implement |
+| High | Spec compliance | `steering/snippets/project-smoke.md`, `steering/manifest.json`, `steering-contract.test.mjs` | AC13/FR12: verify-stage provisioning snippet missing (T014) | Implementation scope, so route to implement |
+| Medium | Spec compliance | `CHANGELOG.md`, `docs/decisions/*`, `references/rewrite-*` | FR10/FR13: autopilot removal not recorded as breaking or superseded | Depends on the AC9 change |
+| Medium | Verification | `.nmg-sdlc/verification/538.json` | Registered gate incomplete (tests cancelled, smoke not run) | Stopped on purpose. Rerun the full gate after the implementation lands |
 
 ## Recommendation
 
-**Needs fixes**
+Major rework needed: implement the amended AC9, AC10 and AC13 (T004, T007, T009, T011–T014). Then rerun the full registered gate, including real smoke against a verify-provisioned issue.
 
-The required live smoke gate failed on a confirmed plugin defect: a headless command answer is printed as output, not run as a prompt. Route back to implementation diagnosis, then rerun the full registered gate at the new head.
+**Overall Status: Fail**

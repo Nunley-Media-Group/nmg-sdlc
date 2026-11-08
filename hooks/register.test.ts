@@ -1,6 +1,6 @@
 import type { On } from 'claude-code'
 import { describe, expect, mock, test, type Engine } from 'claude-code/testing'
-import { executeResultPath, headlessPlanPreamble } from '../src/execute-host.mjs'
+import { executeResultPath } from '../src/execute-host.mjs'
 
 const ROOT_TOKEN = '<plugin-root>'
 const FINISHED = 'Finished — stop writing specs'
@@ -374,25 +374,27 @@ describe('/sdlc-execute --result', () => {
 })
 
 describe('headless runs', () => {
-  test('a headless write-spec merge that was backgrounded is rewritten to run in the foreground with a bounded timeout', async ($, on) => {
+  // AC9: autopilot is removed, so NMG_SDLC_AUTOPILOT=1 no longer lets an interactive command run headless.
+  for (const command of ['sdlc-draft-issue', 'sdlc-write-spec']) {
+    test(`with NMG_SDLC_AUTOPILOT=1 a headless /${command} still fails closed without rendering`, async ($, on) => {
+      const world = engine(on, { interactive: false, env: { NMG_SDLC_AUTOPILOT: '1' } })
+      await start($, world, false)
+      const result = await run($, world, command, '#5')
+      expect(result).toEqual(expect.objectContaining({ text: `Run /${command} in the TUI.`, exitCode: 2 }))
+      expect(world.renders).toEqual([])
+      expect(world.plans).toEqual([])
+      expect(world.prompts).toEqual([])
+    })
+  }
+
+  test('a backgrounded write-spec merge is left in the background', async ($, on) => {
     const world = engine(on, { interactive: false })
     await start($, world, false)
     const root = await pluginRoot($, world)
     const merge = mergeCommand(root, 9)
     await $.tool.call({ tool: 'Bash', command: merge, run_in_background: true } as never)
-    expect(world.bashInputs.at(-1)).toMatchObject({ command: merge, run_in_background: false, timeout: 600000 })
-  })
-
-  test('a headless interactive command under autopilot submits the plan preamble and its workflow as the prompt, and approves EnterPlanMode', async ($, on) => {
-    const world = engine(on, { interactive: false, env: { NMG_SDLC_AUTOPILOT: '1' } })
-    await start($, world, false)
-    const result = await run($, world, 'sdlc-draft-issue', 'a parser bug')
-    expect(result).toEqual({})
-    expect(world.renders.at(-1)).toEqual(expect.arrayContaining(['--consumer', 'sdlc-draft-issue', '--args', 'a parser bug']))
-    expect(world.plans).toEqual([])
-    expect(world.prompts).toEqual([{ text: `${headlessPlanPreamble('sdlc-draft-issue')}# sdlc-draft-issue workflow`, asUser: true }])
-    expect(await $.classic.PermissionRequest({ tool_name: 'EnterPlanMode', tool_input: {} }))
-      .toEqual({ decision: { behavior: 'allow', updatedInput: {} } })
+    expect(world.bashInputs.at(-1)).toMatchObject({ command: merge, run_in_background: true })
+    expect(world.bashInputs.at(-1)).not.toHaveProperty('timeout')
   })
 })
 
@@ -731,45 +733,26 @@ describe('write-spec Finished', () => {
   })
 })
 
-describe('autopilot', () => {
-  test('NMG_SDLC_AUTOPILOT answers questions with the recommended option and approves plans', async ($, on) => {
-    const world = engine(on, { env: { NMG_SDLC_AUTOPILOT: '1' } })
-    await start($, world)
-    const questions = [
-      { question: 'Which kind?', header: 'Kind', multiSelect: false, options: [{ label: 'Bug', description: '' }, { label: 'Feature (Recommended)', description: '' }] },
-      { question: 'Milestone?', header: 'Milestone', multiSelect: false, options: [{ label: 'v1', description: '' }, { label: 'v2', description: '' }] },
-    ]
-    expect(await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions } })).toEqual({
-      decision: {
-        behavior: 'allow',
-        updatedInput: { questions, answers: { 'Which kind?': 'Feature (Recommended)', 'Milestone?': 'v1' } },
-      },
+describe('plan and question gates', () => {
+  // AC9: NMG_SDLC_AUTOPILOT is not read; every plan and question goes to the person.
+  for (const [label, env] of [['without', {}], ['with', { NMG_SDLC_AUTOPILOT: '1' }]] as const) {
+    test(`${label} NMG_SDLC_AUTOPILOT=1, questions, plans and plan entry go to the person`, async ($, on) => {
+      const world = engine(on, { env })
+      await start($, world)
+      const questions = [{ question: 'Which kind?', header: 'Kind', multiSelect: false, options: [{ label: 'Bug', description: '' }, { label: 'Feature (Recommended)', description: '' }] }]
+      expect(await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions } })).toEqual({})
+      expect(await $.classic.PermissionRequest({ tool_name: 'ExitPlanMode', tool_input: { plan: '# Draft' } })).toEqual({})
+      expect(await $.classic.PermissionRequest({ tool_name: 'EnterPlanMode', tool_input: {} })).toEqual({})
     })
-    expect(await $.classic.PermissionRequest({ tool_name: 'ExitPlanMode', tool_input: { plan: '# Draft' } }))
-      .toEqual({ decision: { behavior: 'allow', updatedInput: { plan: '# Draft' } } })
-    expect(await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'rm -rf /' } })).toEqual({})
-  })
+  }
 
-  test('during write-spec autopilot prefers Finished over the recommended next issue', async ($, on) => {
+  test('with NMG_SDLC_AUTOPILOT=1 the write-spec Finished approval is unchanged', async ($, on) => {
     const world = engine(on, { env: { NMG_SDLC_AUTOPILOT: '1' } })
     await start($, world)
     await run($, world, 'sdlc-write-spec', '#5')
-    const questions = [{
-      question: 'Write another spec?', header: 'Next', multiSelect: false,
-      options: [{ label: '#6 — Next issue (Recommended)', description: '' }, { label: FINISHED, description: '' }],
-    }]
-    const answered = await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions } })
-    expect(answered).toEqual({
-      decision: { behavior: 'allow', updatedInput: { questions, answers: { 'Write another spec?': FINISHED } } },
-    })
-  })
-
-  test('without autopilot questions, plans and plan entry go to the person', async ($, on) => {
-    const world = engine(on)
-    await start($, world)
-    expect(await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: [] } })).toEqual({})
-    expect(await $.classic.PermissionRequest({ tool_name: 'ExitPlanMode', tool_input: {} })).toEqual({})
-    expect(await $.classic.PermissionRequest({ tool_name: 'EnterPlanMode', tool_input: {} })).toEqual({})
+    await ask($, FINISHED)
+    expect(await $.classic.PermissionRequest({ tool_name: 'ExitPlanMode', tool_input: { plan: '# Done' } }))
+      .toEqual({ decision: { behavior: 'allow', updatedInput: { plan: '# Done' } } })
   })
 })
 

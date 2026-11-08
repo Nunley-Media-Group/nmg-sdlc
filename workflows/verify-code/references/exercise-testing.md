@@ -26,7 +26,7 @@ Load this repository as the plugin with `claude -p --plugin-dir <repo> --add-dir
 
 `claude -p "/sdlc-NAME"` works for the file-backed **automated** commands (`/sdlc-status`, `/sdlc-verify-code`, `/sdlc-open-pr`) because those are plugin command files under `commands/*.md`, which Claude Code expands under `-p` as the initial prompt. Requires `--plugin-dir <nmg-sdlc-root>` (or an installed plugin). Do not register those names in the hooks module; the command files own them. `/sdlc-execute` is registered by the hooks module and also runs headless under `claude -p`.
 
-Interactive `/sdlc-*` commands are TUI-only unless `NMG_SDLC_AUTOPILOT=1` runs them headless. Without a UI (`claude -p`, the SDK) and without that variable, the nmg-sdlc hooks module answers `Run /sdlc-<command> in the TUI.` and exits 2.
+Interactive `/sdlc-*` commands are TUI-only. Without a UI (`claude -p`, the SDK), the nmg-sdlc hooks module answers `Run /sdlc-<command> in the TUI.` and exits 2.
 
 From the disposable project directory:
 
@@ -44,7 +44,7 @@ node <plugin-root>/scripts/exercise-claude.mjs \
 
 For dry-run GitHub skills: put the skill invocation first after `--`, then the dry-run instructions as additional prompt text only if the command is not a registered slash command. Otherwise include them after `$ARGUMENTS` in the command text (automated command files receive the remaining text as `$ARGUMENTS`). Capture stdout+stderr to exercise-output.txt.
 
-Interactive `/sdlc-*` commands enter native plan mode only in the TUI, where the hooks module runs `/plan` and submits the workflow. Under `claude -p` without `NMG_SDLC_AUTOPILOT=1` they fail closed (`Run /sdlc-<command> in the TUI.`, exit 2; the harness reports reason `interactive_only`). Record that limitation when exercising draft-issue / write-spec / onboard / upgrade / steering / run-retro. A TUI exercise can run hands-off in a session started with `NMG_SDLC_AUTOPILOT=1`, in the TUI or headless under `claude -p`, where the hooks module approves every `ExitPlanMode` and answers every `AskUserQuestion` with its `(Recommended)` option.
+Interactive `/sdlc-*` commands enter native plan mode only in the TUI, where the hooks module runs `/plan` and submits the workflow. Under `claude -p` they fail closed (`Run /sdlc-<command> in the TUI.`, exit 2; the harness reports reason `interactive_only`). Record that limitation when exercising draft-issue / write-spec / onboard / upgrade / steering / run-retro. To exercise one hands-off, drive a TUI session in a detached tmux session (`tmux new-session -d … 'claude --plugin-dir <repo>'`), read the pane with `tmux capture-pane -p`, and answer each question and plan dialog yourself with `tmux send-keys`.
 
 If the Claude Code harness is unavailable, record "claude harness not available for exercise" and degrade gracefully (still evaluate any local artifacts produced).
 
