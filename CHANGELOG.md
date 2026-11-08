@@ -12,6 +12,12 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.10.0] - 2026-11-08
+
+### Changed
+
+- Replace Herdr panes with hooks-module subagents for /sdlc-execute (#538)
+
 ## [4.9.0] - 2026-11-08
 
 ### Added
