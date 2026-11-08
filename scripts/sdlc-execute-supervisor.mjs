@@ -2,7 +2,7 @@
 
 import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { linkSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createConnection, createServer } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -88,6 +88,18 @@ export function fileSupervisor({ dir, session, now = Date.now, sleep = pause,
       sleep(pollMs);
     }
   };
+}
+
+// Whether the controller has a host request with no response while no bridge heartbeat is fresh.
+function awaitingBridge(dir) {
+  if (hostFresh(dir, Date.now)) return false;
+  return requestNumbers(dir).some((n) => !existsSync(join(dir, `response-${n}.json`)));
+}
+function requestNumbers(dir) {
+  try {
+    return readdirSync(dir).map((name) => Number(/^request-([1-9]\d*)\.json$/.exec(name)?.[1]))
+      .filter(Number.isSafeInteger);
+  } catch { return []; }
 }
 
 function reportFiles(dir) {
@@ -268,10 +280,7 @@ function sendMessage(target, message) {
 
 /** The next free request number in a session directory. */
 function nextRequestNumber(dir) {
-  let names = [];
-  try { names = readdirSync(dir); } catch { /* an empty directory has no requests yet */ }
-  const numbers = names.map((name) => Number(/^request-([1-9]\d*)\.json$/.exec(name)?.[1])).filter(Number.isSafeInteger);
-  return Math.max(0, ...numbers) + 1;
+  return Math.max(0, ...requestNumbers(dir)) + 1;
 }
 
 /** Stops the stage subagent a cancelled controller left running. The request is written while the supervising
@@ -563,7 +572,10 @@ export async function superviseExecute({ args = '', cwd = process.cwd(), env = p
       const report = pendingReport(dir, session, 0);
       // A running stage subagent ends the supervise call too: no supervision Bash call waits for a worker to run.
       const worker = report ? null : readJson(join(dir, 'worker.json'));
-      if (!report && !worker && Date.now() < deadline) return;
+      // So does a host request the controller is waiting on: the hooks module starts the bridge that answers
+      // it, and writes the heartbeat, only once this call has returned its session line.
+      const awaitingHost = !report && !worker && awaitingBridge(dir);
+      if (!report && !worker && !awaitingHost && Date.now() < deadline) return;
       yielded = report ? reportOutput(report)
         : worker ? workerOutput(worker)
           : runningOutput(session);

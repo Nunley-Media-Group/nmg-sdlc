@@ -139,9 +139,10 @@ const workerStarted = (value) => {
 // The hooks module, in-process: it answers each request the controller writes into the session directory,
 // keeps the session heartbeat (host.json) fresh, and writes each stage subagent's handoff when it settles.
 // Modes: `running` keeps the subagent working; `reports` settles each subagent one second after spawn,
-// with a failed implement handoff; `stall` never answers a spawn request.
-function startResponder(root, { mode, denyStop }) {
-  const responder = { spawns: [], stops: [], invalid: [], other: [], handled: new Set(), flips: [], attempts: 0 };
+// with a failed implement handoff; `stall` never answers a spawn request. A `paused` responder writes no
+// heartbeat and answers nothing until it is unpaused, as the hooks module's bridge does before supervise returns.
+function startResponder(root, { mode, denyStop, paused = false }) {
+  const responder = { spawns: [], stops: [], invalid: [], other: [], handled: new Set(), flips: [], attempts: 0, paused };
   const answer = (dir, session, n, fields) => writeAtomic(path.join(dir, `response-${n}.json`),
     { schemaVersion: 1, session, n, ...fields });
   const writeAgent = (dir, agentId, status, at) => writeAtomic(path.join(dir, `agent-${agentId}.json`), {
@@ -174,6 +175,7 @@ function startResponder(root, { mode, denyStop }) {
     }
   };
   const tick = () => {
+    if (responder.paused) return;
     for (const session of sessionDirsOf(root)) {
       const dir = path.join(root, '.nmg-sdlc', 'execute', session);
       try {
@@ -213,7 +215,7 @@ function startResponder(root, { mode, denyStop }) {
 
 async function fixture({ mode = 'running', denyStop = false, ghAuthFails = false, inheritedPipes = false,
   holdBootstrap = false, startupFailure = false, probePeer = false, ancestorModule = false,
-  claudeSession = null, waitSeconds = 540, checkIn = null } = {}) {
+  claudeSession = null, waitSeconds = 540, checkIn = null, bridgeAfterSupervise = false } = {}) {
   // An ancestor `"type": "module"` package.json (as a system temporary directory may hold) must not
   // change how the extensionless fixture commands load.
   const parent = ancestorModule ? fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-module-'))) : null;
@@ -332,7 +334,7 @@ throw new Error('Unexpected gh command: '+args.join(' '));\n`);
   delete childEnv.NMG_SDLC_EXECUTE_SESSION;
   if (claudeSession) childEnv.NMG_SDLC_CLAUDE_SESSION_ID = claudeSession;
 
-  const responder = startResponder(root, { mode, denyStop });
+  const responder = startResponder(root, { mode, denyStop, paused: bridgeAfterSupervise });
   const args = ['supervise', ...(checkIn ? ['--check-in-seconds', String(checkIn)] : []),
     '--wait-seconds', String(waitSeconds), '#42'];
   const child = spawn('node', [EXECUTE, ...args], {
@@ -343,6 +345,8 @@ throw new Error('Unexpected gh command: '+args.join(' '));\n`);
   child.stdout.on('data', (chunk) => { stdout += chunk; });
   child.stderr.on('data', (chunk) => { stderr += chunk; });
   const done = new Promise((resolve) => child.once('close', (code, exitSignal) => {
+    // The hooks module starts its bridge once the supervise call has returned its session line.
+    responder.paused = false;
     resolve({ code, signal: exitSignal, stdout, stderr });
   }));
   const value = {
@@ -546,6 +550,28 @@ posix('execute CLI cancellation of its stage subagent and lease', () => {
     expect(await cli(value, ['wait', '--session', session]))
       .toMatchObject({ code: 2, stderr: `execute_session_unknown: ${session}\n` });
   }, 30_000);
+
+  it('returns from supervise while the first spawn waits on a bridge that starts only after it, then starts the subagent', async () => {
+    const begun = Date.now();
+    const value = await fixture({ bridgeAfterSupervise: true, waitSeconds: 120 });
+    const started = await value.done;
+    expect(started.code).toBe(0);
+    expect(Date.now() - begun).toBeLessThan(25_000);
+    expect(started.stdout.split('\n')[0]).toMatch(/^NMG_SDLC_EXECUTE_SESSION: [0-9a-f-]{36}$/);
+    expect(started.stdout).toContain('NMG_SDLC_EXECUTE_RUNNING');
+    expect(started.stderr).not.toContain('supervising_session_lost');
+    const session = sessionOf(started.stdout);
+    const dir = path.join(value.root, '.nmg-sdlc', 'execute', session);
+    const waited = await cli(value, ['wait', '--session', session, '--wait-seconds', '20']);
+    expect(waited.code).toBe(0);
+    expect(JSON.parse(/^NMG_SDLC_EXECUTE_WORKER: (.+)$/m.exec(waited.stdout)[1]))
+      .toEqual({ issue: 42, stage: 'implement', agentId: 'agent-1' });
+    expect(value.responder.spawns).toHaveLength(1);
+    sendSignal(readJson(path.join(dir, 'daemon.json')).pid, 'SIGTERM');
+    const outcome = await until(() => readJson(path.join(dir, 'result.json')), 'the daemon recording its cancelled result');
+    expect(outcome).toMatchObject({ session, status: 143 });
+    expect(outcome.stderr).not.toContain('supervising_session_lost');
+  }, 60_000);
 
   it('cancels a running subagent when its supervising daemon is terminated, then reports the terminal result', async () => {
     const value = await fixture({ waitSeconds: 2 });

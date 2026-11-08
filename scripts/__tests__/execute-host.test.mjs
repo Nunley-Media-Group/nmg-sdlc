@@ -547,6 +547,27 @@ describe('createFileHost supervising session heartbeat', () => {
     expect(() => h.host.wait({ agentId: 'agent-1', until: 'working' })).toThrow('supervising_session_lost');
   });
 
+  it('waits for the first heartbeat on a request made before the bridge has started', () => {
+    const h = harness({ handler: () => ({ ok: true, agentId: 'agent-first' }) });
+    // No heartbeat yet: the bridge answers the request after the controller has started waiting on it.
+    fs.rmSync(path.join(h.sessionDir, 'host.json'));
+    expect(h.host.spawn(spawnArgs(h.root))).toEqual({ agentId: 'agent-first' });
+    expect(h.sleeps.length).toBeGreaterThan(0);
+  });
+
+  it('throws supervising_session_lost when no first heartbeat appears within one heartbeat window', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'execute-host-'));
+    roots.push(root);
+    const sessionDir = path.join(root, SESSION);
+    fs.mkdirSync(sessionDir);
+    // No bridge: nothing answers the request and no heartbeat is ever written.
+    const clock = { now: NOW };
+    const host = createFileHost({ sessionDir, now: () => clock.now, sleep: (ms) => { clock.now += ms; } });
+    expect(() => host.spawn(spawnArgs(root))).toThrow('supervising_session_lost');
+    expect(clock.now - NOW).toBeGreaterThan(HOST_HEARTBEAT_MS);
+    expect(fs.existsSync(path.join(sessionDir, 'worker.json'))).toBe(false);
+  });
+
   it('still answers a request when the heartbeat is exactly 60 seconds old', () => {
     const h = harness({ handler: () => ({ ok: true, agentId: 'agent-edge' }) });
     h.writeHeartbeat(h.clock.now - HOST_HEARTBEAT_MS);

@@ -6,7 +6,7 @@
 import { randomBytes } from 'node:crypto';
 import { lstatSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { ACTIVE_AGENT_STATUSES, heartbeatFresh } from '../src/execute-host.mjs';
+import { ACTIVE_AGENT_STATUSES, HOST_HEARTBEAT_MS, heartbeatFresh } from '../src/execute-host.mjs';
 
 const POLL_MS = 250;
 
@@ -53,9 +53,23 @@ export function createFileHost({ sessionDir, now = Date.now, sleep = pause } = {
   const workerPath = join(sessionDir, 'worker.json');
   let counter = Math.max(0, ...requestNumbers(sessionDir));
 
-  const hostAlive = () => heartbeatFresh(readJson(hostPath), now);
+  // Set once a fresh heartbeat has been read: from then on a missing or stale one means the session is gone.
+  let heartbeatSeen = false;
+  const hostAlive = () => {
+    const alive = heartbeatFresh(readJson(hostPath), now);
+    if (alive) heartbeatSeen = true;
+    return alive;
+  };
   const assertAlive = () => {
     if (!hostAlive()) throw supervisingSessionLost();
+  };
+  // The hooks module starts its bridge, and so the heartbeat, only once the supervise call has returned, and that
+  // call returns when it sees this request waiting. Until a first heartbeat appears, a request waits for it for
+  // one heartbeat window; a heartbeat that is present but stale still fails at once.
+  const assertAliveOrStarting = (since) => {
+    if (hostAlive()) return;
+    const starting = !heartbeatSeen && readJson(hostPath) === null && now() - since <= HOST_HEARTBEAT_MS;
+    if (!starting) throw supervisingSessionLost();
   };
 
   /** Writes one request (and its prompt file, when given) and waits for the hooks module's response. */
@@ -70,10 +84,11 @@ export function createFileHost({ sessionDir, now = Date.now, sleep = pause } = {
     }
     writeAtomic(join(sessionDir, `request-${n}.json`), base);
     const responsePath = join(sessionDir, `response-${n}.json`);
+    const since = now();
     for (;;) {
       const response = readJson(responsePath);
       if (response && response.n === n && response.session === session) return response;
-      assertAlive();
+      assertAliveOrStarting(since);
       sleep(POLL_MS);
     }
   };
