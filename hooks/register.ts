@@ -1,4 +1,4 @@
-import type { EngineInterface, Register, TurnStepInput } from 'claude-code'
+import type { CommandRunResult, EngineInterface, Register, TurnStepInput } from 'claude-code'
 import {
   DIRECT_COMMANDS,
   INTERACTIVE_COMMANDS,
@@ -11,6 +11,7 @@ import {
   isExecuteSuperviseCommand,
   materializePluginRootCommand,
   materializePluginRootPath,
+  parseInteractiveSlash,
   writeSpecFinishedSelection,
   writeSpecMergeIssue,
   writeSpecMergeResult,
@@ -605,6 +606,41 @@ async function executeResult($: Engine): Promise<{ text: string; exitCode: numbe
   return executeResultText(record) ?? missingResultText(claudeSessionId)
 }
 
+// One interactive command's gates and workflow, for a typed `command.run` and for a pasted prompt alike,
+// so both reach the same refusals, model gate, render, plan mode and model override.
+async function runInteractive($: Engine, name: string, args: string): Promise<CommandRunResult> {
+  // `--result` reads the recorded outcome of an earlier run; it mutates nothing and needs no model gate.
+  if (name === 'sdlc-execute' && args.trim() === '--result') return executeResult($)
+  const headless = !interactive || (await $.session.surfaces()).length === 0
+  // Interactive commands need plan mode and AskUserQuestion, which a headless session lacks.
+  if (headless && name !== 'sdlc-execute') {
+    return { text: interactiveHeadlessMessage(name).trimEnd(), exitCode: 2 }
+  }
+  if (name === 'sdlc-execute') {
+    const modelRefusal = await executeRefusal($)
+    if (modelRefusal !== null) return { text: modelRefusal, exitCode: 1 }
+  }
+  const rendered = await render($, ['--consumer', name, '--args', args])
+  if (!rendered.ok) return { text: `NMG SDLC: /${name} could not render its workflow: ${rendered.message}` }
+  startInteractiveCommand(name)
+  await startModelOverride($, name)
+  headlessRun = headless
+  // Neither `/plan` nor the workflow prompt can start from inside this
+  // command's own dispatch; a timer starts them once it has settled. A
+  // command's own `{ text }` answer is only printed, so a direct command
+  // (`/sdlc-execute`, TUI or `claude -p`) submits its workflow as the prompt.
+  if (DIRECT_COMMANDS.includes(name)) {
+    $.clock.after(1, () => { void $.prompt.submit({ text: rendered.text, asUser: true }) })
+    return {}
+  }
+  $.clock.after(1, async () => {
+    if (!(await submitInPlanMode($, rendered.text))) {
+      $.ui.toast(`NMG SDLC: /${name} could not enter plan mode; run it again.`)
+    }
+  })
+  return {}
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -620,46 +656,23 @@ export const register: Register = on => {
   })
 
   for (const [name] of INTERACTIVE_COMMANDS) {
-    on('command.run', { command: name }, async ($, e) => {
-      // `--result` reads the recorded outcome of an earlier run; it mutates nothing and needs no model gate.
-      if (name === 'sdlc-execute' && e.args.trim() === '--result') return executeResult($)
-      const headless = !interactive || (await $.session.surfaces()).length === 0
-      // Interactive commands need plan mode and AskUserQuestion, which a headless session lacks.
-      if (headless && name !== 'sdlc-execute') {
-        return { text: interactiveHeadlessMessage(name).trimEnd(), exitCode: 2 }
-      }
-      if (name === 'sdlc-execute') {
-        const modelRefusal = await executeRefusal($)
-        if (modelRefusal !== null) return { text: modelRefusal, exitCode: 1 }
-      }
-      const rendered = await render($, ['--consumer', name, '--args', e.args])
-      if (!rendered.ok) return { text: `NMG SDLC: /${name} could not render its workflow: ${rendered.message}` }
-      startInteractiveCommand(name)
-      await startModelOverride($, name)
-      headlessRun = headless
-      // Neither `/plan` nor the workflow prompt can start from inside this
-      // command's own dispatch; a timer starts them once it has settled. A
-      // command's own `{ text }` answer is only printed, so a direct command
-      // (`/sdlc-execute`, TUI or `claude -p`) submits its workflow as the prompt.
-      if (DIRECT_COMMANDS.includes(name)) {
-        $.clock.after(1, () => { void $.prompt.submit({ text: rendered.text, asUser: true }) })
-        return {}
-      }
-      $.clock.after(1, async () => {
-        if (!(await submitInPlanMode($, rendered.text))) {
-          $.ui.toast(`NMG SDLC: /${name} could not enter plan mode; run it again.`)
-        }
-      })
-      return {}
-    })
+    on('command.run', { command: name }, ($, e) => runInteractive($, name, e.args))
   }
 
   // The person's own prompt or slash command ends the running command's model
   // override; a command it runs starts a fresh one from its `command.run`.
   // Plugin-submitted turns (the workflow, Continue, the Finished nudge) keep it.
-  on('prompt.submit', ($, e, next) => {
-    if ((e.origin.kind === 'composer' || e.origin.kind === 'bridge') && e.isMeta !== true) modelOverride = null
-    return next(e)
+  // A pasted prompt whose text begins with an interactive command name runs that
+  // command as the typed one would, and is dropped so its text never reaches the
+  // model. A prompt the engine parsed as a command (`e.command`) already ran in
+  // `command.run`, so it passes through.
+  on('prompt.submit', async ($, e, next) => {
+    if ((e.origin.kind !== 'composer' && e.origin.kind !== 'bridge') || e.isMeta === true) return next(e)
+    modelOverride = null
+    const match = e.command === undefined ? parseInteractiveSlash(e.text) : null
+    if (match === null) return next(e)
+    const result = await runInteractive($, match.command, match.args)
+    return { drop: result.text ?? `NMG SDLC: running /${match.command}.` }
   })
 
   on('turn.step', async function* ($, e, next) {

@@ -12,6 +12,12 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.10.1] - 2026-11-09
+
+### Fixed
+
+- Run an nmg-sdlc command whose text arrives as a pasted prompt instead of sending it to the model as plain text (#541)
+
 ## [4.10.0] - 2026-11-08
 
 ### Changed
