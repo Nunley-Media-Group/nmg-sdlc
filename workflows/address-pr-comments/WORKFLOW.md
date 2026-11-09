@@ -15,7 +15,7 @@ Use only after `scripts/sdlc-deliver.mjs` exits 3 and emits an
 - Never edit for human threads, `CHANGES_REQUESTED`, ambiguous requests, or
   design-affecting requests.
 - Never resolve threads or merge a PR. The controller owns readiness and merge proof.
-- Never launch or prompt another Herdr Claude worker or `Agent` subagent.
+- Never launch or prompt another execute stage subagent (`nmg-sdlc:execute-<entry>`) or `Agent` subagent.
 
 ## Clear Fix
 

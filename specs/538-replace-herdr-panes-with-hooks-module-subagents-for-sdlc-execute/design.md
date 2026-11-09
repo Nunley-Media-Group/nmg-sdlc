@@ -20,11 +20,12 @@ Pure, Node-free logic shared by the hooks module and Node scripts lives in two m
 - `src/stage-models.mjs`: stage model and effort validation, moved out of `scripts/sdlc-models.mjs`;
 - `src/execute-host.mjs`: request and response schemas, activity summaries, and prompt text.
 
-Headless support has three parts:
+Headless support has two parts:
 
-- `/sdlc-execute` runs without a UI, answering its command with the rendered workflow;
-- interactive commands run under `NMG_SDLC_AUTOPILOT=1`;
+- `/sdlc-execute` runs without a UI, submitting its rendered workflow as the prompt from a timer;
 - the result is recorded per Claude session id, and `/sdlc-execute --result` reads it back.
+
+Autopilot (`NMG_SDLC_AUTOPILOT`) is removed, and interactive commands stay TUI-only. Smoke provisioning moves out of the deterministic provider and into the verify stage. A project steering snippet has the verify worker drive the real `/sdlc-draft-issue` and `/sdlc-write-spec` in an interactive Claude session inside tmux, answering their gates itself. The provider only delivers the issue that the worker recorded.
 
 ## Architecture
 
@@ -96,14 +97,14 @@ After a stop, a `tool.call` hook denies every further call from that `agentId` w
 
 - **`/sdlc-execute`**
   - It is exempt from the headless refusal.
-  - With no surfaces (`!interactive || surfaces().length === 0`), it answers `{ text: rendered.text }` so the workflow runs as the headless prompt. In the TUI it keeps the timer submission.
+  - A command's own `{ text }` answer is display-only. In every session, TUI or headless (`!interactive || surfaces().length === 0`), it answers `{}` and submits the rendered workflow with `$.clock.after(1, () => $.prompt.submit({ text, asUser: true }))`. A live `claude -p` probe confirmed that this starts a model turn, while an immediate submit or a `context` answer does not.
   - The `turn.complete` goal handshake awaits `setExecuteGoal` when headless, instead of `void`.
-- **Interactive commands with no surfaces and `autopilot`**
-  - They answer `{ text: headlessPlanPreamble(name) + rendered.text }`. The preamble tells the model to call `EnterPlanMode` first.
-  - The autopilot `classic.PermissionRequest` branch also allows `EnterPlanMode`.
-  - Without autopilot, the existing `Run /<name> in the TUI.` / exit 2 refusal is unchanged.
-- **Write-spec merge**
-  - When headless, the Bash `tool.call` hook rewrites a `publish-approved-spec.mjs merge` call with `run_in_background: true` to run in the foreground with `timeout: 600000`. Publication recognition is unchanged.
+- **Interactive commands with no surfaces**
+  - They always answer `Run /<name> in the TUI.` with exit 2, before rendering, submitting or mutating anything. `NMG_SDLC_AUTOPILOT` is not read.
+- **Autopilot removal**
+  - The `autopilot` flag, its `session.start` read, and its `classic.PermissionRequest` branches for `ExitPlanMode` and `AskUserQuestion` are removed, along with `recommendedAnswers` and the write-spec Finished preference they used.
+  - The write-spec Finished `ExitPlanMode` approval (`writeSpec.exitPending`) is unchanged.
+  - `headlessPlanPreamble` and the headless write-spec merge rewrite are removed, because write-spec never runs headless.
 - **Session id and Herdr toast**
   - `session.start` sets `NMG_SDLC_CLAUDE_SESSION_ID` with `$.env.set(…, await $.session.id())` and removes the Herdr toast.
 
@@ -119,10 +120,11 @@ After a stop, a `tool.call` hook denies every further call from that `agentId` w
 | `createFileHost({ sessionDir, now, sleep })` (`scripts/sdlc-execute-host.mjs`) | — | `{ spawn, activity, append, send, stop, hostAlive }` | `spawn` → `{ agentId }` or throws `worker_start_refused`; `stop` throws `worker_stop_failed`; any wait throws `supervising_session_lost` on a stale heartbeat |
 | `runExecute({ host, … })` | `host` replaces `herdr` | unchanged results | `HERDR_*` preflight, `integrationStatus`, `paneEnvironment`, pane layout/split/close and `foreignActiveWorker` are removed; `gh auth status` stays |
 | `validateStageModels`, `isValidStageModel`, `StageModelsError`, `STAGE_MODEL_DEFAULTS`, `STAGE_NAMES`, `stageModelsWarning` | — | unchanged | Move to Node-free `src/stage-models.mjs` (+ `.d.mts`); `scripts/sdlc-models.mjs` re-exports them and keeps the file IO |
-| `src/execute-host.mjs` (+ `.d.mts`) | — | pure functions | `validateHostRequest`, `hostResponse`, `summarizeToolCall` (Bash command / file path / tool name, ≤200 chars), `activityRecord` (≤10 tool calls, `latestText` ≤2000 chars), `checkInNotice`, `headlessPlanPreamble`, `stoppedWorkerDenial`, `executeResultText`, `STAGE_AGENTS` (`start→starter`, `implement→spec-implementer`, `verify→architecture-reviewer`, `deliver→deliverer`) |
+| `src/execute-host.mjs` (+ `.d.mts`) | — | pure functions | `validateHostRequest`, `hostResponse`, `summarizeToolCall` (Bash command / file path / tool name, ≤200 chars), `activityRecord` (≤10 tool calls, `latestText` ≤2000 chars), `checkInNotice`, `stoppedWorkerDenial`, `executeResultText`, `STAGE_AGENTS` (`start→starter`, `implement→spec-implementer`, `verify→architecture-reviewer`, `deliver→deliverer`) |
 | Worker prompt header (`src/sdlc-prompt-snippets.mjs` `WORKER_HEADER`) | — | text | "a Herdr Claude worker started by /sdlc-execute" becomes "a stage subagent started by /sdlc-execute" |
 | `contributing-v4-host-language` upgrade item (`scripts/sdlc-upgrade.mjs`) | `CONTRIBUTING.md` | `applied` / `already-current` | Detects the v3 or v4 sentence and replaces each with `SUBAGENT_CONTRIBUTING_SENTENCE` |
-| Smoke provider (`steering/extensions/nmg-sdlc-smoke.mjs`) | config | unchanged pass/fail contract | See Smoke gate below |
+| Smoke provider (`steering/extensions/nmg-sdlc-smoke.mjs`) | config, `.nmg-sdlc/smoke/provisioned.json` | unchanged pass/fail contract; `nmg-sdlc-smoke smoke issue not provisioned` | See Smoke gate below |
+| Smoke provisioning snippet (`steering/snippets/project-smoke.md`, manifest id `project.smoke`) | — | prose routed to `worker:verify` only | See Smoke provisioning below |
 
 ## Data / Storage Changes
 
@@ -148,14 +150,35 @@ Result record: `.nmg-sdlc/execute/results/<claudeSessionId>.json` holds `{ schem
 
 `steering/extensions/nmg-sdlc-smoke.mjs` changes:
 
-- **Removed:** `validHerdrEnvironment`, `createHerdrAdapter`, `claudeDialog`, `CLAUDE_DIALOGS`, `TRUST_ACCEPT_KEYS`, `trustSmokeClone` and `closeAbandonedProvisionPane`. Headless `claude -p` does not show a workspace trust dialog.
-- **Provisioning:** runs `claude -p --plugin-dir <pluginRoot> --permission-mode <workerPermissionMode(env)> "/sdlc-draft-issue <need>"`, then `"/sdlc-write-spec #<N>"`, through `executeCommand` with cwd set to the provisioning clone and env `{ …env, NMG_SDLC_AUTOPILOT: '1' }`.
-  - The draft phase passes only when exactly one new issue appears above the baseline after the process exits.
-  - The spec phase passes only on `publishedSpec()` evidence after the process exits.
-  - A resumed `provisioning` phase rechecks this GitHub evidence before launching again.
+- **Removed:**
+  - `validHerdrEnvironment`, `createHerdrAdapter`, `claudeDialog`, `CLAUDE_DIALOGS`, `TRUST_ACCEPT_KEYS`, `trustSmokeClone` and `closeAbandonedProvisionPane`;
+  - `provisionSmokeIssue`, `newSmokeIssues`, the `provisioning` recovery phase and `provisionClone`. The provider never drafts or specifies an issue.
+- **Queue resolution:** `resolveQueue` keeps the explicit `config.issues` and `config.issuesEnv` queues first. Otherwise, a config with `provision.record` yields `{ kind: "recorded", recordPath }`. The manifest config becomes `{ issuesEnv, provision: { need, record: ".nmg-sdlc/smoke/provisioned.json" } }`. The provider ignores `need`, which the snippet reads.
+- **Recorded issue (AC10):**
+  - The provider reads `<projectRoot>/<recordPath>`, which holds `{ schemaVersion: 1, repo: "Nunley-Media-Group/nmg-sdlc-smoke", issue, provisionedAt }`.
+  - A missing or unparsable record, a different `repo`, or a non-positive-integer `issue` fails with `nmg-sdlc-smoke smoke issue not provisioned`.
+  - When the recovery store already holds this issue for the same outer request, the existing recovery and terminal-proof path applies unchanged.
+  - Otherwise, the issue must be OPEN and authored by the authenticated `gh` user, and `publishedSpec(issue)` must return evidence. A recorded issue that a different outer request has already delivered, or one that fails these checks, also fails with `nmg-sdlc-smoke smoke issue not provisioned`. That evidence names the reason (`closed`, `no spec-created label`, `no merged spec PR`, `foreign author`, `already delivered`).
+  - The passing check is recorded as the `provisioned: { issue, published: true }` state that the delivery path uses today.
 - **Delivery:** fresh runs and remainder resumes run `claude -p --session-id <randomUUID> --plugin-dir <pluginRoot> --model opus --permission-mode <mode> "/sdlc-execute #N …"`. The cwd is the delivery clone, and the env keeps `NMG_SDLC_PLUGIN_ROOT`, `NMG_SDLC_SMOKE_OWNED=1` and `NMG_SDLC_SMOKE_RECOVERY`.
   - The controller status comes from `<clone>/.nmg-sdlc/execute/results/<uuid>.json`; a missing record counts as a nonzero status.
   - `verifyRemoteDelivery` and the rule that a nonzero status passes only with exact current-invocation proof are unchanged.
+
+## Smoke provisioning (AC13, FR12)
+
+`steering/snippets/project-smoke.md` is registered in `steering/manifest.json` as `{ id: "project.smoke", consumers: ["worker:verify"], slot: "body", order: 510 }`. Only nmg-sdlc's own verify workers receive it; the plugin ships no provisioning behavior. The snippet instructs the verify worker as follows. It runs these steps before it runs the registered gates, and only when `repository.nmg-sdlc-smoke` is registered and no `NMG_SDLC_SMOKE_ISSUES` value is set:
+
+1. **Reuse.** When `.nmg-sdlc/smoke/provisioned.json` names an issue that is OPEN and carries `spec-created`, and whose `docs: approve spec for #N` PR is merged (`gh issue view` / `gh pr list`), reuse it and skip to the gates. When the issue is OPEN with no published spec, reuse it and run only step 4. Never draft a second issue while a recorded one is open.
+2. **Clone.** Clone `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git` with `--single-branch` into a fresh scratch directory, and confirm that the origin matches and the tree is clean.
+3. **Draft.** Run `tmux new-session -d -s nmg-smoke-<head8> -x 220 -y 60 -c <clone> 'claude --plugin-dir <project root>'`, and accept the workspace trust dialog.
+   - Send `/sdlc-draft-issue <need>`, where `<need>` is `provision.need` from the `repository.nmg-sdlc-smoke` validation config.
+   - Poll `tmux capture-pane -p -t nmg-smoke-<head8>` every 10–30 s, and answer each dialog with `tmux send-keys` as the person would.
+   - Approve a plan that delivers the need as one small issue in the smoke repository, and reject a plan that does anything else. Answer each question with the option that keeps the work one small issue in the smoke repository.
+   - Draft ends when the session is idle and `gh issue list -R Nunley-Media-Group/nmg-sdlc-smoke --author @me` shows exactly one new issue N. Write the record as soon as N exists, so a retry reuses N.
+4. **Specify.** In the same session, send `/sdlc-write-spec #N` and answer its gates the same way, choosing `Finished — stop writing specs` when it offers another issue. Specify ends when N carries `spec-created` and its `docs: approve spec for #N` PR is merged.
+5. **Clean up.** Kill the tmux session, remove the clone, and rewrite the record as `{ schemaVersion: 1, repo, issue: N, provisionedAt }`.
+6. **Classify failures.** A missing `tmux` or `claude` binary, an unreadable pane, a dialog the worker cannot identify, or a GitHub or network failure is an environmental failure: report it and do not retry blindly. A draft-issue or write-spec workflow that errors, ignores its gates, or produces a malformed issue or spec is an nmg-sdlc defect: record it as a finding in the verification report. In either case, do not hand-edit the smoke repository to manufacture provisioning.
+7. **Bound the work.** Do one draft attempt per verification. A stalled session (no pane change for 10 minutes) is killed and reported, not restarted repeatedly.
 
 ## State and UI Behavior
 
@@ -178,6 +201,9 @@ Each stage subagent shows in Claude Code's built-in subagent view under the name
 | Rewrite the controller as a step-wise state machine run from `Bash` | Rejected | Rewrites all of `runExecute` for no observable gain |
 | Spawn workers with the model's `Agent` tool | Rejected | Its `model` accepts only four aliases and it cannot set the permission mode, which breaks AC2 and FR1 |
 | Register the five stage types once at session start from `steering/sdlc-models.json` | Rejected | A second config reader would diverge from the controller's repair selection; registering at dispatch from controller-resolved values keeps one loader |
+| Keep autopilot and run draft-issue and write-spec headless with a preamble that replaces plan mode | Rejected | `claude -p` has no `EnterPlanMode`, `ExitPlanMode` or `AskUserQuestion`, so the real gates would never run. Autopilot's only consumer was smoke provisioning, and the execute controller already owns unattended delivery decisions |
+| Provision the smoke issue deterministically from a checked-in fixture spec | Rejected | It would stop exercising the real `/sdlc-draft-issue` and `/sdlc-write-spec` |
+| Drive provisioning from the deterministic provider through tmux | Rejected | Answering plan and question dialogs needs judgment; scripted dialog matching is how the Herdr provider broke |
 | Read the headless outcome from Claude's internal transcript file | Rejected | The transcript format is internal; a project-local record keyed by the session id is stable, and `--resume` lets `/sdlc-execute --result` set the exit code through the documented `command.run` `exitCode` |
 
 ## Change History
@@ -185,3 +211,4 @@ Each stage subagent shows in Claude Code's built-in subagent view under the name
 | Issue | Date | Summary |
 |-------|------|---------|
 | #538 | 2026-11-08 | Initial feature design |
+| #538 | 2026-11-08 | Amendment: headless `/sdlc-execute` submits its workflow from a timer; autopilot is removed; the verify worker provisions the smoke issue in tmux through the `project.smoke` snippet, and the provider delivers the recorded issue |

@@ -1,9 +1,15 @@
 import type { On } from 'claude-code'
 import { describe, expect, mock, test, type Engine } from 'claude-code/testing'
+import { executeResultPath } from '../src/execute-host.mjs'
 
 const ROOT_TOKEN = '<plugin-root>'
 const FINISHED = 'Finished — stop writing specs'
 const CONTINUE_HEAD = 'Post-publication continuation.'
+const CWD = '/project'
+const SESSION_ID = '6f1d3c2a-9b7e-4d8f-8a1b-2c3d4e5f6a7b'
+const STOP_DENIAL = 'nmg-sdlc: this /sdlc-execute stage worker was stopped'
+const AGENT_BODY = '# Spec Implementer\n\nImplement the approved spec.\n'
+const AGENT_FILE = `---\nname: spec-implementer\ndescription: Implement approved spec tasks.\n---\n\n${AGENT_BODY}`
 
 type World = {
   plans: string[]
@@ -13,7 +19,9 @@ type World = {
   draft: string
   renderFails: boolean
   bash: { command: string; stdout: string; isError?: true; backgroundTaskId?: string; timedOutAfterMs?: number }[]
+  bashInputs: Record<string, unknown>[]
   files: Record<string, string>
+  writes: string[]
   seen: string[]
   envSet: Record<string, string | undefined>
   sessionModel: string
@@ -21,26 +29,96 @@ type World = {
   origins: string[]
   configWrites: string[]
   modelFails: boolean
+  registered: Record<string, unknown>[]
+  registrations: Record<string, unknown>[]
+  spawns: Record<string, unknown>[]
+  spawnDeny?: string
+  registerDeny?: string
+  appended: Record<string, unknown>[]
+  appendDeny: boolean
+  sends: { to: unknown; text: string }[]
+  sendDelivered: boolean
+  stops: string[]
+  stopStatus: string
+  agents: Record<string, string>
+  messages: Record<string, { role: 'user' | 'assistant'; text: string; toolUses: never[] }[]>
   clock: ReturnType<typeof mock.clock>
+}
+
+// The kit resolves a relative path under its own working directory, and the module's stage paths are absolute
+// under CWD. Lookups use the `.nmg-sdlc/` part of a path, so a relative record and its absolute stand-in match.
+function fsKey(path: string): string {
+  const at = path.indexOf('/.nmg-sdlc/')
+  if (at >= 0) return `${CWD}${path.slice(at)}`
+  if (path.startsWith('.nmg-sdlc/')) return `${CWD}/${path}`
+  return path
 }
 
 // The engine beneath the plugin: every `$` call the module makes is answered
 // here, and what it asked for is recorded on the returned world.
 function engine(on: On, { interactive = true, env = {} as Record<string, string> } = {}): World {
   const world: World = {
-    plans: [], prompts: [], toasts: [], renders: [], draft: '', renderFails: false, bash: [], files: {}, seen: [], envSet: {},
+    plans: [], prompts: [], toasts: [], renders: [], draft: '', renderFails: false, bash: [], bashInputs: [],
+    files: {}, writes: [], seen: [], envSet: {},
     sessionModel: 'claude-sonnet-5-5', steps: [], origins: [], configWrites: [], modelFails: false,
+    registered: [], registrations: [], spawns: [], spawnDeny: 'no subagent starts under the test kit',
+    appended: [], appendDeny: false, sends: [], sendDelivered: true,
+    stops: [], stopStatus: 'killed', agents: {}, messages: {},
     clock: mock.clock(on),
   }
   mock.env(on, env)
   on('env.set', (_, e) => { world.envSet[e.name] = e.value; return { value: { isSet: true } } as never })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('command.register', (_, e) => ({ value: { command: e.name } }))
-  on('session.cwd', () => ({ value: '/project' }))
+  on('session.id', () => ({ value: SESSION_ID }))
+  on('command.register', (_, e) => { world.registered.push({ ...e }); return { value: { command: e.name } } })
+  on('command.list', () => ({ value: [{ name: 'goal' }] as never }))
+  on('session.cwd', () => ({ value: CWD }))
   on('session.surfaces', () => ({ value: interactive ? ['terminal'] as const : [] }))
   on('session.model', () => {
     if (world.modelFails) throw new Error('host unavailable')
     return { value: world.sessionModel }
+  })
+  on('session.messages', (_, e) => ({ value: (world.messages[e.agentId ?? ''] ?? []) as never }))
+  // A refusal stands for a loop that has ended; otherwise the row is kept below, as a session keeps it.
+  on('session.append', (_, e, next) => {
+    if (world.appendDeny) return { deny: 'the agent loop has ended' } as never
+    world.appended.push({ ...e })
+    return next(e)
+  })
+  on('session.send', (_, e) => {
+    world.sends.push({ to: e.to, text: e.text })
+    return (world.sendDelivered ? { isDelivered: true } : { isDelivered: false, reason: 'the agent is not running' }) as never
+  })
+  on('agent.register', (_, e) => {
+    world.registrations.push({ ...e })
+    return world.registerDeny === undefined ? { value: { agent: e.name } } : { deny: world.registerDeny } as never
+  })
+  // A hook that answers without `next` starts no subagent, so a spawn is passed on to the kit's own start.
+  on('agent.spawn', async (_, e, next) => {
+    world.spawns.push({ ...e })
+    if (world.spawnDeny !== undefined) return { deny: world.spawnDeny } as never
+    const started = await next(e)
+    if (typeof started.agentId === 'string') world.agents[started.agentId] = 'running'
+    return started
+  })
+  on('agent.list', () => ({
+    value: Object.entries(world.agents).map(([id, status]) => ({ id, description: id, status })) as never,
+  }))
+  on('fs.read', (_, e) => {
+    const text = world.files[fsKey(e.path)]
+    return text === undefined ? { deny: `no such file: ${e.path}` } as never : { value: text }
+  })
+  on('fs.write', (_, e) => {
+    world.writes.push(fsKey(e.path))
+    world.files[fsKey(e.path)] = e.text
+    return { value: undefined }
+  })
+  on('fs.list', (_, e) => {
+    const dir = fsKey(e.path)
+    const entries = Object.keys(world.files)
+      .filter(file => file.startsWith(`${dir}/`) && !file.slice(dir.length + 1).includes('/'))
+      .map(file => ({ name: file.slice(dir.length + 1), kind: 'file' as const }))
+    return entries.length === 0 ? { deny: `no such directory: ${dir}` } as never : { value: entries as never }
   })
   on('config.set', (_, e) => { world.configWrites.push(JSON.stringify(e)); return {} as never })
   on('turn.step', async function* (_, e) {
@@ -66,12 +144,19 @@ function engine(on: On, { interactive = true, env = {} as Record<string, string>
   on('prompt.submit', (_, e) => { world.origins.push(e.origin.kind); world.prompts.push({ text: e.text, ...(e.origin.kind === 'plugin' && e.origin.asUser ? { asUser: true as const } : {}) }); return { text: e.text } })
   on('tool.call', { tool: 'Bash' }, (_, e) => {
     world.seen.push(e.command)
+    world.bashInputs.push({ ...e })
     const answer = world.bash.find(item => item.command === e.command)
     if (answer?.isError) return { isError: true, result: answer.stdout, text: answer.stdout }
     const background = answer?.backgroundTaskId === undefined
       ? {}
       : { backgroundTaskId: answer.backgroundTaskId, timedOutAfterMs: answer.timedOutAfterMs }
     return { result: { stdout: answer?.stdout ?? '', stderr: '', interrupted: false, ...background } }
+  })
+  on('tool.call', { tool: 'TaskStop' }, (_, e) => {
+    const id = String((e as { task_id?: unknown }).task_id)
+    world.stops.push(id)
+    world.agents[id] = world.stopStatus
+    return { result: {} as never }
   })
   on('tool.call', { tool: 'AskUserQuestion' }, (_, e) => ({
     result: { questions: e.questions, answers: e.answers ?? {} },
@@ -85,7 +170,7 @@ function engine(on: On, { interactive = true, env = {} as Record<string, string>
 type Dollar = Engine
 
 async function start($: Dollar, world: World, interactive = true) {
-  await $.session.start({ cwd: '/project', surface: interactive ? 'terminal' : null, isInteractive: interactive })
+  await $.session.start({ cwd: CWD, surface: interactive ? 'terminal' : null, isInteractive: interactive })
   await world.clock.settle()
 }
 
@@ -112,7 +197,7 @@ async function ask($: Dollar, answer: string) {
 }
 
 // One model request of the current turn: main's unless `agentId` is given.
-async function step($: Dollar, world: World, extra: { agentId?: string; model?: string } = {}) {
+async function step($: Dollar, world: World, extra: { agentId?: string; model?: string; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' } = {}) {
   const stream = $.turn.step({ turnId: 't', index: 0, model: world.sessionModel, effort: 'high', messageCount: 1, ...extra })
   for await (const _chunk of stream) { /* drain */ }
   return world.steps.at(-1)
@@ -128,14 +213,67 @@ function mergeCommand(root: string, issue: number) {
   return `node ${JSON.stringify(`${root}/scripts/publish-approved-spec.mjs`)} merge --issue ${issue} --dir specs/${issue}-slug-${issue}`
 }
 
+// Each /sdlc-execute session gets its own id, so a bridge left by an earlier test never answers this one.
+const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
+const executeDir = (session: string) => `${CWD}/.nmg-sdlc/execute/${session}`
+
+// The controller's request n, written into the session directory as the controller writes it.
+function writeRequest(world: World, session: string, n: number, fields: Record<string, unknown>): void {
+  world.files[`${executeDir(session)}/request-${n}.json`] = JSON.stringify({ schemaVersion: 1, session, n, ...fields })
+}
+
+function spawnRequest(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    kind: 'spawn', issue: 42, step: 'implement', entry: 'implement', agent: 'spec-implementer', name: 'implement #42',
+    model: 'claude-opus-5-5', effort: 'high', permissionMode: 'acceptEdits', promptFile: 'prompt-1.md', cwd: '/project/.worktrees/42',
+    ...overrides,
+  }
+}
+
+// The host's answer to request n, or undefined before the bridge has answered it.
+function response(world: World, session: string, n: number): Record<string, unknown> | undefined {
+  const text = world.files[`${executeDir(session)}/response-${n}.json`]
+  return text === undefined ? undefined : JSON.parse(text)
+}
+
+// The plugin root the commands resolve to; a Bash call through the hooks module shows it.
+async function pluginRoot($: Dollar, world: World) {
+  await $.tool.call({ tool: 'Bash', command: `node "${ROOT_TOKEN}/scripts/sdlc-status.mjs"` })
+  return /^node "(.+)\/scripts\//.exec(world.seen.at(-1) ?? '')?.[1] ?? ''
+}
+
+function controller(root: string, args: string) {
+  return `node "${root}/scripts/sdlc-execute.mjs" ${args}`
+}
+
+// Starts /sdlc-execute for one issue and sets its goal, as the execute workflow does before supervise.
+async function startExecute($: Dollar, world: World, root: string, issue = 42) {
+  world.sessionModel = 'claude-opus-5-5'
+  await run($, world, 'sdlc-execute', `#${issue}`)
+  const goal = controller(root, `goal #${issue}`)
+  world.bash.push({ command: goal, stdout: `${JSON.stringify({ ok: true, issues: [issue], condition: 'x' })}\n` })
+  await $.tool.call({ tool: 'Bash', command: goal, tool_use_id: `goal-${issue}` } as never)
+  await endTurn($, world)
+  world.plans.length = 0
+  world.prompts.length = 0
+}
+
+// Runs `supervise`, which announces `session`; the bridge answers the requests already written.
+async function supervise($: Dollar, world: World, root: string, session: string, issue = 42) {
+  const command = controller(root, `supervise #${issue}`)
+  world.bash.push({ command, stdout: `NMG_SDLC_EXECUTE_SESSION: ${session}\nNMG_SDLC_EXECUTE_WORKER: {"issue":${issue}}\n` })
+  await $.tool.call({ tool: 'Bash', command, tool_use_id: `supervise-${session}` } as never)
+}
+
 describe('interactive commands', () => {
   test('a headless session fails closed without rendering', async ($, on) => {
     const world = engine(on, { interactive: false })
     await start($, world, false)
-    const result = await run($, world, 'sdlc-write-spec', '#42')
-    expect(result).toEqual(expect.objectContaining({ text: 'Run /sdlc-write-spec in the TUI.', exitCode: 2 }))
+    const result = await run($, world, 'sdlc-draft-issue', 'a parser bug')
+    expect(result).toEqual(expect.objectContaining({ text: 'Run /sdlc-draft-issue in the TUI.', exitCode: 2 }))
     expect(world.renders).toEqual([])
     expect(world.plans).toEqual([])
+    expect(world.prompts).toEqual([])
   })
 
   test('each interactive command enters plan mode, then submits its workflow as the person', async ($, on) => {
@@ -155,17 +293,29 @@ describe('interactive commands', () => {
     const world = engine(on)
     world.sessionModel = 'claude-opus-5-5'
     await start($, world)
-    await run($, world, 'sdlc-execute', '#7 --retain-worker')
-    expect(world.renders.at(-1)).toEqual(expect.arrayContaining(['--consumer', 'sdlc-execute', '--args', '#7 --retain-worker', '--project', '/project']))
+    await run($, world, 'sdlc-execute', '#7 --check-in-seconds 60')
+    expect(world.renders.at(-1)).toEqual(expect.arrayContaining(['--consumer', 'sdlc-execute', '--args', '#7 --check-in-seconds 60', '--project', '/project']))
     expect(world.plans).toEqual([])
     expect(world.prompts).toEqual([{ text: '# sdlc-execute workflow', asUser: true }])
   })
 
-  test('a headless sdlc-execute fails closed without rendering', async ($, on) => {
+  // A command's own `{ text }` answer is only printed: under `claude -p` the run would end with no model turn.
+  test('a headless sdlc-execute submits its rendered workflow as the prompt, with no refusal, no preamble and no printed text', async ($, on) => {
+    const world = engine(on, { interactive: false })
+    world.sessionModel = 'claude-opus-5-5'
+    await start($, world, false)
+    const result = await run($, world, 'sdlc-execute', '#42')
+    expect(result).toEqual({})
+    expect(world.renders.at(-1)).toEqual(expect.arrayContaining(['--consumer', 'sdlc-execute', '--args', '#42']))
+    expect(world.plans).toEqual([])
+    expect(world.prompts).toEqual([{ text: '# sdlc-execute workflow', asUser: true }])
+  })
+
+  test('a headless sdlc-execute on a non-Opus session is still refused before rendering', async ($, on) => {
     const world = engine(on, { interactive: false })
     await start($, world, false)
-    const result = await run($, world, 'sdlc-execute')
-    expect(result).toEqual(expect.objectContaining({ text: 'Run /sdlc-execute in the TUI.', exitCode: 2 }))
+    const result = await run($, world, 'sdlc-execute', '#42')
+    expect(result).toEqual(expect.objectContaining({ exitCode: 1 }))
     expect(world.renders).toEqual([])
     expect(world.prompts).toEqual([])
   })
@@ -180,11 +330,270 @@ describe('interactive commands', () => {
     expect(world.prompts).toEqual([])
   })
 
-  test('Herdr sessions are greeted', async ($, on) => {
+  test('session start records the plugin root and the Claude session id, and shows no Herdr toast', async ($, on) => {
     const world = engine(on, { env: { HERDR_ENV: '1' } })
     await start($, world)
-    expect(world.toasts).toEqual(['NMG SDLC ready in Herdr'])
+    expect(world.toasts).toEqual([])
     expect(world.envSet.NMG_SDLC_PLUGIN_ROOT).toMatch(/^\/.+/)
+    expect(world.envSet.NMG_SDLC_CLAUDE_SESSION_ID).toBe(SESSION_ID)
+  })
+
+  test('the execute argument hint names --check-in-seconds and no longer --retain-worker', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    const execute = world.registered.find(({ name }) => name === 'sdlc-execute')
+    expect(execute?.argumentHint).toBe('[--check-in-seconds N] [#N ...]')
+    expect(world.registered.map(({ argumentHint }) => String(argumentHint ?? '')).join(' ')).not.toContain('--retain-worker')
+  })
+})
+
+describe('/sdlc-execute --result', () => {
+  test('answers the recorded lines and exit status, before any model gate, and mutates nothing', async ($, on) => {
+    const world = engine(on)
+    world.sessionModel = 'claude-sonnet-5-5'
+    await start($, world)
+    world.files[`${CWD}/${executeResultPath(SESSION_ID)}`] = JSON.stringify({
+      schemaVersion: 1, status: 1, lines: ['#7: MERGED and CLOSED', '/sdlc-execute stopped: halted'],
+    })
+    const result = await run($, world, 'sdlc-execute', '--result')
+    expect(result).toEqual({ text: '#7: MERGED and CLOSED\n/sdlc-execute stopped: halted', exitCode: 1 })
+    expect(world.renders).toEqual([])
+    expect(world.plans).toEqual([])
+    expect(world.prompts).toEqual([])
+    expect(world.writes).toEqual([])
+  })
+
+  test('answers exit 2 with the no-record line when no result exists, and mutates nothing', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    const result = await run($, world, 'sdlc-execute', '--result')
+    expect(result).toEqual({ text: `No /sdlc-execute result is recorded for session ${SESSION_ID}.`, exitCode: 2 })
+    expect(world.renders).toEqual([])
+    expect(world.writes).toEqual([])
+  })
+})
+
+describe('headless runs', () => {
+  // AC9: autopilot is removed, so NMG_SDLC_AUTOPILOT=1 no longer lets an interactive command run headless.
+  for (const command of ['sdlc-draft-issue', 'sdlc-write-spec']) {
+    test(`with NMG_SDLC_AUTOPILOT=1 a headless /${command} still fails closed without rendering`, async ($, on) => {
+      const world = engine(on, { interactive: false, env: { NMG_SDLC_AUTOPILOT: '1' } })
+      await start($, world, false)
+      const result = await run($, world, command, '#5')
+      expect(result).toEqual(expect.objectContaining({ text: `Run /${command} in the TUI.`, exitCode: 2 }))
+      expect(world.renders).toEqual([])
+      expect(world.plans).toEqual([])
+      expect(world.prompts).toEqual([])
+    })
+  }
+
+  test('a backgrounded write-spec merge is left in the background', async ($, on) => {
+    const world = engine(on, { interactive: false })
+    await start($, world, false)
+    const root = await pluginRoot($, world)
+    const merge = mergeCommand(root, 9)
+    await $.tool.call({ tool: 'Bash', command: merge, run_in_background: true } as never)
+    expect(world.bashInputs.at(-1)).toMatchObject({ command: merge, run_in_background: true })
+    expect(world.bashInputs.at(-1)).not.toHaveProperty('timeout')
+  })
+})
+
+describe('stage subagents', () => {
+  // The test kit starts no subagent: a spawn is answered as refused here, so these tests verify the registration,
+  // the spawn request and the answers the controller gets. A started worker's id, step override and records need
+  // a subagent the kit does not start, so they are not asserted here.
+  test('a spawn request registers the stage agent and sends its spawn, with no process launch', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    const root = await pluginRoot($, world)
+    await startExecute($, world, root)
+    const session = uuid(1)
+    world.files[`${root}/agents/spec-implementer.md`] = AGENT_FILE
+    world.files[`${executeDir(session)}/prompt-1.md`] = 'Implement #42 now.'
+    writeRequest(world, session, 1, spawnRequest())
+    const rendersBefore = world.renders.length
+    await supervise($, world, root, session)
+
+    expect(world.registrations).toEqual([{
+      name: 'execute-implement',
+      description: 'nmg-sdlc implement stage for #42',
+      prompt: AGENT_BODY,
+      model: 'claude-opus-5-5',
+      effort: 'high',
+      permissionMode: 'acceptEdits',
+      disallowedTools: ['AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode'],
+    }])
+    // The spawn reaches the engine as the Agent tool's call, in the background, on the stage's agent type.
+    expect(world.spawns).toEqual([{
+      tool: 'Agent',
+      prompt: 'Implement #42 now.',
+      description: 'implement #42',
+      run_in_background: true,
+      subagent_type: 'nmg-sdlc:execute-implement',
+      name: 'implement #42',
+      cwd: '/project/.worktrees/42',
+    }])
+    expect(world.renders.length).toBe(rendersBefore)
+    expect(response(world, session, 1)).toEqual({
+      schemaVersion: 1, session, n: 1, ok: false, deny: 'nmg-sdlc: stage spawn refused: no subagent starts under the test kit',
+    })
+  })
+
+  test('a null effort is left off the registration', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    const root = await pluginRoot($, world)
+    await startExecute($, world, root)
+    const session = uuid(2)
+    world.files[`${root}/agents/spec-implementer.md`] = AGENT_FILE
+    world.files[`${executeDir(session)}/prompt-1.md`] = 'Implement #42 now.'
+    writeRequest(world, session, 1, spawnRequest({ effort: null }))
+    await supervise($, world, root, session)
+
+    expect(world.registrations).toEqual([expect.objectContaining({ name: 'execute-implement', model: 'claude-opus-5-5', permissionMode: 'acceptEdits' })])
+    expect(world.registrations[0]).not.toHaveProperty('effort')
+  })
+
+  test('a denied spawn, a missing agent file and a rejected registration each answer ok false', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    const root = await pluginRoot($, world)
+    await startExecute($, world, root)
+    const session = uuid(3)
+    world.files[`${root}/agents/spec-implementer.md`] = AGENT_FILE
+    world.files[`${executeDir(session)}/prompt-1.md`] = 'Implement #42 now.'
+    world.spawnDeny = 'the concurrency limit is reached'
+    writeRequest(world, session, 1, spawnRequest())
+    writeRequest(world, session, 2, spawnRequest({ agent: 'deliverer', name: 'deliver #42', entry: 'deliver', step: 'deliver' }))
+    await supervise($, world, root, session)
+
+    expect(response(world, session, 1)).toEqual({
+      schemaVersion: 1, session, n: 1, ok: false, deny: 'nmg-sdlc: stage spawn refused: the concurrency limit is reached',
+    })
+    expect(response(world, session, 2)).toEqual({
+      schemaVersion: 1, session, n: 2, ok: false, deny: 'nmg-sdlc: stage agent definition agents/deliverer.md is missing',
+    })
+
+    world.spawnDeny = undefined
+    world.registerDeny = 'the name execute-implement is taken'
+    writeRequest(world, session, 3, spawnRequest())
+    await world.clock.advance(1_000)
+    expect(response(world, session, 3)).toEqual(expect.objectContaining({ n: 3, ok: false }))
+    expect(String(response(world, session, 3)?.deny)).toMatch(/^nmg-sdlc: stage agent registration rejected: .*the name execute-implement is taken/)
+    // Only request 1 reached the spawn: request 2's agent file is missing, and request 3 was refused at registration.
+    expect(world.spawns).toHaveLength(1)
+  })
+
+  test('a worker turn end does not run the main loop handlers: the pending goal waits for the main loop', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    const root = await pluginRoot($, world)
+    world.sessionModel = 'claude-opus-5-5'
+    await run($, world, 'sdlc-execute', '#42')
+    const goal = controller(root, 'goal #42')
+    world.bash.push({ command: goal, stdout: `${JSON.stringify({ ok: true, issues: [42], condition: 'x' })}\n` })
+    await $.tool.call({ tool: 'Bash', command: goal, tool_use_id: 'goal-42' } as never)
+    world.plans.length = 0
+
+    await endTurn($, world, { agentId: 'worker-1' })
+    expect(world.plans).toEqual([])
+
+    await endTurn($, world)
+    expect(world.plans).toEqual([expect.stringMatching(/^\/goal /)])
+  })
+
+  test('the first heartbeat is written with the Claude session id when the bridge starts', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    const root = await pluginRoot($, world)
+    await startExecute($, world, root)
+    const session = uuid(7)
+    world.files[`${executeDir(session)}/notes.txt`] = ''
+    await supervise($, world, root, session)
+    expect(JSON.parse(world.files[`${executeDir(session)}/host.json`] ?? 'null'))
+      .toEqual({ schemaVersion: 1, claudeSessionId: SESSION_ID, at: expect.any(Number) })
+  })
+
+  test('an append request appends guidance to a worker, and a denied append is sent instead', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    const root = await pluginRoot($, world)
+    await startExecute($, world, root)
+    const session = uuid(8)
+    world.files[`${executeDir(session)}/notes.txt`] = ''
+    await supervise($, world, root, session)
+
+    writeRequest(world, session, 2, { kind: 'append', agentId: 'worker-1', text: 'Use the parser helper.' })
+    await world.clock.advance(1_000)
+    expect(response(world, session, 2)).toEqual({ schemaVersion: 1, session, n: 2, ok: true })
+    expect(world.appended).toEqual([expect.objectContaining({
+      agentId: 'worker-1',
+      message: { type: 'user', content: [{ type: 'text', text: 'Use the parser helper.' }] },
+    })])
+
+    world.appendDeny = true
+    writeRequest(world, session, 3, { kind: 'append', agentId: 'worker-1', text: 'Stop and report.' })
+    await world.clock.advance(1_000)
+    expect(response(world, session, 3)).toEqual({ schemaVersion: 1, session, n: 3, ok: true })
+    // The send's address reaches the engine as the agent id.
+    expect(world.sends).toEqual([{ to: 'worker-1', text: 'Stop and report.' }])
+
+    world.sendDelivered = false
+    writeRequest(world, session, 4, { kind: 'append', agentId: 'worker-1', text: 'One more thing.' })
+    await world.clock.advance(1_000)
+    expect(response(world, session, 4)).toEqual({ schemaVersion: 1, session, n: 4, ok: false, deny: 'the agent is not running' })
+  })
+
+  test('a stop request calls TaskStop, reports the worker killed, and denies its later tool calls', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    const root = await pluginRoot($, world)
+    await startExecute($, world, root)
+    const session = uuid(9)
+    world.files[`${executeDir(session)}/notes.txt`] = ''
+    await supervise($, world, root, session)
+
+    writeRequest(world, session, 2, { kind: 'stop', agentId: 'worker-1' })
+    await world.clock.advance(1_000)
+    expect(world.stops).toEqual(['worker-1'])
+    expect(response(world, session, 2)).toEqual({ schemaVersion: 1, session, n: 2, ok: true })
+
+    world.seen.length = 0
+    const denied = await $.tool.call({ tool: 'Bash', command: 'ls', agentId: 'worker-1' } as never)
+    expect(denied).toEqual(expect.objectContaining({ deny: STOP_DENIAL }))
+    expect(world.seen).toEqual([])
+  })
+
+  test('a stop the agent list does not confirm answers ok false', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    const root = await pluginRoot($, world)
+    await startExecute($, world, root)
+    const session = uuid(10)
+    world.files[`${executeDir(session)}/notes.txt`] = ''
+    await supervise($, world, root, session)
+
+    world.stopStatus = 'running'
+    writeRequest(world, session, 2, { kind: 'stop', agentId: 'worker-1' })
+    await world.clock.advance(1_000)
+    expect(response(world, session, 2)).toEqual({
+      schemaVersion: 1, session, n: 2, ok: false, deny: 'nmg-sdlc: stop not confirmed for worker-1: status running',
+    })
+  })
+
+  test('an undelivered report is not announced while the main loop is mid-turn', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    const root = await pluginRoot($, world)
+    await startExecute($, world, root)
+    const session = uuid(11)
+    world.files[`${executeDir(session)}/report-1.json`] = '{"schemaVersion":1,"seq":1}'
+
+    await step($, world)
+    await supervise($, world, root, session)
+    await world.clock.advance(10_000)
+    await world.clock.advance(10_000)
+    expect(world.prompts).toEqual([])
   })
 })
 
@@ -324,44 +733,26 @@ describe('write-spec Finished', () => {
   })
 })
 
-describe('autopilot', () => {
-  test('NMG_SDLC_AUTOPILOT answers questions with the recommended option and approves plans', async ($, on) => {
-    const world = engine(on, { env: { NMG_SDLC_AUTOPILOT: '1' } })
-    await start($, world)
-    const questions = [
-      { question: 'Which kind?', header: 'Kind', multiSelect: false, options: [{ label: 'Bug', description: '' }, { label: 'Feature (Recommended)', description: '' }] },
-      { question: 'Milestone?', header: 'Milestone', multiSelect: false, options: [{ label: 'v1', description: '' }, { label: 'v2', description: '' }] },
-    ]
-    expect(await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions } })).toEqual({
-      decision: {
-        behavior: 'allow',
-        updatedInput: { questions, answers: { 'Which kind?': 'Feature (Recommended)', 'Milestone?': 'v1' } },
-      },
+describe('plan and question gates', () => {
+  // AC9: NMG_SDLC_AUTOPILOT is not read; every plan and question goes to the person.
+  for (const [label, env] of [['without', {}], ['with', { NMG_SDLC_AUTOPILOT: '1' }]] as const) {
+    test(`${label} NMG_SDLC_AUTOPILOT=1, questions, plans and plan entry go to the person`, async ($, on) => {
+      const world = engine(on, { env })
+      await start($, world)
+      const questions = [{ question: 'Which kind?', header: 'Kind', multiSelect: false, options: [{ label: 'Bug', description: '' }, { label: 'Feature (Recommended)', description: '' }] }]
+      expect(await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions } })).toEqual({})
+      expect(await $.classic.PermissionRequest({ tool_name: 'ExitPlanMode', tool_input: { plan: '# Draft' } })).toEqual({})
+      expect(await $.classic.PermissionRequest({ tool_name: 'EnterPlanMode', tool_input: {} })).toEqual({})
     })
-    expect(await $.classic.PermissionRequest({ tool_name: 'ExitPlanMode', tool_input: { plan: '# Draft' } }))
-      .toEqual({ decision: { behavior: 'allow', updatedInput: { plan: '# Draft' } } })
-    expect(await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'rm -rf /' } })).toEqual({})
-  })
+  }
 
-  test('during write-spec autopilot prefers Finished over the recommended next issue', async ($, on) => {
+  test('with NMG_SDLC_AUTOPILOT=1 the write-spec Finished approval is unchanged', async ($, on) => {
     const world = engine(on, { env: { NMG_SDLC_AUTOPILOT: '1' } })
     await start($, world)
     await run($, world, 'sdlc-write-spec', '#5')
-    const questions = [{
-      question: 'Write another spec?', header: 'Next', multiSelect: false,
-      options: [{ label: '#6 — Next issue (Recommended)', description: '' }, { label: FINISHED, description: '' }],
-    }]
-    const answered = await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions } })
-    expect(answered).toEqual({
-      decision: { behavior: 'allow', updatedInput: { questions, answers: { 'Write another spec?': FINISHED } } },
-    })
-  })
-
-  test('without autopilot questions and plans go to the person', async ($, on) => {
-    const world = engine(on)
-    await start($, world)
-    expect(await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: [] } })).toEqual({})
-    expect(await $.classic.PermissionRequest({ tool_name: 'ExitPlanMode', tool_input: {} })).toEqual({})
+    await ask($, FINISHED)
+    expect(await $.classic.PermissionRequest({ tool_name: 'ExitPlanMode', tool_input: { plan: '# Done' } }))
+      .toEqual({ decision: { behavior: 'allow', updatedInput: { plan: '# Done' } } })
   })
 })
 

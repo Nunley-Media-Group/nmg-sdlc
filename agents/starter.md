@@ -1,7 +1,6 @@
 ---
 name: starter
 description: Start a linked branch for an issue with no questions.
-model: haiku
 ---
 
 # Starter
@@ -14,4 +13,4 @@ You are the nmg-sdlc start worker.
 4. On success print exactly: `NMG_SDLC_HANDOFF: .nmg-sdlc/handoffs/<N>-start.json`
 5. Stop.
 
-`/sdlc-execute` runs this step as a Herdr Claude worker (a Claude Code session in a sibling Herdr pane started with `--plugin-dir <plugin-root>`), not through the `Agent` tool. This subagent definition records the step's contract.
+`/sdlc-execute` registers this body as the system prompt of its stage subagent, and the stage's model and effort come from `steering/sdlc-models.json`.

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 /** Branch-first controller. A lease coordinates concurrent invocations; Git, GitHub,
- * the Approved spec and registered verification are the only lifecycle evidence. */
+ * the Approved spec and registered verification are the only lifecycle evidence. Stage workers run as
+ * hooks-module subagents through the `host` transport (scripts/sdlc-execute-host.mjs). */
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { closeSync, constants as fsConstants, fstatSync, lstatSync, openSync, readFileSync, realpathSync, rmSync } from 'node:fs';
@@ -9,6 +10,7 @@ import { join, relative, resolve, sep } from 'node:path';
 import { defaultPromptRegistry, renderPrompt, writePromptProvenance } from '../src/sdlc-prompt-snippets.mjs';
 import { packageRoot } from '../src/sdlc-workflows.mjs';
 import { executeGoalCondition } from '../src/host-events.mjs';
+import { ACTIVE_AGENT_STATUSES, activityRecord, STAGE_AGENTS, WORKER_PERMISSION_MODES } from '../src/execute-host.mjs';
 import { loadStageModels, STAGE_MODEL_DEFAULTS, stageModelsWarning } from './sdlc-models.mjs';
 import { collectEvidence, parseIssueBranch } from './sdlc-status.mjs';
 import { inspectPublicationScope, publicationFileEntries } from './sdlc-safe-recoveries.mjs';
@@ -28,12 +30,13 @@ const MAX_HANDOFF_BYTES = 256 * 1024;
 // How often a worker that is waiting on its own background work is rechecked; the wait itself has no deadline.
 const RESUME_POLL_MS = 60_000;
 const SHA = /^[0-9a-f]{40}$/;
-// A supervised worker is checked in on after this long without a handoff, or once its pane output
-// or waiting marker has been unchanged this long; waits are sliced so a check-in is never late by more than a slice.
+// A supervised worker is checked in on after this long without a handoff, or once its activity or
+// waiting marker has been unchanged this long; waits are sliced so a check-in is never late by more than a slice.
 export const DEFAULT_CHECK_IN_MS = 300_000;
 const CHECK_IN_SLICE_MS = 30_000;
-const PANE_TAIL_LINES = 40;
 const REPORT_HISTORY = 8;
+// A settled stage subagent whose turn ended cleanly; failed and killed subagents end the stage as process_lost.
+const SETTLED = ['idle', 'completed'];
 export const STAGE_DECISIONS = Object.freeze(['accept', 'prompt', 'redispatch', 'halt']);
 export const CHECK_IN_DECISIONS = Object.freeze(['continue', 'prompt', 'redispatch', 'halt']);
 
@@ -46,21 +49,18 @@ function parsed(value) {
   if (typeof value?.stdout === 'string') return parsed(value.stdout);
   return value;
 }
-function usage() { return 'Usage: /sdlc-execute [--retain-worker] [--check-in-seconds N] [#N ...]'; }
+function usage() { return 'Usage: /sdlc-execute [--check-in-seconds N] [#N ...]'; }
 export function parseArgs(input = '') {
   const text = String(input ?? '').trim();
   if (!text) return { issues: [], defaultBacklog: true };
   const tokens = text.split(/[\s,]+/).filter(Boolean);
   if (!tokens.length) throw new Error(usage());
   const issues = [];
-  let retainWorker = false;
   let checkInSeconds;
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
     if (token === '--retain-worker') {
-      if (retainWorker) throw new Error(usage());
-      retainWorker = true;
-      continue;
+      throw new Error(`--retain-worker is removed: stage workers are hooks-module subagents. ${usage()}`);
     }
     if (token === '--check-in-seconds') {
       const value = tokens[index += 1];
@@ -74,8 +74,7 @@ export function parseArgs(input = '') {
     if (!issues.includes(issue)) issues.push(issue);
   }
   if (issues.length > 20) throw new Error(usage());
-  return { issues, defaultBacklog: !issues.length, ...(retainWorker ? { retainWorker } : {}),
-    ...(checkInSeconds ? { checkInSeconds } : {}) };
+  return { issues, defaultBacklog: !issues.length, ...(checkInSeconds ? { checkInSeconds } : {}) };
 }
 function projectDone(projectItems) {
   const items = Array.isArray(projectItems) ? projectItems
@@ -155,9 +154,9 @@ export function remediationPrompt({ issue, failedStep, evidence, cwd, controller
   if (!evidence || !REMEDIABLE_STEPS.includes(failedStep)) throw new Error('remediation_evidence_missing');
   return `Diagnose ${failedStep} for #${issue} at ${evidence.head ?? 'current HEAD'}: ${evidence.reasonCode ?? 'failed'}: ${evidence.summary}.\nArtifacts: ${(evidence.artifacts ?? []).join(', ') || '(none)'}.\nExplain the prior failure and make a different measurable repair; never repeat unchanged smoke inputs.\n${workerPrompt({ issue, step: failedStep, cwd, controllerRunId })}`;
 }
-export const WORKER_PERMISSION_MODES = ['default', 'acceptEdits', 'auto', 'dontAsk', 'bypassPermissions'];
+export { WORKER_PERMISSION_MODES };
 const DEFAULT_WORKER_PERMISSION_MODE = 'auto';
-/** Claude Code permission mode for Herdr Claude workers: NMG_SDLC_WORKER_PERMISSION_MODE when it
+/** Claude Code permission mode for stage subagents: NMG_SDLC_WORKER_PERMISSION_MODE when it
  * names a supported mode, otherwise `auto`. */
 export function workerPermissionMode(env = process.env) {
   const value = env?.NMG_SDLC_WORKER_PERMISSION_MODE;
@@ -183,31 +182,9 @@ export function stageEffort(step, failure, config = STAGE_MODEL_DEFAULTS) {
 function repairDispatch(step, failure) {
   return step !== 'start' && Boolean(failure) && !REPAIR_EXEMPT_REASONS.has(failure.reasonCode);
 }
-/** Claude Code argv after `--`: every worker loads the controller's own plugin checkout. */
-export function workerAgentArgs({ env = process.env, pluginRoot = packageRoot, model, effort } = {}) {
-  return ['--plugin-dir', pluginRoot, '--permission-mode', workerPermissionMode(env),
-    ...(model ? ['--model', model] : []), ...(effort ? ['--effort', effort] : [])];
-}
-export function defaultHerdr(run, cwd, env = process.env) {
-  const invoke = (args) => run('herdr', args, { cwd });
-  return {
-    integrationStatus: () => invoke(['integration', 'status']),
-    paneLayout: (pane) => invoke(['pane', 'layout', '--pane', pane]),
-    paneSplit: ({ direction, cwd: root, environment }) => invoke([
-      'pane', 'split', '--current', '--direction', direction, '--cwd', root, '--no-focus',
-      ...Object.entries(environment ?? {}).flatMap(([key, value]) => ['--env', `${key}=${value}`]),
-    ]),
-    paneClose: (pane) => invoke(['pane', 'close', pane]),
-    listPanes: () => invoke(['pane', 'list']),
-    listAgents: () => invoke(['agent', 'list']),
-    agentStart: ({ name, paneId, model, effort }) => invoke(['agent', 'start', name, '--kind', 'claude', '--pane', paneId,
-      '--', ...workerAgentArgs({ env, model, effort })]),
-    agentPrompt: ({ name, prompt }) => invoke(['agent', 'prompt', name, prompt]),
-    agentWait: ({ name, until, timeout }) => invoke(['agent', 'wait', name, ...(until ? ['--until', until] : []),
-      ...(timeout ? ['--timeout', String(timeout)] : [])]),
-    agentGet: (name) => invoke(['agent', 'get', name]),
-    paneRead: (pane) => invoke(['pane', 'read', pane, '--source', 'recent', '--lines', String(PANE_TAIL_LINES)]),
-  };
+/** The stage_models entry name a worker is registered under: `repair` for a repair redispatch, otherwise the stage. */
+function entryName(step, failure) {
+  return repairDispatch(step, failure) ? 'repair' : step;
 }
 function checkout(cwd, run) {
   const branch = run('git', ['branch', '--show-current'], { cwd });
@@ -386,62 +363,45 @@ function freshHandoff(cwd, issue, step, previous) {
   if (handoff.issue !== issue || handoff.step !== step) throw new Error('invalid_handoff_identity');
   return handoff;
 }
-function paneId(response) {
-  const value = parsed(response);
-  return value?.result?.pane?.pane_id ?? value?.result?.pane_id ?? value?.pane?.pane_id ?? value?.pane_id ?? null;
-}
-function paneDirection(response, controllerPane) {
-  const value = parsed(response);
-  const layout = value?.result?.layout;
-  const rect = Array.isArray(layout?.panes)
-    ? layout.panes.find((item) => String(item?.pane_id ?? item?.paneId ?? '') === controllerPane)?.rect
-    : value?.result?.pane ?? value?.result ?? value;
-  if (!succeeded(response) || !(rect?.width > 0) || !(rect?.height > 0)) throw new Error('pane_layout_unavailable');
-  const pane = rect;
-  return pane.width >= pane.height ? 'right' : 'down';
-}
-function workerState(api, name) {
+/** The stage subagent's status from its agent record, or '' when none is readable. */
+function workerState(host, agentId) {
   try {
-    const value = parsed(api.agentGet(name));
-    return String(value?.result?.agent?.agent_status ?? value?.result?.agent_status
-      ?? value?.result?.agentStatus ?? value?.result?.state
-      ?? value?.agent_status ?? value?.state ?? '').toLowerCase();
+    return String(host.activity(agentId)?.status ?? '').toLowerCase();
   } catch { return ''; }
 }
-const SETTLED = ['idle', 'done'];
 function waitingMarker(path) {
   try { const stat = lstatSync(path); return stat.isFile() && stat.size > 0; } catch { return false; }
 }
 function reminderPrompt(handoffPath) {
   return `nmg-sdlc controller: your turn ended without a handoff at ${handoffPath}. If a background command for this step is still running, write ${handoffPath}.waiting naming it and end your turn; you are resumed when it finishes. Otherwise finish the step now and write and validate the handoff.`;
 }
-/** Supervises one dispatched worker until it writes a fresh handoff or stops. A Claude Code
- * worker settles `idle`/`done` whenever its turn ends, including while a `run_in_background`
- * command it started is still running, so a settled worker without a handoff keeps its pane:
- * one that wrote its waiting marker is awaited until it resumes, and one that did not is
- * reminded once per resumption before it counts as stopped. */
-function awaitWorkerHandoff({ api, name, cwd, issue, step, prior, waitFor = api.agentWait }) {
+/** Supervises one dispatched stage subagent until it writes a fresh handoff or stops. A subagent settles
+ * `idle`/`completed` whenever its turn ends, including while a `run_in_background` command it started is still
+ * running, so a settled subagent without a handoff is not yet done: one that wrote its waiting marker is awaited
+ * until it resumes, and one that did not is reminded once per resumption before it counts as stopped. */
+function awaitWorkerHandoff({ host, agentId, cwd, issue, step, prior,
+  waitFor = (args) => host.wait({ agentId, ...args }) }) {
   const handoffPath = `${HANDOFF_DIR}/${issue}-${step}.json`;
   const waiting = join(cwd, `${handoffPath}.waiting`);
-  const settle = () => ({ handoff: freshHandoff(cwd, issue, step, prior), state: workerState(api, name) });
-  waitFor({ name, until: 'working' });
+  const settle = () => ({ handoff: freshHandoff(cwd, issue, step, prior), state: workerState(host, agentId) });
+  waitFor({ until: 'working' });
   let reminded = false;
   for (;;) {
-    waitFor({ name });
+    waitFor({});
     let observed = settle();
     if (observed.handoff || !SETTLED.includes(observed.state)) return observed;
     if (!waitingMarker(waiting)) {
-      if (reminded || !succeeded(api.agentPrompt({ name, prompt: reminderPrompt(handoffPath) }))) return observed;
+      if (reminded || !host.send({ agentId, text: reminderPrompt(handoffPath) })) return observed;
       reminded = true;
-      waitFor({ name, until: 'working' });
+      waitFor({ until: 'working' });
       continue;
     }
     while (SETTLED.includes(observed.state) && waitingMarker(waiting)) {
-      waitFor({ name, until: 'working', timeout: RESUME_POLL_MS });
+      waitFor({ until: 'working', timeoutMs: RESUME_POLL_MS });
       observed = settle();
       if (observed.handoff) return observed;
     }
-    if (observed.state !== 'working' && !SETTLED.includes(observed.state)) return observed;
+    if (!SETTLED.includes(observed.state) && !ACTIVE_AGENT_STATUSES.includes(observed.state)) return observed;
     rmSync(waiting, { force: true });
     reminded = false;
   }
@@ -450,9 +410,10 @@ function awaitWorkerHandoff({ api, name, cwd, issue, step, prior, waitFor = api.
 class SupervisorDecision extends Error {
   constructor(decision) { super(`supervisor_${decision.action}`); this.decision = decision; }
 }
-// `herdr agent wait --timeout` reports its timeout as a JSON error on stderr.
-function timedOut(response) {
-  return [response?.stdout, response?.stderr].some((stream) => parsed(String(stream ?? ''))?.error?.code === 'timeout');
+// The stage reason for a subagent that ended without a handoff: a settled turn is a missing handoff, a
+// failed or killed subagent (or one whose status is unknown) is a lost process.
+function lostReason(state) {
+  return SETTLED.includes(state) ? 'missing_handoff' : 'process_lost';
 }
 function headOf(cwd, run) {
   const head = run('git', ['rev-parse', 'HEAD'], { cwd });
@@ -526,12 +487,6 @@ function verificationSummary(cwd, issue, evidence) {
     return { report: path, readiness: { status, reasonCode, gaps }, issues: issueSections(content) };
   } catch { return { report: path, readiness: null, issues: [] }; }
 }
-function paneTail(api, pane) {
-  try {
-    const response = api.paneRead?.(pane);
-    return response && succeeded(response) ? String(response.stdout ?? '').trimEnd() : null;
-  } catch { return null; }
-}
 function waitingInfo(path, now) {
   try {
     const stat = lstatSync(path);
@@ -596,39 +551,6 @@ function gatePassed(cwd, run, issue, head, snapshot, { allowPending = false } = 
   return allowPending ? status === 'pr_evidence_pending'
     : status === 'pass' || status === 'pr_evidence_satisfied';
 }
-function paneEnvironment(step, env) {
-  const value = step === 'verify' ? { NMG_SDLC_PLUGIN_ROOT: packageRoot } : {};
-  for (const key of step === 'verify'
-    ? ['NMG_SDLC_SMOKE_ISSUES', 'NMG_SDLC_SMOKE_OWNED', 'NMG_SDLC_SMOKE_RECOVERY']
-    : step === 'deliver' ? ['NMG_SDLC_SMOKE_OWNED', 'NMG_SDLC_SMOKE_RECOVERY'] : []) {
-    if (typeof env[key] === 'string') value[key] = env[key];
-  }
-  return Object.keys(value).length ? value : null;
-}
-
-function foreignActiveWorker(api, issue, owned, cwd) {
-  const response = api.listAgents();
-  if (!succeeded(response)) throw new Error('worker_presence_unavailable');
-  const value = parsed(response);
-  const agents = Array.isArray(value) ? value : value?.result?.agents ?? value?.agents;
-  if (!Array.isArray(agents)) throw new Error('worker_presence_unavailable');
-  return agents.find((agent) => {
-    const name = String(agent?.name ?? '');
-    if (typeof agent?.cwd === 'string' && agent.cwd) {
-      try {
-        if (realpathSync(agent.cwd) !== realpathSync(cwd)) return false;
-      } catch {
-        if (resolve(agent.cwd) !== resolve(cwd)) return false;
-      }
-    }
-    if (!new RegExp(`^[sr]${issue}-(?:start|implement|verify|deliver)(?:-|$)`).test(name)) return false;
-    const pane = agent.pane_id ?? agent.paneId;
-    if (owned.has(pane)) return false;
-    const state = workerState(api, name) || String(agent.agent_status ?? agent.state ?? '').toLowerCase();
-    return !['done', 'idle'].includes(state);
-  }) ?? null;
-}
-
 function observedSource(cwd, run) {
   const tree = run('git', ['rev-parse', 'HEAD^{tree}'], { cwd });
   const status = run('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd });
@@ -684,54 +606,31 @@ function currentGateFailure(cwd, run, issue, head, report) {
   } catch { return null; }
 }
 
-// Why a failed or empty `herdr integration status` probe could not confirm the Claude
-// integration; empty when the probe answered and simply did not report it installed.
-function probeFailure(probe) {
-  if (probe === null || (typeof probe !== 'object' && typeof probe !== 'string')) return 'probe returned no result';
-  if (typeof probe === 'string' || succeeded(probe)) return '';
-  if (probe.error !== undefined && probe.error !== null) return String(probe.error.code ?? probe.error.message ?? probe.error);
-  if (probe.signal) return `signal ${probe.signal}`;
-  return Number.isInteger(probe.status) ? `exit ${probe.status}` : 'probe returned no result';
-}
-
-/** Runs execute to completion. With `supervise(report) → { action, text }`, every worker settlement
- * yields a stage report and every check-in interval (or stall) of a running worker a check-in report;
- * without it the existing routing runs unsupervised. */
+/** Runs execute to completion. Stage subagents are started, observed, steered and stopped through `host`
+ * (scripts/sdlc-execute-host.mjs); `supervisorSession` names the supervising session whose heartbeat holds
+ * the lease. With `supervise(report) → { action, text }`, every worker settlement yields a stage report and
+ * every check-in interval (or stall) of a running worker a check-in report; without it the existing routing
+ * runs unsupervised. */
 export function runExecute({ args = '', cwd = process.cwd(), env = process.env, run = defaultRun,
-  herdr, installSignalHandlers = false, processApi = process,
-  onOwnedPane = () => {}, onPaneClosed = () => {}, onLeaseAcquired = () => {},
+  host = null, supervisorSession, processApi = process, onLeaseAcquired = () => {},
   supervise = null, now = Date.now, checkInMs } = {}) {
   const fail = (reason, status = 1) => ({ status, stdout: '', stderr: `${reason}\n` });
-  if (env.HERDR_ENV !== '1' || !env.HERDR_SOCKET_PATH || !env.HERDR_PANE_ID) {
-    return { status: 2, stdout: 'execute requires a Herdr session\n', stderr: '' };
-  }
+  if (!host) return { status: 2, stdout: '', stderr: 'execute requires /sdlc-execute in a Claude Code session\n' };
   let selected;
   try { selected = parseArgs(args); } catch { return fail(usage(), 2); }
-  // The project stage configuration is validated before any Herdr, Git, or GitHub call.
+  // The project stage configuration is validated before any Git or GitHub call or worker start.
   let stageModels;
   try { stageModels = loadStageModels(cwd); } catch (error) { return { status: 2, stdout: '', stderr: `${error.message}\n` }; }
   const stageWarning = stageModelsWarning(stageModels);
   const warned = (result) => (stageWarning ? { ...result, stdout: `${stageWarning}\n${result.stdout}` } : result);
-  const api = herdr ?? defaultHerdr(run, cwd, env);
-  let integration;
-  try { integration = api.integrationStatus(); } catch (error) { integration = { status: null, error }; }
-  if (!integration || !succeeded(integration) || !/^claude:\s+(?!not installed)/m.test(
-    typeof integration === 'string' ? integration : String(integration?.stdout ?? ''),
-  )) {
-    // A probe that never ran (spawn error, signal, no result) is not proof the integration is missing.
-    const detail = probeFailure(integration);
-    return warned({ status: 2, stdout: 'Run: herdr integration install claude\n',
-      stderr: detail ? `herdr integration status failed: ${detail}\n` : '' });
-  }
   if (!succeeded(run('gh', ['auth', 'status'], { cwd }))) return warned(fail('gh auth status failed'));
 
   const invocationId = randomUUID();
   let lease;
   try {
     const previous = readControllerLease(cwd);
-    if (previous) reclaimStaleControllerLease({ projectRoot: cwd, runId: previous.runId,
-      controllerPaneId: env.HERDR_PANE_ID, processApi, listAgents: () => api.listAgents() });
-    lease = acquireControllerLease({ projectRoot: cwd, runId: invocationId, controllerPaneId: env.HERDR_PANE_ID });
+    if (previous) reclaimStaleControllerLease({ projectRoot: cwd, runId: previous.runId, processApi, now });
+    lease = acquireControllerLease({ projectRoot: cwd, runId: invocationId, supervisorSession });
     onLeaseAcquired(invocationId);
   } catch (error) {
     if (lease) releaseControllerLease(lease);
@@ -747,9 +646,9 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
     }
     return decision;
   };
-  /** Waits for one dispatched worker under supervision: check-in reports while it runs, then a stage
+  /** Waits for one dispatched stage subagent under supervision: check-in reports while it runs, then a stage
    * report at its settlement. Returns `{ handoff, state }` to accept, plus `decision` to re-dispatch or halt. */
-  const superviseWorker = ({ issue, step, name, pane, prior, before, history }) => {
+  const superviseWorker = ({ issue, step, host, agentId, name, prior, before, history }) => {
     const handoffPath = `${HANDOFF_DIR}/${issue}-${step}.json`;
     const waitingPath = join(cwd, `${handoffPath}.waiting`);
     let specPath = null;
@@ -758,44 +657,47 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
       if (dir) specPath = relative(cwd, dir).split(sep).join('/');
     } catch { /* reported without spec-scoped paths */ }
     const dispatchedAt = now();
-    const monitor = { lastCheckIn: dispatchedAt, tail: null, changedAt: dispatchedAt, paneReported: false, markerReported: null };
-    const base = () => ({ issue, stage: step, worker: name, pane, ...addedWork(cwd, run, before, specPath),
+    const monitor = { lastCheckIn: dispatchedAt, activityAt: null, changedAt: dispatchedAt, activityReported: false, markerReported: null };
+    const base = () => ({ issue, stage: step, worker: name, agentId, ...addedWork(cwd, run, before, specPath),
       failureHistory: reportHistory(history) });
-    const guide = (decision, boundary) => succeeded(api.agentPrompt({ name,
-      prompt: guidancePrompt({ issue, step, text: decision.text, handoffPath, boundary }) }));
+    const guide = (decision, boundary) => host.append({ agentId,
+      text: guidancePrompt({ issue, step, text: decision.text, handoffPath, boundary }) });
     const checkIn = () => {
       const at = now();
-      const tail = paneTail(api, pane);
-      if (tail !== null && tail !== monitor.tail) Object.assign(monitor, { tail, changedAt: at, paneReported: false });
+      const record = host.activity(agentId);
+      const activityAt = Number.isSafeInteger(record?.lastActivityAt) ? record.lastActivityAt : null;
+      if (activityAt !== null && activityAt !== monitor.activityAt) {
+        Object.assign(monitor, { activityAt, changedAt: at, activityReported: false });
+      }
       const marker = waitingInfo(waitingPath, at);
-      const paneStalled = tail !== null && !monitor.paneReported && at - monitor.changedAt >= interval;
+      const activityStalled = activityAt !== null && !monitor.activityReported && at - monitor.changedAt >= interval;
       const markerStale = Boolean(marker) && marker.ageSeconds * 1000 >= interval && monitor.markerReported !== marker.modified;
       const reason = at - monitor.lastCheckIn >= interval ? 'interval'
-        : paneStalled ? 'pane_unchanged' : markerStale ? 'waiting_marker_stale' : null;
+        : activityStalled ? 'activity_unchanged' : markerStale ? 'waiting_marker_stale' : null;
       if (!reason) return;
-      if (paneStalled) monitor.paneReported = true;
+      if (activityStalled) monitor.activityReported = true;
       if (markerStale) monitor.markerReported = marker.modified;
       monitor.lastCheckIn = at;
       let note = null;
       for (;;) {
         const decision = decide({ kind: 'checkin', reason, ...base(),
-          sinceDispatchSeconds: Math.round((at - dispatchedAt) / 1000), paneTail: tail,
-          paneChangedSecondsAgo: tail === null ? null : Math.round((at - monitor.changedAt) / 1000),
+          sinceDispatchSeconds: Math.round((at - dispatchedAt) / 1000),
+          activity: activityRecord(record ?? {}, at),
           waiting: marker ? { command: marker.command, ageSeconds: marker.ageSeconds } : null,
           note, decisions: CHECK_IN_DECISIONS });
         if (decision.action === 'continue') return;
         if (decision.action !== 'prompt') throw new SupervisorDecision(decision);
-        // Herdr queues a prompt to a busy worker until its current call finishes; the wait below covers it.
+        // The hooks module adds guidance to the running subagent's conversation before its next model request.
         if (guide(decision, false)) return;
-        note = 'guidance could not be delivered to the worker pane';
+        note = 'guidance could not be delivered to the stage subagent';
       }
     };
     const waitFor = (args) => {
-      const deadline = args.timeout ? now() + args.timeout : Infinity;
+      const deadline = args.timeoutMs ? now() + args.timeoutMs : Infinity;
       for (;;) {
         const slice = Math.max(1, Math.ceil(Math.min(deadline - now(), CHECK_IN_SLICE_MS, interval)));
-        const response = api.agentWait({ ...args, timeout: slice });
-        if (!timedOut(response) || now() >= deadline) return response;
+        const response = host.wait({ agentId, ...args, timeoutMs: slice });
+        if (!response.timedOut || now() >= deadline) return response;
         checkIn();
       }
     };
@@ -803,10 +705,14 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
     let latest = null;
     for (;;) {
       let observed;
-      try { observed = awaitWorkerHandoff({ api, name, cwd, issue, step, prior: previous, waitFor }); } catch (error) {
-        if (error instanceof SupervisorDecision) return { handoff: null, state: workerState(api, name), decision: error.decision };
+      try {
+        observed = awaitWorkerHandoff({ host, agentId, cwd, issue, step, prior: previous, waitFor });
+      } catch (error) {
+        if (error instanceof SupervisorDecision) return { handoff: null, state: workerState(host, agentId), decision: error.decision };
         throw error;
       }
+      // The turn has ended, so its running-worker marker goes before the stage report that names it.
+      host.finish();
       const handoff = observed.handoff ?? latest;
       let note = null;
       for (;;) {
@@ -826,38 +732,11 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
         // Snapshot before prompting: the handoff the worker writes for this guidance counts as fresh.
         previous = handoffSnapshot(cwd, join(cwd, handoffPath));
         if (guide(decision, true)) break;
-        note = 'guidance could not be delivered to the worker pane';
+        note = 'guidance could not be delivered to the stage subagent';
       }
       latest = handoff;
     }
   };
-  const owned = new Set();
-  const close = (pane) => {
-    if (!owned.has(pane)) return;
-    if (!succeeded(api.paneClose(pane))) {
-      const response = api.listPanes();
-      const value = parsed(response);
-      const panes = Array.isArray(value) ? value : value?.result?.panes ?? value?.panes;
-      if (!succeeded(response) || !Array.isArray(panes) || panes.some(
-        (item) => String(item?.pane_id ?? item?.paneId ?? '') === pane,
-      )) throw new Error('pane_close_failed');
-    }
-    owned.delete(pane);
-    onPaneClosed(pane);
-  };
-  const cleanup = () => { if (!selected.retainWorker) for (const pane of [...owned]) close(pane); };
-  const signals = [];
-  if (installSignalHandlers) for (const signal of ['SIGINT', 'SIGTERM']) {
-    const handler = () => {
-      let cleaned = false;
-      try { cleanup(); cleaned = true; } finally {
-        if (cleaned) releaseControllerLease(lease);
-        processApi.exit(signal === 'SIGINT' ? 130 : 143);
-      }
-    };
-    processApi.once(signal, handler);
-    signals.push([signal, handler]);
-  }
   const output = [];
   try {
     const first = checkout(cwd, run);
@@ -873,10 +752,10 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
     else if (!active && selected.defaultBacklog) {
       const candidates = listSpecifiedIssues({ cwd, run });
       if (!candidates.length) return warned({ status: 0, stdout: 'No open spec-created issues.\n', stderr: '' });
-      if (typeof api.pickIssue !== 'function') {
+      if (typeof host.pickIssue !== 'function') {
         return warned(fail(`select an eligible issue: ${candidates.map((item) => `#${item.number}`).join(', ')}`, 2));
       }
-      const chosen = api.pickIssue(candidates);
+      const chosen = host.pickIssue(candidates);
       if (!candidates.some((item) => item.number === chosen)) throw new Error('issue_selection_invalid');
       issues = [chosen];
     }
@@ -887,8 +766,6 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
         failure = { ...packet, ...observedSource(cwd, run) };
         history.push(failure);
       };
-      const foreign = foreignActiveWorker(api, issue, owned, cwd);
-      if (foreign) throw new Error(`foreign_worker_live: ${foreign.name}`);
       let needsImplement = false;
       let requiresPrEvidence = false;
       // A supervisor re-dispatch: the stage to repeat where routing allows, and its guidance.
@@ -999,33 +876,22 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           ) : []),
           workerPrompt({ step, issue, cwd, controllerRunId: invocationId }),
         ].join('\n\n');
-        const direction = paneDirection(api.paneLayout(env.HERDR_PANE_ID), env.HERDR_PANE_ID);
-        const split = api.paneSplit({ direction, cwd, environment: paneEnvironment(step, env) });
-        if (!succeeded(split)) throw new Error('pane_split_failed');
-        const pane = paneId(split);
-        if (!pane || pane === env.HERDR_PANE_ID) throw new Error('pane_identity_unavailable');
-        owned.add(pane);
-        onOwnedPane(pane);
-        if (!succeeded(api.agentStart({
-          name, paneId: pane, model: stageModel(step, failure, stageModels.config),
-          effort: stageEffort(step, failure, stageModels.config),
-        }))) throw new Error('agent_start_failed');
+        // The spawn carries the whole worker prompt; the hooks module registers `execute-<entry>` with this model and effort.
+        const { agentId } = host.spawn({
+          issue, step, entry: entryName(step, failure), agent: STAGE_AGENTS[step], name,
+          model: stageModel(step, failure, stageModels.config),
+          effort: stageEffort(step, failure, stageModels.config) ?? null,
+          permissionMode: workerPermissionMode(env), prompt: instructions, cwd,
+        });
         forced = null;
         guidance = null;
-        const sent = api.agentPrompt({ name, prompt: instructions });
-        if (!succeeded(sent)) {
-          if (!String(JSON.stringify(sent)).includes('agent_prompt_stalled')) throw new Error('worker_prompt_failed');
-          const state = workerState(api, name);
-          if (!['working', 'done'].includes(state) && !freshHandoff(cwd, issue, step, prior)) {
-            throw new Error('prompt_delivery_unproven');
-          }
-        }
         const { handoff, state, decision } = supervise
-          ? superviseWorker({ issue, step, name, pane, prior, before: current.head, history })
-          : awaitWorkerHandoff({ api, name, cwd, issue, step, prior });
-        // A halt leaves the branch, worktree and remote as they are; cleanup closes owned panes.
+          ? superviseWorker({ issue, step, host, agentId, name, prior, before: current.head, history })
+          : awaitWorkerHandoff({ host, agentId, cwd, issue, step, prior });
+        host.finish();
+        // A redispatch or halt stops the running subagent before its replacement starts or the run stops.
+        if (decision?.action === 'redispatch' || decision?.action === 'halt') host.stop(agentId);
         if (decision?.action === 'halt') throw new Error(`supervisor_halt: ${decision.text}`);
-        if (decision || !(supervise && selected.retainWorker)) close(pane);
         if (decision?.action === 'redispatch') {
           if (handoff && handoff.status !== 'passed') {
             recordFailure({ step, head: checkout(cwd, run).head, reasonCode: handoff.reasonCode ?? 'failed',
@@ -1038,11 +904,11 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           continue;
         }
         if (!handoff) {
-          // The pane was closed before retry, and Git/GitHub must be re-observed
+          // The stage subagent ended before retry, and Git/GitHub must be re-observed
           // even when a worker lost its final acknowledgment.
           const after = checkout(cwd, run);
           if (branchIssue && completed(cwd, run, issue, current.branch, after.head)) continue;
-          recordFailure({ step, head: after.head, reasonCode: state ? 'missing_handoff' : 'process_lost',
+          recordFailure({ step, head: after.head, reasonCode: lostReason(state),
             summary: 'worker ended without durable handoff; reconcile current source and remote', artifacts: [] });
           // A lost verify handoff is retried as verify; an implement repair would be told to change source for it.
           needsImplement = after.head === current.head && step === 'implement';
@@ -1143,11 +1009,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
     return warned({ status: 0, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: '' });
   } catch (error) { return warned(fail(error?.reasonCode ?? error?.message ?? 'controller_failed')); }
   finally {
-    let cleaned = false;
-    try { cleanup(); cleaned = true; } finally {
-      for (const [signal, handler] of signals) processApi.removeListener(signal, handler);
-      if (cleaned) releaseControllerLease(lease);
-    }
+    releaseControllerLease(lease);
   }
 }
 
@@ -1170,20 +1032,30 @@ async function sessionCommand(sub, rest) {
   const argv = [...rest];
   try {
     const waitMs = waitSeconds(argv);
-    if (sub === 'run') return supervisor.superviseExecute({ args: argv.join(' ') });
-    if (sub === 'supervise') return supervisor.superviseExecute({ args: argv.join(' '), session: randomUUID(), waitMs });
+    if (sub === 'run') return { status: 2, stdout: '', stderr: 'execute requires /sdlc-execute in a Claude Code session\n' };
+    if (sub === 'supervise') {
+      // Arguments are checked before a session exists, so a refused call prints only its diagnosis.
+      parseArgs(argv.join(' '));
+      const session = randomUUID();
+      const result = await supervisor.superviseExecute({ args: argv.join(' '), session, waitMs });
+      return { ...result, stdout: `NMG_SDLC_EXECUTE_SESSION: ${session}\n${result.stdout}` };
+    }
     const session = takeOption(argv, 'session');
-    if (sub === 'wait' && !argv.length) return supervisor.awaitSession({ session, waitMs });
+    const after = takeOption(argv, 'after');
+    if (sub === 'wait' && !argv.length) {
+      if (after !== undefined && !/^\d+$/.test(after)) throw new Error('--after requires a non-negative report sequence');
+      return await supervisor.awaitSession({ session, after: after === undefined ? 0 : Number(after), waitMs });
+    }
     const seq = Number(takeOption(argv, 'seq'));
     const text = takeOption(argv, 'text');
     if (sub === 'decide' && argv.length === 1) {
-      return supervisor.decideSession({ session, seq, action: argv[0], text, waitMs });
+      return await supervisor.decideSession({ session, seq, action: argv[0], text, waitMs });
     }
   } catch (error) {
     return { status: 2, stdout: '', stderr: `${error.message}\n` };
   }
   return { status: 2, stdout: '', stderr: [
-    'Usage: sdlc-execute.mjs supervise [--retain-worker] [--check-in-seconds N] [#N ...]',
+    'Usage: sdlc-execute.mjs supervise [--check-in-seconds N] [#N ...]',
     '       sdlc-execute.mjs decide --session S --seq N <accept|continue|prompt|redispatch|halt> [--text T]',
     '       sdlc-execute.mjs wait --session S', ''].join('\n') };
 }
@@ -1197,7 +1069,7 @@ function branchGoalIssues() {
 
 async function runCli(argv = process.argv.slice(2)) {
   const [sub, ...rest] = argv;
-  // An invalid project stage configuration stops these before any Herdr, Git, or GitHub call.
+  // An invalid project stage configuration stops these before any Git or GitHub call or worker start.
   if (['goal', 'list-specified', 'run', 'supervise'].includes(sub)) {
     try { loadStageModels(process.cwd()); } catch (error) {
       process.stderr.write(`${error.message}\n`);

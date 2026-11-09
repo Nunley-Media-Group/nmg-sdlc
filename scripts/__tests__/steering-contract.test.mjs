@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { defaultPromptRegistry, renderPrompt } from '../../src/sdlc-prompt-snippets.mjs';
+
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -37,7 +39,7 @@ describe('repo steering contract (v4)', () => {
     const hooks = JSON.parse(read('hooks/hooks.json'));
 
     expect(product).toMatch(/^# nmg-sdlc Product Steering$/m);
-    expect(product).toContain('Claude Code plugin and a Herdr workflow');
+    expect(product).toContain('nmg-sdlc is a Claude Code plugin that turns GitHub issues into verified, production-ready implementations through a spec-driven SDLC.');
     expect(tech).toMatch(/^# nmg-sdlc Technical Steering$/m);
     expect(structure).toMatch(/^# nmg-sdlc Code Structure Steering$/m);
     expect(pluginManifest.name).toBe('nmg-sdlc');
@@ -73,9 +75,9 @@ describe('repo steering contract (v4)', () => {
     expect(steering).toContain('ExitPlanMode');
     expect(steering).toContain('invoke the `skill-creator` skill with the `Skill` tool');
     expect(steering).toContain('claude -p --plugin-dir <checkout>');
-    expect(steering).toContain('--kind claude');
+    expect(steering).toContain('The hooks module starts each stage as a background `nmg-sdlc:execute-<entry>` subagent');
     expect(steering).toContain('NMG_SDLC_WORKER_PERMISSION_MODE');
-    expect(steering).toContain('NMG_SDLC_AUTOPILOT');
+    expect(steering).not.toContain('NMG_SDLC_AUTOPILOT');
   });
 
   test('contains no unresolved repo-specific database or UI placeholders', () => {
@@ -108,29 +110,61 @@ describe('repo steering contract (v4)', () => {
     for (const filePath of agentFiles) {
       const keys = frontmatterKeys(fs.readFileSync(filePath, 'utf8'));
       expect(keys).toEqual(expect.arrayContaining(['name', 'description']));
-      expect(keys.every((key) => ['name', 'description', 'model', 'effort', 'tools'].includes(key))).toBe(true);
-      const model = fs.readFileSync(filePath, 'utf8').match(/^model:\s*"?([^"\n]+)"?$/m)?.[1];
-      if (model !== undefined) expect(['haiku', 'sonnet', 'opus', 'inherit']).toContain(model);
+      expect(keys.every((key) => ['name', 'description', 'tools'].includes(key))).toBe(true);
     }
   });
 
-  test('agents declare literal models and efforts, and steering documents the agent table', () => {
+  test('agent files declare no model or effort, and steering names the stage settings file', () => {
     const tech = read('steering/snippets/project-tech.md');
-    const agents = {
-      starter: { model: 'haiku', effort: null },
-      'spec-implementer': { model: 'haiku', effort: 'xhigh' },
-      'architecture-reviewer': { model: 'opus', effort: null },
-      deliverer: { model: 'haiku', effort: 'xhigh' },
-    };
-    for (const [name, { model, effort }] of Object.entries(agents)) {
+    for (const name of ['starter', 'spec-implementer', 'architecture-reviewer', 'deliverer']) {
       const source = read(`agents/${name}.md`);
-      expect(source.match(/^---\n[\s\S]*?^model:\s*(\S+)$[\s\S]*?^---$/m)?.[1]).toBe(model);
-      expect(source.match(/^---\n[\s\S]*?^effort:\s*(\S+)$[\s\S]*?^---$/m)?.[1] ?? null).toBe(effort);
-      expect(tech).toContain(`| \`agents/${name}.md\` | \`${name}\` | \`${model}\` | ${effort ? `\`${effort}\`` : '—'} |`);
+      expect(frontmatterKeys(source)).toEqual(['name', 'description']);
+      expect(source).not.toMatch(/^model:/m);
+      expect(source).not.toMatch(/^effort:/m);
+      expect(source).toContain('`/sdlc-execute` registers this body as the system prompt of its stage subagent, and the stage\'s model and effort come from `steering/sdlc-models.json`.');
     }
-    expect(tech).toContain('`model` is `haiku`, `sonnet`, or `opus`, a Claude Code alias rather than a full model id.');
-    expect(tech).not.toContain('SDLC_MODELS');
+    const structure = read('steering/snippets/project-structure.md');
     expect(tech).toContain('`steering/sdlc-models.json`');
+    expect(tech).not.toMatch(/Optional: `model`/);
+    expect(structure).not.toMatch(/Optional: `model`/);
+    expect(tech).not.toMatch(/^\| `agents\/[a-z-]+\.md` \| `[a-z-]+` \| `(haiku|sonnet|opus)` \|/m);
+    expect(tech).not.toContain('SDLC_MODELS');
+  });
+
+  test('routes the smoke provisioning snippet only to the verify worker (#538)', () => {
+    const manifest = JSON.parse(read('steering/manifest.json'));
+    const entry = manifest.snippets.find(({ id }) => id === 'project.smoke');
+    expect(entry).toEqual({
+      id: 'project.smoke',
+      path: 'steering/snippets/project-smoke.md',
+      consumers: ['worker:verify'],
+      slot: 'body',
+      order: 510,
+    });
+    const smoke = manifest.validations.find(({ id }) => id === 'repository.nmg-sdlc-smoke');
+    expect(smoke.config.provision.record).toBe('.nmg-sdlc/smoke/provisioned.json');
+
+    const snippet = read('steering/snippets/project-smoke.md');
+    for (const required of [
+      'tmux new-session', 'tmux capture-pane', '/sdlc-draft-issue', '/sdlc-write-spec',
+      '.nmg-sdlc/smoke/provisioned.json', 'nmg-sdlc-smoke smoke issue not provisioned',
+      '**Environmental:**', '**nmg-sdlc defect:**', 'NMG_SDLC_SMOKE_ISSUES',
+    ]) {
+      expect(snippet).toContain(required);
+    }
+    for (const heading of ['Reuse', 'Clone', 'Draft', 'Specify', 'Clean up', 'Classify failures', 'Bound the work']) {
+      expect(snippet).toMatch(new RegExp(`^## \\d\\. ${heading}$`, 'm'));
+    }
+    expect(snippet).not.toContain('NMG_SDLC_AUTOPILOT');
+
+    const marker = '# nmg-sdlc Smoke Provisioning';
+    const rendered = (step) => renderPrompt(defaultPromptRegistry(repoRoot, { projectRoot: repoRoot }), {
+      consumer: `worker:${step}`,
+      vars: { step, issue: '7', controllerRunId: 'run-7', handoffPath: `.nmg-sdlc/handoffs/7-${step}.json` },
+    }).text;
+    expect(rendered('verify')).toContain(marker);
+    expect(rendered('implement')).not.toContain(marker);
+    expect(rendered('deliver')).not.toContain(marker);
   });
 
 });

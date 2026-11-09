@@ -1,6 +1,6 @@
 # ADR: Move nmg-sdlc from Oh My Pi to Claude Code (4.0.0)
 
-**Status**: Accepted
+**Status**: Accepted; decisions 4 and 6 superseded by [2026-11-08-execute-stage-subagents.md](2026-11-08-execute-stage-subagents.md) (#538)
 **Date**: 2026-10-24
 **Release**: 4.0.0
 **Contract**: `references/rewrite-contract.{json,md}` (repository rewrite; no synthetic issue owner)
@@ -35,6 +35,8 @@ Interviews use `AskUserQuestion`. Plans are written to the plan-mode plan file a
 
 ### 4. Autopilot for unattended drivers
 
+> **Superseded** by [2026-11-08-execute-stage-subagents.md](2026-11-08-execute-stage-subagents.md) (#538). Autopilot is removed. Smoke provisioning, its only driver, moved to the verify stage.
+
 With `NMG_SDLC_AUTOPILOT=1` in a session's environment, the module approves every `ExitPlanMode` and answers every `AskUserQuestion` with each question's `(Recommended)` option, else its first. Unattended drivers, such as the live smoke provider's provisioning pane, set it at launch. It is scoped to the session that sets it and must never be set in a person's own session.
 
 *Rejected:* screen-scraping the worker pane to press approval keys, as the OMP smoke provider did. It was fragile against pane width, truncated titles, and unpainted selectors.
@@ -46,6 +48,8 @@ Runtime state moves from `.omp/sdlc/` to `.nmg-sdlc/` (`handoffs/`, `verificatio
 *Rejected:* keeping `.omp/sdlc/`. The name would advertise a host the plugin no longer supports, and a host-neutral name survives future host changes.
 
 ### 6. Worker permission mode
+
+> **Superseded** by [2026-11-08-execute-stage-subagents.md](2026-11-08-execute-stage-subagents.md) (#538). Workers are hooks-module stage subagents, not Herdr panes. The `auto` default and the `NMG_SDLC_WORKER_PERMISSION_MODE` override carry over unchanged.
 
 Herdr workers are Claude Code sessions: `herdr agent start <name> --kind claude --pane <id> -- --plugin-dir <plugin-root> --permission-mode <mode>`. `--plugin-dir` pins every worker to the controller's own plugin version. `<mode>` defaults to `auto`, so unattended workers can edit and run commands without stopping at prompts while Claude Code's own safeguards stay active. `NMG_SDLC_WORKER_PERMISSION_MODE` overrides it with `default`, `acceptEdits`, `auto`, `dontAsk`, or `bypassPermissions`; any other value falls back to `auto`. The Herdr integration check expects a `claude:` integration (`herdr integration install claude`).
 

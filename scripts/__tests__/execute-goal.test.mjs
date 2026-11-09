@@ -33,11 +33,11 @@ function repoOnBranch(branch) {
   return root;
 }
 
-// `gh` and `herdr` on PATH record their calls; `goal` must make neither.
+// `gh` on PATH records its calls; `goal` must make none.
 function sentinelBin() {
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'execute-goal-bin-'));
   scratch.push(bin);
-  for (const tool of ['gh', 'herdr']) {
+  for (const tool of ['gh']) {
     const file = path.join(bin, tool);
     fs.writeFileSync(file, `#!/bin/sh\ntouch "${bin}/called-${tool}"\nexit 1\n`);
     fs.chmodSync(file, 0o755);
@@ -147,14 +147,13 @@ describe('executeGoalStoppedLine (FR4)', () => {
 });
 
 describe('sdlc-execute.mjs goal (T002, AC1, AC2, FR5)', () => {
-  it('prints explicit issues with their condition, exits 0, and makes no GitHub or Herdr call', () => {
+  it('prints explicit issues with their condition, exits 0, and makes no GitHub call', () => {
     const bin = sentinelBin();
     const result = goal(repoOnBranch('feature-x'), ['#41', '#42'], bin);
 
     expect(result.status).toBe(0);
     expect(JSON.parse(result.stdout)).toEqual({ ok: true, issues: [41, 42], condition: executeGoalCondition([41, 42]) });
     expect(fs.existsSync(path.join(bin, 'called-gh'))).toBe(false);
-    expect(fs.existsSync(path.join(bin, 'called-herdr'))).toBe(false);
   });
 
   it('names the issue on a recognized N-* branch when no tokens are given', () => {
@@ -171,11 +170,20 @@ describe('sdlc-execute.mjs goal (T002, AC1, AC2, FR5)', () => {
     expect(JSON.parse(result.stdout)).toEqual({ ok: false, reasonCode: 'goal_issues_unresolved' });
   });
 
-  it('accepts and ignores the supervise flags', () => {
-    const result = goal(repoOnBranch('feature-x'), ['--retain-worker', '--check-in-seconds', '30', '#7'], sentinelBin());
+  it('accepts the check-in flag and ignores it', () => {
+    const result = goal(repoOnBranch('feature-x'), ['--check-in-seconds', '30', '#7'], sentinelBin());
 
     expect(result.status).toBe(0);
     expect(JSON.parse(result.stdout).issues).toEqual([7]);
+  });
+
+  it('refuses the removed --retain-worker flag with a usage error that names it', () => {
+    const result = goal(repoOnBranch('feature-x'), ['--retain-worker', '#7'], sentinelBin());
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('--retain-worker is removed');
+    expect(result.stderr).toContain('Usage: /sdlc-execute [--check-in-seconds N] [#N ...]');
+    expect(result.stdout).toBe('');
   });
 
   it('prints usage on stderr and exits 2 for invalid tokens, with nothing on stdout', () => {
@@ -205,14 +213,14 @@ describe('hooks module goal gate and handshake (T003, AC1, AC5)', () => {
   it('sets the goal from turn.complete through the command API with the condition as args', () => {
     const turnComplete = source.indexOf("on('turn.complete'");
 
-    expect(source.indexOf('void setExecuteGoal($, issues)')).toBeGreaterThan(turnComplete);
+    expect(source.indexOf('const goal = setExecuteGoal($, issues)')).toBeGreaterThan(turnComplete);
     expect(source).toContain("await $.command.run({ command: 'goal', args: condition })");
     expect(source).toContain('await $.command.list()');
     expect(source).toContain("throw new Error('goal command unavailable')");
   });
 
   it('prints the goal_unavailable line through a prompt and keeps supervise refused on failure', () => {
-    expect(source).toContain('executeGoalStoppedLine(reason)');
+    expect(source).toContain('executeGoalStoppedLine(errorText(error))');
     expect(source).toContain('setting the /goal failed. Print exactly this line and stop without running supervise');
     expect(source).toContain('execute.goalSet = false');
   });

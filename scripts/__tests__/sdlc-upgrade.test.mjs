@@ -3167,31 +3167,52 @@ describe('steering-v4-host-language', () => {
 });
 
 describe('contributing-v4-host-language', () => {
-  const sentence = 'drives Herdr omp worker panes through implementation, verification, and delivery';
-  const replacement = 'drives Herdr Claude worker panes through implementation, verification, and delivery';
+  const v3Sentence = 'drives Herdr omp worker panes through implementation, verification, and delivery';
+  const v4Sentence = 'drives Herdr Claude worker panes through implementation, verification, and delivery';
+  const subagentSentence = 'runs Claude Code stage subagents through implementation, verification, and delivery';
+  const contributingItem = (root) => detectItems(root).find((candidate) => candidate.kind === 'contributing-v4-host-language');
 
-  it('replaces every occurrence of the exact sentence under any heading and then reports nothing', () => {
+  it('replaces both v4 occurrences under any heading, leaves every other byte unchanged, and then reports nothing', () => {
     const root = makeRoot();
-    write(root, 'CONTRIBUTING.md', `# Guide\n\n## Custom\n\n- CI ${sentence}.\nKeep omp here.\n\nAgain ${sentence}.\n`);
-    const item = detectItems(root).find((candidate) => candidate.kind === 'contributing-v4-host-language');
+    write(root, 'CONTRIBUTING.md', `# Guide\n\n## Custom\n\n- CI ${v4Sentence}.\nKeep omp here.\n\nAgain ${v4Sentence}.\n`);
+    const item = contributingItem(root);
     expect(item.occurrences).toBe(2);
     const result = applyIds(root, [item.id]);
     expect(result.applied).toContainEqual(expect.objectContaining({ id: item.id, status: 'applied' }));
-    expect(fs.readFileSync(path.join(root, 'CONTRIBUTING.md'), 'utf8')).toBe(`# Guide\n\n## Custom\n\n- CI ${replacement}.\nKeep omp here.\n\nAgain ${replacement}.\n`);
-    expect(detectItems(root).some((candidate) => candidate.kind === 'contributing-v4-host-language')).toBe(false);
+    expect(fs.readFileSync(path.join(root, 'CONTRIBUTING.md'), 'utf8')).toBe(`# Guide\n\n## Custom\n\n- CI ${subagentSentence}.\nKeep omp here.\n\nAgain ${subagentSentence}.\n`);
+    expect(contributingItem(root)).toBeUndefined();
   });
 
-  it('emits nothing when the sentence is absent and fails closed on a symlink', () => {
+  it('converges a v3 file, and a file mixing v3 and v4, to the same subagent text', () => {
+    const v3Root = makeRoot();
+    write(v3Root, 'CONTRIBUTING.md', `# Guide\n\n- ${v3Sentence}.\n`);
+    expect(contributingItem(v3Root).occurrences).toBe(1);
+    expect(applyIds(v3Root, [contributingItem(v3Root).id]).applied).toContainEqual(expect.objectContaining({ id: 'contributing-v4-host-language', status: 'applied' }));
+    expect(fs.readFileSync(path.join(v3Root, 'CONTRIBUTING.md'), 'utf8')).toBe(`# Guide\n\n- ${subagentSentence}.\n`);
+    expect(contributingItem(v3Root)).toBeUndefined();
+
+    const mixedRoot = makeRoot();
+    write(mixedRoot, 'CONTRIBUTING.md', `- ${v3Sentence}.\n- ${v4Sentence}.\n`);
+    expect(contributingItem(mixedRoot).occurrences).toBe(2);
+    applyIds(mixedRoot, [contributingItem(mixedRoot).id]);
+    expect(fs.readFileSync(path.join(mixedRoot, 'CONTRIBUTING.md'), 'utf8')).toBe(`- ${subagentSentence}.\n- ${subagentSentence}.\n`);
+  });
+
+  it('emits nothing when the sentence is absent or already subagent-worded, and fails closed on a symlink', () => {
     const absent = makeRoot();
     write(absent, 'CONTRIBUTING.md', '# Guide\n');
-    expect(detectItems(absent).some((candidate) => candidate.kind === 'contributing-v4-host-language')).toBe(false);
+    expect(contributingItem(absent)).toBeUndefined();
+
+    const current = makeRoot();
+    write(current, 'CONTRIBUTING.md', `- ${subagentSentence}.\n`);
+    expect(contributingItem(current)).toBeUndefined();
 
     const root = makeRoot();
-    write(root, 'real.md', sentence);
+    write(root, 'real.md', v3Sentence);
     fs.symlinkSync(path.join(root, 'real.md'), path.join(root, 'CONTRIBUTING.md'));
-    expect(detectItems(root).some((candidate) => candidate.kind === 'contributing-v4-host-language')).toBe(false);
+    expect(contributingItem(root)).toBeUndefined();
     const result = applyIds(root, ['contributing-v4-host-language']);
-    expect(fs.readFileSync(path.join(root, 'real.md'), 'utf8')).toBe(sentence);
+    expect(fs.readFileSync(path.join(root, 'real.md'), 'utf8')).toBe(v3Sentence);
     expect(result.applied.some((entry) => entry.id === 'contributing-v4-host-language')).toBe(false);
   });
 });

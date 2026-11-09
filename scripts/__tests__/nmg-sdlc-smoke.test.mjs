@@ -6,26 +6,28 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
-  claudeDialog,
-  createHerdrAdapter,
   createSmokeProvider,
   createSmokeRecoveryStore,
   inspectRecoveredDeliveryHandoff,
   inspectRecoveredVerificationEvidence,
   resolveSmokeRecoveryScope,
   validNestedOwnership,
-  workerPermissionMode,
   candidateTree,
-  trustSmokeClone,
 } from '../../steering/extensions/nmg-sdlc-smoke.mjs';
 
 const SOURCE_ROOT = fileURLToPath(new URL('../../', import.meta.url));
-
-const VALID_ENV = Object.freeze({
-  HERDR_ENV: '1',
-  HERDR_SOCKET_PATH: '/tmp/herdr.sock',
-  HERDR_PANE_ID: 'w1:p1',
-});
+const PLUGIN_ROOT = path.resolve(SOURCE_ROOT);
+// The gate needs no terminal-multiplexer context: it runs with whatever environment it is given.
+const BASE_ENV = Object.freeze({});
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+// A delivery session is the headless /sdlc-execute run and carries --session-id.
+const isDelivery = (call) => call.program === 'claude' && call.args.includes('--session-id');
+// The exact delivery command: a fresh session id, the candidate plugin, opus, and the queue as the prompt.
+const deliveryArgs = (issues, { permissionMode = 'auto' } = {}) => [
+  '-p', '--session-id', expect.stringMatching(SESSION_ID), '--plugin-dir', PLUGIN_ROOT,
+  '--model', 'opus', '--permission-mode', permissionMode,
+  `/sdlc-execute ${issues.map((issue) => `#${issue}`).join(' ')}`,
+];
 
 function result(status = 0, stdout = '', extra = {}) {
   return { status, signal: null, stdout, stderr: '', reasonCode: status === 0 ? null : 'failed', ...extra };
@@ -48,33 +50,20 @@ const TEST_SCOPE = Object.freeze({
   specPath: 'specs/379-fix',
 });
 
-// A Herdr pane whose Claude Code session is ready at once: the delivery clone is already trusted.
-function trustedHerdr(calls = []) {
-  const ok = (value) => ({ status: 0, stdout: JSON.stringify({ result: value }), stderr: '' });
-  const record = (name) => (...args) => { calls.push([name, ...args]); return Promise.resolve(); };
-  return {
-    calls,
-    paneSplit: async (cwd) => { await record('paneSplit')(cwd); return ok({ pane: { pane_id: 'wF:trust' } }); },
-    paneClose: async (pane) => { await record('paneClose')(pane); return ok({}); },
-    agentStart: async (name, pane) => { await record('agentStart')(name, pane); return ok({ agent: { interactive_ready: true } }); },
-    agentGet: async () => ok({ agent: { interactive_ready: true, agent_status: 'idle' } }),
-    agentPrompt: async () => ok({}),
-    agentRead: async () => ({ status: 0, stdout: '❯ ', stderr: '' }),
-    paneGet: async (pane) => ok({ pane: { pane_id: pane } }),
-    paneRead: async () => ({ status: 0, stdout: '❯ ', stderr: '' }),
-    paneSendKeys: async () => ok({}),
-  };
-}
-
 function harness(options = {}) {
   const config = Object.hasOwn(options, 'config') ? options.config : { issues: [7, 9] };
-  const { env = VALID_ENV, override } = options;
+  const { env = BASE_ENV, override } = options;
   const calls = [];
   const rmSync = jest.fn();
-  const mkdtempSync = jest.fn(() => '/tmp/nmg-sdlc-smoke-fixture');
+  // A real clone directory: the delivery session's controller status record is a real file under it.
+  const clone = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-smoke-clone-'));
+  commandFixtures.push({ root: clone, marker: path.join(clone, 'absent-marker') });
+  const mkdtempSync = jest.fn(() => clone);
   const deliveryHead = (issue) => `${issue}`.repeat(40).slice(0, 40);
   const configured = Array.isArray(config?.issues) ? config.issues : [11, 12];
   const readFileSync = jest.fn((file) => {
+    // The controller status record is written by the session, so the provider reads it from disk.
+    if (String(file).includes('/.nmg-sdlc/execute/results/')) return fs.readFileSync(file, 'utf8');
     if (options.readFile) return options.readFile(file, { configured, deliveryHead });
     const text = String(file);
     if (text.includes('/smoke-deliveries/') && options.proofAvailable?.value === false) return '{}';
@@ -88,9 +77,23 @@ function harness(options = {}) {
       recordedBeforeMerge: true,
     });
   });
+  // The headless delivery session leaves its controller status under the clone it ran in, as the
+  // controller does. A test may write its own record first; `writeResult: false` leaves none.
+  const sessionOutcome = (outcome, args, { cwd }) => {
+    const flag = args.indexOf('--session-id');
+    if (flag === -1 || options.writeResult === false || !Number.isSafeInteger(outcome.status)) return outcome;
+    const directory = path.join(cwd, '.nmg-sdlc', 'execute', 'results');
+    const file = path.join(directory, `${args[flag + 1]}.json`);
+    if (!fs.existsSync(file)) {
+      fs.mkdirSync(directory, { recursive: true });
+      fs.writeFileSync(file, JSON.stringify({ status: outcome.status, lines: [] }));
+    }
+    return outcome;
+  };
   const runCommand = jest.fn(async (program, args, commandOptions = {}) => {
     calls.push({ program, args, options: commandOptions });
     const overridden = await override?.(program, args, commandOptions, calls);
+    if (program === 'claude') return sessionOutcome(overridden ?? result(0), args, commandOptions);
     if (overridden) return overridden;
     if (program === 'gh' && args[0] === 'auth') return result();
     if (program === 'git' && args[0] === 'clone') return result();
@@ -103,10 +106,9 @@ function harness(options = {}) {
     if (program === 'git' && args[0] === 'write-tree') return result(0, `${options.candidate?.value ?? 'e'.repeat(40)}\n`);
     if (program === 'git' && args[0] === 'rev-parse') return result(0, 'a'.repeat(40));
     if (program === 'git' && args[0] === 'merge-base') return result();
-    if (program === process.execPath) return result();
     if (program === 'gh' && args[0] === 'api') {
       const issue = Number(args.find((arg) => arg.startsWith('number='))?.slice('number='.length));
-      const delivered = calls.some((call) => call.program === process.execPath);
+      const delivered = calls.some(isDelivery);
       const pullRequests = delivered ? [{
         number: issue,
         state: 'MERGED',
@@ -153,9 +155,6 @@ function harness(options = {}) {
     verifyCurrentEvidence: options.verifyCurrentEvidence ?? (() => true),
     verifyRetainedClone: options.verifyRetainedClone ?? (async () => ({ status: 'passed', evidence: [] })),
     env,
-    herdr: options.herdr ?? trustedHerdr(),
-    sleep: async () => {},
-    pollMs: 0,
   });
   const request = {
     identity: {
@@ -171,7 +170,7 @@ function harness(options = {}) {
     config,
   };
   return {
-    calls, deliveryHead, mkdtempSync, provider, readFileSync, recoveryStore,
+    calls, clone, deliveryHead, mkdtempSync, provider, readFileSync, recoveryStore,
     request, rmSync, runCommand, scope, states,
   };
 }
@@ -247,9 +246,11 @@ function commandFixture() {
     else if (args[0] === 'write-tree') console.log('${'e'.repeat(40)}');
     else throw new Error('Unexpected fixture git command');
   `);
-  fs.writeFileSync(path.join(root, 'scripts', 'sdlc-execute.mjs'), `
-    import { spawn } from 'node:child_process';
-    import { writeFileSync } from 'node:fs';
+  // The delivery session is the headless `claude` command; it records its output and holds the
+  // process group open until it is killed. The controller file only has to resolve.
+  executable('claude', `
+    const { spawn } = require('node:child_process');
+    const { writeFileSync } = require('node:fs');
     const descendant = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
       stdio: ['ignore', 'inherit', 'inherit'],
     });
@@ -258,6 +259,7 @@ function commandFixture() {
     writeFileSync(${JSON.stringify(marker)}, JSON.stringify({ pid: process.pid, descendant: descendant.pid }));
     setInterval(() => {}, 1000);
   `);
+  fs.writeFileSync(path.join(root, 'scripts', 'sdlc-execute.mjs'), 'export {};\n');
   const value = { root, work, marker };
   commandFixtures.push(value);
   return value;
@@ -267,7 +269,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
   it('fails an unresolved selected controller before any remote command', async () => {
     const local = commandFixture();
     fs.unlinkSync(path.join(local.root, 'scripts/sdlc-execute.mjs'));
-    const fixture = harness({ env: { ...VALID_ENV, NMG_SDLC_PLUGIN_ROOT: local.root } });
+    const fixture = harness({ env: { ...BASE_ENV, NMG_SDLC_PLUGIN_ROOT: local.root } });
     await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
       status: 'failed', summary: 'nmg-sdlc-smoke controller unresolved: sdlc-execute.mjs',
     });
@@ -278,15 +280,15 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
   it('runs the verified checkout controller instead of an installed non-git NMG_SDLC_PLUGIN_ROOT', async () => {
     const installed = commandFixture();
     const checkout = path.resolve(SOURCE_ROOT);
-    const fixture = harness({ config: { issues: [7] }, env: { ...VALID_ENV, NMG_SDLC_PLUGIN_ROOT: installed.root } });
+    const fixture = harness({ config: { issues: [7] }, env: { ...BASE_ENV, NMG_SDLC_PLUGIN_ROOT: installed.root } });
     fixture.request.projectRoot = checkout;
     await expect(fixture.provider(fixture.request)).resolves.toMatchObject({ status: 'passed' });
 
     const candidate = fixture.calls.filter((call) => call.program === 'git' && call.args[0] === 'read-tree');
     expect(candidate.length).toBeGreaterThan(0);
     expect(candidate.every((call) => call.options.cwd === checkout)).toBe(true);
-    const execute = fixture.calls.find((call) => call.program === process.execPath);
-    expect(execute.args[0]).toBe(path.join(checkout, 'scripts', 'sdlc-execute.mjs'));
+    const execute = fixture.calls.find(isDelivery);
+    expect(execute.args[execute.args.indexOf('--plugin-dir') + 1]).toBe(checkout);
     expect(execute.options.env.NMG_SDLC_PLUGIN_ROOT).toBe(checkout);
   });
 
@@ -305,7 +307,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
       when: { kind: 'always' },
       config: {
         issuesEnv: 'NMG_SDLC_SMOKE_ISSUES',
-        provision: { need: expect.stringMatching(/\S/) },
+        provision: { need: expect.stringMatching(/\S/), record: '.nmg-sdlc/smoke/provisioned.json' },
       },
     });
     expect(validation.config).not.toHaveProperty('issues');
@@ -470,18 +472,18 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
   it('resolves a fresh explicit queue from the configured environment variable', async () => {
     const fixture = harness({
       config: { issuesEnv: 'NMG_SDLC_SMOKE_ISSUES' },
-      env: { ...VALID_ENV, NMG_SDLC_SMOKE_ISSUES: '#11, 12' },
+      env: { ...BASE_ENV, NMG_SDLC_SMOKE_ISSUES: '#11, 12' },
     });
     const outcome = await fixture.provider(fixture.request);
 
     expect(outcome.status).toBe('passed');
-    const execute = fixture.calls.find((call) => call.program === process.execPath);
-    expect(execute.args).toEqual([path.join(SOURCE_ROOT, 'scripts/sdlc-execute.mjs'), 'run', '#11', '#12']);
+    const execute = fixture.calls.find((call) => isDelivery(call));
+    expect(execute.args).toEqual(deliveryArgs([11, 12]));
   });
 
   it('fails when the reusable queue environment variable is absent or invalid', async () => {
     for (const value of [undefined, '', '#7 nope', '#7,7']) {
-      const env = { ...VALID_ENV };
+      const env = { ...BASE_ENV };
       if (value !== undefined) env.NMG_SDLC_SMOKE_ISSUES = value;
       const fixture = harness({ config: { issuesEnv: 'NMG_SDLC_SMOKE_ISSUES' }, env });
       await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
@@ -493,7 +495,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
   });
 
   it('rejects a bare outer NMG_SDLC_SMOKE_OWNED bypass', async () => {
-    const fixture = harness({ env: { ...VALID_ENV, NMG_SDLC_SMOKE_OWNED: '1' } });
+    const fixture = harness({ env: { ...BASE_ENV, NMG_SDLC_SMOKE_OWNED: '1' } });
     const outcome = await fixture.provider(fixture.request);
 
     expect(outcome).toMatchObject({
@@ -507,7 +509,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
   it('suppresses recursion only with the separately validated provider token', async () => {
     const fixture = harness({
       env: {
-        ...VALID_ENV,
+        ...BASE_ENV,
         NMG_SDLC_SMOKE_OWNED: '1',
         NMG_SDLC_SMOKE_RECOVERY: `${'b'.repeat(64)}.${'c'.repeat(64)}`,
       },
@@ -587,11 +589,13 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect(inspectRecoveredDeliveryHandoff(fs.readFileSync, root, expected)).toBe(false);
   });
 
-  it('fails closed when Herdr context or GitHub auth is missing', async () => {
-    const noHerdr = harness({ env: {} });
-    await expect(noHerdr.provider(noHerdr.request)).resolves.toMatchObject({ status: 'failed', summary: expect.stringContaining('Herdr') });
-    expect(noHerdr.mkdtempSync).not.toHaveBeenCalled();
+  it('passes with no terminal-multiplexer environment and runs only git, gh and claude', async () => {
+    const fixture = harness({ env: {} });
+    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({ status: 'passed' });
+    expect(new Set(fixture.calls.map(({ program }) => program))).toEqual(new Set(['claude', 'gh', 'git']));
+  });
 
+  it('fails closed when GitHub auth is missing', async () => {
     const noAuth = harness({ override: (program, args) => program === 'gh' && args[0] === 'auth' ? result(1, '', { stderr: 'not logged in' }) : null });
     await expect(noAuth.provider(noAuth.request)).resolves.toMatchObject({ status: 'failed', summary: expect.stringContaining('auth') });
     expect(noAuth.mkdtempSync).not.toHaveBeenCalled();
@@ -623,7 +627,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
   });
 
   it.each(['cancelled', 'process_lost'])('classifies execute %s as incomplete and retains the clone', async (reasonCode) => {
-    const fixture = harness({ override: (program) => program === process.execPath
+    const fixture = harness({ override: (program) => program === 'claude'
       ? result(null, '', { reasonCode })
       : null });
     const outcome = await fixture.provider(fixture.request);
@@ -643,14 +647,13 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
       const controller = new AbortController();
       const provider = createSmokeProvider({
         env: {
-          ...process.env, ...VALID_ENV,
+          ...process.env, ...BASE_ENV,
           NMG_SDLC_PLUGIN_ROOT: fixture.root,
           PATH: `${path.join(fixture.root, 'bin')}${path.delimiter}${process.env.PATH}`,
         },
         mkdtempSync: () => fixture.work,
         recoveryStore: memoryRecoveryStore(),
         resolveOuterScope: () => TEST_SCOPE,
-        herdr: trustedHerdr(),
       });
       const pending = provider({
         projectRoot: fixture.root, config: { issues: [7] },
@@ -691,15 +694,14 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
   it('runs the explicit issue queue once in order without picker or ad-hoc writes', async () => {
     const fixture = harness();
     const outcome = await fixture.provider(fixture.request);
-    const executeCalls = fixture.calls.filter((call) => call.program === process.execPath);
-
+    const executeCalls = fixture.calls.filter(isDelivery);
 
     expect(outcome.status).toBe('passed');
     expect(executeCalls).toHaveLength(1);
     expect(executeCalls[0]).toMatchObject({
-      args: [path.join(SOURCE_ROOT, 'scripts/sdlc-execute.mjs'), 'run', '#7', '#9'],
+      args: deliveryArgs([7, 9]),
       options: {
-        cwd: '/tmp/nmg-sdlc-smoke-fixture',
+        cwd: fixture.clone,
         env: expect.objectContaining({
           NMG_SDLC_SMOKE_OWNED: '1',
           NMG_SDLC_SMOKE_RECOVERY: expect.stringMatching(/^[0-9a-f]{64}\.[0-9a-f]{64}$/),
@@ -710,6 +712,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect(executeCalls[0].options.env.NMG_SDLC_SMOKE_RECOVERY).toBe(
       `${fixture.scope.recoveryKey}.${persisted.tokenSecret}`,
     );
+    expect(executeCalls[0].args[executeCalls[0].args.indexOf('--session-id') + 1]).toBe(persisted.executeSessionId);
     const rendered = fixture.calls.map((call) => call.args.join(' ')).join('\n');
     expect(rendered).not.toContain('list-specified');
     expect(rendered).not.toContain('issue create');
@@ -745,18 +748,46 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     });
   });
 
-  it('does not accept status-only output as delivery proof', async () => {
-    const fixture = harness({ override: (program) => (
-      program === process.execPath
-        ? result(0, JSON.stringify({ nextAction: { command: '/sdlc-draft-issue' } }))
-        : null
+  it('does not accept a zero controller status without exact delivery proof', async () => {
+    const fixture = harness({ override: (program, args) => (
+      isDelivery({ program, args }) ? result(0, JSON.stringify({ nextAction: { command: '/sdlc-draft-issue' } })) : null
     ) });
-    fixture.readFileSync.mockReturnValue('{}');
+    const baseRead = fixture.readFileSync.getMockImplementation();
+    fixture.readFileSync.mockImplementation((file) => String(file).includes('/smoke-deliveries/') ? '{}' : baseRead(file));
     const outcome = await fixture.provider(fixture.request);
 
     expect(outcome.status).toBe('failed');
     expect(outcome.summary).toContain('missing invocation delivery proof');
     expect(retained(outcome)).toBe(true);
+    expect(fixture.rmSync).not.toHaveBeenCalled();
+  });
+
+  it('takes the controller status from its result record, not from the session exit', async () => {
+    const fixture = harness({
+      config: { issues: [7] },
+      override: (program, args, commandOptions) => {
+        if (!isDelivery({ program, args })) return null;
+        const directory = path.join(commandOptions.cwd, '.nmg-sdlc', 'execute', 'results');
+        fs.mkdirSync(directory, { recursive: true });
+        fs.writeFileSync(path.join(directory, `${args[args.indexOf('--session-id') + 1]}.json`), JSON.stringify({ status: 0, lines: ['ok'] }));
+        return result(1, '', { stderr: 'session exited nonzero' });
+      },
+    });
+    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({ status: 'passed' });
+    expect(fixture.states.get(fixture.scope.recoveryKey)).toMatchObject({ executeStatus: 0 });
+  });
+
+  it('counts a missing result record as a nonzero status that passes only with exact invocation proof', async () => {
+    const fixture = harness({ config: { issues: [7] }, writeResult: false });
+    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({ status: 'passed' });
+    expect(fixture.states.get(fixture.scope.recoveryKey)).toMatchObject({ executeStatus: 1 });
+  });
+
+  it('fails a missing result record when no exact invocation proof exists', async () => {
+    const fixture = harness({ config: { issues: [7] }, writeResult: false, proofAvailable: { value: false } });
+    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
+      status: 'failed', summary: 'nmg-sdlc-smoke execute exited 1',
+    });
     expect(fixture.rmSync).not.toHaveBeenCalled();
   });
 
@@ -771,11 +802,11 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
         summary: expect.stringMatching(new RegExp(`issue #${issue} .* CLOSED; PR .* MERGED at .+`)),
       }));
     }
-    expect(fixture.rmSync).toHaveBeenCalledWith('/tmp/nmg-sdlc-smoke-fixture', { recursive: true, force: true });
+    expect(fixture.rmSync).toHaveBeenCalledWith(fixture.clone, { recursive: true, force: true });
 
     const repeated = await fixture.provider(fixture.request);
     expect(repeated.status).toBe('passed');
-    expect(fixture.calls.filter((call) => call.program === process.execPath)).toHaveLength(1);
+    expect(fixture.calls.filter((call) => isDelivery(call))).toHaveLength(1);
     expect(fixture.mkdtempSync).toHaveBeenCalledTimes(1);
     expect(fixture.rmSync).toHaveBeenCalledTimes(1);
     expect(fixture.states.get(fixture.scope.recoveryKey)).toMatchObject({
@@ -817,7 +848,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect((await fixture.provider(fixture.request)).status).toBe('passed');
     const terminalBefore = structuredClone(fixture.states.get(scope.recoveryKey));
     expect(terminalBefore.outerIdentity.headSha).toBe(storedHead);
-    const executeCalls = fixture.calls.filter((call) => call.program === process.execPath).length;
+    const executeCalls = fixture.calls.filter((call) => isDelivery(call)).length;
     const remoteProofCalls = fixture.calls.filter((call) => call.program === 'gh' && call.args[0] === 'api').length;
     fixture.request.identity = {
       ...fixture.request.identity,
@@ -840,7 +871,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
       validationConfigHash: fixture.request.identity.validationConfigHash,
     });
     expect((await fixture.provider(fixture.request)).status).toBe('passed');
-    expect(fixture.calls.filter((call) => call.program === process.execPath)).toHaveLength(executeCalls);
+    expect(fixture.calls.filter((call) => isDelivery(call))).toHaveLength(executeCalls);
     expect(fixture.calls.filter((call) => call.program === 'git' && call.args[0] === 'merge-base')).toHaveLength(2);
     expect(fixture.calls.filter((call) => call.program === 'git' && call.args[0] === 'diff')).toHaveLength(2);
     expect(fixture.calls.filter((call) => call.program === 'gh' && call.args[0] === 'api')).toHaveLength(remoteProofCalls + 2);
@@ -907,7 +938,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     });
     expect((await fixture.provider(fixture.request)).status).toBe('passed');
     const terminalBefore = structuredClone(fixture.states.get(scope.recoveryKey));
-    const executeCalls = fixture.calls.filter((call) => call.program === process.execPath).length;
+    const executeCalls = fixture.calls.filter((call) => isDelivery(call)).length;
     const remoteProofCalls = fixture.calls.filter((call) => call.program === 'gh' && call.args[0] === 'api').length;
     fixture.request.identity = {
       ...fixture.request.identity,
@@ -920,7 +951,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
 
     expect(rejected.status).toBe('failed');
     expect(fixture.states.get(scope.recoveryKey)).toEqual(terminalBefore);
-    expect(fixture.calls.filter((call) => call.program === process.execPath)).toHaveLength(executeCalls);
+    expect(fixture.calls.filter((call) => isDelivery(call))).toHaveLength(executeCalls);
     expect(fixture.calls.filter((call) => call.program === 'gh' && call.args[0] === 'api')).toHaveLength(remoteProofCalls);
   });
 
@@ -929,7 +960,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     const fixture = harness({
       config: { issues: [7] },
       runPresence: 'valid',
-      override: (program) => program === process.execPath ? result(1) : null,
+      override: (program) => program === 'claude' ? result(1) : null,
     });
 
     const outcome = await fixture.provider(fixture.request);
@@ -938,20 +969,20 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
       kind: 'github',
       summary: expect.stringContaining('PR https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull/7 MERGED'),
     }));
-    expect(fixture.calls.filter((call) => call.program === process.execPath)).toHaveLength(1);
+    expect(fixture.calls.filter((call) => isDelivery(call))).toHaveLength(1);
   });
 
   it('accepts exact multi-issue nonzero proof without a nested run ledger', async () => {
     const fixture = harness({
       config: { issues: [7, 9] },
       runPresence: 'valid',
-      override: (program) => program === process.execPath ? result(1) : null,
+      override: (program) => program === 'claude' ? result(1) : null,
     });
 
     const outcome = await fixture.provider(fixture.request);
     expect(outcome.status).toBe('passed');
     expect(outcome.evidence.filter((item) => item.kind === 'github')).toHaveLength(2);
-    expect(fixture.calls.filter((call) => call.program === process.execPath)).toHaveLength(1);
+    expect(fixture.calls.filter((call) => isDelivery(call))).toHaveLength(1);
   });
 
   it('reuses a retained invocation receipt after remote merge without relaunching the queue', async () => {
@@ -959,9 +990,9 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     const fixture = harness({
       config: { issues: [7] },
       override: (program, args, _options, calls) => {
-        if (program === process.execPath) return result(1);
+        if (program === 'claude') return result(1);
         if (program === 'gh' && args[0] === 'api'
-          && !merged && calls.some((call) => call.program === process.execPath)) {
+          && !merged && calls.some((call) => isDelivery(call))) {
           return result(0, JSON.stringify({ data: { repository: { issue: {
             state: 'OPEN',
             url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/7',
@@ -981,7 +1012,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
       kind: 'github',
       summary: expect.stringContaining('MERGED'),
     }));
-    expect(fixture.calls.filter((call) => call.program === process.execPath)).toHaveLength(1);
+    expect(fixture.calls.filter((call) => isDelivery(call))).toHaveLength(1);
     expect(fixture.mkdtempSync).toHaveBeenCalledTimes(1);
   });
 
@@ -993,7 +1024,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
       candidate,
       readFile: () => { throw Object.assign(new Error('missing receipt'), { code: 'ENOENT' }); },
       override: (program) => {
-        if (program === process.execPath) {
+        if (program === 'claude') {
           launches += 1;
           return result(1, '', { stderr: 'pane_layout_unavailable' });
         }
@@ -1024,8 +1055,8 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
           pullRequest: issue, headSha: deliveryHead(issue), recordedBeforeMerge: true });
       },
       override: (program, args, options) => {
-        if (program !== process.execPath) return null;
-        executions.push({ args: args.slice(1), token: options.env.NMG_SDLC_SMOKE_RECOVERY, cwd: options.cwd });
+        if (program !== 'claude') return null;
+        executions.push({ args, token: options.env.NMG_SDLC_SMOKE_RECOVERY, cwd: options.cwd });
         return executions.length === 1 ? result(1, '', { stderr: 'dependency_unreadable' })
           : result(resumedStatus[Math.min(executions.length - 2, resumedStatus.length - 1)]);
       },
@@ -1039,12 +1070,12 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect(first).toMatchObject({ status: 'failed', summary: expect.stringContaining('execute exited 1') });
     const resumed = await fixture.provider(fixture.request);
     expect(resumed.status).toBe('passed');
-    expect(executions.map(({ args }) => args)).toEqual([['run', '#7', '#9'], ['run', '#9']]);
+    expect(executions.map(({ args }) => args.at(-1))).toEqual(['/sdlc-execute #7 #9', '/sdlc-execute #9']);
     expect(executions[1].token).toBe(executions[0].token);
     expect(executions[1].cwd).toBe(executions[0].cwd);
     expect(fixture.mkdtempSync).toHaveBeenCalledTimes(1);
     expect(resumed.evidence).toContainEqual(expect.objectContaining({
-      summary: 'sdlc-execute run #9 (resumed after #7)',
+      summary: expect.stringMatching(/^claude \/sdlc-execute #9 \(resumed after #7, session [0-9a-f-]{36}\)$/),
     }));
     expect(fixture.states.get(fixture.scope.recoveryKey)).toMatchObject({ phase: 'terminal' });
   });
@@ -1059,7 +1090,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     });
     const missingProof = await fixture.provider(fixture.request);
     expect(missingProof).toMatchObject({ status: 'failed', summary: expect.stringContaining('#9 missing invocation delivery proof') });
-    expect(executions.map(({ args }) => args)).toEqual([['run', '#7', '#9'], ['run', '#9'], ['run', '#9']]);
+    expect(executions.map(({ args }) => args.at(-1))).toEqual(['/sdlc-execute #7 #9', '/sdlc-execute #9', '/sdlc-execute #9']);
   });
 
   it('does not resume when receipts are not a leading prefix of the queue', async () => {
@@ -1084,7 +1115,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect(second.status).toBe('passed');
     expect(fixture.states.get(fixture.scope.recoveryKey).phase).toBe('terminal');
     expect(fixture.rmSync).toHaveBeenCalledTimes(2);
-    expect(fixture.calls.filter((call) => call.program === process.execPath)).toHaveLength(1);
+    expect(fixture.calls.filter((call) => isDelivery(call))).toHaveLength(1);
     expect(fixture.mkdtempSync).toHaveBeenCalledTimes(1);
   });
 
@@ -1096,7 +1127,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     expect((await fixture.provider(fixture.request)).status).toBe('incomplete');
     expect(fixture.states.get(fixture.scope.recoveryKey).phase).toBe('cleanup_pending');
     expect(fixture.rmSync).toHaveBeenCalledTimes(2);
-    expect(fixture.calls.filter((call) => call.program === process.execPath)).toHaveLength(1);
+    expect(fixture.calls.filter((call) => isDelivery(call))).toHaveLength(1);
     expect(fixture.mkdtempSync).toHaveBeenCalledTimes(1);
   });
 
@@ -1110,14 +1141,14 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
     mutate(fixture.states.get(fixture.scope.recoveryKey));
 
     expect((await fixture.provider(fixture.request)).status).toBe('failed');
-    expect(fixture.calls.filter((call) => call.program === process.execPath)).toHaveLength(1);
+    expect(fixture.calls.filter((call) => isDelivery(call))).toHaveLength(1);
     expect(fixture.mkdtempSync).toHaveBeenCalledTimes(1);
     expect(fixture.rmSync).toHaveBeenCalledTimes(1);
   });
 
   it('rejects a nonzero execute exit when invocation delivery proof is missing', async () => {
     const fixture = harness({ override: (program) => (
-      program === process.execPath ? result(1, '', { stderr: 'controller failed' }) : null
+      program === 'claude' ? result(1, '', { stderr: 'controller failed' }) : null
     ) });
     fixture.readFileSync.mockReturnValue('{}');
     const outcome = await fixture.provider(fixture.request);
@@ -1164,7 +1195,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
   it('accepts an open baseline PR only when this invocation merges its receipted exact head', async () => {
     const fixture = harness({ config: { issues: [7] }, override: (program, args, _options, calls) => {
       if (program !== 'gh' || args[0] !== 'api') return null;
-      const merged = calls.some((call) => call.program === process.execPath);
+      const merged = calls.some((call) => isDelivery(call));
       return result(0, JSON.stringify({ data: { repository: { issue: {
         state: merged ? 'CLOSED' : 'OPEN',
         url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/7',
@@ -1185,7 +1216,7 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
 
   it('retains failed proof and never invokes a smoke-project toolchain', async () => {
     const fixture = harness({ override: (program, args, _options, calls) => {
-      if (program !== 'gh' || args[0] !== 'api' || !calls.some((call) => call.program === process.execPath)) return null;
+      if (program !== 'gh' || args[0] !== 'api' || !calls.some((call) => isDelivery(call))) return null;
       return result(0, JSON.stringify({
         data: {
           repository: {
@@ -1210,684 +1241,282 @@ describe('nmg-sdlc mutable delivery smoke provider', () => {
   });
 });
 
-const NEED = 'Add one small new capability.';
-const PROVISION_CONFIG = Object.freeze({ issuesEnv: 'NMG_SDLC_SMOKE_ISSUES', provision: { need: NEED } });
+const RECORD_PATH = '.nmg-sdlc/smoke/provisioned.json';
+const RECORDED_CONFIG = Object.freeze({
+  issuesEnv: 'NMG_SDLC_SMOKE_ISSUES',
+  provision: { need: 'Add one small new capability.', record: RECORD_PATH },
+});
+const SMOKE_PR = 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull';
+const validRecord = (extra = {}) => ({
+  schemaVersion: 1,
+  repo: 'Nunley-Media-Group/nmg-sdlc-smoke',
+  issue: 179,
+  provisionedAt: '2026-11-08T00:00:00Z',
+  ...extra,
+});
 
-// Claude Code dialog text as painted in a Herdr pane.
-const TRUST_SCREEN = [
-  ' Do you trust the files in this folder?',
-  ' /tmp/nmg-sdlc-smoke-provision-abc',
-  ' ❯ 1. Yes, proceed',
-  '   2. No, exit',
-].join('\n');
-// Captured live from a fresh clone; `No, exit` is preselected.
-const LIVE_TRUST_SCREEN = [
-  ' Accessing workspace:',
-  ' /private/tmp/nmg-sdlc-smoke-provision-abc',
-  ' Quick safety check: Is this a project you created or one you trust?',
-  ' ❯ No, exit',
-  '   Yes, I trust this folder',
-  ' Enter to confirm · Esc to cancel',
-].join('\n');
-// Captured live from the provider's narrow `--direction right` pane: the header has scrolled away
-// and the accept label wraps. Herdr reports this agent idle and interactive_ready.
-const NARROW_TRUST_SCREEN = [
-  ' trust? (Like your own',
-  ' code, a well-known open',
-  ' source project, or work',
-  ' from your team). If not,',
-  ' take a moment to review',
-  " what's in this folder",
-  ' first.',
-  " Claude Code'll be able",
-  ' to read, edit, and',
-  ' execute files here.',
-  ' Security guide',
-  ' ❯ No, exit',
-  '   Yes, I trust this',
-  '   folder',
-  ' Enter to confirm · Esc',
-  ' to cancel',
-].join('\n');
-const PERMISSION_SCREEN = [
-  ' Bash command',
-  '   gh issue create -R Nunley-Media-Group/nmg-sdlc-smoke',
-  ' Do you want to proceed?',
-  ' ❯ 1. Yes',
-  "   2. Yes, and don't ask again for gh issue create commands",
-  '   3. No, and tell Claude what to do differently (esc)',
-].join('\n');
-const PLAN_APPROVAL_SCREEN = [
-  ' Ready to code?',
-  ' Would you like to proceed?',
-  ' ❯ 1. Yes, and auto-accept edits',
-  '   2. Yes, and manually approve edits',
-  '   3. No, keep planning',
-].join('\n');
-const QUESTION_SCREEN = [
-  ' Which type of issue is this?',
-  ' ❯ 1. Enhancement (Recommended)',
-  '   2. Bug',
-  ' Enter to select · ↑/↓ to navigate · Esc to cancel',
-].join('\n');
-
-// A Claude Code session behind a fake Herdr adapter. With autopilot (NMG_SDLC_AUTOPILOT=1 in the
-// pane) every plan approval and question resolves inside the session, so each phase is only a
-// run of `working` polls followed by its GitHub side effect, unless a dialog autopilot cannot
-// answer is scripted for that phase.
-function fakeClaudePane({
-  baseline = 178,
-  created = [179],
-  draftPolls = 3,
-  specPolls = 3,
-  draftPublishes = true,
-  specPublishes = true,
-  dialog = null, // { phase, screen, polls = Infinity, status = 'blocked' }
-  afterPublishStatus = 'working',
-  settledStatus = 'idle',
-  startResult = null,
-  readyScreen = null,
-  notReadyPolls = 0,
-  trustAccepts = false, // the trust dialog clears when `down enter` is keyed
-  paneCwd = '/tmp/nmg-sdlc-smoke-fixture',
+// A fake GitHub holding the verify-provisioned smoke issue: its state, author, labels and the
+// merged `docs: approve spec for #N` PR the recorded-issue check reads.
+function recordedGitHub({
+  state = 'OPEN', author = 'smoke-bot', login = 'smoke-bot', labels = ['spec-created'], specPr = true,
 } = {}) {
-  const pane = {
-    keys: [], trustCleared: false,
-    prompts: [], splits: [], closed: [], starts: [], phase: 'idle', remaining: 0,
-    issueCreated: false, published: false, dialogPolls: 0, gets: 0, notReady: notReadyPolls,
-  };
-  const ok = (value) => result(0, JSON.stringify({ result: value }));
-  const trustGone = (candidate) => pane.trustCleared && [TRUST_SCREEN, NARROW_TRUST_SCREEN].includes(candidate);
-  const activeDialog = () => (dialog && dialog.phase === pane.phase && pane.remaining === 0
-    && !trustGone(dialog.screen)
-    && pane.dialogPolls < (dialog.polls ?? Infinity) ? dialog : null);
-  const advance = () => {
-    if (pane.phase === 'idle') return 'idle';
-    if (pane.remaining > 0) {
-      pane.remaining -= 1;
-      return 'working';
-    }
-    const current = activeDialog();
-    if (current) {
-      pane.dialogPolls += 1;
-      return current.status ?? 'blocked';
-    }
-    if (dialog && dialog.phase === pane.phase && (dialog.resume || trustGone(dialog.screen)) && !pane.resumed) {
-      // The transient dialog cleared; the session continues working.
-      pane.resumed = true;
-      pane.remaining = dialog.resume ?? 1;
-      return 'working';
-    }
-    if (pane.phase === 'draft' && draftPublishes) pane.issueCreated = true;
-    if (pane.phase === 'spec' && specPublishes) {
-      pane.published = true;
-      // write-spec's Continue loop keeps the session working after publication.
-      return afterPublishStatus;
-    }
-    return settledStatus;
-  };
-  const screen = () => {
-    const current = dialog && dialog.phase === pane.phase && pane.dialogPolls > 0
-      && pane.dialogPolls <= (dialog.polls ?? Infinity) && !pane.resumed && !trustGone(dialog.screen) ? dialog : null;
-    if (pane.phase === 'idle' && readyScreen && !trustGone(readyScreen)) return readyScreen;
-    return current ? current.screen : '✻ Working…';
-  };
-  pane.herdr = {
-    // The first split is the provisioning pane; a later one is the delivery clone's trust pane.
-    paneSplit: async (cwd) => {
-      pane.splits.push(cwd);
-      return ok({ pane: { pane_id: pane.splits.length === 1 ? 'wF:p99' : 'wF:trust' } });
-    },
-    paneClose: async (id) => { pane.closed.push(id); return result(); },
-    agentStart: async (name, id, options) => {
-      pane.starts.push({ name, pane: id, ...options });
-      return startResult ?? ok({ agent: { interactive_ready: true } });
-    },
-    agentGet: async () => {
-      pane.gets += 1;
-      if (pane.notReady > 0) {
-        pane.notReady -= 1;
-        return ok({ agent: { interactive_ready: false, agent_status: 'idle' } });
-      }
-      return ok({ agent: { interactive_ready: true, agent_status: advance() } });
-    },
-    agentPrompt: async (_name, text) => {
-      pane.prompts.push(text);
-      pane.phase = text.startsWith('/sdlc-draft-issue') ? 'draft' : 'spec';
-      pane.remaining = pane.phase === 'draft' ? draftPolls : specPolls;
-      pane.dialogPolls = 0;
-      pane.resumed = false;
-      return result();
-    },
-    paneRead: async () => result(0, screen()),
-    paneGet: async (id) => ok({ pane: { pane_id: id, cwd: paneCwd, foreground_cwd: paneCwd } }),
-    paneSendKeys: async (_id, keys) => {
-      pane.keys.push(keys);
-      if (trustAccepts && [TRUST_SCREEN, NARROW_TRUST_SCREEN].includes(screen())) pane.trustCleared = true;
-      return result();
-    },
-  };
-  pane.github = (program, args) => {
+  return (program, args) => {
     if (program !== 'gh') return null;
-    if (args[0] === 'issue' && args[1] === 'list' && args.includes('--author')) {
-      return result(0, JSON.stringify(pane.issueCreated ? created.map((number) => ({ number })) : []));
-    }
-    if (args[0] === 'issue' && args[1] === 'list') return result(0, JSON.stringify([{ number: baseline }]));
+    if (args[0] === 'api' && args[1] === 'user') return result(0, `${login}\n`);
     if (args[0] === 'issue' && args[1] === 'view') {
+      const number = Number(args[2]);
       return result(0, JSON.stringify({
-        url: `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/${args[2]}`,
-        labels: pane.published ? [{ name: 'enhancement' }, { name: 'spec-created' }] : [{ name: 'enhancement' }],
+        state,
+        author: { login: author },
+        labels: labels.map((name) => ({ name })),
+        url: `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/${number}`,
       }));
     }
     if (args[0] === 'pr' && args[1] === 'list') {
-      return result(0, JSON.stringify(pane.published ? [{
-        number: 180,
-        title: `docs: approve spec for #${created[0]}`,
-        url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull/180',
-      }] : []));
+      const number = Number(args[args.indexOf('--search') + 1].match(/#(\d+)/)[1]);
+      return result(0, JSON.stringify(specPr
+        ? [{ number: number + 1, title: `docs: approve spec for #${number}`, url: `${SMOKE_PR}/${number + 1}` }]
+        : []));
     }
     return null;
   };
-  return pane;
 }
 
-function provisioningHarness(pane, options = {}) {
-  return harness({
-    config: PROVISION_CONFIG,
-    herdr: pane.herdr,
+// `record` is the provisioning record's content: an object (written as JSON), a raw string, or
+// absent (the file does not exist).
+function recordedHarness(settings = {}) {
+  const { github = {}, ...options } = settings;
+  const record = Object.hasOwn(settings, 'record') ? settings.record : validRecord();
+  delete options.record;
+  const fake = recordedGitHub(github);
+  const fixture = harness({
+    config: RECORDED_CONFIG,
     ...options,
-    override: (program, args, commandOptions, calls) => pane.github(program, args)
-      ?? options.override?.(program, args, commandOptions, calls),
+    override: (program, args, commandOptions, calls) => options.override?.(program, args, commandOptions, calls)
+      ?? fake(program, args),
   });
+  const baseRead = fixture.readFileSync.getMockImplementation();
+  fixture.readFileSync.mockImplementation((file, encoding) => {
+    if (String(file) === path.join('/plugin', RECORD_PATH)) {
+      if (record === undefined) throw Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' });
+      return typeof record === 'string' ? record : JSON.stringify(record);
+    }
+    return baseRead(file, encoding);
+  });
+  return fixture;
 }
 
-describe('nmg-sdlc smoke provisioning Claude pane', () => {
-  it('splits the pane with autopilot and starts Claude Code with the candidate plugin and permission mode', async () => {
-    const calls = [];
-    const runCommand = async (program, args, options) => {
-      calls.push({ program, args, options });
-      return result();
-    };
-    const herdr = createHerdrAdapter(runCommand, { HERDR_ENV: '1' }, undefined);
-    await herdr.paneSplit('/tmp/clone');
-    await herdr.agentStart('smoke-provision-0001', 'wF:p99', { pluginRoot: '/repo/nmg-sdlc', permissionMode: 'auto' });
-    await herdr.agentPrompt('smoke-provision-0001', '/sdlc-draft-issue need');
-    await herdr.agentRead('smoke-provision-0001');
-    await herdr.paneGet('wF:p99');
-    await herdr.paneRead('wF:p99');
-    await herdr.paneSendKeys('wF:p99', ['down', 'enter']);
+const callText = (call) => [call.program, ...call.args].join(' ');
 
-    expect(calls.every(({ program }) => program === 'herdr')).toBe(true);
-    expect(calls.slice(4).map(({ args }) => args)).toEqual([
-      ['pane', 'get', 'wF:p99'],
-      ['pane', 'read', 'wF:p99', '--source', 'visible', '--format', 'text'],
-      ['pane', 'send-keys', 'wF:p99', 'down', 'enter'],
-    ]);
-    expect(calls[0].args).toEqual([
-      'pane', 'split', '--current', '--direction', 'right', '--cwd', '/tmp/clone', '--no-focus',
-      '--env', 'NMG_SDLC_AUTOPILOT=1',
-    ]);
-    expect(calls[1].args).toEqual([
-      'agent', 'start', 'smoke-provision-0001', '--kind', 'claude', '--pane', 'wF:p99',
-      '--timeout', '120000',
-      '--', '--plugin-dir', '/repo/nmg-sdlc', '--permission-mode', 'auto',
-    ]);
-    expect(calls[2].args).toEqual(['agent', 'prompt', 'smoke-provision-0001', '/sdlc-draft-issue need']);
-    expect(calls[3].args).toEqual(['agent', 'read', 'smoke-provision-0001', '--source', 'visible', '--format', 'text']);
-    expect(calls.flatMap(({ args }) => args)).not.toContain('omp');
-    expect(Object.keys(herdr)).not.toContain('agentSendKeys');
-  });
-
-  it.each([
-    [undefined, 'auto'],
-    ['', 'auto'],
-    ['default', 'default'],
-    ['acceptEdits', 'acceptEdits'],
-    ['auto', 'auto'],
-    ['dontAsk', 'dontAsk'],
-    ['bypassPermissions', 'bypassPermissions'],
-    ['plan', 'auto'],
-    ['BYPASSPERMISSIONS', 'auto'],
-  ])('selects worker permission mode %p as %p like /sdlc-execute', (value, mode) => {
-    const env = value === undefined ? {} : { NMG_SDLC_WORKER_PERMISSION_MODE: value };
-    expect(workerPermissionMode(env)).toBe(mode);
-  });
-
-  it.each([
-    ['workspace trust', TRUST_SCREEN, 'workspace_trust'],
-    ['workspace trust (newer wording)', 'Quick safety check: Is this a project you created or one you trust?\n❯ 1. Yes, I trust this folder', 'workspace_trust'],
-    ['workspace trust (live capture)', LIVE_TRUST_SCREEN, 'workspace_trust'],
-    ['workspace trust (narrow pane, wrapped label)', NARROW_TRUST_SCREEN, 'workspace_trust'],
-    ['a permission ask', PERMISSION_SCREEN, 'permission'],
-    ['an edit permission ask', 'Do you want to make this edit to README.md?\n❯ 1. Yes', 'permission'],
-    ['plan approval without autopilot', PLAN_APPROVAL_SCREEN, 'plan_approval'],
-    ['a question without autopilot', QUESTION_SCREEN, 'question'],
-  ])('classifies %s from pane text', (_label, screen, kind) => {
-    expect(claudeDialog(screen)?.kind).toBe(kind);
-  });
-
-  it('does not classify ordinary working output as a dialog', () => {
-    expect(claudeDialog('✻ Working… (esc to interrupt)\n⏺ Bash(gh issue list)')).toBeNull();
-    expect(claudeDialog('')).toBeNull();
-    expect(claudeDialog(undefined)).toBeNull();
-  });
-});
-
-describe('nmg-sdlc smoke gate self-provisioning', () => {
-  it('SCN006/SCN007: drafts and specifies a fresh issue in an autopilot Claude pane, then delivers it', async () => {
-    const pane = fakeClaudePane();
-    const fixture = provisioningHarness(pane);
+describe('nmg-sdlc smoke gate delivering the verify-provisioned issue', () => {
+  it('AC10: delivers the recorded issue in one headless session and never drafts or specifies', async () => {
+    const fixture = recordedHarness();
     const outcome = await fixture.provider(fixture.request);
 
-    expect(outcome.status).toBe('passed');
-    expect(pane.prompts).toEqual([`/sdlc-draft-issue ${NEED}`, '/sdlc-write-spec 179']);
-    // The provisioning pane, then the delivery clone's short-lived trust pane (#477).
-    expect(pane.splits).toEqual(['/tmp/nmg-sdlc-smoke-fixture', '/tmp/nmg-sdlc-smoke-fixture']);
-    expect(pane.starts).toEqual([{
-      name: expect.stringMatching(/^smoke-provision-[0-9a-f]{8}$/),
-      pane: 'wF:p99',
-      pluginRoot: path.resolve(SOURCE_ROOT),
-      permissionMode: 'auto',
-    }, {
-      name: expect.stringMatching(/^smoke-trust-[0-9a-f]{8}$/),
-      pane: 'wF:trust',
-      pluginRoot: path.resolve(SOURCE_ROOT),
-      permissionMode: 'auto',
-    }]);
-    expect(pane.closed).toEqual(['wF:p99', 'wF:trust']);
-    const execute = fixture.calls.filter((call) => call.program === process.execPath);
-    expect(execute).toHaveLength(1);
-    expect(execute[0].args.slice(1)).toEqual(['run', '#179']);
+    expect(outcome).toMatchObject({ status: 'passed', summary: 'nmg-sdlc-smoke delivered #179' });
+    const claude = fixture.calls.filter(({ program }) => program === 'claude');
+    expect(claude).toHaveLength(1);
+    expect(claude[0]).toMatchObject({
+      args: deliveryArgs([179]),
+      options: {
+        cwd: fixture.clone,
+        env: expect.objectContaining({
+          NMG_SDLC_PLUGIN_ROOT: PLUGIN_ROOT,
+          NMG_SDLC_SMOKE_OWNED: '1',
+          NMG_SDLC_SMOKE_RECOVERY: expect.stringMatching(/^[0-9a-f]{64}\.[0-9a-f]{64}$/),
+        }),
+      },
+    });
+    for (const call of fixture.calls) {
+      expect(callText(call)).not.toMatch(/sdlc-draft-issue|sdlc-write-spec|herdr/i);
+      expect(call.options.env ?? {}).not.toHaveProperty('NMG_SDLC_AUTOPILOT');
+    }
+    expect(new Set(fixture.calls.map(({ program }) => program))).toEqual(new Set(['claude', 'gh', 'git']));
     expect(outcome.evidence).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'github', artifact: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull/180' }),
-      expect.objectContaining({ kind: 'github', summary: expect.stringContaining('issue #179') }),
-      expect.objectContaining({ kind: 'command', summary: expect.stringContaining('--kind claude -- --plugin-dir') }),
+      expect.objectContaining({ kind: 'github', artifact: `${SMOKE_PR}/180` }),
     ]));
-    const gh = fixture.calls.filter((call) => call.program === 'gh' && ['issue', 'pr'].includes(call.args[0]));
-    expect(gh.every((call) => call.args.includes('Nunley-Media-Group/nmg-sdlc-smoke'))).toBe(true);
-    expect(fixture.states.get(TEST_SCOPE.recoveryKey)).toMatchObject({ issues: [179], provisioned: { issue: 179, published: true } });
+    expect(fixture.states.get(TEST_SCOPE.recoveryKey)).toMatchObject({
+      phase: 'terminal', issues: [179], provisioned: { issue: 179, published: true },
+    });
   });
 
-  it('starts the provisioning pane with the configured worker permission mode', async () => {
-    const pane = fakeClaudePane();
-    const fixture = provisioningHarness(pane, { env: { ...VALID_ENV, NMG_SDLC_WORKER_PERMISSION_MODE: 'bypassPermissions' } });
+  it('AC10: the delivery session uses the configured worker permission mode', async () => {
+    const fixture = recordedHarness({ env: { ...BASE_ENV, NMG_SDLC_WORKER_PERMISSION_MODE: 'acceptEdits' } });
     await expect(fixture.provider(fixture.request)).resolves.toMatchObject({ status: 'passed' });
-    expect(pane.starts).toEqual([expect.objectContaining({ permissionMode: 'bypassPermissions' }),
-      expect.objectContaining({ permissionMode: 'bypassPermissions' })]);
+    expect(fixture.calls.find(isDelivery).args).toEqual(deliveryArgs([179], { permissionMode: 'acceptEdits' }));
   });
 
-  it('starts the provisioning pane with the verified checkout as --plugin-dir, not an installed NMG_SDLC_PLUGIN_ROOT', async () => {
-    const installed = commandFixture();
-    const checkout = path.resolve(SOURCE_ROOT);
-    const pane = fakeClaudePane();
-    const fixture = provisioningHarness(pane, { env: { ...VALID_ENV, NMG_SDLC_PLUGIN_ROOT: installed.root } });
-    fixture.request.projectRoot = checkout;
+  it('AC10: takes the delivery status from the session result record', async () => {
+    const fixture = recordedHarness({
+      override: (program, args, commandOptions) => {
+        if (!isDelivery({ program, args })) return null;
+        const directory = path.join(commandOptions.cwd, '.nmg-sdlc', 'execute', 'results');
+        fs.mkdirSync(directory, { recursive: true });
+        fs.writeFileSync(path.join(directory, `${args[args.indexOf('--session-id') + 1]}.json`), JSON.stringify({
+          schemaVersion: 1, claudeSessionId: args[args.indexOf('--session-id') + 1], status: 0, lines: ['ok'],
+        }));
+        return result(1, '', { stderr: 'session exited nonzero' });
+      },
+    });
     await expect(fixture.provider(fixture.request)).resolves.toMatchObject({ status: 'passed' });
-    expect(pane.starts).toEqual([expect.objectContaining({ pluginRoot: checkout }),
-      expect.objectContaining({ pluginRoot: checkout })]);
+    expect(fixture.states.get(TEST_SCOPE.recoveryKey)).toMatchObject({ executeStatus: 0 });
   });
 
-  it.each([
-    ['idle', 'idle'],
-    ['blocked without a dialog', 'blocked'],
-    ['done in an unfocused pane', 'done'],
-  ])('SCN007: accepts draft publication while the settled pane is %s', async (_label, settledStatus) => {
-    const pane = fakeClaudePane({ settledStatus });
-    const fixture = provisioningHarness(pane);
+  it('AC10: a missing result record is a nonzero status', async () => {
+    const fixture = recordedHarness({ writeResult: false });
     await expect(fixture.provider(fixture.request)).resolves.toMatchObject({ status: 'passed' });
-  });
-
-  it('SCN007: a transient dialog that clears does not stall provisioning', async () => {
-    const pane = fakeClaudePane({ dialog: { phase: 'spec', screen: PERMISSION_SCREEN, polls: 2, resume: 2 } });
-    const fixture = provisioningHarness(pane);
-    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({ status: 'passed' });
-  });
-
-  it('SCN009: a settled pane without progress stalls and records the agent status', async () => {
-    const pane = fakeClaudePane({ draftPublishes: false });
-    const fixture = provisioningHarness(pane);
-    const outcome = await fixture.provider(fixture.request);
-
-    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning stalled during draft' });
-    expect(outcome.evidence).toEqual(expect.arrayContaining([
-      { kind: 'artifact', summary: 'provisioning agent status', artifact: 'idle' },
-      { kind: 'artifact', summary: 'provisioning screen', artifact: '✻ Working…' },
-    ]));
-    expect(pane.closed).toEqual(['wF:p99']);
+    expect(fixture.states.get(TEST_SCOPE.recoveryKey)).toMatchObject({ executeStatus: 1 });
   });
 
   it.each([
-    ['a permission ask the permission mode refuses', 'spec', PERMISSION_SCREEN, 'permission', 'permission prompt'],
-    ['a workspace trust prompt', 'draft', TRUST_SCREEN, 'workspace_trust', 'workspace trust prompt'],
-    ['a plan approval dialog (autopilot inactive)', 'draft', PLAN_APPROVAL_SCREEN, 'plan_approval', 'plan approval dialog (autopilot inactive)'],
-    ['a question dialog (autopilot inactive)', 'spec', QUESTION_SCREEN, 'question', 'question dialog (autopilot inactive)'],
-  ])('SCN009: stalls early on %s and records the dialog and agent status', async (_label, phase, screen, kind, label) => {
-    const pane = fakeClaudePane({ dialog: { phase, screen } });
-    const fixture = provisioningHarness(pane);
+    ['a missing record', { record: undefined }, 'record missing'],
+    ['an unparsable record', { record: '{not json' }, 'record unparsable'],
+    ['a wrong repo', { record: validRecord({ repo: 'someone/else' }) }, 'record repo "someone/else"'],
+    ['a non-positive issue', { record: validRecord({ issue: 0 }) }, 'record issue invalid'],
+    ['a closed issue', { github: { state: 'CLOSED' } }, '#179 closed'],
+    ['a missing spec-created label', { github: { labels: [] } }, '#179 no spec-created label'],
+    ['an unmerged spec PR', { github: { specPr: false } }, '#179 no merged spec PR'],
+    ['a foreign author', { github: { author: 'someone-else' } }, '#179 foreign author'],
+  ])('AC10: fails %s as not provisioned and names the reason', async (_label, options, reason) => {
+    const fixture = recordedHarness(options);
     const outcome = await fixture.provider(fixture.request);
 
-    expect(outcome).toMatchObject({ status: 'failed', summary: `nmg-sdlc-smoke provisioning stalled during ${phase} at ${label}` });
-    expect(outcome.evidence).toEqual(expect.arrayContaining([
-      { kind: 'artifact', summary: 'provisioning agent status', artifact: 'blocked' },
-      { kind: 'artifact', summary: 'provisioning dialog', artifact: kind },
-      { kind: 'artifact', summary: 'provisioning screen', artifact: screen },
-    ]));
-    // Three dialog polls, well under the twenty-poll silent stall bound.
-    expect(pane.dialogPolls).toBe(3);
-    // Only the workspace-trust dialog is ever keyed, and only once.
-    expect(pane.keys).toEqual(kind === 'workspace_trust' ? [['down', 'enter']] : []);
-    expect(pane.closed).toEqual(['wF:p99']);
-    expect(fixture.calls.some((call) => call.program === process.execPath)).toBe(false);
+    expect(outcome.status).toBe('failed');
+    expect(outcome.summary).toContain('nmg-sdlc-smoke smoke issue not provisioned');
+    expect(outcome.summary).toContain(reason);
+    expect(fixture.calls.some(({ program }) => program === 'claude')).toBe(false);
+    expect(fixture.calls.some(({ program, args }) => program === 'git' && args[0] === 'clone')).toBe(false);
   });
 
-  it('SCN009: a workspace trust prompt that blocks Claude Code startup fails with dialog evidence', async () => {
-    const pane = fakeClaudePane({ startResult: result(1, '', { stderr: 'agent not ready' }), readyScreen: TRUST_SCREEN });
-    const fixture = provisioningHarness(pane);
-    const outcome = await fixture.provider(fixture.request);
-
-    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning stalled at workspace trust prompt' });
-    expect(outcome.evidence).toEqual(expect.arrayContaining([
-      { kind: 'artifact', summary: 'provisioning dialog', artifact: 'workspace_trust' },
-    ]));
-    // One acceptance attempt; the dialog is still showing afterwards.
-    expect(pane.keys).toEqual([['down', 'enter']]);
-    expect(pane.prompts).toEqual([]);
-    expect(pane.closed).toEqual(['wF:p99']);
-    expect(retained(outcome)).toBe(true);
-  });
-
-  it('SCN009: a workspace trust prompt while waiting for readiness fails without prompting', async () => {
-    const pane = fakeClaudePane({ notReadyPolls: 5, readyScreen: TRUST_SCREEN });
-    const fixture = provisioningHarness(pane);
-    const outcome = await fixture.provider(fixture.request);
-
-    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning stalled at workspace trust prompt' });
-    expect(pane.prompts).toEqual([]);
-    expect(pane.closed).toEqual(['wF:p99']);
-  });
-
-  it.each([
-    ['blocks Claude Code startup', { startResult: result(1, '', { stderr: 'agent not ready' }), readyScreen: TRUST_SCREEN }],
-    ['shows while waiting for readiness', { notReadyPolls: 3, readyScreen: TRUST_SCREEN }],
-    ['shows during the draft phase', { dialog: { phase: 'draft', screen: TRUST_SCREEN } }],
-  ])('accepts the owned clone workspace trust prompt once when it %s, then provisions', async (_label, paneOptions) => {
-    const pane = fakeClaudePane({ trustAccepts: true, ...paneOptions });
-    const fixture = provisioningHarness(pane);
-    const outcome = await fixture.provider(fixture.request);
-
-    expect(outcome.status).toBe('passed');
-    expect(pane.keys).toEqual([['down', 'enter']]);
-    expect(pane.prompts).toEqual([`/sdlc-draft-issue ${NEED}`, '/sdlc-write-spec 179']);
-    expect(outcome.evidence).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'command', summary: 'herdr pane send-keys wF:p99 down enter (accept workspace trust for owned clone)' }),
-    ]));
-  });
-
-  it('#473: accepts a trust prompt Herdr reports as ready before sending the first prompt', async () => {
-    // agent start succeeds and every agent get is interactive_ready, while the pane shows trust.
-    const pane = fakeClaudePane({ trustAccepts: true, readyScreen: NARROW_TRUST_SCREEN });
-    const promptedWithTrust = [];
-    const agentPrompt = pane.herdr.agentPrompt;
-    pane.herdr.agentPrompt = async (name, text) => {
-      promptedWithTrust.push(!pane.trustCleared);
-      return agentPrompt(name, text);
-    };
-    const fixture = provisioningHarness(pane);
-    const outcome = await fixture.provider(fixture.request);
-
-    expect(outcome.status).toBe('passed');
-    expect(pane.keys).toEqual([['down', 'enter']]);
-    expect(pane.prompts).toEqual([`/sdlc-draft-issue ${NEED}`, '/sdlc-write-spec 179']);
-    expect(promptedWithTrust).toEqual([false, false]);
-  });
-
-  it('#473: prompts a ready agent with no dialog on screen without sending keys', async () => {
-    const pane = fakeClaudePane();
-    const fixture = provisioningHarness(pane);
-    const outcome = await fixture.provider(fixture.request);
-
-    expect(outcome.status).toBe('passed');
-    expect(pane.keys).toEqual([]);
-    expect(pane.prompts).toEqual([`/sdlc-draft-issue ${NEED}`, '/sdlc-write-spec 179']);
-  });
-
-  it('SCN009: a trust prompt still showing after one acceptance attempt stalls without keying again', async () => {
-    const pane = fakeClaudePane({ notReadyPolls: 5, readyScreen: TRUST_SCREEN });
-    const fixture = provisioningHarness(pane);
-    const outcome = await fixture.provider(fixture.request);
-
-    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning stalled at workspace trust prompt' });
-    expect(pane.keys).toEqual([['down', 'enter']]);
-  });
-
-  it.each([
-    ['another directory', '/Users/someone/project'],
-    ['an unknown directory', null],
-  ])('SCN009: never keys a trust prompt when the pane cwd is %s instead of the owned clone', async (_label, paneCwd) => {
-    const pane = fakeClaudePane({ trustAccepts: true, paneCwd, startResult: result(1, ''), readyScreen: TRUST_SCREEN });
-    const fixture = provisioningHarness(pane);
-    const outcome = await fixture.provider(fixture.request);
-
-    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning stalled at workspace trust prompt' });
-    expect(pane.keys).toEqual([]);
-    expect(outcome.evidence).toEqual(expect.arrayContaining([
-      expect.objectContaining({ summary: 'workspace trust not accepted: pane wF:p99 cwd is not the owned clone' }),
-    ]));
-  });
-
-  it('SCN009: an agent start failure without a dialog is incomplete', async () => {
-    const pane = fakeClaudePane({ startResult: result(1, '', { stderr: 'timeout' }) });
-    const fixture = provisioningHarness(pane);
-    const outcome = await fixture.provider(fixture.request);
-
-    expect(outcome).toMatchObject({ status: 'incomplete', summary: 'nmg-sdlc-smoke provisioning agent start failed' });
-    expect(pane.closed).toEqual(['wF:p99']);
-  });
-
-  it('SCN008: closes the pane on publication while write-spec Continue is still working', async () => {
-    const pane = fakeClaudePane({ afterPublishStatus: 'working' });
-    const fixture = provisioningHarness(pane);
-    const outcome = await fixture.provider(fixture.request);
-
-    expect(outcome.status).toBe('passed');
-    expect(pane.prompts).toHaveLength(2);
-    expect(pane.closed).toEqual(['wF:p99', 'wF:trust']);
-  });
-
-  const createdIssueUrls = (outcome) => outcome.evidence
-    .filter((entry) => entry.kind === 'github' && /\/issues\/\d+$/.test(entry.artifact ?? ''))
-    .map((entry) => entry.artifact);
-
-  it.each([
-    ['zero new issues', { created: [] }, 'nmg-sdlc-smoke provisioning stalled during draft', []],
-    ['multiple new issues', { created: [179, 181] }, 'nmg-sdlc-smoke provisioning created multiple issues #179, #181', [179, 181]],
-    ['an unrecognized blocked state', { created: [], settledStatus: 'blocked' }, 'nmg-sdlc-smoke provisioning stalled during draft', []],
-  ])('SCN009: fails closed on %s, closes the pane, and retains the clone', async (_label, paneOptions, summary, created) => {
-    const pane = fakeClaudePane(paneOptions);
-    const fixture = provisioningHarness(pane);
-    const outcome = await fixture.provider(fixture.request);
-
-    expect(outcome).toMatchObject({ status: 'failed', summary });
-    expect(pane.closed).toEqual(['wF:p99']);
-    expect(retained(outcome)).toBe(true);
-    expect(createdIssueUrls(outcome)).toEqual(
-      created.map((number) => `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/${number}`),
-    );
-    expect(fixture.calls.some((call) => call.program === process.execPath)).toBe(false);
-  });
-
-  it('SCN009: a spec-phase failure after the issue is created returns its URL as evidence', async () => {
-    const pane = fakeClaudePane({ specPublishes: false });
-    const fixture = provisioningHarness(pane);
-    const outcome = await fixture.provider(fixture.request);
-
-    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning stalled during spec' });
-    expect(createdIssueUrls(outcome)).toEqual(['https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/179']);
-  });
-
-  it('SCN009: a retry of the same identity reuses the recorded issue and only finishes its spec', async () => {
+  it('AC10: fails a recorded issue that another outer request already delivered', async () => {
     const states = new Map();
-    const failing = fakeClaudePane({ specPublishes: false });
-    const first = provisioningHarness(failing, { states });
-    await expect(first.provider(first.request)).resolves.toMatchObject({ status: 'failed' });
-    expect(states.get(TEST_SCOPE.recoveryKey)).toMatchObject({ phase: 'provisioning', provisioned: { issue: 179, published: false } });
-
-    const pane = fakeClaudePane();
-    const retry = provisioningHarness(pane, { states });
-    const outcome = await retry.provider(retry.request);
-
-    expect(outcome.status).toBe('passed');
-    expect(pane.prompts).toEqual(['/sdlc-write-spec 179']);
-    expect(retry.calls.find((call) => call.program === process.execPath).args.slice(1)).toEqual(['run', '#179']);
-  });
-
-  it('SCN009: a changed identity after a delivered provisioned issue provisions a fresh issue', async () => {
-    const states = new Map();
-    const first = provisioningHarness(fakeClaudePane(), { states });
-    await expect(first.provider(first.request)).resolves.toMatchObject({ status: 'passed' });
-    expect(states.get(TEST_SCOPE.recoveryKey)).toMatchObject({ phase: 'terminal', provisioned: { issue: 179, published: true } });
-
-    const pane = fakeClaudePane({ baseline: 179, created: [182] });
-    const retry = provisioningHarness(pane, { states });
-    const outcome = await retry.provider({ ...retry.request, identity: { ...retry.request.identity, headSha: 'b'.repeat(40) } });
-
-    expect(outcome).toMatchObject({ status: 'passed', summary: 'nmg-sdlc-smoke delivered #182' });
-    expect(pane.prompts).toEqual([`/sdlc-draft-issue ${NEED}`, '/sdlc-write-spec 182']);
-    expect(retry.calls.find((call) => call.program === process.execPath).args.slice(1)).toEqual(['run', '#182']);
-    expect(states.get(TEST_SCOPE.recoveryKey)).toMatchObject({ phase: 'terminal', provisioned: { issue: 182, published: true } });
-  });
-
-  it('SCN009: the same identity after a delivered provisioned issue replays terminal proof without provisioning', async () => {
-    const states = new Map();
-    const first = provisioningHarness(fakeClaudePane(), { states });
+    const first = recordedHarness({ states });
     await expect(first.provider(first.request)).resolves.toMatchObject({ status: 'passed' });
 
-    const pane = fakeClaudePane({ baseline: 179, created: [182] });
-    const replay = provisioningHarness(pane, {
+    const retry = recordedHarness({ states });
+    const outcome = await retry.provider({
+      ...retry.request,
+      identity: { ...retry.request.identity, headSha: 'b'.repeat(40) },
+    });
+
+    expect(outcome).toMatchObject({
+      status: 'failed', summary: 'nmg-sdlc-smoke smoke issue not provisioned: #179 already delivered',
+    });
+    expect(retry.calls.some(({ program }) => program === 'claude')).toBe(false);
+  });
+
+  it('AC10: the same outer request replays terminal proof for the recorded issue', async () => {
+    const states = new Map();
+    const first = recordedHarness({ states });
+    await expect(first.provider(first.request)).resolves.toMatchObject({ status: 'passed' });
+
+    const replay = recordedHarness({
       states,
-      // Terminal replay checks GitHub only; the closing-PR proof must still show the delivered PR.
-      override: (program, args) => (program === 'gh' && args[0] === 'api' ? result(0, JSON.stringify({
-        data: { repository: { issue: {
-          state: 'CLOSED',
-          url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/179',
-          closedByPullRequestsReferences: {
-            nodes: [{ number: 179, state: 'MERGED', url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull/179', headRefOid: '179'.repeat(14).slice(0, 40) }],
-            pageInfo: { hasNextPage: false },
-          },
-        } } },
-      })) : null),
+      // The issue is closed now; the terminal path checks only the exact-head closing PR.
+      github: { state: 'CLOSED' },
+      override: (program, args) => (program === 'gh' && args[0] === 'api' && args[1] === 'graphql'
+        ? result(0, JSON.stringify({
+          data: { repository: { issue: {
+            state: 'CLOSED',
+            url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/179',
+            closedByPullRequestsReferences: {
+              nodes: [{
+                number: 179,
+                state: 'MERGED',
+                url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull/179',
+                headRefOid: replay.deliveryHead(179),
+              }],
+              pageInfo: { hasNextPage: false },
+            },
+          } } },
+        }))
+        : null),
     });
     const outcome = await replay.provider(replay.request);
 
     expect(outcome).toMatchObject({ status: 'passed', summary: 'nmg-sdlc-smoke delivered #179' });
-    expect(pane.splits).toEqual([]);
-    expect(pane.prompts).toEqual([]);
-    expect(replay.calls.some((call) => call.program === process.execPath)).toBe(false);
+    expect(replay.calls.some(({ program }) => program === 'claude')).toBe(false);
+    expect(replay.calls.some(({ program, args }) => program === 'gh' && args[0] === 'issue')).toBe(false);
   });
 
-  const DEAD_PANE = { pane: 'wF:p42', agent: 'smoke-provision-dead0000' };
-  const withDeadAgent = (pane, paneId = DEAD_PANE.pane) => {
-    const base = pane.herdr.agentGet;
-    pane.herdr.agentGet = async (name) => (name === DEAD_PANE.agent
-      ? result(0, JSON.stringify({ result: { agent: { pane_id: paneId } } }))
-      : base(name));
-    return pane;
-  };
-  const interruptedState = (extra = {}) => ({
-    schemaVersion: 1,
-    recoveryKey: TEST_SCOPE.recoveryKey,
-    scope: TEST_SCOPE,
-    outerIdentity: {
-      headSha: 'a'.repeat(40), treeState: 'clean', dirtyDiffHash: null,
-      specHash: 'sha256:test', steeringHash: 'sha256:steering', validationConfigHash: 'sha256:validation',
-    },
-    validationId: 'repository.nmg-sdlc-smoke',
-    validationConfig: PROVISION_CONFIG,
-    issues: [],
-    phase: 'provisioning',
-    provisioned: null,
-    provisionClone: '/tmp/nmg-sdlc-smoke-provision-old',
-    ...extra,
-  });
-
-  it('SCN009: an interrupted provisioning without a recorded issue fails closed for the same identity', async () => {
-    const states = new Map([[TEST_SCOPE.recoveryKey, interruptedState({ provisionPane: DEAD_PANE })]]);
-    const pane = withDeadAgent(fakeClaudePane());
-    const fixture = provisioningHarness(pane, { states });
-    const outcome = await fixture.provider(fixture.request);
-
-    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning interrupted' });
-    expect(pane.prompts).toEqual([]);
-    expect(pane.splits).toEqual([]);
-    expect(pane.closed).toEqual(['wF:p42']);
-    expect(retained(outcome)).toBe(true);
-  });
-
-  it('SCN009: a changed identity closes the abandoned provisioning pane, removes its clone, and provisions fresh', async () => {
-    const states = new Map([[TEST_SCOPE.recoveryKey, interruptedState({ provisionPane: DEAD_PANE })]]);
-    const pane = withDeadAgent(fakeClaudePane());
-    const fixture = provisioningHarness(pane, { states });
-    const outcome = await fixture.provider({ ...fixture.request, identity: { ...fixture.request.identity, headSha: 'b'.repeat(40) } });
-
-    expect(outcome.status).toBe('passed');
-    expect(pane.closed).toEqual(['wF:p42', 'wF:p99', 'wF:trust']);
-    expect(fixture.rmSync).toHaveBeenCalledWith('/tmp/nmg-sdlc-smoke-provision-old', { recursive: true, force: true });
-  });
-
-  it('SCN009: never closes a recorded pane id now owned by another agent', async () => {
-    const states = new Map([[TEST_SCOPE.recoveryKey, interruptedState({ provisionPane: DEAD_PANE })]]);
-    const pane = withDeadAgent(fakeClaudePane(), 'wF:p7');
-    const fixture = provisioningHarness(pane, { states });
-    const outcome = await fixture.provider(fixture.request);
-
-    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke provisioning interrupted' });
-    expect(pane.closed).toEqual([]);
-  });
-
-  it('SCN009: persists the owned pane before starting the agent and clears it once closed', async () => {
+  it('AC10: a newly recorded issue supersedes a terminal state for the previous one', async () => {
     const states = new Map();
-    const pane = fakeClaudePane();
-    const start = pane.herdr.agentStart;
-    let recordedAtStart;
-    pane.herdr.agentStart = async (...args) => {
-      if (args[0].startsWith('smoke-provision-')) {
-        recordedAtStart = structuredClone(states.get(TEST_SCOPE.recoveryKey).provisionPane);
-      }
-      return start(...args);
-    };
-    const fixture = provisioningHarness(pane, { states });
-    const outcome = await fixture.provider(fixture.request);
+    const first = recordedHarness({ states });
+    await expect(first.provider(first.request)).resolves.toMatchObject({ status: 'passed' });
 
-    expect(recordedAtStart).toEqual({ pane: 'wF:p99', agent: expect.stringMatching(/^smoke-provision-[0-9a-f]{8}$/) });
-    expect(outcome.status).toBe('passed');
-    const provisioningWrites = fixture.recoveryStore.write.mock.calls
-      .map(([, value]) => value)
-      .filter((value) => value.phase === 'provisioning');
-    expect(provisioningWrites.at(-1)).toMatchObject({ provisioned: { issue: 179, published: true }, provisionPane: null });
+    const next = recordedHarness({ states, record: validRecord({ issue: 182 }) });
+    const outcome = await next.provider({
+      ...next.request,
+      identity: { ...next.request.identity, headSha: 'b'.repeat(40) },
+    });
+
+    expect(outcome).toMatchObject({ status: 'passed', summary: 'nmg-sdlc-smoke delivered #182' });
+    expect(next.calls.find(isDelivery).args).toEqual(deliveryArgs([182]));
+    expect(states.get(TEST_SCOPE.recoveryKey)).toMatchObject({ provisioned: { issue: 182, published: true } });
   });
 
-  it('SCN010: an explicit queue never provisions', async () => {
-    const pane = fakeClaudePane();
-    const fixture = provisioningHarness(pane, { env: { ...VALID_ENV, NMG_SDLC_SMOKE_ISSUES: '#11, 12' } });
+  it('AC10: fails the exact-head proof when the delivered PR head does not match', async () => {
+    const fixture = recordedHarness({
+      override: (program, args, _options, calls) => (program === 'gh' && args[0] === 'api' && args[1] === 'graphql'
+        && calls.some(isDelivery)
+        ? result(0, JSON.stringify({
+          data: { repository: { issue: {
+            state: 'CLOSED',
+            url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/179',
+            closedByPullRequestsReferences: {
+              nodes: [{ number: 179, state: 'MERGED', url: `${SMOKE_PR}/179`, headRefOid: 'f'.repeat(40) }],
+              pageInfo: { hasNextPage: false },
+            },
+          } } },
+        }))
+        : null),
+    });
     const outcome = await fixture.provider(fixture.request);
-
-    expect(outcome.status).toBe('passed');
-    // Only the delivery clone's trust pane opens; no provisioning agent starts or is prompted.
-    expect(pane.splits).toEqual(['/tmp/nmg-sdlc-smoke-fixture']);
-    expect(pane.starts.map((start) => start.name)).toEqual([expect.stringMatching(/^smoke-trust-/)]);
-    expect(pane.prompts).toEqual([]);
-    expect(fixture.calls.find((call) => call.program === process.execPath).args.slice(1)).toEqual(['run', '#11', '#12']);
+    expect(outcome).toMatchObject({
+      status: 'failed', summary: 'nmg-sdlc-smoke issue #179 missing new exact-head merged PR proof',
+    });
   });
 
-  it('SCN010: an invalid non-blank explicit value still fails without provisioning', async () => {
-    const pane = fakeClaudePane();
-    const fixture = provisioningHarness(pane, { env: { ...VALID_ENV, NMG_SDLC_SMOKE_ISSUES: '#7 nope' } });
+  it('AC10: fails when the recorded issue is still open after delivery', async () => {
+    const fixture = recordedHarness({
+      override: (program, args) => (program === 'gh' && args[0] === 'api' && args[1] === 'graphql'
+        ? result(0, JSON.stringify({
+          data: { repository: { issue: {
+            state: 'OPEN',
+            url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/179',
+            closedByPullRequestsReferences: { nodes: [], pageInfo: { hasNextPage: false } },
+          } } },
+        }))
+        : null),
+    });
+    const outcome = await fixture.provider(fixture.request);
+    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke issue #179 is not CLOSED' });
+  });
+
+  it('AC10: NMG_SDLC_SMOKE_ISSUES takes priority over a present record', async () => {
+    const fixture = recordedHarness({ env: { ...BASE_ENV, NMG_SDLC_SMOKE_ISSUES: '#11, 12' } });
+    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({ status: 'passed' });
+
+    expect(fixture.calls.find(isDelivery).args).toEqual(deliveryArgs([11, 12]));
+    expect(fixture.calls.some(({ program, args }) => program === 'gh' && args[0] === 'issue')).toBe(false);
+    expect(fixture.readFileSync).not.toHaveBeenCalledWith(path.join('/plugin', RECORD_PATH), expect.anything());
+  });
+
+  it('an invalid non-blank explicit value still fails without reading the record', async () => {
+    const fixture = recordedHarness({ env: { ...BASE_ENV, NMG_SDLC_SMOKE_ISSUES: '#7 nope' } });
 
     await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
       status: 'failed',
       summary: 'nmg-sdlc-smoke issues config invalid',
     });
-    expect(pane.splits).toEqual([]);
+    expect(fixture.calls).toEqual([]);
+  });
+
+  it('a provision need without a record path is an invalid config', async () => {
+    const fixture = recordedHarness({ config: { issuesEnv: 'NMG_SDLC_SMOKE_ISSUES', provision: { need: 'x' } } });
+    await expect(fixture.provider(fixture.request)).resolves.toMatchObject({
+      status: 'failed', summary: 'nmg-sdlc-smoke issues config invalid',
+    });
   });
 });
 
@@ -1925,56 +1554,4 @@ describe('nmg-sdlc smoke candidate tree (#476)', () => {
         fs.rmSync(root, { recursive: true, force: true });
       }
     });
-});
-
-describe('nmg-sdlc smoke delivery clone trust (#477)', () => {
-  const CLONE = '/tmp/nmg-sdlc-smoke-delivery';
-  // A Claude pane that shows the workspace-trust dialog until `down enter` is keyed.
-  const trustPane = ({ cwd = CLONE, screen = NARROW_TRUST_SCREEN } = {}) => {
-    const herdr = trustedHerdr();
-    const state = { trusted: false, keys: [] };
-    herdr.state = state;
-    herdr.paneGet = async (pane) => ({ status: 0, stdout: JSON.stringify({ result: { pane: { pane_id: pane, cwd, foreground_cwd: cwd } } }) });
-    herdr.paneRead = async () => ({ status: 0, stdout: state.trusted ? '❯ ' : screen, stderr: '' });
-    herdr.agentGet = async () => ({ status: 0, stdout: JSON.stringify({ result: { agent: { interactive_ready: state.trusted } } }) });
-    herdr.paneSendKeys = async (_pane, keys) => {
-      state.keys.push(keys);
-      if (screen === NARROW_TRUST_SCREEN) state.trusted = true;
-      return { status: 0, stdout: '{}' };
-    };
-    return herdr;
-  };
-  const trust = (herdr) => trustSmokeClone({ herdr, clone: CLONE, sleep: async () => {}, pollMs: 0,
-    pluginRoot: '/repo/nmg-sdlc', permissionMode: 'auto' });
-
-  it('accepts the delivery clone trust dialog once, waits for readiness, and closes its pane', async () => {
-    const herdr = trustPane();
-    const outcome = await trust(herdr);
-    expect(outcome.status).toBe('passed');
-    expect(herdr.state.keys).toEqual([['down', 'enter']]);
-    expect(herdr.calls.map(([name]) => name)).toEqual(['paneSplit', 'agentStart', 'paneClose']);
-    expect(herdr.calls[0]).toEqual(['paneSplit', CLONE]);
-  });
-
-  it('passes without keying a clone that is already trusted', async () => {
-    const herdr = trustedHerdr();
-    await expect(trust(herdr)).resolves.toMatchObject({ status: 'passed' });
-    expect(herdr.calls.map(([name]) => name)).toEqual(['paneSplit', 'agentStart', 'paneClose']);
-  });
-
-  it('never keys a trust dialog in a pane whose cwd is not the owned clone', async () => {
-    const herdr = trustPane({ cwd: '/Users/someone/project' });
-    const outcome = await trust(herdr);
-    expect(outcome).toMatchObject({ status: 'failed',
-      summary: 'nmg-sdlc-smoke delivery trust not accepted: pane wF:trust cwd is not the owned clone' });
-    expect(herdr.state.keys).toEqual([]);
-    expect(herdr.calls.at(-1)).toEqual(['paneClose', 'wF:trust']);
-  });
-
-  it('fails on any other dialog without keying it', async () => {
-    const herdr = trustPane({ screen: PERMISSION_SCREEN });
-    await expect(trust(herdr)).resolves.toMatchObject({ status: 'failed',
-      summary: 'nmg-sdlc-smoke delivery trust stalled at permission prompt' });
-    expect(herdr.state.keys).toEqual([]);
-  });
 });

@@ -37,7 +37,7 @@ Classify the current guide state:
 |-------|-----------|--------|
 | Missing guide | `CONTRIBUTING.md` does not exist | Create the default guide |
 | Incomplete guide | Guide exists but lacks nmg-sdlc issue/spec/steering coverage, automated delivery, PR readiness, evidence-consistency examples, validated exceptions, or managed contribution-gate remediation coverage | Append or extend targeted nmg-sdlc guidance |
-| Stale v3 wording | Guide contains the exact v3 worker-pane sentence that `contributing-v4-host-language` replaces | Not complete; `upgrade-project` refreshes it through `contributing-v4-host-language` |
+| Stale v3 wording | Guide contains the exact v3 or v4 Herdr worker-pane sentence that `contributing-v4-host-language` replaces | Not complete; `upgrade-project` refreshes it through `contributing-v4-host-language` |
 | Complete guide | Guide has equivalent issue/spec/steering coverage plus automated delivery, terminal delivery, PR readiness, evidence-consistency examples, validated exceptions, and contribution-gate remediation coverage | Report already present |
 
 The project instructions file the guide points contributors to is root `CLAUDE.md`, never `AGENTS.md`.
@@ -73,7 +73,7 @@ Generated content must cover:
 - Feature and bug implementation should flow through nmg-sdlc specs in `specs/`.
 - Contributors should consult the manifest-registered product, technical, and structure snippets before drafting issues, writing specs, or implementing code.
 - Interactive work uses `/sdlc-draft-issue [need]` and `/sdlc-write-spec #N`.
-- Automated delivery after an approved spec uses `/sdlc-execute [#N …]` which drives Herdr Claude worker panes through implementation, verification, and delivery.
+- Automated delivery after an approved spec uses `/sdlc-execute [#N …]` which runs Claude Code stage subagents through implementation, verification, and delivery.
 - `/sdlc-execute` continues through exact-head merge and issue closure.
 - `/sdlc-upgrade-project` reconciles contracts and proposes legacy layout repairs (never silently).
 - PRs should include a readiness checklist covering issue linkage, spec artifacts, steering alignment, implementation scope, verification evidence, and review readiness.

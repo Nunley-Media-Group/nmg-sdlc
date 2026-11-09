@@ -171,26 +171,6 @@ export function writeSpecFinishedSelection(answers) {
       || answer.split(/,\s*/).includes(label)));
 }
 
-const RECOMMENDED_SUFFIX = /\s*\(Recommended\)\s*$/;
-
-/**
- * Autopilot answer for an AskUserQuestion input: each question answered with
- * an option whose label (less any ` (Recommended)`) is in `prefer`, else its
- * option labelled `(Recommended)`, else its first option.
- */
-export function recommendedAnswers(questions, { prefer = [] } = {}) {
-  const answers = {};
-  for (const question of Array.isArray(questions) ? questions : []) {
-    if (typeof question?.question !== "string") continue;
-    const options = Array.isArray(question.options) ? question.options : [];
-    const pick = options.find((option) => prefer.includes(String(option?.label ?? "").replace(RECOMMENDED_SUFFIX, "")))
-      ?? options.find((option) => RECOMMENDED_SUFFIX.test(option?.label ?? ""))
-      ?? options[0];
-    if (typeof pick?.label === "string") answers[question.question] = pick.label;
-  }
-  return answers;
-}
-
 export const EXECUTE_GOAL_MAX_ISSUES = 20;
 const EXECUTE_GOAL_RE = /sdlc-execute\.mjs["']?\s+goal\b/;
 const EXECUTE_SUPERVISE_RE = /sdlc-execute\.mjs["']?\s+supervise\b/;

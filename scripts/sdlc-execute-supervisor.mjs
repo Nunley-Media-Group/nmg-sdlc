@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { linkSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createConnection, createServer } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { packageRoot } from '../src/sdlc-workflows.mjs';
+import { heartbeatFresh } from '../src/execute-host.mjs';
 import { terminateOwnedProcessGroup, terminateOwnedProcessGroupAfterLeaderLoss } from '../src/process-supervision.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
 import {
@@ -14,8 +15,8 @@ import {
   readControllerLease,
   releaseControllerLease,
 } from './sdlc-controller-lease.mjs';
+import { createFileHost } from './sdlc-execute-host.mjs';
 import {
-  defaultHerdr,
   parseArgs,
   runExecute,
 } from './sdlc-execute.mjs';
@@ -31,8 +32,9 @@ const SESSION_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
 export const MAX_SESSION_WAIT_MS = 540_000;
 const SESSION_POLL_MS = 250;
 const DECISION_POLL_MS = 500;
-const ORCHESTRATOR_CHECK_MS = 60_000;
+const HOST_CHECK_MS = 15_000;
 const MAX_GUIDANCE_CHARS = 8000;
+const CLAUDE_SESSION_ENV = 'NMG_SDLC_CLAUDE_SESSION_ID';
 const EXECUTE_CLI = join(packageRoot, 'scripts', 'sdlc-execute.mjs');
 
 export function sessionDirectory(cwd, session) {
@@ -62,16 +64,15 @@ function processAlive(pid) {
   try { process.kill(pid, 0); return true; } catch (error) { return error?.code === 'EPERM'; }
 }
 
-function orchestratorGone(herdr, controllerPane) {
-  try {
-    return !parsedHerdrPanes(herdr).some((pane) => String(pane?.pane_id ?? pane?.paneId ?? '') === controllerPane);
-  } catch { return false; }
+/** Whether the session's hooks-module heartbeat (`host.json`) was written within the heartbeat window. */
+function hostFresh(dir, now) {
+  return heartbeatFresh(readJson(join(dir, 'host.json')), now);
 }
 
-/** The controller's supervise callback for a session: writes each report, then blocks until its
- * decision arrives. A closed orchestrator pane halts the run so its lease is never stranded. */
-export function fileSupervisor({ dir, session, herdr, controllerPane, now = Date.now, sleep = pause,
-  pollMs = DECISION_POLL_MS, paneCheckMs = ORCHESTRATOR_CHECK_MS }) {
+/** The controller's supervise callback for a session: writes each report, then blocks until its decision arrives.
+ * A supervising session whose heartbeat has gone stale halts the run so its lease is never stranded. */
+export function fileSupervisor({ dir, session, now = Date.now, sleep = pause,
+  pollMs = DECISION_POLL_MS, hostCheckMs = HOST_CHECK_MS }) {
   let seq = 0;
   return (report) => {
     seq += 1;
@@ -80,13 +81,25 @@ export function fileSupervisor({ dir, session, herdr, controllerPane, now = Date
     for (;;) {
       const decision = readJson(join(dir, `decision-${seq}.json`));
       if (decision?.session === session && decision.seq === seq) return { action: decision.action, text: decision.text };
-      if (now() - checked >= paneCheckMs) {
+      if (now() - checked >= hostCheckMs) {
         checked = now();
-        if (orchestratorGone(herdr, controllerPane)) return { action: 'halt', text: 'orchestrator pane closed' };
+        if (!hostFresh(dir, now)) return { action: 'halt', text: 'supervising session ended' };
       }
       sleep(pollMs);
     }
   };
+}
+
+// Whether the controller has a host request with no response while no bridge heartbeat is fresh.
+function awaitingBridge(dir) {
+  if (hostFresh(dir, Date.now)) return false;
+  return requestNumbers(dir).some((n) => !existsSync(join(dir, `response-${n}.json`)));
+}
+function requestNumbers(dir) {
+  try {
+    return readdirSync(dir).map((name) => Number(/^request-([1-9]\d*)\.json$/.exec(name)?.[1]))
+      .filter(Number.isSafeInteger);
+  } catch { return []; }
 }
 
 function reportFiles(dir) {
@@ -124,8 +137,34 @@ function runningOutput(session) {
 function terminalResult(dir, session) {
   const result = readJson(join(dir, 'result.json'));
   if (result?.session !== session || !Number.isInteger(result.status)) return null;
-  rmSync(dir, { recursive: true, force: true });
+  // Best effort: a late write into the directory must not turn a delivered result into a crash.
+  try { rmSync(dir, { recursive: true, force: true }); } catch { /* the directory is left for the next cleanup */ }
   return { status: result.status, stdout: String(result.stdout ?? ''), stderr: String(result.stderr ?? '') };
+}
+// A running stage subagent: the supervising session ends its turn and is resumed by the hand-back or a check-in.
+function workerOutput(worker) {
+  return `NMG_SDLC_EXECUTE_WORKER: ${JSON.stringify({ issue: worker.issue, stage: worker.stage, agentId: worker.agentId })}\n`;
+}
+/** The controller's final result lines: each delivered issue's `MERGED and CLOSED` line on success, otherwise one
+ * `/sdlc-execute stopped:` line naming the diagnosis. */
+export function resultLines(result) {
+  if (result.status === 0) {
+    const merged = result.stdout.split(/\r?\n/).filter((line) => /^#\d+: MERGED and CLOSED$/.test(line));
+    return merged.length ? merged : result.stdout.split(/\r?\n/).filter((line) => line.trim().length > 0);
+  }
+  const detail = `${result.stderr}\n${result.stdout}`.split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? 'controller_failed';
+  return [`/sdlc-execute stopped: ${detail}`];
+}
+/** Records the terminal result under the Claude session that ran `/sdlc-execute`, when that session id is known. */
+function writeResultRecord(cwd, session, result) {
+  const claudeSessionId = process.env[CLAUDE_SESSION_ENV];
+  if (!SESSION_PATTERN.test(claudeSessionId ?? '')) return;
+  const dir = join(cwd, '.nmg-sdlc', 'execute', 'results');
+  mkdirSync(dir, { recursive: true });
+  writeAtomic(join(dir, `${claudeSessionId}.json`), {
+    schemaVersion: 1, claudeSessionId, session, status: result.status, lines: resultLines(result),
+    completedAt: new Date().toISOString(),
+  });
 }
 
 /** Waits up to `waitMs` for the session's next report after `after`, or its result. SIGINT/SIGTERM
@@ -148,6 +187,8 @@ export async function awaitSession({ cwd = process.cwd(), session, after = 0, wa
       if (result) return result;
       const report = pendingReport(dir, session, after);
       if (report) return { status: 0, stdout: reportOutput(report), stderr: '' };
+      const worker = readJson(join(dir, 'worker.json'));
+      if (typeof worker?.agentId === 'string') return { status: 0, stdout: workerOutput(worker), stderr: '' };
       if (!processAlive(daemon.pid)) {
         return terminalResult(dir, session) ?? { status: 1, stdout: '', stderr: 'controller_supervisor_lost\n' };
       }
@@ -237,21 +278,20 @@ function sendMessage(target, message) {
   });
 }
 
-function parsedHerdrPanes(herdr) {
-  const response = herdr.listPanes();
-  if (response?.status !== 0) throw new Error('ownership_unreadable');
-  let parsed;
-  try {
-    parsed = typeof response.stdout === 'string' ? JSON.parse(response.stdout) : response;
-  } catch {
-    throw new Error('ownership_unreadable');
-  }
-  const panes = Array.isArray(parsed) ? parsed : parsed?.result?.panes ?? parsed?.panes;
-  if (!Array.isArray(panes)) throw new Error('ownership_unreadable');
-  return panes;
+/** The next free request number in a session directory. */
+function nextRequestNumber(dir) {
+  return Math.max(0, ...requestNumbers(dir)) + 1;
 }
 
-function cleanupCancelledRun(controllerPid, cwd, retainWorker, ownedPanes, ownedLease) {
+/** Stops the stage subagent a cancelled controller left running. The request is written while the supervising
+ * session's heartbeat is fresh; the hooks module answers it. Without a fresh heartbeat nothing is running to stop. */
+function requestWorkerStop(dir, session, agentId) {
+  if (!hostFresh(dir, Date.now)) return;
+  const n = nextRequestNumber(dir);
+  writeAtomic(join(dir, `request-${n}.json`), { schemaVersion: 1, session, n, kind: 'stop', agentId });
+}
+
+function cleanupCancelledRun(controllerPid, cwd, session, ownedLease) {
   const lease = readControllerLease(cwd);
   // A controller without an authenticated lease announcement owns no cleanup.
   if (!lease) return;
@@ -262,31 +302,13 @@ function cleanupCancelledRun(controllerPid, cwd, retainWorker, ownedPanes, owned
     || lease.runId !== ownedLease.runId || serialized !== ownedLease.serialized) {
     throw new Error('controller_cleanup_ownership_mismatch');
   }
-
-  const run = (command, args, options = {}) => spawnSync(command, args, {
-    cwd: root, encoding: 'utf8', ...options,
-  });
-  const herdr = defaultHerdr(run, root);
-  let closeFailed = false;
-  const live = parsedHerdrPanes(herdr);
-  const controllerPaneId = lease.controllerPaneId;
-  for (const paneId of ownedPanes) {
-    if (!paneId || paneId === controllerPaneId) continue;
-    if (retainWorker) continue;
-    const isLive = live.some((p) => String(p?.pane_id ?? p?.paneId ?? '') === paneId);
-    if (!isLive) continue;
-    try {
-      if (herdr.paneClose(paneId).status !== 0) closeFailed = true;
-    } catch {
-      closeFailed = true;
-    }
-  }
-  // Failed close leaves lease for recovery; never false success.
-  if (closeFailed) throw new Error('pane_close_failed');
+  const dir = session ? sessionDirectory(root, session) : null;
+  const worker = dir ? readJson(join(dir, 'worker.json')) : null;
+  if (typeof worker?.agentId === 'string') requestWorkerStop(dir, session, worker.agentId);
   if (!releaseControllerLease({ path, serialized })) throw new Error('controller_lease_release_failed');
 }
 
-async function runSupervisor(args, cancellation) {
+async function runSupervisor(args, cancellation, session = null) {
   let parsed;
   try {
     parsed = parseArgs(args);
@@ -300,7 +322,6 @@ async function runSupervisor(args, cancellation) {
     cwd: process.cwd(), env: process.env,
     detached: true, shell: false, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });
-  const ownedPanes = new Set();
   let ownedLease = null;
   controller.on('message', (message) => {
     if (!message || typeof message !== 'object') return;
@@ -314,13 +335,6 @@ async function runSupervisor(args, cancellation) {
         }
       } catch {
         // No lease proof: cleanup must preserve the unknown controller state.
-      }
-    }
-    if (message.type === 'owned-pane' || message.type === 'pane-closed') {
-      const id = typeof message.paneId === 'string' ? message.paneId : (typeof message === 'string' ? message : null);
-      if (id) {
-        if (message.type === 'owned-pane') ownedPanes.add(id);
-        else ownedPanes.delete(id);
       }
     }
   });
@@ -363,11 +377,11 @@ async function runSupervisor(args, cancellation) {
   if (cancelSignal || leaderLost) {
     status = cancelSignal ? (cancelSignal === 'SIGINT' ? 130 : 143) : 1;
     try {
-      // Stop the group before releasing ownership. Close only panes reported via IPC for this invocation.
+      // Stop the group before releasing ownership; the cancelled run's running stage subagent is stopped through the session.
       const cleanup = await (leaderLost ? terminateOwnedProcessGroupAfterLeaderLoss : terminateOwnedProcessGroup)(controller);
       if (!cleanup.ok) throw new Error(`controller_process_cleanup_failed: ${cleanup.error.message}`);
       await closed;
-      cleanupCancelledRun(controller.pid, process.cwd(), parsed.retainWorker, ownedPanes, ownedLease);
+      cleanupCancelledRun(controller.pid, process.cwd(), session, ownedLease);
     } catch (error) {
       stderr += `${error.message}\n`;
       // Failed termination must not hang on surviving children or release their lease.
@@ -488,10 +502,11 @@ async function runDaemon(args) {
     let result;
     if (authorized && !cancellation.signal.aborted) {
       started = true;
-      result = await runSupervisor(args, cancellation.signal);
+      result = await runSupervisor(args, cancellation.signal, session);
     } else {
       result = { status: cancellation.signal.reason === 'SIGINT' ? 130 : 143, stdout: '', stderr: '' };
     }
+    writeResultRecord(process.cwd(), session, result);
     if (dir) writeAtomic(join(dir, 'result.json'), { schemaVersion: 1, session, ...result });
     await writeMessage(socket, { type: 'result', ...result });
     process.exitCode = result.status;
@@ -555,8 +570,15 @@ export async function superviseExecute({ args = '', cwd = process.cwd(), env = p
     watch = setInterval(() => {
       if (settled || yielded) return;
       const report = pendingReport(dir, session, 0);
-      if (!report && Date.now() < deadline) return;
-      yielded = report ? reportOutput(report) : runningOutput(session);
+      // A running stage subagent ends the supervise call too: no supervision Bash call waits for a worker to run.
+      const worker = report ? null : readJson(join(dir, 'worker.json'));
+      // So does a host request the controller is waiting on: the hooks module starts the bridge that answers
+      // it, and writes the heartbeat, only once this call has returned its session line.
+      const awaitingHost = !report && !worker && awaitingBridge(dir);
+      if (!report && !worker && !awaitingHost && Date.now() < deadline) return;
+      yielded = report ? reportOutput(report)
+        : worker ? workerOutput(worker)
+          : runningOutput(session);
       void writeMessage(channel, { type: 'detach' }).then((sent) => {
         if (!sent) fail('controller_supervisor_transport_lost');
       });
@@ -669,14 +691,13 @@ if (isCliEntry(import.meta.url)) {
     process.exitCode = 2;
   } else if (mode === 'controller') {
     const session = sessionFromEnvironment();
-    const run = (command, commandArgs, options = {}) => spawnSync(command, commandArgs, { encoding: 'utf8', ...options });
+    const dir = session ? sessionDirectory(process.cwd(), session) : null;
     const result = runExecute({
       args,
-      ...(session ? { supervise: fileSupervisor({ dir: sessionDirectory(process.cwd(), session), session,
-        herdr: defaultHerdr(run, process.cwd()), controllerPane: process.env.HERDR_PANE_ID }) } : {}),
-      onOwnedPane: (paneId) => { if (process.send && typeof paneId === 'string') process.send({ type: 'owned-pane', paneId }); },
+      host: dir ? createFileHost({ sessionDir: dir }) : null,
+      supervisorSession: session ?? undefined,
+      ...(dir ? { supervise: fileSupervisor({ dir, session }) } : {}),
       onLeaseAcquired: (runId) => { if (process.send && typeof runId === 'string') process.send({ type: 'lease-acquired', runId }); },
-      onPaneClosed: (paneId) => { if (process.send && typeof paneId === 'string') process.send({ type: 'pane-closed', paneId }); },
     });
     if (result.stdout) process.stdout.write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);

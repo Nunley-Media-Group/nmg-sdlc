@@ -10,7 +10,6 @@ import {
   interactiveHeadlessMessage,
   isInteractiveCommand,
   parseInteractiveSlash,
-  recommendedAnswers,
   renderInteractiveWorkflow,
   renderWriteSpecContinuation,
   withArguments,
@@ -219,22 +218,6 @@ describe('write-spec Finished selection', () => {
     ['missing answers', undefined],
   ])('rejects %s', (_label, answers) => {
     expect(writeSpecFinishedSelection(answers)).toBe(false);
-  });
-});
-
-describe('autopilot answers', () => {
-  it('picks each question\'s Recommended option, else its first', () => {
-    expect(recommendedAnswers([
-      { question: 'Kind?', options: [{ label: 'Bug' }, { label: 'Feature (Recommended)' }] },
-      { question: 'Milestone?', options: [{ label: 'v1' }, { label: 'v2' }] },
-      { question: 'Empty?', options: [] },
-      { options: [{ label: 'orphan' }] },
-    ])).toEqual({ 'Kind?': 'Feature (Recommended)', 'Milestone?': 'v1' });
-    expect(recommendedAnswers(undefined)).toEqual({});
-    expect(recommendedAnswers(
-      [{ question: 'Next?', options: [{ label: '#6 — Next (Recommended)' }, { label: 'Finished — stop writing specs' }] }],
-      { prefer: ['Finished — stop writing specs'] },
-    )).toEqual({ 'Next?': 'Finished — stop writing specs' });
   });
 });
 

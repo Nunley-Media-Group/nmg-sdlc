@@ -17,9 +17,9 @@ The cutover keeps every 3.x capability; only host mechanics change:
 | built-in `ask` | `AskUserQuestion` (2–4 options, ` (Recommended)` first, automatic Other) |
 | `xd://propose` and `local://*-plan.md` | the plan-mode plan file headed `# <slug>: <title>`, then `ExitPlanMode` |
 | `/plan` toggle after write-spec Finished | the Finished reply ends with `ExitPlanMode`, which the hooks module approves |
-| Herdr `omp` worker panes | Herdr Claude workers (`--kind claude --plugin-dir <plugin-root>`) |
+| Herdr `omp` worker panes | Herdr Claude workers (`--kind claude --plugin-dir <plugin-root>`); replaced by hooks-module stage subagents in #538 |
 | `.omp/sdlc/` runtime state | `.nmg-sdlc/` runtime state; `/sdlc-upgrade-project` migrates legacy state |
-| OMP pane screen reading for hands-off drivers | `NMG_SDLC_AUTOPILOT=1` in the hooks module |
+| OMP pane screen reading for hands-off drivers | `NMG_SDLC_AUTOPILOT=1` in the hooks module; removed in #538, where smoke provisioning moved to the verify stage |
 | `scripts/exercise-omp.mjs` (print/RPC) | `scripts/exercise-claude.mjs` (`claude -p --plugin-dir`, stream-json) |
 
 ## Git provenance

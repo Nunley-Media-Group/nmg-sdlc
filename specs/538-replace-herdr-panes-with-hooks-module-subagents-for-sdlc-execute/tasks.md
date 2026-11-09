@@ -48,7 +48,7 @@
 
 ### T004: Service stage subagents and headless runs in the hooks module
 
-**File(s)**: `hooks/register.ts`, `src/host-events.mjs`, `src/host-events.d.mts`
+**File(s)**: `hooks/register.ts`, `src/host-events.mjs`, `src/host-events.d.mts`, `src/execute-host.mjs`, `src/execute-host.d.mts`
 **Type**: Modify
 **Depends**: T001, T003
 **Acceptance**:
@@ -64,13 +64,17 @@
 - `session.start` sets `NMG_SDLC_CLAUDE_SESSION_ID`; the Herdr toast is removed (FR5)
 - The execute argument hint is `[--check-in-seconds N] [#N ...]` (AC8)
 - `/sdlc-execute`:
-  - is exempt from the headless refusal and answers headless with the rendered workflow text;
+  - is exempt from the headless refusal; TUI and headless alike answer `{}` and submit the rendered workflow from a 1 ms `$.clock.after` timer;
   - awaits the goal handshake when headless;
   - answers `--result` from the session's result record with its `exitCode` (AC7, FR11).
-- Headless interactive commands:
-  - under autopilot, answer with `headlessPlanPreamble` plus the workflow, and autopilot allows `EnterPlanMode`;
-  - without autopilot, the existing refusal is unchanged (AC9, FR6).
-- When headless, a backgrounded write-spec `merge` Bash call is rewritten to run in the foreground with `timeout: 600000` (AC9)
+- Headless interactive commands always return `Run /<name> in the TUI.` with exit 2, before any render or submit (AC9, FR6)
+- Autopilot is removed (AC9, FR6):
+  - the `autopilot` flag and its `NMG_SDLC_AUTOPILOT` read;
+  - the `ExitPlanMode` and `AskUserQuestion` autopilot branches;
+  - `recommendedAnswers` in `src/host-events.mjs` (and its `.d.mts`);
+  - `headlessPlanPreamble` in `src/execute-host.mjs` (and its `.d.mts`);
+  - the headless write-spec `merge` foreground rewrite.
+  The write-spec Finished approval stays
 
 ### T005: Update the stage agent definitions
 
@@ -95,13 +99,15 @@
   - decisions are made with `decide` as today (FR3, FR4).
 - Headless runs print the final result lines last. `/sdlc-execute --result` is documented (AC7)
 
-### T007: Move the smoke gate to headless Claude sessions
+### T007: Make the smoke gate deliver the recorded issue in a headless session
 
-**File(s)**: `steering/extensions/nmg-sdlc-smoke.mjs`
+**File(s)**: `steering/extensions/nmg-sdlc-smoke.mjs`, `steering/manifest.json`
 **Type**: Modify
 **Depends**: T004
 **Acceptance**:
-- Provisioning runs headless `claude -p --plugin-dir <pluginRoot>` draft-issue and write-spec sessions with `NMG_SDLC_AUTOPILOT=1` and ends on the existing GitHub evidence (AC10, FR7)
+- `provisionSmokeIssue`, `newSmokeIssues`, the `provisioning` phase and every `NMG_SDLC_AUTOPILOT` use are removed. The provider never runs `/sdlc-draft-issue` or `/sdlc-write-spec` (AC10, FR7)
+- `resolveQueue` keeps explicit queues first, then yields `{ kind: "recorded" }` from `provision.record`. The manifest config adds `"record": ".nmg-sdlc/smoke/provisioned.json"` (AC10)
+- The recorded issue passes only as design.md "Smoke gate" describes. A missing, invalid, closed, unspecified, foreign-authored or already-delivered record fails with `nmg-sdlc-smoke smoke issue not provisioned` and names the reason (AC10)
 - Delivery runs headless `claude -p --session-id <uuid> --plugin-dir <pluginRoot> --model opus "/sdlc-execute #N …"` in the delivery clone with the existing ownership environment, and reads the status from the session's result record (AC10)
 - The Herdr environment check, the adapter, dialog handling, trust acceptance and pane recovery are removed; the pass conditions are unchanged (AC10, FR5)
 
@@ -117,14 +123,17 @@
 
 ### T009: Update public documentation and the changelog
 
-**File(s)**: `README.md`, `CONTRIBUTING.md`, `CLAUDE.md`, `references/claude-code-tooling.md`, `steering/snippets/project-product.md`, `steering/snippets/project-tech.md`, `steering/snippets/project-structure.md`, `workflows/address-pr-comments/WORKFLOW.md`, `workflows/verify-code/references/exercise-testing.md`, `package.json`, `.claude-plugin/plugin.json`, `CHANGELOG.md`
+**File(s)**: `README.md`, `CONTRIBUTING.md`, `CLAUDE.md`, `references/claude-code-tooling.md`, `references/interactive-gates.md`, `steering/snippets/project-product.md`, `steering/snippets/project-tech.md`, `steering/snippets/project-structure.md`, `workflows/address-pr-comments/WORKFLOW.md`, `workflows/verify-code/references/exercise-testing.md`, `package.json`, `.claude-plugin/plugin.json`, `CHANGELOG.md`, `docs/decisions/2026-10-24-claude-code-cutover.md`, `docs/decisions/2026-11-08-execute-stage-subagents.md`, `references/rewrite-contract.json`, `references/rewrite-contract.md`, `references/rewrite-verification.md`
 **Type**: Modify
 **Depends**: T004, T006, T007, T008
 **Acceptance**:
 - Each file describes delivery through hooks-module stage subagents and names no `HERDR_ENV`, `HERDR_SOCKET_PATH`, `HERDR_PANE_ID`, `herdr pane`, `herdr agent` or `herdr integration` requirement (FR10, FR5)
-- README documents headless `claude -p` runs of `/sdlc-execute`, `NMG_SDLC_AUTOPILOT=1` headless interactive runs, `/sdlc-execute --result` with `--session-id`/`--resume`, the check-in `activity` report and the removal of `--retain-worker` (FR10)
+- README documents headless `claude -p` runs of `/sdlc-execute`, `/sdlc-execute --result` with `--session-id`/`--resume`, the check-in `activity` report and the removal of `--retain-worker` (FR10)
+- README's "Autopilot for hands-off drivers" section is removed. Its live-smoke section describes verify-stage provisioning in tmux (the `project.smoke` snippet, the provisioning record, and the tmux requirement for nmg-sdlc's own verification) and keeps the explicit `NMG_SDLC_SMOKE_ISSUES` queue (AC9, AC13, FR10, FR12)
+- `references/interactive-gates.md`, `CLAUDE.md`, `CONTRIBUTING.md`, the execute workflow, the steering snippets and `workflows/verify-code/references/exercise-testing.md` no longer mention autopilot (AC9)
 - The `package.json` and `.claude-plugin/plugin.json` descriptions read "Spec-driven delivery for Claude Code", and the `herdr` keyword is removed. Their `version` fields are unchanged
-- `CHANGELOG.md` `[Unreleased]` gains bullets ending with `(#538)`
+- The superseding ADR and the cutover ADR's superseded markers exist. The rewrite contract's `execute` and `claude-code-plugin` capabilities and the two `rewrite-verification.md` rows describe the #538 behavior, and `node scripts/verify-current-specs.mjs` passes (FR13). These were committed with the spec amendment
+- `CHANGELOG.md` `[Unreleased]` gains bullets ending with `(#538)`, including a breaking-change bullet saying that `NMG_SDLC_AUTOPILOT` is removed and that interactive commands run only in the TUI
 
 ### T010: Test the controller, supervisor, lease and shared modules
 
@@ -154,7 +163,7 @@
 
 ### T011: Test the hooks module
 
-**File(s)**: `hooks/register.test.ts`, `scripts/__tests__/plugin-commands.test.mjs`, `scripts/__tests__/execute-goal.test.mjs`
+**File(s)**: `hooks/register.test.ts`, `scripts/__tests__/plugin-commands.test.mjs`, `scripts/__tests__/execute-goal.test.mjs`, `scripts/__tests__/sdlc-commands.test.mjs`, `scripts/__tests__/execute-host.test.mjs`
 **Type**: Modify
 **Depends**: T004
 **Acceptance**:
@@ -162,9 +171,12 @@
 - AC4: worker tool calls and steps update the agent file, and an undelivered report is submitted once after main-loop idleness
 - AC5: an append request calls `$.session.append` with the agentId; a denied append falls back to `$.session.send`
 - AC6: a stop request calls `TaskStop` with the agentId, the response reports `killed`, and a later tool call from that agent is denied
-- AC7: headless `/sdlc-execute #1` answers with the workflow text and no refusal. `/sdlc-execute --result` answers the recorded lines with the recorded `exitCode`, or exit 2 when no record exists
+- AC7: headless `/sdlc-execute #1` answers `{}` with no refusal and submits the workflow text once, as the user, from the timer. `/sdlc-execute --result` answers the recorded lines with the recorded `exitCode`, or exit 2 when no record exists
 - AC8: the execute argument hint omits `--retain-worker`
-- AC9: headless plus autopilot answers with the preamble and the workflow, and autopilot allows `EnterPlanMode`. Headless without autopilot returns `Run /sdlc-draft-issue in the TUI.` with exit 2 and no render or submit. A headless backgrounded merge runs in the foreground
+- AC9:
+  - with and without `NMG_SDLC_AUTOPILOT=1`, headless `/sdlc-draft-issue` returns `Run /sdlc-draft-issue in the TUI.` with exit 2 and no render or submit;
+  - with `NMG_SDLC_AUTOPILOT=1`, `ExitPlanMode` and `AskUserQuestion` permission requests fall through to the host, except the write-spec Finished approval;
+  - the autopilot test blocks in `sdlc-commands.test.mjs` and `execute-host.test.mjs` are removed.
 - AC12: a denied spawn and a missing agent file each produce `{ ok: false, deny }`
 - No Herdr toast is shown; `plugin-commands.test.mjs` static assertions match the new source. `cd scripts && npm test` exits 0, including `claude plugin test` when `claude` is installed
 
@@ -174,7 +186,9 @@
 **Type**: Modify
 **Depends**: T007
 **Acceptance**:
-- AC10: provisioning `executeCommand` calls are `claude -p --plugin-dir <root> --permission-mode <mode> "/sdlc-draft-issue <need>"` and `"/sdlc-write-spec #N"` with `NMG_SDLC_AUTOPILOT=1` in the provisioning clone
+- AC10: with a valid record for an open, `spec-created` issue with a merged spec PR, the provider delivers that issue. No recorded call runs `/sdlc-draft-issue` or `/sdlc-write-spec`, and none sets `NMG_SDLC_AUTOPILOT`
+- AC10: a missing record, an unparsable record, a wrong `repo`, a closed issue, a missing label, an unmerged spec PR, a foreign author, and an issue another outer request already delivered each fail with `nmg-sdlc-smoke smoke issue not provisioned` and name the reason. A recorded issue in the same outer request's terminal recovery still passes through the existing recovery path
+- AC10: `NMG_SDLC_SMOKE_ISSUES` takes priority over a present record
 - AC10: delivery is `claude -p --session-id <uuid> --plugin-dir <root> --model opus --permission-mode <mode> "/sdlc-execute #N"` in the delivery clone with the ownership env, and the status comes from the result record
 - No `herdr` command appears among the recorded calls, and the gate passes without `HERDR_*` env. The existing exact-head merged-PR and closed-issue pass and fail cases still hold
 - `cd scripts && npm test` exits 0
@@ -190,12 +204,28 @@
   - runtime code (`scripts/*.mjs` other than the upgrade detector constants, `src/*.mjs`, `hooks/register.ts`, `steering/extensions/*.mjs`);
   - `workflows/execute/WORKFLOW.md`;
   - `agents/*.md`.
-- It also asserts that README, `CONTRIBUTING.md`, `CLAUDE.md`, `references/claude-code-tooling.md`, `references/contribution-guide.md` and the steering snippets name no `HERDR_` variable or `herdr pane|agent|integration` command, and that README names `NMG_SDLC_AUTOPILOT`, `--session-id` and `/sdlc-execute --result`
+- It also asserts that README, `CONTRIBUTING.md`, `CLAUDE.md`, `references/claude-code-tooling.md`, `references/contribution-guide.md` and the steering snippets name no `HERDR_` variable or `herdr pane|agent|integration` command, and that README names `--session-id` and `/sdlc-execute --result`
+- AC9: it asserts that no runtime file (`hooks/register.ts`, `src/*.mjs`, `scripts/*.mjs`, `steering/extensions/*.mjs`), workflow, `references/interactive-gates.md`, README, `CLAUDE.md` or `CONTRIBUTING.md` names `NMG_SDLC_AUTOPILOT`
 - FR9: `steering-contract.test.mjs` asserts the agent files carry no `model` or `effort` frontmatter
 - `cd scripts && npm test`, `node scripts/skill-inventory-audit.mjs --check` and `node scripts/verify-plugin-surface.mjs --root . --label repository` exit 0
+
+### T014: Add the verify-stage smoke provisioning snippet
+
+**File(s)**: `steering/snippets/project-smoke.md`, `steering/manifest.json`, `scripts/__tests__/steering-contract.test.mjs`
+**Type**: Create | Modify
+**Depends**: T007
+**Acceptance**:
+- `steering/snippets/project-smoke.md` carries the seven steps in design.md "Smoke provisioning": reuse, clone, draft, specify, clean up, classify failures, bound the work (AC13, FR12)
+- `steering/manifest.json` registers it as `project.smoke` with `consumers: ["worker:verify"]`, `slot: "body"` and `order: 510` (FR12)
+- `steering-contract.test.mjs` asserts all of the following (AC13, FR12):
+  - the snippet is routed only to `worker:verify`;
+  - it names `tmux new-session`, `tmux capture-pane`, `/sdlc-draft-issue`, `/sdlc-write-spec`, `.nmg-sdlc/smoke/provisioned.json` and the environmental-versus-defect classification;
+  - the rendered verify worker prompt for this repository contains it, and the rendered implement and deliver prompts do not.
+- `node scripts/verify-plugin-surface.mjs --root . --label repository` and `cd scripts && npm test` exit 0
 
 ## Change History
 
 | Issue | Date | Summary |
 |-------|------|---------|
 | #538 | 2026-11-08 | Initial feature tasks |
+| #538 | 2026-11-08 | Amendment: T004, T007, T009, T011, T012 and T013 drop autopilot and headless interactive runs; T007 and T012 make the provider deliver the recorded issue; T014 adds the verify-stage provisioning snippet |

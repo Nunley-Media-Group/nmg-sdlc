@@ -1,5 +1,6 @@
 import {
   closeSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -9,6 +10,7 @@ import {
 } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
+import { heartbeatFresh } from '../src/execute-host.mjs';
 
 const LEASE_FILE = join('.nmg-sdlc', 'controller.lock');
 
@@ -18,13 +20,16 @@ function leaseError() {
   return error;
 }
 
+// A lease names its holder either by `controllerPaneId` (a process label) or, for /sdlc-execute, by the
+// `supervisorSession` whose heartbeat proves the holder is still supervised.
 function validLease(record, projectRoot) {
+  const holder = typeof record?.supervisorSession === 'string' ? record.supervisorSession.length > 0
+    : typeof record?.controllerPaneId === 'string' && record.controllerPaneId.length > 0;
   return record?.schemaVersion === 1
     && record.projectRoot === projectRoot
     && typeof record.runId === 'string'
     && record.runId.length > 0
-    && typeof record.controllerPaneId === 'string'
-    && record.controllerPaneId.length > 0
+    && holder
     && Number.isSafeInteger(record.pid)
     && record.pid > 0
     && typeof record.startedAt === 'string'
@@ -49,36 +54,24 @@ export function readControllerLease(projectRoot) {
   }
 }
 
-function parseAgentList(value) {
-  let parsed = value;
-  if (!Array.isArray(parsed) && typeof parsed === 'string') {
-    try {
-      parsed = JSON.parse(parsed);
-    } catch {
-      return null;
-    }
-  } else if (!Array.isArray(parsed) && typeof parsed?.stdout === 'string') {
-    if (parsed.status !== undefined && parsed.status !== 0) return null;
-    try {
-      parsed = JSON.parse(parsed.stdout);
-    } catch {
-      return null;
-    }
-  } else if (parsed?.status !== undefined && parsed.status !== 0) {
-    return null;
+/** Whether the supervising session's heartbeat is fresh: its `host.json` exists and was written within the window. */
+function supervisorAlive(projectRoot, session, now) {
+  try {
+    return heartbeatFresh(JSON.parse(readFileSync(join(projectRoot, '.nmg-sdlc', 'execute', session, 'host.json'), 'utf8')), now);
+  } catch {
+    return false;
   }
-  if (Array.isArray(parsed)) return parsed;
-  if (Array.isArray(parsed?.result?.agents)) return parsed.result.agents;
-  if (Array.isArray(parsed?.agents)) return parsed.agents;
-  return null;
 }
 
+/**
+ * Reclaims a lease only when its recorded pid is dead and, for a supervised holder, its supervising session's
+ * heartbeat is absent or stale. A live pid or a fresh heartbeat refuses with controller_lease_held.
+ */
 export function reclaimStaleControllerLease({
   projectRoot,
   runId,
   processApi = process,
-  listAgents,
-  controllerPaneId,
+  now = Date.now,
 } = {}) {
   const canonicalRoot = realpathSync(projectRoot);
   const path = controllerLeasePath(canonicalRoot);
@@ -108,44 +101,7 @@ export function reclaimStaleControllerLease({
     if (error?.code !== 'ESRCH') throw leaseError();
   }
 
-  let agents;
-  try {
-    agents = parseAgentList(listAgents());
-  } catch {
-    throw leaseError();
-  }
-  if (!agents) throw leaseError();
-  const recordedPaneId = String(record.controllerPaneId);
-  let occupants = 0;
-  for (const agent of agents) {
-    const snakePaneId = agent?.pane_id;
-    const camelPaneId = agent?.paneId;
-    if (
-      snakePaneId != null
-      && camelPaneId != null
-      && String(snakePaneId) !== String(camelPaneId)
-    ) {
-      if (
-        String(snakePaneId) === recordedPaneId
-        || String(camelPaneId) === recordedPaneId
-      ) {
-        throw leaseError();
-      }
-      continue;
-    }
-    const paneId = snakePaneId ?? camelPaneId;
-    if (paneId != null && String(paneId).length > 0 && String(paneId) === recordedPaneId) {
-      occupants += 1;
-    }
-  }
-  if (
-    occupants > 1
-    || (occupants === 1 && (
-      typeof controllerPaneId !== 'string'
-      || controllerPaneId.length === 0
-      || String(controllerPaneId) !== recordedPaneId
-    ))
-  ) {
+  if (typeof record.supervisorSession === 'string' && supervisorAlive(canonicalRoot, record.supervisorSession, now)) {
     throw leaseError();
   }
 
@@ -166,20 +122,25 @@ export function assertControllerLease({ projectRoot, runId }) {
   return lease;
 }
 
+/** Acquires the project lease. `supervisorSession` names an /sdlc-execute holder; otherwise `controllerPaneId` labels it. */
 export function acquireControllerLease({
   projectRoot,
   runId = randomUUID(),
-  controllerPaneId = `pid-${process.pid}`,
+  controllerPaneId,
+  supervisorSession,
   pid = process.pid,
   startedAt = new Date().toISOString(),
 } = {}) {
   const canonicalRoot = realpathSync(projectRoot);
   const path = controllerLeasePath(canonicalRoot);
+  const holder = typeof supervisorSession === 'string'
+    ? { supervisorSession }
+    : { controllerPaneId: controllerPaneId ?? `pid-${process.pid}` };
   const record = {
     schemaVersion: 1,
     projectRoot: canonicalRoot,
     runId,
-    controllerPaneId,
+    ...holder,
     pid,
     startedAt,
   };
@@ -232,4 +193,14 @@ export function enterControllerLease({ projectRoot, runId, controllerPaneId } = 
     lease: acquireControllerLease({ projectRoot, runId: runId || randomUUID(), controllerPaneId }),
     owned: true,
   };
+}
+
+/** The lease file's status for a project, without changing it: absent, or the holder's identity. */
+export function controllerLeaseStatus(projectRoot) {
+  try {
+    lstatSync(controllerLeasePath(realpathSync(projectRoot)));
+    return 'held';
+  } catch {
+    return 'absent';
+  }
 }

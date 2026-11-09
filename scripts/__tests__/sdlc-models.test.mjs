@@ -15,6 +15,8 @@ import {
   validateStageModels,
 } from '../sdlc-models.mjs';
 import { applyUpgrade, detectUpgrade } from '../sdlc-upgrade.mjs';
+import * as stageModelsModule from '../../src/stage-models.mjs';
+import * as sdlcModelsModule from '../sdlc-models.mjs';
 
 const scriptsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = path.resolve(scriptsDir, '..');
@@ -218,6 +220,36 @@ describe('supervisor boundary (AC9)', () => {
     const hooks = fs.readFileSync(path.join(repoRoot, 'hooks/register.ts'), 'utf8');
     expect(hostEvents).not.toContain('sdlc-models');
     expect(hooks).not.toContain('sdlc-models');
+  });
+});
+
+describe('shared validation module (src/stage-models.mjs)', () => {
+  const sharedPath = path.join(repoRoot, 'src/stage-models.mjs');
+
+  it('has no import statements, so the hooks module can load it in the plugin environment', () => {
+    const source = fs.readFileSync(sharedPath, 'utf8');
+    expect(source).not.toMatch(/^\s*import\b/m);
+    expect(source).not.toMatch(/\bfrom\s+['"]/);
+    expect(source).not.toMatch(/\brequire\(/);
+  });
+
+  it('is the same validation sdlc-models.mjs re-exports, not a copy', () => {
+    expect(sdlcModelsModule.validateStageModels).toBe(stageModelsModule.validateStageModels);
+    expect(sdlcModelsModule.StageModelsError).toBe(stageModelsModule.StageModelsError);
+    expect(sdlcModelsModule.isValidStageModel).toBe(stageModelsModule.isValidStageModel);
+    expect(sdlcModelsModule.stageModelsWarning).toBe(stageModelsModule.stageModelsWarning);
+    expect(sdlcModelsModule.STAGE_MODEL_DEFAULTS).toBe(stageModelsModule.STAGE_MODEL_DEFAULTS);
+    expect(sdlcModelsModule.STAGE_MODELS_PATH).toBe(stageModelsModule.STAGE_MODELS_PATH);
+    expect(sdlcModelsModule.STAGE_NAMES).toBe(stageModelsModule.STAGE_NAMES);
+  });
+
+  it('keeps the moved validation reachable through the re-export with the same diagnostic', () => {
+    expect(() => validateStageModels({ version: 1, verify: { model: 'opus', effort: 'extreme' } }))
+      .toThrow(stageModelsModule.StageModelsError);
+    expect(() => stageModelsModule.validateStageModels({ version: 1, verify: { model: 'opus', effort: 'extreme' } }))
+      .toThrow('steering/sdlc-models.json: verify.effort = "extreme": must be one of low, medium, high, xhigh, max, default');
+    expect(isValidStageModel('opencode-go/kimi-k3.1-pro')).toBe(true);
+    expect(isValidStageModel('not a model!')).toBe(false);
   });
 });
 

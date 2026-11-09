@@ -40,7 +40,7 @@ describe('v4 host-language upgrade contract', () => {
   test('contribution guide marks the v3 sentence stale', () => {
     const source = read('references/contribution-guide.md');
     expect(source).toContain('Stale v3 wording');
-    expect(source).toContain('exact v3 worker-pane sentence');
+    expect(source).toContain('exact v3 or v4 Herdr worker-pane sentence');
     expect(source).toContain('contributing-v4-host-language');
     expect(source).toContain('`CLAUDE.md`');
   });
