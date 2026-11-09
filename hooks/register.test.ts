@@ -347,6 +347,83 @@ describe('interactive commands', () => {
   })
 })
 
+describe('pasted interactive commands', () => {
+  // AC1: a person's pasted prompt beginning with a registered command runs that command, with the whole remaining text as its arguments.
+  test('a pasted multi-line /sdlc-draft-issue runs the command and never reaches the model', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    await typed($, world, '/sdlc-draft-issue Fix X\nline two\nline three')
+    expect(world.renders.at(-1)).toEqual(expect.arrayContaining(['--consumer', 'sdlc-draft-issue', '--args', 'Fix X\nline two\nline three']))
+    expect(world.plans).toEqual(['/plan'])
+    expect(world.prompts).toEqual([{ text: '# sdlc-draft-issue workflow', asUser: true }])
+  })
+
+  test('a bridge prompt with leading blank lines runs the command the same way', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    await typed($, world, '\n\n/sdlc-draft-issue Fix X\nline two\nline three', 'bridge')
+    expect(world.renders.at(-1)).toEqual(expect.arrayContaining(['--consumer', 'sdlc-draft-issue', '--args', 'Fix X\nline two\nline three']))
+    expect(world.plans).toEqual(['/plan'])
+    expect(world.prompts).toEqual([{ text: '# sdlc-draft-issue workflow', asUser: true }])
+  })
+
+  test('a pasted /sdlc-execute submits its workflow as the person, with the same drop answer as a typed run', async ($, on) => {
+    const world = engine(on)
+    world.sessionModel = 'claude-opus-5-5'
+    await start($, world)
+    const result = await $.prompt.submit({ text: '/sdlc-execute #7', wait: false, origin: { kind: 'composer' } } as never)
+    expect(result).toEqual({ drop: 'NMG SDLC: running /sdlc-execute.' })
+    await world.clock.advance(5)
+    expect(world.renders.at(-1)).toEqual(expect.arrayContaining(['--consumer', 'sdlc-execute', '--args', '#7']))
+    expect(world.plans).toEqual([])
+    expect(world.prompts).toEqual([{ text: '# sdlc-execute workflow', asUser: true }])
+  })
+
+  // AC2: typed commands, plugin-submitted or isMeta prompts, and text that does not begin with a registered name pass through unchanged.
+  test('typed, plugin, isMeta and non-matching prompts reach the engine unchanged, with no render', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    await $.prompt.submit({ text: '/sdlc-draft-issue x', wait: false, origin: { kind: 'composer' }, command: { name: 'sdlc-draft-issue', args: 'x' } } as never)
+    await $.prompt.submit({ text: '/sdlc-draft-issue x', wait: false, origin: { kind: 'plugin', name: 'other-plugin' } } as never)
+    await $.prompt.submit({ text: '/sdlc-draft-issue x', wait: false, isMeta: true, origin: { kind: 'composer' } } as never)
+    await typed($, world, '/sdlc-unknown x')
+    await typed($, world, 'please run /sdlc-draft-issue later')
+    await typed($, world, '/sdlc-draft-issuex y')
+    await world.clock.advance(5)
+    expect(world.prompts).toEqual([
+      { text: '/sdlc-draft-issue x' },
+      { text: '/sdlc-draft-issue x' },
+      { text: '/sdlc-draft-issue x' },
+      { text: '/sdlc-unknown x' },
+      { text: 'please run /sdlc-draft-issue later' },
+      { text: '/sdlc-draft-issuex y' },
+    ])
+    expect(world.renders).toEqual([])
+    expect(world.plans).toEqual([])
+  })
+
+  test('a composer prompt that is not a pasted command still ends an active model override', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    await run($, world, 'sdlc-draft-issue')
+    expect(await step($, world)).toEqual({ model: 'opus', effort: 'high' })
+    await typed($, world, '/sdlc-unknown x')
+    expect(await step($, world)).toEqual({ model: 'claude-sonnet-5-5', effort: 'high' })
+  })
+
+  // AC3: a headless session refuses a pasted interactive command with the same answer as the typed command.
+  test('a pasted interactive command in a headless session gets the typed refusal, with no render and no prompt', async ($, on) => {
+    const world = engine(on, { interactive: false })
+    await start($, world, false)
+    const result = await $.prompt.submit({ text: '/sdlc-draft-issue a parser bug', wait: false, origin: { kind: 'composer' } } as never)
+    expect(result).toEqual({ drop: 'Run /sdlc-draft-issue in the TUI.' })
+    await world.clock.advance(5)
+    expect(world.renders).toEqual([])
+    expect(world.plans).toEqual([])
+    expect(world.prompts).toEqual([])
+  })
+})
+
 describe('/sdlc-execute --result', () => {
   test('answers the recorded lines and exit status, before any model gate, and mutates nothing', async ($, on) => {
     const world = engine(on)
