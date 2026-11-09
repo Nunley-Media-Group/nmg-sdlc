@@ -12,6 +12,10 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+### Added
+
+- Add steering/sdlc-models.json with the default execute stage models and efforts (#544)
+
 ## [4.10.1] - 2026-11-09
 
 ### Fixed
