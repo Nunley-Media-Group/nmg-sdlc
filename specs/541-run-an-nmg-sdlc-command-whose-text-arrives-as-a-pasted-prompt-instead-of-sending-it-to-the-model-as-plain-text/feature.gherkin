@@ -1,0 +1,30 @@
+**Issue**: #541
+**Date**: 2026-11-09
+**Status**: Approved
+**Author**: Rich Nunley
+**Related Spec**: specs/538-replace-herdr-panes-with-hooks-module-subagents-for-sdlc-execute/
+
+# File: hooks/register.test.ts
+# Generated from: specs/541-run-an-nmg-sdlc-command-whose-text-arrives-as-a-pasted-prompt-instead-of-sending-it-to-the-model-as-plain-text/requirements.md
+Feature: Pasted nmg-sdlc command text runs the command
+
+  @SCN001 @regression
+  Scenario: A pasted multi-line /sdlc-draft-issue runs as the command
+    Given an interactive session with the hooks module loaded
+    When a person-originated prompt with no engine-parsed command has text beginning "/sdlc-draft-issue" followed by a multi-line description
+    Then the prompt is not sent to the model
+    And /sdlc-draft-issue renders its workflow with the full remaining text as its arguments and enters plan mode
+
+  @SCN002 @regression
+  Scenario: Typed commands, plugin and meta prompts, and non-matching text pass through
+    Given an interactive session with the hooks module loaded
+    When a prompt is a typed slash command, a plugin-submitted or isMeta prompt, "/sdlc-unknown x", text mentioning "/sdlc-draft-issue" mid-text, or "/sdlc-draft-issuex y"
+    Then the prompt reaches the engine unchanged with no workflow rendered
+    And a person-originated prompt still ends an active model override
+
+  @SCN003 @regression
+  Scenario: A pasted interactive command in a headless session gets the typed refusal
+    Given a headless session
+    When a person-originated prompt's text begins with "/sdlc-draft-issue"
+    Then the prompt is not sent to the model
+    And the outcome is the "Run /sdlc-draft-issue in the TUI." refusal with no workflow rendered
