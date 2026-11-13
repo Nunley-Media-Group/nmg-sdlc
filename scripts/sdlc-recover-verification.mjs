@@ -20,7 +20,7 @@ import { loadSteeringRuntime } from '../src/sdlc-steering-runtime.mjs';
 
 const USAGE = 'Usage: node scripts/sdlc-recover-verification.mjs --issue N --spec specs/N-SLUG [--controller-run-id R] [--probe]';
 const MAX_REPORT_BYTES = 256 * 1024;
-const MAX_ARTIFACT_BYTES = 512 * 1024;
+const MAX_ARTIFACT_BYTES = 4 * 1024 * 1024;
 
 function readBoundedFile(root, relativePath, maximum) {
   let parent = root;

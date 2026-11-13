@@ -1227,7 +1227,7 @@ function registeredGate({ fs, cwd, run, issue, spec, head, report }) {
   }
   const artifactPath = path.join(cwd, '.nmg-sdlc', 'verification', `${issue}.json`);
   const stat = fs.lstatSync(artifactPath);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 512 * 1024) {
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 4 * 1024 * 1024) {
     throw Object.assign(new Error('Verification artifact must be a bounded regular file'), { reasonCode: 'verification_recheck_invalid' });
   }
   const artifact = JSON.parse(fs.readFileSync(artifactPath, 'utf8'));

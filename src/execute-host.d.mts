@@ -18,6 +18,7 @@ export function summarizeToolCall(tool: string, input?: Record<string, unknown>)
 
 export type ToolCallRecord = { tool: string; summary: string; at: number };
 export type TurnRecord = { reason: string; at: number };
+export type BackgroundRecord = { taskId: string; command: string; startedAt: number };
 export type AgentRecord = {
   schemaVersion: 1;
   agentId: string;
@@ -28,6 +29,7 @@ export type AgentRecord = {
   turns: TurnRecord[];
   stopped: boolean;
   updatedAt: number;
+  background?: BackgroundRecord[];
 };
 
 export function emptyAgentRecord(agentId: string, at: number): AgentRecord;
@@ -39,10 +41,21 @@ export function recordTurnEnd(
   record: AgentRecord,
   turn: { reason: string; status?: string; at: number },
 ): AgentRecord;
+export function recordBackgroundStart(
+  record: AgentRecord,
+  background: { taskId: string; command: unknown; at: number },
+): AgentRecord;
+export function clearBackground(record: AgentRecord, at: number): AgentRecord;
 export function activityRecord(
   record: Partial<AgentRecord> | null | undefined,
   now: number,
-): { status: string; toolCalls: ToolCallRecord[]; latestText: string; lastActivitySecondsAgo: number };
+): {
+  status: string;
+  toolCalls: ToolCallRecord[];
+  latestText: string;
+  lastActivitySecondsAgo: number;
+  background: { command: string; elapsedSeconds: number } | null;
+};
 
 export function checkInNotice(args: { session: string; seq: number; pluginRoot: string }): string;
 export function agentBody(text: string): string;

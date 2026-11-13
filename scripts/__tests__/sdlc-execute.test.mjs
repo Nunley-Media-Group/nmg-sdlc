@@ -19,6 +19,8 @@ const DEFAULT_STAGE_MODELS_TEXT = `${JSON.stringify(STAGE_MODEL_DEFAULTS, null, 
 const git = (root, ...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
 const result = (value, status = 0) => ({ status, stdout: typeof value === 'string' ? value : JSON.stringify(value), stderr: '' });
 const digest = (value) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
+// The fixed handoff reminder's wording, which identifies a reminder among the guidance a worker is appended.
+const REMINDER_TEXT = 'your turn ended without a handoff';
 const GH_PR_VIEW_JSON_FIELDS = new Set(`additions assignees author autoMergeRequest baseRefName baseRefOid body
   changedFiles closed closedAt closingIssuesReferences comments commits createdAt deletions files fullDatabaseId
   headRefName headRefOid headRepository headRepositoryOwner id isCrossRepository isDraft labels latestReviews
@@ -245,6 +247,12 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
     append({ agentId, text }) {
       const record = agents.get(agentId);
       state.appends.push({ agentId, prompt: text });
+      // The controller's handoff reminder travels through append; the reminder hook answers it as the worker would.
+      if (text.includes(REMINDER_TEXT)) {
+        state.reminders.push({ agentId, prompt: text });
+        const outcome = onReminder({ step: record.step, prompt: text, state, root, publish, passGate });
+        if (outcome) writeHandoff(record.step, outcome);
+      }
       const accepted = hooks.onAppend({ text, record, state, passGate, writeHandoff, root }) !== false;
       // A settled worker resumes its turn with the guidance; a busy one takes it at its next model request.
       if (accepted && record.status === 'idle') Object.assign(record, { status: 'running', slices: 0, onFinish: null });
@@ -264,13 +272,19 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
       agents.get(agentId).status = 'killed';
       return true;
     },
-    wait({ agentId, until, timeoutMs } = {}) {
+    wait({ agentId, until, timeoutMs, since } = {}) {
       const record = agents.get(agentId);
       state.waits.push({ agentId, until, timeoutMs });
       if (state.waits.length > 60) throw new Error('controller kept waiting without progress');
       record.onWait?.({ until, timeoutMs }, record);
       // Only an active subagent has anything to wait for; a settled, failed or killed one returns at once.
       const active = ['pending', 'running', 'waiting'].includes(record.status);
+      // A start is an active status or activity after `since`; a settled worker that does not start times out.
+      if (until === 'started') {
+        if (active || record.lastActivityAt > since) return { timedOut: false, record };
+        hooks.advance(timeoutMs);
+        return { timedOut: true, record };
+      }
       if (!active || (until === 'working' && (record.status === 'pending' || record.status === 'running'))) {
         return { timedOut: false, record };
       }
@@ -1671,5 +1685,193 @@ describe('post-delivery branch cleanup (#523)', () => {
       stdout: `#42: MERGED and CLOSED\n${cleaned}#43: MERGED and CLOSED\n`, stderr: '' });
     expect(git(f.root, 'branch', '--show-current')).toBe('main');
     expect(f.state.starts).toEqual([]);
+  });
+});
+
+describe('idle workers, prompt refusals, restart routing and background activity (#546)', () => {
+  const steps = (f) => f.state.starts.map((entry) => entry.step);
+  const deliver = ({ state }) => { state.merged = true; state.closed = true; return { status: 'passed', next: null }; };
+  const intentFile = (f) => path.join(f.root, '.nmg-sdlc/execute/gate-intent/42.json');
+  const gateFile = (f) => path.join(f.root, '.nmg-sdlc/verification/42.json');
+  const writeGate = (f, { head, generatedAt, ceiling }) => {
+    fs.mkdirSync(path.dirname(gateFile(f)), { recursive: true });
+    fs.writeFileSync(gateFile(f), JSON.stringify({ schemaVersion: 1, issue: 42, generatedAt,
+      identity: { headSha: head }, ceiling, coverage: { complete: true }, results: [] }));
+  };
+  const supervisor = (f, answer = () => null) => {
+    const reports = [];
+    const supervise = (report) => {
+      reports.push({ ...report, stopsAtReport: [...f.state.stops], startsAtReport: f.state.starts.length });
+      return answer(report, reports.length - 1) ?? { action: report.kind === 'stage' ? 'accept' : 'continue' };
+    };
+    return { reports, supervise };
+  };
+  // A verify worker that settles without a handoff until `silent` runs out, then passes the gate.
+  const verifyWorkerSilentUntil = (f, silent) => {
+    let verifications = 0;
+    f.setWorker((context) => {
+      if (context.step === 'verify' && verifications++ < silent) return { handoff: false };
+      if (context.step === 'verify') { context.passGate(); return { status: 'passed', next: 'deliver' }; }
+      return deliver(context);
+    });
+  };
+
+  it('resumes a worker that settles without a handoff through append, and reports the handoff its resumed turn wrote', () => {
+    const f = fixture();
+    f.setWorker((context) => {
+      if (context.step === 'verify') return { handoff: false };
+      if (context.step === 'deliver') return deliver(context);
+      throw new Error(context.step);
+    });
+    f.setReminder(({ passGate }) => { passGate(); return { status: 'passed', next: 'deliver' }; });
+    const { reports, supervise } = supervisor(f);
+    expect(f.execute('#42', { supervise })).toMatchObject({ status: 0 });
+    expect(f.state.reminders).toHaveLength(1);
+    expect(f.state.waits.some((wait) => wait.until === 'started')).toBe(true);
+    const verify = reports.filter((report) => report.kind === 'stage' && report.stage === 'verify');
+    expect(verify).toHaveLength(1);
+    expect(verify[0]).toMatchObject({ handoffFresh: true, handoff: { status: 'passed' }, workerState: 'idle', promptRefusal: null });
+    expect(steps(f)).toEqual(['verify', 'deliver']);
+  });
+
+  it('holds the stage report until a tracked background command clears, and reports the commit it landed', () => {
+    // A dirty worktree routes the branch to implement first.
+    const f = fixture({ dirty: true });
+    let landed = false;
+    f.setWorker((context) => {
+      if (context.step === 'implement') {
+        Object.assign(context.record, {
+          background: [{ taskId: 'task-1', command: 'npm test', startedAt: 0 }],
+          // The commit lands while the settled worker's background command is still tracked.
+          onWait: ({ until }) => {
+            if (until !== 'started' || landed) return;
+            landed = true;
+            context.publish('fix: finish #42');
+            context.record.background = [];
+          },
+        });
+        return { status: 'passed', next: 'verify' };
+      }
+      if (context.step === 'verify') { context.passGate(); return { status: 'passed', next: 'deliver' }; }
+      return deliver(context);
+    });
+    const { reports, supervise } = supervisor(f);
+    expect(f.execute('#42', { supervise })).toMatchObject({ status: 0 });
+    expect(landed).toBe(true);
+    const implement = reports.find((report) => report.kind === 'stage' && report.stage === 'implement');
+    expect(implement.commits.map((commit) => commit.subject)).toEqual(['fix: finish #42']);
+    expect(implement.headAfter).not.toBe(implement.headBefore);
+    expect(implement.commits[0].sha).toBe(implement.headAfter);
+  });
+
+  it('reports an undelivered prompt as stage_prompt_undelivered, and does not offer prompt on that report', () => {
+    const f = fixture();
+    verifyWorkerSilentUntil(f, 1);
+    f.hooks.onAppend = ({ text }) => !text.includes('supervisor guidance');
+    const { reports, supervise } = supervisor(f, (report, index) => {
+      if (index === 0) return { action: 'prompt', text: 'rerun the gate' };
+      if (index === 1) return { action: 'redispatch', text: 'start over' };
+      return null;
+    });
+    expect(f.execute('#42', { supervise })).toMatchObject({ status: 0 });
+    expect(reports[0].decisions).toContain('prompt');
+    expect(reports[1]).toMatchObject({ kind: 'stage', promptRefusal: { reasonCode: 'stage_prompt_undelivered' } });
+    expect(reports[1].decisions).not.toContain('prompt');
+    expect(steps(f)).toEqual(['verify', 'verify', 'deliver']);
+  });
+
+  it('reports a prompt the worker never starts a turn for as stage_prompt_not_resumed, within 60 seconds', () => {
+    const f = fixture();
+    const clock = { now: 0 };
+    f.hooks.advance = (ms) => { clock.now += ms; };
+    verifyWorkerSilentUntil(f, 1);
+    // The guidance is accepted, but the worker stays settled.
+    f.hooks.onAppend = ({ text, record }) => {
+      if (text.includes('supervisor guidance')) record.status = 'completed';
+      return true;
+    };
+    const { reports, supervise } = supervisor(f, (report, index) => {
+      if (index === 0) return { action: 'prompt', text: 'rerun the gate' };
+      if (index === 1) return { action: 'redispatch', text: 'start over' };
+      return null;
+    });
+    expect(f.execute('#42', { supervise, now: () => clock.now, checkInMs: 300_000 })).toMatchObject({ status: 0 });
+    expect(f.state.appends.filter((entry) => entry.prompt.includes('supervisor guidance'))).toHaveLength(1);
+    expect(reports[1]).toMatchObject({ kind: 'stage', promptRefusal: { reasonCode: 'stage_prompt_not_resumed' } });
+    expect(reports[1].decisions).not.toContain('prompt');
+    expect(steps(f)).toEqual(['verify', 'verify', 'deliver']);
+  });
+
+  it('dispatches verify, not implement, after a restart at an unchanged head with a verify intent and an older failed gate', () => {
+    const f = fixture();
+    const head = git(f.root, 'rev-parse', 'HEAD');
+    const dispatchedAt = Date.now();
+    fs.mkdirSync(path.dirname(intentFile(f)), { recursive: true });
+    fs.writeFileSync(intentFile(f), JSON.stringify({ schemaVersion: 1, issue: 42, head, dispatchedAt }));
+    writeGate(f, { head, generatedAt: new Date(dispatchedAt - 60_000).toISOString(), ceiling: 'Fail' });
+    f.setWorker((context) => {
+      if (context.step === 'verify') { context.passGate(); return { status: 'passed', next: 'deliver' }; }
+      if (context.step === 'implement') { context.publish('fix: finish #42'); return { status: 'passed', next: 'verify' }; }
+      return deliver(context);
+    });
+    expect(f.execute('#42')).toMatchObject({ status: 0 });
+    expect(steps(f)).toEqual(['verify', 'deliver']);
+  });
+
+  it('routes a failed gate to implement once its verify report is accepted, after clearing the verify intent', () => {
+    const f = fixture();
+    let verifications = 0;
+    let intentDuringVerify = null;
+    let intentAfterVerify = null;
+    f.setWorker((context) => {
+      if (context.step === 'verify' && verifications++ === 0) {
+        intentDuringVerify = fs.existsSync(intentFile(f));
+        writeGate(f, { head: git(f.root, 'rev-parse', 'HEAD'), generatedAt: new Date().toISOString(), ceiling: 'Fail' });
+        return { status: 'failed', next: 'implement', reasonCode: 'verification_not_green', summary: 'tests failed', artifacts: [] };
+      }
+      if (context.step === 'verify') { context.passGate(); return { status: 'passed', next: 'deliver' }; }
+      if (context.step === 'implement') {
+        intentAfterVerify = fs.existsSync(intentFile(f));
+        context.publish('fix: finish #42');
+        return { status: 'passed', next: 'verify' };
+      }
+      return deliver(context);
+    });
+    const { supervise } = supervisor(f);
+    expect(f.execute('#42', { supervise })).toMatchObject({ status: 0 });
+    expect(intentDuringVerify).toBe(true);
+    expect(intentAfterVerify).toBe(false);
+    expect(steps(f)).toEqual(['verify', 'implement', 'verify', 'deliver']);
+  });
+
+  it('names a running background command in check-ins, and does not report its unchanged activity as a stall', () => {
+    const f = fixture();
+    const clock = { now: 0 };
+    f.hooks.advance = (ms) => { clock.now += ms; };
+    f.setWorker((context) => {
+      if (context.step !== 'verify') return deliver(context);
+      Object.assign(context.record, {
+        status: 'running', slices: 9,
+        onSlice: (slice, record) => {
+          if (slice !== 1) return;
+          Object.assign(record, { lastActivityAt: clock.now,
+            background: [{ taskId: 'task-1', command: 'npm run gate', startedAt: clock.now }] });
+        },
+        onFinish: () => {
+          // The background command has finished by the time the worker's turn ends.
+          context.record.background = [];
+          f.passGate();
+          f.writeHandoff('verify', { status: 'passed', next: 'deliver' });
+        },
+      });
+      return { handoff: false };
+    });
+    const { reports, supervise } = supervisor(f);
+    expect(f.execute('#42', { supervise, now: () => clock.now, checkInMs: 100_000 })).toMatchObject({ status: 0 });
+    const checkIns = reports.filter((report) => report.kind === 'checkin');
+    expect(checkIns.length).toBeGreaterThanOrEqual(1);
+    expect(checkIns.map((report) => report.reason)).not.toContain('activity_unchanged');
+    expect(checkIns[0].activity.background).toEqual({ command: 'npm run gate', elapsedSeconds: expect.any(Number) });
+    expect(checkIns[0].activity.background.elapsedSeconds).toBeGreaterThan(0);
   });
 });

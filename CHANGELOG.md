@@ -12,6 +12,10 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Resume an idle `/sdlc-execute` stage worker through its append path before its stage report, hold that report until its background commands clear and its commits are visible, report an undelivered or unstarted supervisor prompt with a reason code, route a restart during a verify rerun to verify, keep failing test names and a full gate log in the gate evidence, and show a running background command in check-ins (#546)
+
 ## [4.11.0] - 2026-11-13
 
 ### Added

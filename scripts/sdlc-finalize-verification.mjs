@@ -297,7 +297,7 @@ function finalizeVerificationUnlocked({
     try {
       const artifactStat = fs.lstatSync(artifactPath);
       const bytes = fs.readFileSync(artifactPath);
-      if (artifactStat.isFile() && !artifactStat.isSymbolicLink() && bytes.length <= 512 * 1024) {
+      if (artifactStat.isFile() && !artifactStat.isSymbolicLink() && bytes.length <= 4 * 1024 * 1024) {
         freshArtifact = JSON.parse(bytes.toString('utf8'));
         artifactRepair = inspectVerificationArtifactRepair(freshArtifact, {
           expectedIssueNumber: issueNumber,

@@ -110,14 +110,31 @@ export function recordTurnEnd(record, { reason, status, at }) {
   return { ...record, status: typeof status === 'string' ? status : record.status, turns, lastActivityAt: at, updatedAt: at };
 }
 
-/** The activity object a check-in report carries: the status, recent tool calls, latest text and seconds since activity. */
+/** The record with a backgrounded Bash command added: its task id, a command summary and its start time. */
+export function recordBackgroundStart(record, { taskId, command, at }) {
+  const entry = { taskId: String(taskId ?? ''), command: summarizeToolCall('Bash', { command }), startedAt: at };
+  return { ...record, background: [...(Array.isArray(record.background) ? record.background : []), entry], updatedAt: at };
+}
+
+/** The record with its backgrounded commands dropped, once the worker has settled and started a new turn. */
+export function clearBackground(record, at) {
+  return { ...record, background: [], updatedAt: at };
+}
+
+/** The activity object a check-in report carries: the status, recent tool calls, latest text, seconds since activity,
+ * and the oldest running background command with its elapsed seconds (or null). */
 export function activityRecord(record, now) {
   const seconds = Math.max(0, Math.round((now - (record?.lastActivityAt ?? now)) / 1000));
+  const oldest = Array.isArray(record?.background) ? record.background[0] : undefined;
   return {
     status: record?.status ?? 'unknown',
     toolCalls: (record?.toolCalls ?? []).slice(-RECENT_TOOL_CALLS),
     latestText: String(record?.latestText ?? '').slice(0, LATEST_TEXT_CHARS),
     lastActivitySecondsAgo: seconds,
+    background: oldest ? {
+      command: oldest.command,
+      elapsedSeconds: Math.max(0, Math.round((now - (oldest.startedAt ?? now)) / 1000)),
+    } : null,
   };
 }
 

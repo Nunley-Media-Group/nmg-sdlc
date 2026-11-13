@@ -9,12 +9,14 @@ import {
   activityRecord,
   agentBody,
   checkInNotice,
+  clearBackground,
   emptyAgentRecord,
   executeResultPath,
   executeResultText,
   HOST_HEARTBEAT_MS,
   hostResponse,
   missingResultText,
+  recordBackgroundStart,
   recordToolCall,
   recordTurnEnd,
   STAGE_AGENTS,
@@ -272,6 +274,7 @@ describe('agent activity records', () => {
       toolCalls: record.toolCalls.slice(-10),
       latestText: 'x'.repeat(2000),
       lastActivitySecondsAgo: 60,
+      background: null,
     });
     expect(Number.isInteger(activity.lastActivitySecondsAgo)).toBe(true);
     expect(activityRecord(record, 2_499).lastActivitySecondsAgo).toBe(1);
@@ -280,8 +283,26 @@ describe('agent activity records', () => {
 
   it('reports an unknown, idle activity for a subagent with no record yet', () => {
     expect(activityRecord(undefined, 5000)).toEqual({
-      status: 'unknown', toolCalls: [], latestText: '', lastActivitySecondsAgo: 0,
+      status: 'unknown', toolCalls: [], latestText: '', lastActivitySecondsAgo: 0, background: null,
     });
+  });
+
+  it('tracks a backgrounded Bash command until the next turn after settling, and reports the oldest one', () => {
+    const started = recordBackgroundStart(emptyAgentRecord('agent-1', 1000), {
+      taskId: 'task-1', command: 'npm test -- --watch', at: 2000,
+    });
+    expect(started).toMatchObject({
+      background: [{ taskId: 'task-1', command: 'npm test -- --watch', startedAt: 2000 }], updatedAt: 2000,
+    });
+    // The command's activity is not a new turn: the record's activity time is unchanged.
+    expect(started.lastActivityAt).toBe(1000);
+    const second = recordBackgroundStart(started, { taskId: 'task-2', command: `echo ${'y'.repeat(300)}`, at: 9000 });
+    expect(second.background.map((entry) => entry.taskId)).toEqual(['task-1', 'task-2']);
+    expect(second.background[1].command).toHaveLength(200);
+    expect(activityRecord(second, 62_000).background).toEqual({ command: 'npm test -- --watch', elapsedSeconds: 60 });
+    const cleared = clearBackground(second, 70_000);
+    expect(cleared).toMatchObject({ background: [], updatedAt: 70_000 });
+    expect(activityRecord(cleared, 70_000).background).toBeNull();
   });
 });
 
@@ -498,6 +519,27 @@ describe('createFileHost waiting on a subagent', () => {
     } });
     expect(h.host.wait({ agentId: 'agent-1' })).toMatchObject({ timedOut: false, record: { status: 'failed' } });
     expect(h.sleeps).toHaveLength(3);
+  });
+
+  // A settled subagent is not started by a message until its turn does something: `until: 'started'` waits for an
+  // active status or for activity recorded after the mark the controller took before its message.
+  it('wait until started returns once a settled subagent records activity after the mark', () => {
+    let polls = 0;
+    const h = harness({ onSleep: () => {
+      polls += 1;
+      if (polls === 2) h.writeAgent('agent-1', { status: 'idle', lastActivityAt: NOW + 1 });
+    } });
+    h.writeAgent('agent-1', { status: 'idle', lastActivityAt: NOW });
+    expect(h.host.wait({ agentId: 'agent-1', until: 'started', since: NOW, timeoutMs: 60_000 }))
+      .toMatchObject({ timedOut: false, record: { status: 'idle', lastActivityAt: NOW + 1 } });
+    expect(h.sleeps).toHaveLength(2);
+  });
+
+  it('wait until started times out for a settled subagent that does not start within its bound', () => {
+    const h = harness();
+    h.writeAgent('agent-1', { status: 'idle', lastActivityAt: NOW });
+    expect(h.host.wait({ agentId: 'agent-1', until: 'started', since: NOW, timeoutMs: 1000 }))
+      .toMatchObject({ timedOut: true, record: { status: 'idle' } });
   });
 
   it('wait with a timeout returns timedOut once the fake clock has passed the deadline', () => {

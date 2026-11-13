@@ -572,3 +572,55 @@ describe('deterministic verification runtime', () => {
     expect(evaluateCondition({ kind: 'glob_exists', root: '.', pattern: '*.txt' }, { projectRoot: root, paths: [] })).toBe(true);
   });
 });
+
+describe('gate evidence for large command output (#546)', () => {
+  // A ~5 MB run whose test-runner failure lines come first, then a long run of progress lines, then a final summary.
+  const LARGE_FAILING_RUN = [
+    'let size = 0; const out = [];',
+    'const push = (line) => { out.push(line); size += line.length + 1; };',
+    'push("FAILED tests/test_x.py::test_case_0 - AssertionError");',
+    'push("FAILED tests/test_x.py::test_case_1 - AssertionError");',
+    'push("  ● Parser › rejects bad input");',
+    'push("not ok 2 - tap case");',
+    'for (let i = 0; size < 5_000_000; i += 1) push(`progress line ${i} ${".".repeat(60)}`);',
+    'push("== 2 failed in 12.00s ==");',
+    'process.stdout.write(out.join("\\n") + "\\n");',
+    'process.exitCode = 1;',
+  ].join('\n');
+
+  it('names the failing test lines in the evidence and the summary, and links a log of the full output', async () => {
+    const root = await fixture([command('repository.tests', LARGE_FAILING_RUN)]);
+    const artifact = await runSteeringValidations({ projectRoot: root, issue: 42, specDir: path.join(root, 'specs', '42-test'), baseRef: 'HEAD' });
+    const entry = artifact.results.find((item) => item.id === 'repository.tests');
+    expect(entry.result.status).toBe('failed');
+    const [evidence] = entry.result.evidence;
+    const expectedFailures = [
+      'FAILED tests/test_x.py::test_case_0 - AssertionError',
+      'FAILED tests/test_x.py::test_case_1 - AssertionError',
+      '● Parser › rejects bad input',
+      'not ok 2 - tap case',
+    ];
+    expect(evidence.failures).toEqual(expectedFailures);
+    expect(entry.result.summary).toContain(`failures: ${expectedFailures.join(' | ')}`);
+    expect(evidence.headSha).toBe(spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim());
+    expect(evidence.artifact).toBe('.nmg-sdlc/verification/42/repository.tests.log');
+    const log = fs.readFileSync(path.join(root, evidence.artifact), 'utf8');
+    expect(log.startsWith('== stdout ==\nFAILED tests/test_x.py::test_case_0')).toBe(true);
+    expect(log).toContain('== 2 failed in 12.00s ==\n\n== stderr ==\n');
+    expect(log.length).toBeGreaterThan(5_000_000);
+    // stdout keeps only the last 65536 characters behind a marker that counts what was cut.
+    expect(evidence.stdout).toMatch(/^\[truncated \d+ characters\]\n/);
+    const kept = evidence.stdout.slice(evidence.stdout.indexOf('\n') + 1);
+    expect(kept).toHaveLength(65536);
+    expect(kept.endsWith('== 2 failed in 12.00s ==\n')).toBe(true);
+    expect(evidence.stderr).toBe('');
+  });
+
+  it('keeps a passing run free of failure lines and its full log', async () => {
+    const root = await fixture([command('repository.tests', 'process.stdout.write("all green\\n");')]);
+    const artifact = await runSteeringValidations({ projectRoot: root, issue: 42, specDir: path.join(root, 'specs', '42-test'), baseRef: 'HEAD' });
+    const [evidence] = artifact.results.find((item) => item.id === 'repository.tests').result.evidence;
+    expect(evidence).toMatchObject({ kind: 'command', failures: [], stdout: 'all green\n', stderr: '' });
+    expect(fs.readFileSync(path.join(root, evidence.artifact), 'utf8')).toBe('== stdout ==\nall green\n\n== stderr ==\n');
+  });
+});

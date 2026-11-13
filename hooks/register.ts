@@ -20,11 +20,13 @@ import {
 import {
   agentBody,
   checkInNotice,
+  clearBackground,
   emptyAgentRecord,
   executeResultPath,
   executeResultText,
   hostResponse,
   missingResultText,
+  recordBackgroundStart,
   recordToolCall,
   recordTurnEnd,
   stoppedWorkerDenial,
@@ -682,7 +684,9 @@ export const register: Register = on => {
         const at = await $.clock.now()
         const agentId = e.agentId
         void queueAgent(agentId, () => updateAgent($, worker.dir, agentId, (record) => ({
-          ...record, status: 'running', lastActivityAt: at, updatedAt: at,
+          // A settled worker's next turn ends the background commands it was tracking.
+          ...(SETTLED_STATUSES.includes(record.status) ? clearBackground(record, at) : record),
+          status: 'running', lastActivityAt: at, updatedAt: at,
         }))).catch(() => undefined)
       }
     } else {
@@ -705,6 +709,16 @@ export const register: Register = on => {
           input: { command: call.command, file_path: call.file_path },
           at,
         }))).catch(() => undefined)
+        const ran = await next(e)
+        // A Bash call that moved to the background is tracked until the worker's next turn after it settles.
+        const taskId = (ran as unknown as { result?: { backgroundTaskId?: unknown } }).result?.backgroundTaskId
+        if (call.tool === 'Bash' && typeof taskId === 'string' && taskId.length > 0) {
+          const startedAt = await $.clock.now()
+          void queueAgent(agentId, () => updateAgent($, worker.dir, agentId, (record) => recordBackgroundStart(record, {
+            taskId, command: call.command, at: startedAt,
+          }))).catch(() => undefined)
+        }
+        return ran
       }
     }
     return next(e)

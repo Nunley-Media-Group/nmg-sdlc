@@ -8,7 +8,34 @@ import { terminateOwnedProcessGroup, terminateOwnedProcessGroupAfterLeaderLoss }
 const SAFE_ENV = ["HOME", "PATH", "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL", "CI"];
 const RESULT_STATUSES = new Set(["passed", "failed", "incomplete", "skipped", "not_applicable"]);
 function hash(value) { return `sha256:${createHash("sha256").update(value).digest("hex")}`; }
-function bounded(value, size = 65536) { const text = String(value ?? ""); return text.length <= size ? text : `${text.slice(0, size)}\n[truncated]`; }
+// The last `size` characters of a stream, behind a marker that counts what was cut.
+function tailBounded(value, size = 65536) {
+  const text = String(value ?? "");
+  return text.length <= size ? text : `[truncated ${text.length - size} characters]\n${text.slice(-size)}`;
+}
+// Test-runner failure lines: pytest FAILED/ERROR summaries, Jest ● titles and TAP `not ok` lines.
+const FAILURE_LINE = /^(?:FAILED |ERROR |not ok(?:\s|$)|●)/;
+function extractFailures(text) {
+  const failures = [];
+  for (const line of String(text ?? "").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!FAILURE_LINE.test(trimmed)) continue;
+    failures.push(trimmed.slice(0, 500));
+    if (failures.length === 100) break;
+  }
+  return failures;
+}
+// The full stdout and stderr of one command, written under the verification log directory; null when unwritable.
+function writeCommandLog(request, stdout, stderr) {
+  if (!request.logDir) return null;
+  const artifact = `${request.logDir}/${request.validationId}.log`;
+  try {
+    const path = resolve(request.projectRoot, artifact);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, `== stdout ==\n${stdout}\n== stderr ==\n${stderr}`, "utf8");
+    return artifact;
+  } catch { return null; }
+}
 function fail(reasonCode, detail = "") { throw new SteeringError(reasonCode, detail); }
 function globRegex(glob) {
   let source = "^";
@@ -111,13 +138,21 @@ function commandProvider(request) {
       if (request.signal) request.signal.removeEventListener("abort", cancel);
       resolveResult(result);
     };
+    const failureLines = () => extractFailures(`${stdout}\n${stderr}`);
     const evidence = (summary) => [{
       kind: "command",
       summary,
-      artifact: null,
-      stdout: bounded(stdout),
-      stderr: bounded(stderr),
+      artifact: writeCommandLog(request, stdout, stderr),
+      headSha: request.identity.headSha,
+      stdout: tailBounded(stdout),
+      stderr: tailBounded(stderr),
+      failures: failureLines(),
     }];
+    // The envelope names the first failure lines, so the gate summary shows them without opening the log.
+    const named = (summary) => {
+      const failures = failureLines();
+      return failures.length ? `${summary}; failures: ${failures.slice(0, 10).join(" | ")}` : summary;
+    };
     const stop = async (leaderLost = false) => {
       const cleanup = await (leaderLost ? terminateOwnedProcessGroupAfterLeaderLoss : terminateOwnedProcessGroup)(child);
       if (!cleanup.ok) {
@@ -145,10 +180,10 @@ function commandProvider(request) {
     });
     const completed = (code, signal) => {
       if (typeof code === "number") {
-        return resultEnvelope(code === 0 ? "passed" : "failed", `command exited ${code}`, request.identity, evidence(`${program} ${args.join(" ")} exited ${code}${signal ? ` (${signal})` : ""}`));
+        return resultEnvelope(code === 0 ? "passed" : "failed", named(`command exited ${code}`), request.identity, evidence(`${program} ${args.join(" ")} exited ${code}${signal ? ` (${signal})` : ""}`));
       }
       if (signal) {
-        return resultEnvelope("failed", `command exited by signal ${signal}`, request.identity, evidence(`${program} ${args.join(" ")} exited by signal ${signal}`));
+        return resultEnvelope("failed", named(`command exited by signal ${signal}`), request.identity, evidence(`${program} ${args.join(" ")} exited by signal ${signal}`));
       }
       return resultEnvelope("incomplete", "command process lost", request.identity, evidence(`${program} ${args.join(" ")} process lost`));
     };
@@ -301,6 +336,7 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
           schemaVersion: 1,
           validationId: validation.id,
           projectRoot: root,
+          logDir: `.nmg-sdlc/verification/${issue}`,
           config: structuredClone(validation.config),
           identity: identity(root, specDir, runtime, validation),
           verification: verificationRunId ? {
@@ -330,6 +366,7 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
         schemaVersion: 1,
         validationId: validation.id,
         projectRoot: root,
+        logDir: `.nmg-sdlc/verification/${issue}`,
         config: structuredClone(validation.config),
         identity: identity(root, specDir, runtime, validation),
         verification: verificationRunId ? {

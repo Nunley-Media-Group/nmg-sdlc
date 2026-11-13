@@ -136,18 +136,23 @@ export function createFileHost({ sessionDir, now = Date.now, sleep = pause } = {
     },
 
     /**
-     * Waits until the subagent is working (`until: 'working'`) or has settled (no active status). Returns
-     * `{ timedOut }`; with no `timeoutMs` the wait has no deadline. A stale heartbeat throws.
+     * Waits until the subagent is working (`until: 'working'`), has started a turn (`until: 'started'`: an active
+     * status, or activity recorded after `since`), or has settled (no active status). Returns `{ timedOut }`; with
+     * no `timeoutMs` the wait has no deadline. A stale heartbeat throws.
      */
-    wait({ agentId, until, timeoutMs } = {}) {
+    wait({ agentId, until, timeoutMs, since } = {}) {
       const deadline = timeoutMs === undefined ? Infinity : now() + timeoutMs;
       for (;;) {
         const record = agentRecord(agentId);
         const status = record?.status ?? null;
+        const advanced = Number.isSafeInteger(since) && Number.isSafeInteger(record?.lastActivityAt)
+          && record.lastActivityAt > since;
         // A subagent that is pending has not started; running, waiting, or any settled status counts as working.
-        const done = until === 'working'
-          ? status !== null && status !== 'pending'
-          : status !== null && !ACTIVE_AGENT_STATUSES.includes(status);
+        const done = until === 'started'
+          ? ACTIVE_AGENT_STATUSES.includes(status) || advanced
+          : until === 'working'
+            ? status !== null && status !== 'pending'
+            : status !== null && !ACTIVE_AGENT_STATUSES.includes(status);
         if (done) return { timedOut: false, record };
         if (now() >= deadline) return { timedOut: true, record };
         assertAlive();
