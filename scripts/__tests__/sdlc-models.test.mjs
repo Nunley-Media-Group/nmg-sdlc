@@ -214,6 +214,18 @@ describe('sdlc-models upgrade item (AC3)', () => {
   });
 });
 
+describe('checked-in repository stage models file (AC1, AC2)', () => {
+  it('deep-equals the plugin defaults', () => {
+    const checkedIn = JSON.parse(fs.readFileSync(path.join(repoRoot, STAGE_MODELS_PATH), 'utf8'));
+    expect(checkedIn).toEqual(STAGE_MODEL_DEFAULTS);
+  });
+
+  it('emits no sdlc-models upgrade item for the repository root', () => {
+    const items = detectUpgrade(repoRoot, { run: noNetworkRun }).items;
+    expect(items.some((candidate) => candidate.id === 'sdlc-models')).toBe(false);
+  });
+});
+
 describe('supervisor boundary (AC9)', () => {
   it('keeps the supervisor model check and hooks module independent of the project stage file', () => {
     const hostEvents = fs.readFileSync(path.join(repoRoot, 'src/host-events.mjs'), 'utf8');
