@@ -12,6 +12,8 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.11.0] - 2026-11-13
+
 ### Added
 
 - Add the checked-in `steering/sdlc-models.json` with the plugin default execute stage models and efforts, created through the upgrade helper (#544)
