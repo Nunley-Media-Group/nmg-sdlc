@@ -1,0 +1,57 @@
+**Issue**: #546
+**Date**: 2026-11-13
+**Status**: Approved
+**Author**: Claude Code (write-spec)
+**Related Spec**: specs/538-replace-herdr-panes-with-hooks-module-subagents-for-sdlc-execute/
+
+# File: scripts/__tests__/sdlc-execute.test.mjs, scripts/__tests__/sdlc-verification-runtime.test.mjs
+# Generated from: specs/546-sdlc-execute-stop-losing-time-to-idle-workers-restarts-and-truncated-gate-evidence/requirements.md
+Feature: Execute keeps idle workers, prompts, restarts and gate evidence productive
+
+  @SCN001
+  Scenario: Idle worker without a handoff is resumed before any stage report
+    Given a stage worker ends its turn without a fresh valid handoff and without a waiting marker
+    When the controller observes the settled worker
+    Then it delivers the handoff reminder to the same worker and issues no stage report before the resumed turn settles
+    And the stage completes with the handoff from the resumed turn and no redispatch
+
+  @SCN002
+  Scenario: Stage report reflects the worker's last commit
+    Given a worker's commit becomes visible after the worker first settles
+    When the controller builds the stage report
+    Then headAfter and commits include that commit
+
+  @SCN003
+  Scenario: Prompt reaches an idle worker or is refused with a reason code
+    Given a stage report for an idle worker offers prompt
+    When the supervisor answers prompt with guidance
+    Then the worker's fresh handoff is used when it resumes
+    And an undelivered prompt reports promptRefusal stage_prompt_undelivered
+    And a prompt not started within 60 seconds reports promptRefusal stage_prompt_not_resumed without offering prompt
+
+  @SCN004
+  Scenario: Restart during a verify rerun at an unchanged head resumes verify
+    Given a gate-intent record for head H and an earlier failed gate result at H
+    And the controller was killed before verify completed
+    When supervise resumes with HEAD at H
+    Then it dispatches verify, not implement
+
+  @SCN005
+  Scenario: Accepted failed gate routes to implement
+    Given the supervisor accepted a failed verify stage report at head H
+    When routing runs at head H
+    Then no gate-intent record exists and implement is dispatched
+
+  @SCN006
+  Scenario: Large gate output keeps failing test names and links the full log
+    Given a command validation emits about 5 MB of output with pytest FAILED lines in its first 10%
+    When the gate runner records the result
+    Then the evidence entry lists the failing lines in failures and the summary
+    And its artifact points to a log with the full output and its headSha matches HEAD
+
+  @SCN007
+  Scenario: Check-in during a running background command
+    Given a stage worker's backgrounded Bash command is still running
+    When the check-in interval elapses with no other activity
+    Then the check-in names the command and its elapsed seconds in activity.background
+    And its reason is not activity_unchanged
