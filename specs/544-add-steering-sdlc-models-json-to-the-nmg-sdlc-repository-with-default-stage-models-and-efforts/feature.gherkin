@@ -1,0 +1,27 @@
+**Issue**: #544
+**Date**: 2026-11-13
+**Status**: Approved
+**Author**: Claude Code (write-spec)
+**Related Spec**: specs/535-make-sdlc-execute-stage-models-and-efforts-configurable-per-project-via-steering-sdlc-models-json/
+
+# File: scripts/__tests__/sdlc-models.test.mjs
+# Generated from: specs/544-add-steering-sdlc-models-json-to-the-nmg-sdlc-repository-with-default-stage-models-and-efforts/requirements.md
+Feature: Repository stage models file with plugin defaults
+
+  @SCN001
+  Scenario: Upgrade apply creates the stage models file with plugin defaults
+    Given the repository has no steering/sdlc-models.json
+    When "node scripts/sdlc-upgrade.mjs apply --root . --approve sdlc-models" runs
+    Then steering/sdlc-models.json exists with version 1 and the plugin defaults for start, implement, verify, deliver, and repair
+
+  @SCN002
+  Scenario: Upgrade audit reports the stage models file as current
+    Given steering/sdlc-models.json exists
+    When "node scripts/sdlc-upgrade.mjs detect --root ." reruns
+    Then it emits no sdlc-models item
+
+  @SCN003
+  Scenario: Contract tests pass with the stage models file present
+    Given steering/sdlc-models.json exists
+    When "cd scripts && npm test" runs
+    Then it passes
