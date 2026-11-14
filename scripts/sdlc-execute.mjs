@@ -395,7 +395,7 @@ function gitDirOf(cwd, run) {
  * until it resumes, and one that did not is reminded once through the append path and awaited through its resumed
  * turn. Before it returns, the worker's tracked background commands and the git index lock must clear, so the
  * commits they made are visible to the stage report. */
-function awaitWorkerHandoff({ host, agentId, cwd, issue, step, prior, run = defaultRun,
+export function awaitWorkerHandoff({ host, agentId, cwd, issue, step, prior, run = defaultRun,
   waitFor = (args) => host.wait({ agentId, ...args }),
   pause = (args) => host.wait({ agentId, ...args, timeoutMs: CHECK_IN_SLICE_MS }) }) {
   const handoffPath = `${HANDOFF_DIR}/${issue}-${step}.json`;
@@ -409,21 +409,30 @@ function awaitWorkerHandoff({ host, agentId, cwd, issue, step, prior, run = defa
 function awaitTurnEnd({ host, agentId, cwd, issue, step, prior, waitFor, handoffPath, waiting }) {
   const settle = () => ({ handoff: freshHandoff(cwd, issue, step, prior), state: workerState(host, agentId) });
   let reminded = false;
+  // What ends a wait on a settled worker besides its next turn: its marker is gone or its handoff has changed.
+  const changed = () => {
+    try { return !waitingMarker(waiting) || freshHandoff(cwd, issue, step, prior) !== null; } catch { return true; }
+  };
   for (;;) {
     waitFor({});
+    // The mark is read before the handoff, so a turn that starts after either read ends the wait below at once.
+    let mark = activityMark(host.activity(agentId));
     let observed = settle();
     if (observed.handoff || !SETTLED.includes(observed.state)) return observed;
     if (!waitingMarker(waiting)) {
       if (reminded) return observed;
       // The reminder resumes the settled turn through append; the resumed turn must start within the bound.
-      const mark = activityMark(host.activity(agentId));
+      mark = activityMark(host.activity(agentId));
       if (!host.append({ agentId, text: reminderPrompt(handoffPath) })) return observed;
       reminded = true;
       if (waitFor({ until: 'started', since: mark, timeoutMs: RESUME_POLL_MS }).timedOut) return observed;
       continue;
     }
+    // A settled worker already counts as working, so the wait is for its next turn: it blocks between host polls
+    // until the worker starts one, its marker or handoff changes, or the resume bound passes.
     while (SETTLED.includes(observed.state) && waitingMarker(waiting)) {
-      waitFor({ until: 'working', timeoutMs: RESUME_POLL_MS });
+      waitFor({ until: 'started', since: mark, timeoutMs: RESUME_POLL_MS, changed });
+      mark = activityMark(host.activity(agentId));
       observed = settle();
       if (observed.handoff) return observed;
     }

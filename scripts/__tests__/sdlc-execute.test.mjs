@@ -1099,7 +1099,7 @@ describe('worker supervision while its background work runs (#470)', () => {
     });
     expect(f.execute('#42')).toMatchObject({ status: 0 });
     expect(f.state.starts.map((entry) => entry.step)).toEqual(['verify', 'deliver']);
-    expect(f.state.waits).toContainEqual({ agentId: f.state.starts[0].agentId, until: 'working', timeoutMs: 60000 });
+    expect(f.state.waits).toContainEqual({ agentId: f.state.starts[0].agentId, until: 'started', timeoutMs: 60000 });
     expect(f.state.reminders).toEqual([]);
     expect(f.state.stops).toEqual([]);
   });
