@@ -32,6 +32,7 @@ import { backfillSpecCreatedLabels } from './spec-created-label.mjs';
 import { completeStageModels, STAGE_MODELS_PATH, validateStageModels } from './sdlc-models.mjs';
 import { NMG_SDLC_IGNORE_LINE } from './nmg-sdlc-ignore.mjs';
 import { canonicalSnippetRecord, createInitializePlan, steeringSourceDigest } from './sdlc-steering.mjs';
+import { OPTIONAL_TOP_KEYS } from '../src/sdlc-steering-runtime.mjs';
 import {
   parseDeliveryTaskFileLines,
   publicationFileEntries,
@@ -1653,6 +1654,10 @@ function detectSteeringRuntime(root) {
     ...nextManifest.snippets,
   ];
   nextManifest.extensions = existingManifest?.extensions ?? [];
+  // Optional project settings (worktree commands, changelog fragments, full-green actions) survive the rewrite.
+  for (const key of OPTIONAL_TOP_KEYS) {
+    if (existingManifest && Object.hasOwn(existingManifest, key)) nextManifest[key] = existingManifest[key];
+  }
   manifestAction.content = `${JSON.stringify(nextManifest, null, 2)}\n`;
   plan.mode = existingManifest ? 'update' : 'migrate';
   plan.actions.push(...legacy.map(({ role }) => ({ op: 'delete', path: `steering/${role}.md` })));

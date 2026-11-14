@@ -310,13 +310,15 @@ function requestWorkerStop(dir, session, agentId) {
 }
 
 function cleanupCancelledRun(controllerPid, cwd, session, ownedLease) {
-  const lease = readControllerLease(cwd);
+  // The lease is held on the checkout the controller works the issue in, which it announced with the lease.
+  const leaseRoot = realpathSync(ownedLease?.root ?? cwd);
+  const lease = readControllerLease(leaseRoot);
   // A controller without an authenticated lease announcement owns no cleanup.
   if (!lease) return;
   const root = realpathSync(cwd);
-  const path = controllerLeasePath(root);
+  const path = controllerLeasePath(leaseRoot);
   const serialized = readFileSync(path, 'utf8');
-  if (!ownedLease || lease.pid !== controllerPid || lease.projectRoot !== root
+  if (!ownedLease || lease.pid !== controllerPid || lease.projectRoot !== leaseRoot
     || lease.runId !== ownedLease.runId || serialized !== ownedLease.serialized) {
     throw new Error('controller_cleanup_ownership_mismatch');
   }
@@ -345,11 +347,11 @@ async function runSupervisor(args, cancellation, session = null) {
     if (!message || typeof message !== 'object') return;
     if (message.type === 'lease-acquired' && typeof message.runId === 'string') {
       try {
-        const current = readControllerLease(process.cwd());
-        const serialized = readFileSync(controllerLeasePath(process.cwd()), 'utf8');
-        if (current?.pid === controller.pid && current.runId === message.runId
-          && current.projectRoot === realpathSync(process.cwd())) {
-          ownedLease = { runId: message.runId, serialized };
+        const root = realpathSync(typeof message.root === 'string' && message.root ? message.root : process.cwd());
+        const current = readControllerLease(root);
+        const serialized = readFileSync(controllerLeasePath(root), 'utf8');
+        if (current?.pid === controller.pid && current.runId === message.runId && current.projectRoot === root) {
+          ownedLease = { runId: message.runId, serialized, root };
         }
       } catch {
         // No lease proof: cleanup must preserve the unknown controller state.
@@ -715,7 +717,7 @@ if (isCliEntry(import.meta.url)) {
       host: dir ? createFileHost({ sessionDir: dir }) : null,
       supervisorSession: session ?? undefined,
       ...(dir ? { supervise: fileSupervisor({ dir, session }) } : {}),
-      onLeaseAcquired: (runId) => { if (process.send && typeof runId === 'string') process.send({ type: 'lease-acquired', runId }); },
+      onLeaseAcquired: (runId, root) => { if (process.send && typeof runId === 'string') process.send({ type: 'lease-acquired', runId, root }); },
     });
     if (result.stdout) process.stdout.write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);

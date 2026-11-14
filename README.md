@@ -68,7 +68,7 @@ Replace `42` with the actual GitHub issue number. Review and approve the interac
 
 `/sdlc-execute` requires an Opus or Fable session, because that session supervises the workers. In a session on any other model, or one whose model cannot be read, it prints `/sdlc-execute requires an Opus session (current: <model>). Switch with /model opus and run /sdlc-execute again.` and stops before any Git or GitHub call.
 
-`/sdlc-status`, `/sdlc-verify-code`, and `/sdlc-open-pr` are plugin command files (`commands/*.md`). They expand in the TUI and under `claude -p`, and they never call `AskUserQuestion` or `ExitPlanMode`.
+`/sdlc-status`, `/sdlc-verify-code`, `/sdlc-open-pr`, and `/sdlc-verify-full` are plugin command files (`commands/*.md`). They expand in the TUI and under `claude -p`, and they never call `AskUserQuestion` or `ExitPlanMode`.
 
 `/sdlc-execute` runs each delivery stage as a background subagent named `nmg-sdlc:execute-<entry>`. The hooks module starts it inside the supervising session, so it uses that session's plugins and gets its model and effort from `steering/sdlc-models.json` (see [Per-project stage models](#per-project-stage-models)).
 
@@ -76,7 +76,7 @@ The stage permission mode defaults to `auto`. Set `NMG_SDLC_WORKER_PERMISSION_MO
 
 ### Models
 
-Every step runs on the Claude Code model suited to its workload, and your session model is never changed. Execute stage subagents run on the model and effort that `steering/sdlc-models.json` sets for their stage. The three command files declare `model`, and `effort` when set, in their frontmatter. For the six interactive commands, the hooks module rewrites the model of each main-loop request, including the turns the plugin submits for the command, such as the write-spec Continue prompt. `/sdlc-execute` is not rewritten: its supervisor runs on your Opus or Fable session model. Subagent requests and the effort setting of those commands are left alone.
+Every step runs on the Claude Code model suited to its workload, and your session model is never changed. Execute stage subagents run on the model and effort that `steering/sdlc-models.json` sets for their stage. The four command files declare `model`, and `effort` when set, in their frontmatter. For the six interactive commands, the hooks module rewrites the model of each main-loop request, including the turns the plugin submits for the command, such as the write-spec Continue prompt. `/sdlc-execute` is not rewritten: its supervisor runs on your Opus or Fable session model. Subagent requests and the effort setting of those commands are left alone.
 
 | Step | Model | Effort |
 |------|-------|--------|
@@ -86,6 +86,7 @@ Every step runs on the Claude Code model suited to its workload, and your sessio
 | execute stage `deliver` | `deliver.model` in `steering/sdlc-models.json` (default `haiku`) | `deliver.effort` (default `xhigh`) |
 | execute repair re-dispatch (`implement`, `verify`, `deliver`) | `repair.model` in `steering/sdlc-models.json` (default `opus`) | `repair.effort` (default `default`, no flag) |
 | `/sdlc-status` | `haiku` | default |
+| `/sdlc-verify-full` | `haiku` | default |
 | `/sdlc-execute` (supervisor session) | your Opus or Fable session model | your setting |
 | `/sdlc-open-pr` | `haiku` | `xhigh` |
 | `/sdlc-verify-code` | `opus` | default |
@@ -185,10 +186,50 @@ Interactive behavior maps one to one: OMP `ask` chips are `AskUserQuestion` ques
 | `steering/modules/{product,tech,structure,verification}.mjs` | Four plugin-managed descriptors |
 | `steering/snippets/*.md` | Project-owned guidance loaded only by registered consumers, slots, and order |
 | `steering/extensions/*.mjs` | Explicitly trusted project validation providers |
-| `validations[]` | Required/optional deterministic gates and applicability conditions |
+| `validations[]` | Required/optional deterministic gates and applicability conditions, with an optional `tier`, `heavy` marker, test `selection` command and `fallbackPaths` (see [Validation tiers](#validation-tiers)) |
+| `worktree` (optional) | A `setup` command run once in each new issue or spec worktree, for example to create a virtual environment and install dependencies, and a `teardown` command run before a delivered worktree is removed |
+| `changelog.fragments.dir` (optional) | Opts the project into changelog fragments: one file per issue (`<dir>/<N>.md`), assembled into `CHANGELOG.md` when that issue's version is prepared |
+| `fullGreen.actions` (optional) | Downstream actions, such as `deploy`, that require a green full-tier record at or after the commit they act on |
 | `steering/sdlc-models.json` | Project-owned execute stage models and efforts (see [Per-project stage models](#per-project-stage-models)); not registered in `steering/manifest.json` |
 
 Use steering to state supported runtimes, commands, product boundaries, review policy, and declared version mirrors. Register a command's actual program, argument array, working directory, and required environment names. Do not put secrets into steering or shell-compose verification commands. Canonical validations have no wall-clock deadline; cancellation and confirmed process loss are distinct outcomes, not passes.
+
+Every optional key is validated, and a manifest that declares none of them behaves as it did before they existed. `references/steering-schema.md` holds the exact shapes.
+
+### Validation tiers
+
+By default every required validation runs before merge. A project whose full suite is too slow for every verify cycle can split its validations:
+
+| Key | Meaning |
+|---|---|
+| `"tier": "change"` | Required before merge. Runs in the verify gate |
+| `"tier": "full"` | Not required before merge. Recorded as skipped by the gate, and run on demand by `/sdlc-verify-full` |
+| `"heavy": true` | The validation takes a slot from the machine-wide heavy-job pool before it runs |
+| `"selection"` | On a `change`-tier `builtin.command` validation: a project command (`{ program, args, cwd?, env? }`) that receives the changed paths and base ref and returns the tests to run |
+| `"fallbackPaths"` | On the same kind of validation: globs that force the full command when a changed path matches one |
+
+```json
+{
+  "id": "repository.tests", "provider": "builtin.command", "required": true, "tier": "change", "heavy": true,
+  "when": { "kind": "always" },
+  "config": { "program": "pytest", "args": [], "cwd": ".", "env": [] },
+  "selection": { "program": "python", "args": ["tools/select_tests.py"] },
+  "fallbackPaths": ["pyproject.toml", "conftest.py", "tools/**"]
+}
+```
+
+The selection command is yours: the plugin implements no language-specific selection. It reads `{ "schemaVersion": 1, "validationId", "baseRef", "changedPaths" }` on stdin and prints `{ "schemaVersion": 1, "mode": "selected" | "all", "tests": [...], "dataStatus": "fresh" | "stale" | "missing", "dataAgeSeconds": <number or null> }`. The selected tests are appended to the validation's `args`. The validation runs its full command when the change touches a fallback path (`fallback_path`), when the command answers `all` (`selection_all`), fails or prints something malformed (`selection_failed`), or reports its data stale or missing (`selection_data_stale`, `selection_data_missing`); an empty selection passes without running anything (`selection_empty`). Each result in `.nmg-sdlc/verification/<N>.json` records `tier`, `selection` (`{ provider, reason, fallbackPath, selectedCount, dataAgeSeconds }`) and, for a heavy validation, `heavy` (`{ slot, waitedMs }`).
+
+The heavy-job pool is shared by every project and session on the machine. Its size is `heavyJobSlots` in `~/.nmg-sdlc/config.json` (default 1); there is no environment variable for it. A slot whose holder process is dead is reclaimed. Workers put their own heavy commands through the same pool with `node scripts/sdlc-heavy-pool.mjs run --label <label> -- <program> [args...]`, and `node scripts/sdlc-heavy-pool.mjs list` prints the holders.
+
+Full-tier validations run through `/sdlc-verify-full`, which is suitable for a schedule:
+
+```text
+/sdlc-verify-full main
+/sdlc-verify-full check --action deploy --commit <sha>
+```
+
+A run checks the ref (the remote default branch when none is given) out in a temporary worktree, runs the `full` validations there and records the result (`passed`, `failed` or `incomplete`) for that commit under the repository's git common directory. A run that did not pass lists `sinceLastGreen`, the first-parent commits since the last green full run, or `reason: "no_green_record"` when there is none. `check` answers `green: true` only when a passed full record exists at or after the commit, and requires both `--action` and `--commit`; an action that steering does not list in `fullGreen.actions` fails with `full_green_action_unknown`. A deploy script can call `node scripts/sdlc-verify-full.mjs check --action deploy --commit <sha>` and act on its exit status: 0 green, 1 not green, 2 unknown action.
 
 The steering command stages and validates the candidate runtime before applying an approved plan. A stale source digest requires revisiting the proposed changes, not overwriting the intervening work. Unregistered files are not loaded implicitly. `/sdlc-run-retro` separately maintains `steering/retrospective.md`.
 
@@ -219,7 +260,9 @@ The numbered form selects that issue. The bare form offers open issues missing t
 
 The spec-only publication helper waits for configured required status contexts and all reported PR checks on the exact head, including checks not yet registered after PR creation. It waits through stale `UNSTABLE` mergeability without treating it alone as a policy block, then requires two fresh passing `CLEAN` observations before squash-merging that head. Terminal failed checks and draft PRs stop publication; `BLOCKED` is a terminal policy block only once checks are complete, not while they are absent or pending. Missing or pending checks and `UNKNOWN` never permit a merge.
 
-If GitHub merges the exact spec PR but its CLI exits nonzero while checking out the default branch, the helper independently verifies the same PR's merged state, head, and branch/base identity. A proven merge reports its PR, `issue`, `dir`, and `merged: true`; labeling continues where safe, while a default branch owned by another worktree is reported as a checkout limitation without disturbing either worktree. Re-running publication from the spec branch recognizes the merged PR rather than creating or merging another. Unreadable or contradictory remote evidence never counts as publication.
+Spec work has its own branch namespace and its own worktree. The spec for issue `{N}` is written and published on `spec/{N}-{slug}`, in a worktree created from the remote default branch, so it can never share a branch or a pull request with the code branch `{N}-{slug}`: a spec PR and a code PR for the same issue can be open together, and spec publication never looks at, or merges, the code PR. `merge` refuses with `pr_scope_invalid` when the spec PR changes a file outside `specs/{N}-{slug}/`. The checkout you ran the command in is never switched and need not be clean.
+
+If GitHub merges the exact spec PR but its CLI exits nonzero, the helper independently verifies the same PR's merged state, head, and branch/base identity. A proven merge reports its PR, `issue`, `dir`, and `merged: true`, and labeling continues. After the merge the helper deletes the remote spec branch, removes the spec worktree and its local branch, and fast-forwards the primary checkout when it is on the default branch and has no local changes; each of these is best-effort and none can fail the publication. Re-running publication recognizes the merged PR rather than creating or merging another. Unreadable or contradictory remote evidence never counts as publication.
 
 ```text
 specs/42-add-user-auth/
@@ -288,9 +331,9 @@ Successful output uses `NMG_SDLC_PUBLICATION` with this shape:
 
 Explicit lists are deduplicated in the supplied order. Every selected issue must have an approved spec, the `spec-created` label, and eligible official dependencies. Bare invocation on a branch recognized by parseIssueBranch selects that issue immediately without picker or extra flags. On non-issue branch, explicit numbers use start-issue worker; bare offers picker. Before that admission, an explicit issue that is already CLOSED by exactly one same-repository merged pull request from its own issue branch prints `#N: MERGED and CLOSED` and the queue continues without a worker. A CLOSED issue without that proof stops with `issue_closed_undelivered`, `merged_pr_ambiguous`, or `delivery_evidence_unavailable`.
 
-Start from a clean tree. Resume may preserve partial work already on the target issue branch; the controller never stashes, discards, resets, or force-pushes your changes. Use one execute controller per canonical project root and do not run unrelated branch-changing work concurrently.
+Each issue is worked in its own git worktree, so the checkout you run the command in is never switched to an issue branch and does not have to be clean. Only a checkout that is already on the issue's branch is used in place. The controller never stashes, discards, resets, or force-pushes your changes. Several `/sdlc-execute` and `/sdlc-write-spec` sessions can run at once in one repository; see [Parallel delivery](#parallel-delivery).
 
-An explicit different issue on dirty/other active feature branch reports conflict without discarding work. A live exact-head MERGED PR with issue CLOSED is complete.
+An explicit different issue on a dirty or other active feature branch is not a conflict: that branch is left exactly as it is and the selected issue runs in its own worktree. A live exact-head MERGED PR with issue CLOSED is complete.
 
 ### Branch-first resume and four-stage execution
 
@@ -306,9 +349,9 @@ Successful implement always hands off next=verify.
 
 | Stage | What must finish before advancement |
 |---|---|
-| `start` | Resolve the executable issue (when necessary), establish its linked branch, safely reconcile an approved squash-merged spec branch with default, synchronize the exact head upstream, and bind that head in the controller before implement |
+| `start` | Resolve the executable issue (when necessary), establish its linked branch in its own worktree (created from the remote default branch, or reused), safely reconcile an approved squash-merged spec branch with default, synchronize the exact head upstream, and bind that head in the controller before implement |
 | `implement` | Map every Approved Acceptance bullet before editing (do not reset completed work); complete approved tasks, simplify without changing behavior, machine-check conventional commit subject with #N, commit/push; clean tree/upstream. Handoff next=verify |
-| `verify` | Run registered gate at exact source HEAD (incl. required smoke); review every approved AC/scenario inline; truthful report. Full green (Pass) or PR Evidence Pending advances to deliver. Fail/Partial/Incomplete route back to implement for repair then re-verify |
+| `verify` | Two dispatches. **Review**: complete the review checklist (every AC, FR, design error/state path, and consumer of anything the change adds) through three lenses, with no validation run; every finding goes back to implement in one handoff. **Gate**: at the head of the merge queue, with the default branch integrated and the version prepared, run the registered pre-merge validations once at the exact source HEAD (incl. required smoke); truthful report. Full green (Pass) or PR Evidence Pending advances to deliver. Fail/Partial/Incomplete leave the queue and route back to implement for repair, then re-verify |
 | `deliver` | Synchronize release artifacts, create/resume the exact PR, handle eligible automated feedback, prove required checks at exact head, merge, prove issue closure |
 
 Each stage runs as a background stage subagent (`nmg-sdlc:execute-<entry>`) that the hooks module starts inside the supervising session (see [Automated commands and stage subagents](#automated-commands-and-stage-subagents)). Execute owns orchestration, not product edits in the supervising session. Worker success is determined by validated handoffs, not terminal prose or an exit code alone. Only host-captured final assistant output supplies findings.
@@ -381,7 +424,7 @@ The result record is `.nmg-sdlc/execute/results/<uuid>.json`.
 When the controller proves an issue delivered on its own issue branch (exact-head merged pull request and issue `CLOSED`), it prints `#N: MERGED and CLOSED` and then cleans up in this order:
 
 1. Deletes the remote issue branch, only while its head still equals the merged head. An already absent remote branch is clean and prints nothing.
-2. Switches to the repository default branch and runs `git pull --ff-only origin <default>`.
+2. Switches to the repository default branch and runs `git pull --ff-only origin <default>`. This applies to an issue branch that was worked in place in the primary checkout; an issue worked in its own worktree has that worktree removed instead (see [Parallel delivery](#parallel-delivery)).
 3. Deletes the local issue branch with `git branch -D`, only while its head still equals the merged head.
 
 On success it prints `#N: branch cleanup: deleted <branch> and fast-forwarded <default>`, and the next queued issue starts from the synced default branch. Bare re-entry on an already delivered issue branch runs the same cleanup.
@@ -399,6 +442,24 @@ Cleanup never changes the delivery result or the exit status; a cleanup warning 
 | local | `default_checkout_failed` | Switching to the default branch failed |
 | local | `pull_not_fast_forward` | `git pull --ff-only origin <default>` could not fast-forward |
 | local | `local_branch_delete_failed` | The local issue branch is not at the merged head, or its deletion failed |
+
+### Parallel delivery
+
+Sessions for different issues do not share a checkout, do not revalidate against a default branch that is about to move, and do not compete for a version.
+
+**Worktrees.** `/sdlc-execute #N` and `/sdlc-write-spec #N` each create, or reuse, a dedicated worktree beside the primary checkout (`<primary-parent>/<repo-name>-wt/<N>` for code and `spec-<N>` for specs, or under `NMG_SDLC_WORKTREES_DIR`). The issue's handoffs, verification records and controller lease live in that worktree's `.nmg-sdlc/`. Repository-wide state lives under the git common directory (`<git-common-dir>/nmg-sdlc/`), where every worktree and session sees it: the merge queue, the in-flight issues and the full-verification records. When steering declares a worktree `setup` command it runs once in a new worktree; a failed setup stops the start with `worktree_setup_failed` and runs again on the next attempt. After delivery the controller deletes the remote branch, removes the worktree and its local branch, and fast-forwards the primary checkout when it can; that fast-forward is best-effort and never a failure. No step checks out the default branch in a worktree. A crashed or abandoned run leaves its worktree in place: rerun `/sdlc-execute #N` to resume it, and `/sdlc-status` lists it.
+
+**Review first.** Verify reviews before it validates. The review must give a verdict to every row of a checklist built from the spec: each acceptance criterion, each functional requirement, each error and state path the design names, and each consumer of any identifier, job name or contract the change introduces or extends. Its finalizer refuses to write a handoff while any row is blank (`review_checklist_incomplete`), and names the blank rows. All findings go back to implement in one handoff (`review_findings`) when any of them is `blocking`, `major` or `minor`, or any row is `fail` or `partial`; only `info` notes leave a review passed, and no validation runs for a change whose review handed back. After a repair, verify re-checks the listed findings and the repair diff, and repeats the full review only when the repair touched files outside the findings' scope (`node scripts/sdlc-review-scope.mjs --issue N` prints which). The review record (`.nmg-sdlc/verification/<N>-review.json` and `.md`) and the handoff name, in `mockedEntryPoints`, any criterion whose tests mock the path the criterion is about.
+
+**Merge queue.** A branch whose review passed enters the repository's merge queue. Only the queue head integrates: the controller merges the current default branch into the branch, prepares the version, runs the pre-merge validations on that result, and merges. Every other entry waits (`#N: queued at position 2 behind #41`) and runs no validation until the head has merged or left, so each branch runs its pre-merge validations once, against the default branch it merges into. Waiting entries poll every 5 seconds. A merge conflict confined to `VERSION` and `CHANGELOG.md` is resolved to the default branch's content (`#N: integration took origin/<base> for <files>`). A head whose validations fail (`queue_gate_failed`), or whose integration conflicts anywhere else (`queue_integration_conflict`), leaves the queue, reverts the version commit it prepared, and returns to implement with that evidence; the next entry proceeds. An entry whose controller process has died is dropped. `node scripts/sdlc-merge-queue.mjs list | position --issue N | enqueue --issue N --branch B | dequeue --issue N` reads and repairs the queue by hand. This is the plugin's own queue, not GitHub's hosted merge queue.
+
+**Versions and the changelog.** The version is prepared at the queue head, not when implement is accepted, so two branches never claim the same version. A project that opts into changelog fragments (`changelog.fragments.dir` in `steering/manifest.json`) has each issue write one file there, `<dir>/<N>.md`, instead of editing `CHANGELOG.md`; preparing issue N's version assembles only that file into the changelog, and deletes it, in the version commit, so in-flight branches never conflict on it.
+
+**Overlaps.** When the controller starts an issue it compares the files that issue's spec declares with those of the repository's in-flight issues and reports each overlap (`#N: overlaps in-flight #M (<branch>) on <files>`), in its output and in every supervised report, so the supervisor can sequence them.
+
+**Heavy jobs.** Validations marked `heavy`, and worker commands run through `sdlc-heavy-pool.mjs`, share one machine-wide pool across all projects and sessions (see [Validation tiers](#validation-tiers)).
+
+After delivery from a worktree the cleanup lines read `#N: worktree cleanup: removed <branch> and fast-forwarded <default>`, or `#N: worktree cleanup skipped: <reason>` (`worktree_dirty` keeps a worktree that has uncommitted changes; `run_inside_worktree` keeps a worktree the run itself was started in).
 
 ## Verification and terminal delivery
 
@@ -435,11 +496,15 @@ Smoke is a **plugin experiment**, not a second repair backlog. Change smoke code
 /sdlc-status --json
 ```
 
-Status is read-only: current branch/spec, verification, GitHub issue/PR state, and recommended next action. Inspect the exact evidence before repairing:
+Status is read-only: current branch/spec, verification, GitHub issue/PR state, and recommended next action. It also lists, for the repository, each in-flight issue with its stage and merge-queue position, the queue itself, and worktrees under the worktree root left by crashed or abandoned runs; and for the machine, the in-flight issues of other repositories and the heavy-job slot holders. The text output shows this in a `Parallel:` block, and `--json` carries it under `parallel` (`repository.worktreeRoot`, `repository.inFlight[]`, `repository.queue[]`, `repository.leftoverWorktrees[]`, `host.heavyJobSlots`, `host.holders[]`, `host.inFlight[]`). Inspect the exact evidence before repairing:
 
 | Artifact | Purpose |
 |---|---|
-| `.nmg-sdlc/controller.lock` | Exclusive controller identity |
+| `.nmg-sdlc/controller.lock` | Exclusive controller identity for that checkout (each issue worktree has its own) |
+| `.nmg-sdlc/verification/<N>-review.json`, `<N>-review.md` | The verify review checklist: every row's verdict, the lenses, and every finding |
+| `<git-common-dir>/nmg-sdlc/merge-queue.json`, `in-flight/` | The repository's merge queue and in-flight issues, shared by all worktrees |
+| `<git-common-dir>/nmg-sdlc/full-verification/<sha>.json` | Full-tier verification result per commit |
+| `~/.nmg-sdlc/heavy-jobs/slot-<k>.lock`, `~/.nmg-sdlc/config.json` | The machine-wide heavy-job slots and pool size, `heavyJobSlots` (`NMG_SDLC_HOST_STATE_DIR` relocates the directory) |
 | `.nmg-sdlc/handoffs/<N>-<step>.json` | Validated stage outcome and referenced evidence |
 | `.nmg-sdlc/handoffs/<N>-<step>.json.waiting` | Worker is waiting on its own background command; the controller keeps the stage open until the subagent resumes |
 | `.nmg-sdlc/verification/<N>.json` | Deterministic gate results, coverage, and identity |
@@ -451,7 +516,10 @@ Status is read-only: current branch/spec, verification, GitHub issue/PR state, a
 - **`steering/sdlc-models.json:` diagnostic:** `/sdlc-execute` stopped before any Git or GitHub call because the stage configuration is invalid. Fix the key and value the diagnostic names (see [Per-project stage models](#per-project-stage-models)), then rerun.
 - **`Warning: steering/sdlc-models.json is missing …`:** plugin default stage models are in use. Run `/sdlc-upgrade-project` to create the file or add its missing keys.
 - **No eligible issue / unapproved spec:** finish issue/spec publication and inspect official blockers; do not manually apply labels as a substitute for approval.
-- **Dirty tree / branch mismatch:** preserve the work and restore the correct issue context. Do not reset or stash unrelated changes automatically.
+- **Dirty tree / branch mismatch:** a dirty primary checkout is not an obstacle, because each issue runs in its own worktree. Inside an issue worktree, preserve the work and restore the correct issue context. Do not reset or stash unrelated changes automatically.
+- **`NMG_SDLC_REVIEW_REFUSED`:** the verify review left a checklist row, lens or finding unevaluated (`review_checklist_incomplete`). The output names each one; evaluate them and finalize again.
+- **Queued and not moving:** `/sdlc-status` shows the queue head. The head must merge or leave before the next entry validates; an entry whose controller has died is dropped the next time another branch enters or polls.
+- **Leftover worktree:** rerun `/sdlc-execute #N` to resume it, or remove it with `node scripts/sdlc-worktree.mjs remove --branch <branch>` once its work is no longer needed.
 - **Controller lease held:** check whether its owner is still active.
 - **Missing handoff or stopped remediation:** inspect the worker/evidence and finish the actual failed contract. Repeating an unchanged invocation is not a repair.
 - **Failed verification or smoke:** inspect the named gate and exact evidence; correct authorized plugin/project configuration or the in-scope defect, then rerun the affected proof. Respect the smoke-only boundary above.
@@ -471,6 +539,7 @@ Status is read-only: current branch/spec, verification, GitHub issue/PR state, a
 | `/sdlc-status [--json]` | Inspect lifecycle state without mutation |
 | `/sdlc-verify-code #N` | Verify an already-implemented issue branch |
 | `/sdlc-open-pr #N` | Deliver an already-verified issue branch through merge and closure |
+| `/sdlc-verify-full [REF]`, `/sdlc-verify-full check --action NAME --commit REF` | Run the full-tier validations against a ref (the remote default branch when omitted) and record the result per commit, or answer whether a commit is full-green for a steering-named action |
 | `/sdlc-run-retro` | Interactive retrospective from defect specs into project learnings |
 
 `start-issue`, `write-code`, `simplify`, and `address-pr-comments` are internal workflow stages/guidance, not additional public slash commands. Interactive commands and `/sdlc-execute` are registered by the hooks module `hooks/register.ts`; the other automated commands are the plugin command files in `commands/`. Workflow bundles are rendered from the plugin's `workflows/` directory.

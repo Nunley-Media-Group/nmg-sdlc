@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-08T16:02:32.931Z",
+  "generated_at": "2026-11-14T02:15:36.810Z",
   "generator": "skill-inventory-audit@1",
   "items": [
     {
@@ -15,15 +15,15 @@
       "destination": "agents/architecture-reviewer.md:10"
     },
     {
-      "id": "e9e35b59469c",
+      "id": "eed1be2c45f6",
       "source_before": "agents/architecture-reviewer.md:11",
-      "normalized": "run the architecture review inline in this session.",
+      "normalized": "do the phase the worker header names. in the review phase, complete the review c",
       "destination": "agents/architecture-reviewer.md:11"
     },
     {
-      "id": "dcaaf17f3f15",
+      "id": "dd4278d4177e",
       "source_before": "agents/architecture-reviewer.md:12",
-      "normalized": "write specs/{n}-{slug}/verification-report.md and comment on the issue.",
+      "normalized": "in the gate phase, write specs/{n}-{slug}/verification-report.md and comment on ",
       "destination": "agents/architecture-reviewer.md:12"
     },
     {
@@ -38,9 +38,9 @@
       ]
     },
     {
-      "id": "b7bcb16d0531",
+      "id": "64169f4428c5",
       "source_before": "agents/architecture-reviewer.md:14",
-      "normalized": "write .nmg-sdlc/handoffs/<n>-verify.json.",
+      "normalized": "let the phase's finalizer write .nmg-sdlc/handoffs/<n>-verify.json.",
       "destination": "agents/architecture-reviewer.md:14"
     },
     {
@@ -156,9 +156,9 @@
       "destination": "agents/starter.md:8"
     },
     {
-      "id": "52dcc9a5501b",
+      "id": "04fafb79ed75",
       "source_before": "agents/starter.md:10",
-      "normalized": "follow the inlined start-issue workflow for the given #n.",
+      "normalized": "follow the inlined start-issue workflow for the given #n. it gives the issue its",
       "destination": "agents/starter.md:10"
     },
     {

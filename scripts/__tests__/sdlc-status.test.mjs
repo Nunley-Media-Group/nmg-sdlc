@@ -3,8 +3,10 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   collectEvidence,
+  collectParallelState,
   collectVerification,
   findFeatureDir,
   inferLifecycle,
@@ -13,6 +15,9 @@ import {
   runCli,
 } from '../sdlc-status.mjs';
 import { inspectIssueSpecScope } from '../issue-spec-scope.mjs';
+import { enterMergeQueue, recordInFlight } from '../sdlc-shared-state.mjs';
+import { WORKTREES_DIR_ENV, ensureWorktree } from '../sdlc-worktree.mjs';
+import { HOST_STATE_ENV } from '../../src/heavy-pool.mjs';
 
 const GH_PR_VIEW_JSON_FIELDS = new Set(`additions assignees author autoMergeRequest baseRefName baseRefOid body
   changedFiles closed closedAt closingIssuesReferences comments commits createdAt deletions files fullDatabaseId
@@ -588,5 +593,267 @@ describe('sdlc-status branch pull-request evidence', () => {
     } finally {
       if (project) fs.rmSync(project, { recursive: true, force: true });
     }
+  });
+});
+
+describe('sdlc-status parallel delivery state (#551 AC8, FR14)', () => {
+  const SCRIPT = fileURLToPath(new URL('../sdlc-status.mjs', import.meta.url));
+  const temporary = [];
+  const cleanup = () => { for (const dir of temporary.splice(0)) fs.rmSync(dir, { recursive: true, force: true }); };
+  const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  /** The pid of a process that has already exited: a controller that crashed. */
+  const deadPid = () => spawnSync(process.execPath, ['-e', ''], { encoding: 'utf8' }).pid;
+  /** Every file below `dir` with its bytes, so two snapshots are equal only when nothing was added, removed or rewritten. */
+  function snapshot(dir) {
+    const files = {};
+    const walk = (current) => {
+      for (const entry of fs.readdirSync(current, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+        const full = path.join(current, entry.name);
+        if (entry.isDirectory()) { files[`${path.relative(dir, full)}/`] = null; walk(full); } else files[path.relative(dir, full)] = fs.readFileSync(full, 'latin1');
+      }
+    };
+    walk(dir);
+    return files;
+  }
+
+  /** A repository with a bare origin, beside the directory its worktrees go to, and a private host state directory. */
+  function repository() {
+    const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-status-parallel-')));
+    temporary.push(base);
+    const project = path.join(base, 'project');
+    const origin = path.join(base, 'origin.git');
+    const host = path.join(base, 'host-state');
+    const bin = path.join(base, 'bin');
+    for (const dir of [project, host, bin]) fs.mkdirSync(dir);
+    execFileSync('git', ['init', '--quiet', '--bare', '-b', 'main', origin]);
+    git(project, 'init', '--quiet', '-b', 'main');
+    git(project, 'config', 'user.name', 'Test');
+    git(project, 'config', 'user.email', 'test@example.com');
+    fs.writeFileSync(path.join(project, 'README.md'), 'fixture\n');
+    fs.writeFileSync(path.join(project, '.gitignore'), '.nmg-sdlc/\n');
+    git(project, 'add', '.');
+    git(project, 'commit', '--quiet', '-m', 'chore: baseline');
+    git(project, 'remote', 'add', 'origin', origin);
+    git(project, 'push', '--quiet', '-u', 'origin', 'main');
+    // The status command asks GitHub through whatever `gh` is first on PATH: here, one that knows no repository.
+    fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\nprintf '%s\\n' "$*" >> "${path.join(base, 'gh.log')}"\nprintf '%s\\n' 'fixture: no GitHub repository' >&2\nexit 1\n`);
+    fs.chmodSync(path.join(bin, 'gh'), 0o755);
+    const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, [HOST_STATE_ENV]: host };
+    delete env[WORKTREES_DIR_ENV];
+    const commonDir = path.resolve(project, git(project, 'rev-parse', '--git-common-dir'));
+    const status = (cwd, ...args) => spawnSync(process.execPath, [SCRIPT, '--project', cwd, ...args], { cwd, encoding: 'utf8', env });
+    return { base, project, origin, host, env, shared: path.join(commonDir, 'nmg-sdlc'), worktreeRoot: `${project}-wt`, status };
+  }
+
+  /**
+   * Six worktrees in different states, a worktree outside the worktree root, another repository in flight on the
+   * same host, and three heavy-job lock files. `alive` is this test process: a controller that is still running.
+   */
+  function parallelFixture() {
+    const repo = repository();
+    const { project, host, env } = repo;
+    const alive = process.pid;
+    const dead = deadPid();
+    const worktree = (branch) => ensureWorktree({ cwd: project, branch, base: 'main', env }).path;
+    const trees = {
+      head: worktree('41-queue-head'), queued: worktree('42-queued'), implementing: worktree('43-implementing'),
+      crashed: worktree('44-crashed'), spec: worktree('spec/45-spec-only'), crashedQueued: worktree('46-crashed-queued'),
+    };
+    const outside = path.join(repo.base, 'elsewhere-47');
+    git(project, 'worktree', 'add', '--quiet', '-b', '47-elsewhere', outside, 'origin/main');
+    const flight = (issue, branch, at, stage, pid) => recordInFlight(project, { issue, branch, worktree: at, stage, pid, session: `session-${issue}` }, { env });
+    flight(41, '41-queue-head', trees.head, 'verify:gate', alive);
+    flight(42, '42-queued', trees.queued, 'queued', alive);
+    flight(43, '43-implementing', trees.implementing, 'implement', alive);
+    flight(44, '44-crashed', trees.crashed, 'implement', dead);
+    flight(46, '46-crashed-queued', trees.crashedQueued, 'queued', dead);
+    enterMergeQueue(project, { issue: 41, branch: '41-queue-head', worktree: trees.head, pid: alive });
+    enterMergeQueue(project, { issue: 42, branch: '42-queued', worktree: trees.queued, pid: alive });
+    enterMergeQueue(project, { issue: 46, branch: '46-crashed-queued', worktree: trees.crashedQueued, pid: dead });
+
+    // Another repository on this host with an issue in flight.
+    const other = path.join(repo.base, 'other-project');
+    fs.mkdirSync(other);
+    git(other, 'init', '--quiet', '-b', 'main');
+    recordInFlight(other, { issue: 7, branch: '7-other-project', worktree: other, stage: 'implement', pid: alive }, { env });
+
+    // The heavy-job pool as src/heavy-pool.mjs writes it: one lock file per held slot.
+    fs.writeFileSync(path.join(host, 'config.json'), JSON.stringify({ heavyJobSlots: 3 }));
+    fs.mkdirSync(path.join(host, 'heavy-jobs'));
+    const lock = (slot, record) => fs.writeFileSync(path.join(host, 'heavy-jobs', `slot-${slot}.lock`), typeof record === 'string' ? record : `${JSON.stringify(record, null, 2)}\n`);
+    lock(1, { schemaVersion: 1, pid: alive, label: 'repository.tests', projectRoot: trees.head, issue: 41, startedAt: 1_700_000_000_000 });
+    lock(2, { schemaVersion: 1, pid: dead, label: 'repository.e2e', projectRoot: null, startedAt: 1_700_000_000_500 });
+    lock(3, '{half written');
+    return { ...repo, trees, outside, other, alive, dead };
+  }
+
+  /** Everything collecting status could change: shared repository state, host state, worktrees and their checkouts. */
+  const observable = (f) => ({
+    shared: snapshot(f.shared),
+    host: snapshot(f.host),
+    worktrees: git(f.project, 'worktree', 'list', '--porcelain'),
+    checkouts: [f.project, ...Object.values(f.trees), f.outside].map((cwd) => [git(cwd, 'status', '--porcelain', '--ignored'), git(cwd, 'rev-parse', 'HEAD')]),
+    runtime: Object.values(f.trees).map((cwd) => snapshot(path.join(cwd, '.nmg-sdlc'))),
+  });
+
+  it('reports in-flight issues, the queue, leftover worktrees and heavy-job holders in --json, changing nothing', () => {
+    try {
+      const f = parallelFixture();
+      const before = observable(f);
+      expect(Object.keys(before.shared).sort()).toEqual(['in-flight/', 'in-flight/41.json', 'in-flight/42.json', 'in-flight/43.json',
+        'in-flight/44.json', 'in-flight/46.json', 'merge-queue.json']);
+      expect(Object.keys(before.host).filter((name) => name.endsWith('.lock'))).toEqual(['heavy-jobs/slot-1.lock', 'heavy-jobs/slot-2.lock', 'heavy-jobs/slot-3.lock']);
+      // Seven host mirrors: this repository's five (two of them of dead controllers) and the other project's one, plus the directory entry.
+      expect(Object.keys(before.host).filter((name) => name.startsWith('in-flight/'))).toHaveLength(7);
+
+      const result = f.status(f.project, '--json');
+
+      expect(result).toMatchObject({ status: 0, stderr: '' });
+      const { parallel } = JSON.parse(result.stdout);
+      expect(Object.keys(parallel)).toEqual(['repository', 'host']);
+      expect(parallel.repository.worktreeRoot).toBe(f.worktreeRoot);
+      expect(Object.values(f.trees)).toEqual(['41', '42', '43', '44', 'spec-45', '46'].map((name) => path.join(f.worktreeRoot, name)));
+
+      const flight = (issue, branch, worktree, stage, queuePosition, leaseHeld) => ({ issue, kind: 'code', worktree, branch, stage, queuePosition,
+        leaseHeld, session: `session-${issue}`, pid: leaseHeld ? f.alive : f.dead, updatedAt: expect.any(Number) });
+      expect(parallel.repository.inFlight).toEqual([
+        // A queued issue reports its queue stage, whatever stage its record last carried.
+        flight(41, '41-queue-head', f.trees.head, 'queue-head', 1, true),
+        flight(42, '42-queued', f.trees.queued, 'queued', 2, true),
+        flight(43, '43-implementing', f.trees.implementing, 'implement', null, true),
+        flight(44, '44-crashed', f.trees.crashed, 'implement', null, false),
+        flight(46, '46-crashed-queued', f.trees.crashedQueued, 'queued', 3, false),
+      ]);
+      const entry = (issue, position, state, branch, worktree, ownerAlive) => ({ issue, position, state, branch, worktree, ownerAlive, enqueuedAt: expect.any(Number) });
+      expect(parallel.repository.queue).toEqual([
+        entry(41, 1, 'integrating', '41-queue-head', f.trees.head, true),
+        entry(42, 2, 'waiting', '42-queued', f.trees.queued, true),
+        entry(46, 3, 'waiting', '46-crashed-queued', f.trees.crashedQueued, false),
+      ]);
+      // Leftover: under the worktree root, no live controller, not queued. #46 is queued, #47 is outside the root,
+      // and the primary checkout is never one.
+      expect(parallel.repository.leftoverWorktrees).toEqual([
+        { path: f.trees.crashed, issue: 44, kind: 'code', branch: '44-crashed', head: git(f.project, 'rev-parse', 'origin/main') },
+        { path: f.trees.spec, issue: 45, kind: 'spec', branch: 'spec/45-spec-only', head: git(f.project, 'rev-parse', 'origin/main') },
+      ]);
+
+      expect(parallel.host.heavyJobSlots).toBe(3);
+      expect(parallel.host.holders).toEqual([
+        { slot: 1, pid: f.alive, label: 'repository.tests', projectRoot: f.trees.head, startedAt: 1_700_000_000_000, alive: true },
+        { slot: 2, pid: f.dead, label: 'repository.e2e', projectRoot: null, startedAt: 1_700_000_000_500, alive: false },
+      ]);
+      // Every project's live issues on this host; the crashed controllers' mirrors are not listed.
+      expect(parallel.host.inFlight.map(({ issue, thisRepository, stage, worktree, pid }) => ({ issue, thisRepository, stage, worktree, pid })).sort((left, right) => left.issue - right.issue)).toEqual([
+        { issue: 7, thisRepository: false, stage: 'implement', worktree: f.other, pid: f.alive },
+        { issue: 41, thisRepository: true, stage: 'verify:gate', worktree: f.trees.head, pid: f.alive },
+        { issue: 42, thisRepository: true, stage: 'queued', worktree: f.trees.queued, pid: f.alive },
+        { issue: 43, thisRepository: true, stage: 'implement', worktree: f.trees.implementing, pid: f.alive },
+      ]);
+
+      // The same state is reported from inside a worktree, and by the exported collector.
+      const fromWorktree = f.status(f.trees.queued, '--json');
+      expect(fromWorktree).toMatchObject({ status: 0, stderr: '' });
+      expect(JSON.parse(fromWorktree.stdout).parallel).toEqual(parallel);
+      expect(JSON.parse(JSON.stringify(collectParallelState(f.project, { env: f.env })))).toEqual(parallel);
+
+      // Status is read-only: the queue file, in-flight records, host mirrors (dead ones included) and lock files are byte-identical.
+      expect(observable(f)).toEqual(before);
+      expect(fs.readFileSync(path.join(f.base, 'gh.log'), 'utf8')).not.toBe('');
+    } finally { cleanup(); }
+  });
+
+  it('prints a Parallel block in the text output, before the next action', () => {
+    try {
+      const f = parallelFixture();
+      const before = observable(f);
+
+      const result = f.status(f.project);
+
+      expect(result).toMatchObject({ status: 0, stderr: '' });
+      const lines = result.stdout.trimEnd().split('\n');
+      const start = lines.indexOf('Parallel:');
+      expect(start).toBeGreaterThan(0);
+      expect(lines.slice(start, -1)).toEqual([
+        'Parallel:',
+        `  In flight: #41 queue-head, queue head, ${f.trees.head}`,
+        `  In flight: #42 queued, queue position 2, ${f.trees.queued}`,
+        `  In flight: #43 implement, not queued, ${f.trees.implementing}`,
+        `  In flight: #44 implement, not queued, ${f.trees.crashed} (controller not running)`,
+        `  In flight: #46 queued, queue position 3, ${f.trees.crashedQueued} (controller not running)`,
+        '  Merge queue: #41 -> #42 -> #46',
+        `  In flight on this host: #7 implement, ${f.other}`,
+        `  Heavy jobs: 1 of 3 slot(s) held: slot 1 repository.tests (pid ${f.alive}, ${f.trees.head})`,
+        `  Leftover worktree: ${f.trees.crashed} (44-crashed)`,
+        `  Leftover worktree: ${f.trees.spec} (spec/45-spec-only)`,
+      ]);
+      expect(lines[0]).toMatch(/^SDLC status: /);
+      expect(lines.at(-1)).toMatch(/^Next: /);
+      // renderText renders exactly what the command printed for the collected state.
+      const status = JSON.parse(f.status(f.project, '--json').stdout);
+      expect(renderText(status).split('\n').slice(start, -1)).toEqual(lines.slice(start, -1));
+      expect(renderText({ ...status, parallel: undefined })).not.toContain('Parallel:');
+      expect(observable(f)).toEqual(before);
+    } finally { cleanup(); }
+  });
+
+  it('reports an empty parallel object, prints no Parallel block and creates nothing in a repository with nothing in flight', () => {
+    try {
+      const f = repository();
+      const hostBefore = snapshot(f.host);
+
+      const json = f.status(f.project, '--json');
+      const text = f.status(f.project);
+
+      expect(json).toMatchObject({ status: 0, stderr: '' });
+      expect(JSON.parse(json.stdout).parallel).toEqual({
+        repository: { worktreeRoot: f.worktreeRoot, inFlight: [], queue: [], leftoverWorktrees: [] },
+        host: { heavyJobSlots: 1, holders: [], inFlight: [] },
+      });
+      expect(text).toMatchObject({ status: 0, stderr: '' });
+      expect(text.stdout).not.toContain('Parallel:');
+      expect(collectParallelState(f.project, { env: f.env })).toMatchObject({ repository: { inFlight: [], queue: [], leftoverWorktrees: [] } });
+      // Reading status creates no shared-state directory, worktree root or host state.
+      expect(fs.existsSync(f.shared)).toBe(false);
+      expect(fs.existsSync(f.worktreeRoot)).toBe(false);
+      expect(snapshot(f.host)).toEqual(hostBefore);
+    } finally { cleanup(); }
+  });
+
+  it('follows NMG_SDLC_WORKTREES_DIR for the worktree root and for what counts as leftover', () => {
+    try {
+      const f = repository();
+      const root = path.join(f.base, 'custom-worktrees');
+      const env = { ...f.env, [WORKTREES_DIR_ENV]: root };
+      const tree = ensureWorktree({ cwd: f.project, branch: '51-custom', base: 'main', env }).path;
+      expect(tree).toBe(path.join(root, '51'));
+
+      const custom = collectParallelState(f.project, { env });
+      expect(custom.repository.worktreeRoot).toBe(root);
+      expect(custom.repository.leftoverWorktrees).toEqual([{ path: tree, issue: 51, kind: 'code', branch: '51-custom', head: git(tree, 'rev-parse', 'HEAD') }]);
+      // Without the override the worktree is outside the default root, so it is not reported as leftover.
+      const standard = collectParallelState(f.project, { env: f.env });
+      expect(standard.repository).toMatchObject({ worktreeRoot: f.worktreeRoot, leftoverWorktrees: [] });
+    } finally { cleanup(); }
+  });
+
+  it('is null outside a git repository, and is left out when adapters describe a fixture', () => {
+    try {
+      const f = parallelFixture();
+      const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-status-outside-')));
+      temporary.push(outside);
+      expect(collectParallelState(outside, { env: f.env })).toBeNull();
+
+      // With injected adapters the command reads no queue, pool or worktree state, although the repository has some.
+      let out = '';
+      const run = (command, args, options = {}) => {
+        if (command === 'gh') return { ok: false, status: 1, stdout: '', stderr: 'fixture: no GitHub repository' };
+        const result = spawnSync(command, args, { cwd: options.cwd, encoding: 'utf8', stdio: 'pipe' });
+        return { ok: !result.error && result.status === 0, status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
+      };
+      const code = runCli(['--project', f.project, '--json'], { adapters: { run }, env: f.env,
+        stdout: { write(chunk) { out += chunk; } }, stderr: { write() {} } });
+      expect(code).toBe(0);
+      expect(Object.hasOwn(JSON.parse(out), 'parallel')).toBe(false);
+    } finally { cleanup(); }
   });
 });

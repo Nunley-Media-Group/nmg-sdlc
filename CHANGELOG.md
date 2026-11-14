@@ -12,6 +12,26 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.13.0] - 2026-11-13
+
+### Added
+
+- Work each `/sdlc-execute` issue and each `/sdlc-write-spec` spec in its own git worktree created from the remote default branch, with spec work on a separate `spec/{N}-{slug}` branch whose PR is refused with `pr_scope_invalid` when it changes a file outside `specs/{N}-{slug}/`, an optional steering worktree `setup`/`teardown` command, removal of the worktree after delivery, and a primary checkout that is never switched and need not be clean (#551)
+- Add a per-repository merge queue in the git common directory: only the queue head integrates the default branch, prepares its version, runs the pre-merge validations once and merges, a head whose gate fails (`queue_gate_failed`) or whose integration conflicts outside `VERSION` and `CHANGELOG.md` (`queue_integration_conflict`) leaves the queue and returns to implement, and `scripts/sdlc-merge-queue.mjs` lists and repairs the queue (#551)
+- Add opt-in changelog fragments (`changelog.fragments.dir`): one `<dir>/<N>.md` file per issue, assembled into `CHANGELOG.md` and deleted when that issue's version is prepared at the queue head (#551)
+- Add validation tiers to `steering/manifest.json`: `change` and `full` tiers, a project-supplied test `selection` command and `fallbackPaths` for the `change` tier, and a `heavy` marker that takes a slot from a machine-wide heavy-job pool (`heavyJobSlots` in `~/.nmg-sdlc/config.json`) with dead-holder reclamation (#551)
+- Add `/sdlc-verify-full [REF]` to run full-tier validations against a ref, record the result per commit and list the first-parent commits since the last green run when it does not pass, and `check --action NAME --commit REF` to answer whether a commit is full-green for an action steering lists in `fullGreen.actions` (#551)
+- Report overlapping declared files between a newly started issue and the repository's in-flight issues, and show in-flight issues, queue positions, heavy-job slot holders and leftover worktrees in `/sdlc-status` (#551)
+
+### Changed
+
+- Verify now reviews first and validates last: the review must give a verdict to every row of a spec-derived checklist, hands every finding back to implement in one handoff without running a validation whenever one is `blocking`, `major` or `minor`, and after a repair re-checks only the listed findings and the repair diff unless the repair leaves their scope, as `scripts/sdlc-review-scope.mjs --issue N` reports (#551)
+- Prepare the version at the head of the merge queue instead of before verification, and hold the controller lease on the issue's worktree instead of the invoking checkout, so another issue's branch in the invoking checkout is no longer an `active_issue_conflict` (#551)
+
+### Fixed
+
+- Stop the `/sdlc-execute` controller busy-waiting at full CPU while a settled stage worker waits behind its `.waiting` marker: the wait now blocks until the worker starts a turn, the marker clears or a fresh handoff appears (#550)
+
 ## [4.12.0] - 2026-11-13
 
 ### Fixed

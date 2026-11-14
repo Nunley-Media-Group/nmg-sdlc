@@ -4,9 +4,11 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { finalizeVerification, matchesRegisteredResults, withScopeMarker } from '../sdlc-finalize-verification.mjs';
 import { inspectIssueSpecScope, issueScopeMarker } from '../issue-spec-scope.mjs';
 import { canonicalJson } from '../../src/sdlc-steering-runtime.mjs';
+import { inspectVerificationReadiness } from '../verification-readiness.mjs';
 
 const roots = [];
 const SPEC = 'specs/42-feature';
@@ -212,6 +214,132 @@ describe('sdlc-finalize-verification focused fresh', () => {
     expect(out).toMatchObject({ status: 0, handoff: { status: 'passed', next: 'deliver' } });
     const markers = fs.readFileSync(path.join(root, REPORT), 'utf8').split('\n').filter((line) => line.startsWith('<!-- nmg-sdlc-issue-scope:'));
     expect(markers).toEqual([issueScopeMarker(live)]);
+  });
+});
+
+describe('queue-head gate finalization: --queue-gate (#551 AC5, FR11)', () => {
+  const SCRIPT = fileURLToPath(new URL('../sdlc-finalize-verification.mjs', import.meta.url));
+  const ARTIFACT = '.nmg-sdlc/verification/42.json';
+  const HANDOFF = '.nmg-sdlc/handoffs/42-verify.json';
+  const gitOut = (root, ...args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' }).stdout.trim();
+
+  /** A published issue branch whose report says `impl` and whose registered gate at HEAD has the given result. */
+  function gateFixture(impl, { ceiling = 'Fail', status = 'failed' } = {}) {
+    const root = makeRoot();
+    writeSteering(root);
+    writeSpec(root);
+    const head = gitInit(root);
+    writeReport(root, impl, head);
+    writeArtifact(root, head, ceiling, status);
+    return { root, head };
+  }
+  const storedHandoff = (root) => JSON.parse(fs.readFileSync(path.join(root, HANDOFF), 'utf8'));
+
+  it.each(['Fail', 'Partial', 'Incomplete'])('hands a %s gate at the queue head back to implement as queue_gate_failed, with the report and the verification record', (impl) => {
+    const { root, head } = gateFixture(impl);
+
+    const out = finalizeVerification({ issue: 42, spec: SPEC, cwd: root, queueGate: true });
+
+    expect(out).toMatchObject({ status: 1, stdout: `NMG_SDLC_HANDOFF: ${HANDOFF}\n`, handoffPath: HANDOFF });
+    expect(out.handoff).toMatchObject({
+      schemaVersion: 1, issue: 42, step: 'verify', status: 'failed', reasonCode: 'queue_gate_failed',
+      intervention: false, next: 'implement', artifacts: [REPORT, ARTIFACT],
+    });
+    expect(out.handoff.summary).toContain('implementation_non_pass');
+    expect(storedHandoff(root)).toEqual(out.handoff);
+    // Both artifacts the handoff names exist, and nothing was committed or published for the failed gate.
+    for (const artifact of out.handoff.artifacts) expect(fs.existsSync(path.join(root, artifact))).toBe(true);
+    expect(gitOut(root, 'rev-parse', 'HEAD')).toBe(head);
+    expect(gitOut(root, 'rev-parse', 'origin/42-feature')).toBe(head);
+    expect(fs.existsSync(path.join(root, '.nmg-sdlc/controller.lock'))).toBe(false);
+  });
+
+  it('reports the same state as verification_not_ready without --queue-gate, and only an explicit true selects the queue gate', () => {
+    const { root } = gateFixture('Fail');
+    const expected = { status: 'failed', intervention: false, next: 'implement', artifacts: [REPORT, ARTIFACT] };
+
+    const standalone = finalizeVerification({ issue: 42, spec: SPEC, cwd: root });
+    expect(standalone).toMatchObject({ status: 1, handoff: { ...expected, reasonCode: 'verification_not_ready' } });
+    expect(storedHandoff(root).reasonCode).toBe('verification_not_ready');
+
+    expect(finalizeVerification({ issue: 42, spec: SPEC, cwd: root, queueGate: false }).handoff.reasonCode).toBe('verification_not_ready');
+    expect(finalizeVerification({ issue: 42, spec: SPEC, cwd: root, queueGate: 'true' }).handoff.reasonCode).toBe('verification_not_ready');
+
+    const queued = finalizeVerification({ issue: 42, spec: SPEC, cwd: root, queueGate: true });
+    expect(queued).toMatchObject({ status: 1, handoff: { ...expected, reasonCode: 'queue_gate_failed' } });
+    // Apart from the reason code, the two handoffs are the same.
+    expect({ ...queued.handoff, reasonCode: null }).toEqual({ ...standalone.handoff, reasonCode: null });
+    expect(storedHandoff(root).reasonCode).toBe('queue_gate_failed');
+  });
+
+  it('writes the queue_gate_failed handoff through the command line, and verification_not_ready without the flag', () => {
+    const { root, head } = gateFixture('Fail');
+    const cli = (...args) => spawnSync(process.execPath, [SCRIPT, '--issue', '42', '--spec', SPEC, ...args], { cwd: root, encoding: 'utf8' });
+
+    const queued = cli('--queue-gate');
+
+    expect(queued).toMatchObject({ status: 1, stdout: `NMG_SDLC_HANDOFF: ${HANDOFF}\n`, stderr: '' });
+    expect(storedHandoff(root)).toMatchObject({
+      issue: 42, step: 'verify', status: 'failed', reasonCode: 'queue_gate_failed', intervention: false,
+      next: 'implement', artifacts: [REPORT, ARTIFACT],
+    });
+
+    // The flag is position-independent and may be given once.
+    const leading = spawnSync(process.execPath, [SCRIPT, '--queue-gate', '--spec', SPEC, '--issue', '#42'], { cwd: root, encoding: 'utf8' });
+    expect(leading).toMatchObject({ status: 1, stdout: `NMG_SDLC_HANDOFF: ${HANDOFF}\n` });
+    expect(storedHandoff(root).reasonCode).toBe('queue_gate_failed');
+    const before = fs.readFileSync(path.join(root, HANDOFF), 'utf8');
+    const twice = cli('--queue-gate', '--queue-gate');
+    expect(twice.status).toBe(2);
+    expect(twice.stderr).toContain('[--queue-gate]');
+    expect(fs.readFileSync(path.join(root, HANDOFF), 'utf8')).toBe(before);
+
+    const standalone = cli();
+    expect(standalone).toMatchObject({ status: 1, stdout: `NMG_SDLC_HANDOFF: ${HANDOFF}\n`, stderr: '' });
+    expect(storedHandoff(root)).toMatchObject({ status: 'failed', reasonCode: 'verification_not_ready', next: 'implement', artifacts: [REPORT, ARTIFACT] });
+    expect(gitOut(root, 'rev-parse', 'origin/42-feature')).toBe(head);
+    expect(fs.existsSync(path.join(root, '.nmg-sdlc/controller.lock'))).toBe(false);
+  });
+
+  it('keeps verification_not_ready and the return to verify for a PR-evidence-pending report, even with --queue-gate', () => {
+    const root = makeRoot();
+    writeSteering(root);
+    writeSpec(root);
+    fs.writeFileSync(path.join(root, SPEC, 'requirements.md'), '**Issue**: #42\n**Status**: Approved\n\n### AC1: Require PR-only checks\n');
+    const head = gitInit(root);
+    const scope = inspectIssueSpecScope({ projectRoot: root, issueNumber: 42, specPath: SPEC });
+    const readiness = { schemaVersion: 1, state: 'pr_evidence_pending', issueNumber: 42, specPath: SPEC,
+      local: { ...scope.delivery, regression: scope.regression, tests: 'pass', steeringGates: 'pass' },
+      pendingEvidence: [{ kind: 'required_check', name: 'contract-tests', event: 'pull_request', acceptanceCriteria: ['AC1'] }] };
+    const content = `# Verification\n\n## Implementation Status: **PR Evidence Pending**\n\n${issueScopeMarker(scope)}\n<!-- nmg-sdlc-pr-readiness: ${JSON.stringify(readiness)} -->\n**Verification head**: ${head}\n`;
+    fs.writeFileSync(path.join(root, REPORT), content);
+    writeArtifact(root, head, null, 'passed');
+    // The fixture really is in the PR-evidence-pending state, not merely unverifiable.
+    expect(inspectVerificationReadiness({ content, options: { expectedIssueNumber: 42, expectedSpecPath: SPEC, expectedScope: scope } }))
+      .toMatchObject({ status: 'pr_evidence_pending', reasonCode: 'pr_evidence_pending' });
+    const pending = { status: 'failed', reasonCode: 'verification_not_ready', intervention: false, next: 'verify', artifacts: [REPORT, ARTIFACT] };
+
+    const standalone = finalizeVerification({ issue: 42, spec: SPEC, cwd: root });
+    const queued = finalizeVerification({ issue: 42, spec: SPEC, cwd: root, queueGate: true });
+
+    expect(standalone).toMatchObject({ status: 1, handoff: pending });
+    expect(queued).toMatchObject({ status: 1, handoff: pending });
+    expect(queued.handoff).toEqual(standalone.handoff);
+    expect(queued.handoff.summary).toContain('pr_evidence_pending');
+    expect(storedHandoff(root)).toEqual(queued.handoff);
+    expect(gitOut(root, 'rev-parse', 'origin/42-feature')).toBe(head);
+  });
+
+  it('publishes a green gate at the queue head exactly as a standalone Pass', () => {
+    const { root, head } = gateFixture('Pass', { ceiling: null, status: 'passed' });
+
+    const out = finalizeVerification({ issue: 42, spec: SPEC, cwd: root, queueGate: true });
+
+    expect(out).toMatchObject({ status: 0, handoff: { status: 'passed', next: 'deliver', reasonCode: null } });
+    const published = gitOut(root, 'rev-parse', 'origin/42-feature');
+    expect(published).not.toBe(head);
+    expect(published).toBe(gitOut(root, 'rev-parse', 'HEAD'));
+    expect(gitOut(root, 'log', '-1', '--format=%s')).toBe('docs: record verification for #42');
   });
 });
 

@@ -4,7 +4,7 @@
 
 ## Helper contract
 
-All six subcommands print exactly one JSON object to stdout. Success exits 0 with `ok: true`. Failure exits non-zero with `ok: false`, a stable `reasonCode`, and optional `detail`, `stdout`, or `stderr`. Every `merge` result that reports `merged: true`, on success or after a post-merge failure, also carries `issue` and `dir` (`specs/N-slug`) beside `pr`; callers must record that publication instead of retrying it. The nmg-sdlc hooks module recognizes the publication from that JSON, so run `merge` verbatim as the whole `Bash` call with `run_in_background: true` (Approval Behavior step 4). After the execution turn ends with an empty prompt box, the hooks module runs `/plan` and submits the Continue prompt into native plan mode.
+All subcommands run from the current checkout and print exactly one JSON object to stdout. Success exits 0 with `ok: true`. Failure exits non-zero with `ok: false`, a stable `reasonCode`, and optional `detail`, `stdout`, or `stderr`. Every `merge` result that reports `merged: true`, on success or after a post-merge failure, also carries `issue` and `dir` (`specs/N-slug`) beside `pr`; callers must record that publication instead of retrying it. The nmg-sdlc hooks module recognizes the publication from that JSON, so run `merge` verbatim as the whole `Bash` call with `run_in_background: true` (Approval Behavior step 4). After the execution turn ends with an empty prompt box, the hooks module runs `/plan` and submits the Continue prompt into native plan mode.
 
 ```text
 node "<plugin-root>/scripts/publish-approved-spec.mjs" discover --issue N
@@ -12,10 +12,9 @@ node "<plugin-root>/scripts/publish-approved-spec.mjs" candidates [--published N
 node "<plugin-root>/scripts/publish-approved-spec.mjs" prepare --issue N --name {N}-{slug}
 node "<plugin-root>/scripts/publish-approved-spec.mjs" commit-push --issue N --dir specs/{N}-{slug}
 node "<plugin-root>/scripts/publish-approved-spec.mjs" merge --issue N --dir specs/{N}-{slug}
-node "<plugin-root>/scripts/publish-approved-spec.mjs" default-branch
 ```
 
-`{N}-{slug}` is the basename of `targetDir`. `--dir` is exactly `specs/{N}-{slug}` (POSIX, no `..`). Issue arguments are positive integers. Invalid or unknown arguments fail `invalid_arguments`.
+`{N}-{slug}` is the basename of `targetDir`. `--dir` is exactly `specs/{N}-{slug}` (POSIX, no `..`), resolved inside the spec worktree. Issue arguments are positive integers. Invalid or unknown arguments fail `invalid_arguments`.
 
 ## Read-only discovery
 
@@ -65,25 +64,43 @@ It drops published numbers and packages approved by shared `specStatus`, then re
 
 Unreadable or malformed issue rows fail `issues_unreadable`; ambiguous status fails `spec_status_ambiguous`; an uninspectable worktree `specs/` path fails `spec_status_unreadable`. The helper does not truncate rows or author `AskUserQuestion` labels.
 
+## Spec branch and worktree
+
+Spec work has its own branch namespace: issue N publishes from `spec/{N}-{slug}`, never from the code branch `{N}-{slug}`. The spec pull request is found and created only by head `spec/{N}-{slug}`, so it can be open beside a code pull request on `{N}-{slug}`, and publication never selects, merges, or closes that code pull request.
+
+The spec branch lives in its own git worktree beside the primary checkout (`<primary-parent>/<repo-name>-wt/spec-{N}`, or under `NMG_SDLC_WORKTREES_DIR`). Every git command of a publication runs there. The current checkout is never switched to a spec branch or to the default branch, and its uncommitted work is neither an obstacle nor touched. Never run `git checkout`, `git switch`, `git stash`, or `gh issue develop` for a publication.
+
 ## Prepare
 
-`prepare` and `commit-push` abort with `dirty_tree` when `git status --porcelain` is non-empty and the current branch is not already `{N}-{slug}`. They print the porcelain. Do not stash, discard, or guess another branch.
+`prepare` reads the default branch through `gh repo view --json defaultBranchRef --jq .defaultBranchRef.name`, then creates the worktree for `spec/{N}-{slug}` from the freshly fetched remote default branch, or reuses the worktree an earlier run left. An existing remote `spec/{N}-{slug}` is resumed instead of recreated. It returns:
 
-If current differs from `{N}-{slug}`, `prepare` reads the default branch through `gh repo view --json defaultBranchRef --jq .defaultBranchRef.name`, fetches it, and runs `git checkout -B {N}-{slug} origin/<defaultBranch>`. Empty default branch fails `default_branch_unreadable`; checkout failure returns `branch_checkout_failed`. Never call `gh issue develop`.
+```json
+{
+  "ok": true,
+  "branch": "spec/197-move-lifecycle-rules-into-code",
+  "worktree": "/abs/repo-wt/spec-197",
+  "specDir": "/abs/repo-wt/spec-197/specs/197-move-lifecycle-rules-into-code",
+  "created": true
+}
+```
+
+Write the four spec files in `specDir`. Empty default branch fails `default_branch_unreadable`; other failures are `worktree_create_failed`, `worktree_setup_failed`, and `worktree_path_occupied` (a directory that is not this branch's worktree is in the way; report it, never delete it).
 
 ## Commit and push
 
-`commit-push` requires the approved four-file package and stages only `specs/{N}-{slug}`. The commit subject is exactly `docs: approve spec for #N`. It runs `git push -u origin HEAD` without force. Non-fast-forward fails `push_rejected`. An identical tree returns `skippedCommit: true` and still pushes.
+`commit-push` resolves the same worktree, requires the approved four-file package there, and stages only `specs/{N}-{slug}`. The commit subject is exactly `docs: approve spec for #N`. It runs `git push -u origin HEAD` in the worktree without force, publishing `spec/{N}-{slug}`. Non-fast-forward fails `push_rejected`. An identical tree returns `skippedCommit: true` and still pushes. The result carries `branch` and `worktree`.
+
+A package that is approved in the current checkout but absent from the spec worktree fails `spec_outside_worktree` with `worktree` and `specDir`: write the four files in `specDir` and rerun. The helper never copies or publishes files from the current checkout.
 
 ## Merge
 
-`merge` requires the approved four-file package. It opens or resumes a docs-only PR titled `docs: approve spec for #N`, with a body that mentions `#N` without `Closes`, `Fixes`, `Resolves`, or another closing keyword. Before creating a PR it checks merged PR history for the same branch, base, and exact local head. An independently proven merged PR skips creation, readiness polling, and merge; an open PR still passes the full readiness and exact-head checks before squash merge. It then attempts checkout and fast-forward of the default branch and applies `spec-created` while leaving issue N open. Every result that reports `merged: true` includes `issue` and `dir`.
+`merge` requires the approved four-file package in the spec worktree. It opens or resumes a docs-only PR from `spec/{N}-{slug}` titled `docs: approve spec for #N`, with a body that mentions `#N` without `Closes`, `Fixes`, `Resolves`, or another closing keyword. Before creating a PR it checks merged PR history for the same branch, base, and exact local head. An independently proven merged PR skips creation, readiness polling, and merge; an open PR still passes the full readiness and exact-head checks before squash merge. A spec PR carries the spec package and nothing else: before waiting for readiness, `merge` reads the PR's changed files and refuses with `pr_scope_invalid`, naming the `outside` files, when any of them is outside `specs/{N}-{slug}/`. It then applies `spec-created` while leaving issue N open. Every result that reports `merged: true` includes `issue` and `dir`.
+
+After a proven merge the helper cleans up, best-effort: it deletes the remote spec branch, fast-forwards the primary checkout only when it is on the default branch with no uncommitted or untracked work, and removes the spec worktree and its local branch. None of these can fail the command, and no step checks out the default branch. The success result is `{ "ok": true, "branch": "spec/{N}-{slug}", "base": "<defaultBranch>", "pr": 412, "merged": true, "issue": N, "dir": "specs/{N}-{slug}", "fastForwarded": true, "remoteBranchDeleted": true, "worktreeRemoved": true, "cleanup": [], "squash": true, "labeled": true }`; `cleanup` holds one line per skipped step. A false `fastForwarded`, `remoteBranchDeleted`, or `worktreeRemoved` is information, not a failure: do not check out, pull, stash, or delete anything to change it. A leftover spec worktree is reused by the next run for that issue.
 
 If `gh pr merge` exits nonzero, inspect that exact PR independently. Only `MERGED` with the expected PR number, head SHA, head branch, and base counts as publication; otherwise `pr_merge_failed` returns without `merged: true` and without labeling. Preserve the CLI failure diagnostic. Never retry a possibly completed merge. A repeated invocation recognizes the same merged PR and performs only safe outstanding bookkeeping, not another PR creation or merge.
 
-Failures before proven merge include `spec_not_approved`, `pr_create_failed`, and `pr_merge_failed`; they queue no continuation. After proven merge, `default_checkout_failed` and `spec_created_label_failed` return `merged: true` and the numeric `pr`. Checkout failure (including a default branch owned by another worktree) does not prevent independent label application; report both checkout and label diagnostics if both fail. Preserve both worktrees; never force checkout. The caller records N in `published[]` immediately and must not republish or rewrite it. For `default_checkout_failed`, run `node "<plugin-root>/scripts/publish-approved-spec.mjs" default-branch` only if checkout is safe; a worktree ownership conflict requires reporting the limitation instead of repeating the impossible checkout. For `spec_created_label_failed`, run `node "<plugin-root>/scripts/spec-created-label.mjs" apply --issue N`. Report remediation failure separately. Finish remediation and settle the execution turn; the queued native-plan follow-up retains N in `published[]` and owns the next Continue/Finished decision. Never force-merge or bypass protection.
-
-`default-branch` reads the GitHub default branch and checks it out. Failure returns `default_branch_unreadable` or `default_checkout_failed`; keep the current branch and do not guess `main`.
+Failures before proven merge include `spec_not_approved`, `spec_outside_worktree`, `pr_create_failed`, `pr_scope_invalid`, and `pr_merge_failed`; they queue no continuation and leave the spec worktree and branch in place for a rerun. After proven merge, the only failure is `spec_created_label_failed`, which returns `merged: true`, the numeric `pr`, and the same cleanup fields. The caller records N in `published[]` immediately and must not republish or rewrite it. For `spec_created_label_failed`, run `node "<plugin-root>/scripts/spec-created-label.mjs" apply --issue N`. Report remediation failure separately. Finish remediation and settle the execution turn; the queued native-plan follow-up retains N in `published[]` and owns the next Continue/Finished decision. Never force-merge or bypass protection.
 
 ## Native-plan continuation
 
@@ -94,7 +111,7 @@ That plan-mode turn passes every in-memory published number to `candidates`. Pre
 - Rows returned: show at most the first three labels `#M — {title}` (the first labelled `#M — {title} (Recommended)`), then `Finished — stop writing specs`.
 - No rows: `Continue — enter another issue number (Recommended)`, then `Finished — stop writing specs`.
 
-Selecting M permits only read-only discovery and preference interview before overwriting the plan file with M's distinct complete plan headed `# spec-{M}: <title>` with current `published[]` and calling `ExitPlanMode`. Do not call `default-branch` or mutate a branch, file, commit, push, pull request, label, or merge for M before that plan is approved.
+Selecting M permits only read-only discovery and preference interview before overwriting the plan file with M's distinct complete plan headed `# spec-{M}: <title>` with current `published[]` and calling `ExitPlanMode`. Do not call `prepare` or mutate a worktree, branch, file, commit, push, pull request, label, or merge for M before that plan is approved.
 
 Finished prints:
 
@@ -103,4 +120,4 @@ Published specs: #<n> on <n>-<slug>[, ...]
 Next step: /sdlc-execute #<first-published>
 ```
 
-The successful publication session remains on the repository default branch. Both Finished choices (this one and the initial picker's `Finished — stop without writing a spec`) end the reply by calling `ExitPlanMode` as its last action, with no other output after it and without another `AskUserQuestion`. The nmg-sdlc hooks module recorded the Finished selection and approves that one `ExitPlanMode` call, so plan mode ends without an approval dialog and the Finished output stays the last reply. If the reply ends without that call, the hooks module sends one prompt asking for it, then warns once with `NMG SDLC: write-spec finished, but plan mode is still active; Shift+Tab exits it.`
+The publication session leaves the current checkout on the branch it started on. Both Finished choices (this one and the initial picker's `Finished — stop without writing a spec`) end the reply by calling `ExitPlanMode` as its last action, with no other output after it and without another `AskUserQuestion`. The nmg-sdlc hooks module recorded the Finished selection and approves that one `ExitPlanMode` call, so plan mode ends without an approval dialog and the Finished output stays the last reply. If the reply ends without that call, the hooks module sends one prompt asking for it, then warns once with `NMG SDLC: write-spec finished, but plan mode is still active; Shift+Tab exits it.`

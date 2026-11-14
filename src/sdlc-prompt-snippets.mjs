@@ -29,6 +29,7 @@ export const COMMAND_CONSUMERS = Object.freeze([
   "sdlc-status",
   "sdlc-verify-code",
   "sdlc-open-pr",
+  "sdlc-verify-full",
 ]);
 
 export const WORKER_CONSUMERS = Object.freeze([
@@ -218,6 +219,7 @@ const CATALOG = [
   ["plugin.workflow.status", "workflows/status/WORKFLOW.md", ["sdlc-status"], "body", 100],
   ["plugin.workflow.verify-code", "workflows/verify-code/WORKFLOW.md", ["sdlc-verify-code", "worker:verify"], "body", 100],
   ["plugin.workflow.open-pr", "workflows/open-pr/WORKFLOW.md", ["sdlc-open-pr", "worker:deliver"], "body", 100],
+  ["plugin.workflow.verify-full", "workflows/verify-full/WORKFLOW.md", ["sdlc-verify-full"], "body", 100],
   ["plugin.workflow.start-issue", "workflows/start-issue/WORKFLOW.md", ["worker:start"], "body", 100],
   ["plugin.workflow.write-code", "workflows/write-code/WORKFLOW.md", ["worker:implement"], "body", 100],
   ["plugin.workflow.simplify", "workflows/simplify/WORKFLOW.md", ["worker:implement"], "extra", 200],

@@ -26,7 +26,7 @@ describe('Claude Code plugin commands', () => {
       'sdlc-upgrade-project', 'sdlc-steering', 'sdlc-run-retro', 'sdlc-execute',
     ]);
     expect(AUTOMATED_COMMANDS.map(([name]) => name)).toEqual([
-      'sdlc-status', 'sdlc-verify-code', 'sdlc-open-pr',
+      'sdlc-status', 'sdlc-verify-code', 'sdlc-open-pr', 'sdlc-verify-full',
     ]);
     expect(DIRECT_COMMANDS).toEqual(['sdlc-execute']);
   });
@@ -69,14 +69,14 @@ describe('Claude Code plugin commands', () => {
     const models = Object.fromEntries(AUTOMATED_COMMANDS.map(([name]) => [
       name, read(`commands/${name}.md`).match(/^---\n[\s\S]*?^model: (\S+)$[\s\S]*?^---$/m)?.[1],
     ]));
-    expect(models).toEqual({ 'sdlc-status': 'haiku', 'sdlc-verify-code': 'opus', 'sdlc-open-pr': 'haiku' });
+    expect(models).toEqual({ 'sdlc-status': 'haiku', 'sdlc-verify-code': 'opus', 'sdlc-open-pr': 'haiku', 'sdlc-verify-full': 'haiku' });
   });
 
   it('declares effort only for the automated commands that set one', () => {
     const efforts = Object.fromEntries(AUTOMATED_COMMANDS.map(([name]) => [
       name, read(`commands/${name}.md`).match(/^---\n[\s\S]*?^effort: (\S+)$[\s\S]*?^---$/m)?.[1],
     ]));
-    expect(efforts).toEqual({ 'sdlc-status': undefined, 'sdlc-verify-code': undefined, 'sdlc-open-pr': 'xhigh' });
+    expect(efforts).toEqual({ 'sdlc-status': undefined, 'sdlc-verify-code': undefined, 'sdlc-open-pr': 'xhigh', 'sdlc-verify-full': undefined });
     expect(read('commands/sdlc-open-pr.md').startsWith('---\ndescription: "Deliver verified work through exact-head PR merge"\nargument-hint: "[#N]"\nmodel: haiku\neffort: xhigh\n---\n\n')).toBe(true);
   });
 

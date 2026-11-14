@@ -18,13 +18,38 @@ Unknown files are preserved and are not loaded implicitly.
 
 ## Manifest v1
 
-The manifest has exactly `schemaVersion`, `runtimeVersion`, `managedFiles`, `modules`, `snippets`, `extensions`, and `validations`. Unknown keys fail. All registered paths are POSIX project-relative regular files under their allowed `steering/` subtree; traversal, absolute paths, and symlink escape fail.
+The manifest has exactly `schemaVersion`, `runtimeVersion`, `managedFiles`, `modules`, `snippets`, `extensions`, and `validations`, plus the optional `worktree`, `changelog`, and `fullGreen` keys described under Optional Settings. Unknown keys fail. All registered paths are POSIX project-relative regular files under their allowed `steering/` subtree; traversal, absolute paths, and symlink escape fail.
 
 - `managedFiles[]`: `{ path, template, sha256 }` for exactly the four module copies.
 - `modules[]`: `{ id, role, path }` for exactly `product`, `tech`, `structure`, and `verification`.
 - `snippets[]`: `{ id, path, consumers, slot, order }`. Consumers and slots must be allowed by the prompt registry. Provenance, ordering, placeholders, hashes, provider identity, source confinement, and non-empty bodies use the shared renderer. Prompt composition has no byte ceiling. `byteBound` is not part of the manifest or fragment schema and fails as an unknown key; there is no legacy compatibility or enforcement path. Initialize and migration writers validate the exact input key set and canonicalize accepted records before returning any plan actions or manifest output.
 - `extensions[]`: `{ id, path, providers }`. The module exports one frozen `extension` descriptor whose id and provider keys exactly match.
-- `validations[]`: `{ id, provider, required, when, config }`. A legacy `timeoutMs` key is accepted and ignored for compatibility; omission is canonical and means no deadline. Provider ids resolve exactly once.
+- `validations[]`: `{ id, provider, required, when, config }`, plus the optional `tier`, `heavy`, `selection`, and `fallbackPaths` keys described under Validation Tiers. A legacy `timeoutMs` key is accepted and ignored for compatibility; omission is canonical and means no deadline. Provider ids resolve exactly once.
+
+## Optional Settings
+
+Every key in this section is optional. A manifest that declares none of them behaves exactly as before.
+
+- `worktree`: `{ setup?, teardown? }`. Each is a command `{ program, args, cwd?, env? }` run with `shell: false` (a shell is not an allowed program); `cwd` is project-relative and `env` names the environment keys passed through. `setup` runs once when an issue or spec worktree is created, for example to create a virtual environment and install dependencies; a failed setup fails the start with `worktree_setup_failed` and runs again when the worktree is reused. `teardown` runs before a delivered worktree is removed.
+- `changelog`: `{ fragments: { dir } }`. Opts the project into changelog fragments: issue N writes one Markdown file `<dir>/<N>.md`, whose bullets end with `(#N)`, and `sdlc-deliver.mjs prepare-version` for issue N assembles only that file into `CHANGELOG.md` and deletes it in the version commit.
+- `fullGreen`: `{ actions: [id] }`. The downstream action names, such as `"deploy"`, that require a green `full`-tier record at or after the commit they act on. `sdlc-verify-full.mjs check --action NAME --commit REF` answers whether a commit satisfies one, and fails with `full_green_action_unknown` for an action that is not listed.
+
+An invalid value for one of these keys fails with `steering_manifest_invalid`.
+
+## Validation Tiers
+
+An invalid value for one of these keys fails with `steering_validation_invalid`.
+
+- `tier`: `"change"` or `"full"`. A `change` validation is required before merge. A `full` validation is not: the pre-merge gate records it as skipped, and `/sdlc-verify-full [REF]` runs it on demand and records the result per commit. In a project where no validation declares a tier, every required validation runs before merge.
+- `heavy`: a boolean. `true` makes the validation take a slot from the host-wide heavy-job pool before it runs. The pool is shared by every project and session on the machine; its size is `heavyJobSlots` in `~/.nmg-sdlc/config.json` (default 1), and its locks are `~/.nmg-sdlc/heavy-jobs/slot-<k>.lock`. `NMG_SDLC_HOST_STATE_DIR` relocates that host directory. The result records `heavy: { slot, waitedMs }`. A slot whose holder process is dead is reclaimed.
+- `selection`: only on a `change`-tier `builtin.command` validation. A project command `{ program, args, cwd?, env? }`:
+  - It receives `{ "schemaVersion": 1, "validationId", "baseRef", "changedPaths" }` on stdin and prints `{ "schemaVersion": 1, "mode": "selected" | "all", "tests": [...], "dataStatus": "fresh" | "stale" | "missing", "dataAgeSeconds": number | null }`. The plugin implements no language-specific selection.
+  - The selected tests are appended to the validation's `args` (reason `selected`).
+  - The full command runs when the command answers `all` (`selection_all`), exits non-zero or prints something malformed (`selection_failed`), or reports its data stale or missing (`selection_data_stale`, `selection_data_missing`).
+  - An empty selection passes without running anything (`selection_empty`).
+- `fallbackPaths`: only on a `change`-tier `builtin.command` validation. An array of project-relative globs on the validation itself. When a change touches one, the validation runs its full command (`fallback_path`) and the selection command is not asked.
+
+  Each result records `tier` (or null) and `selection` (or null): `{ provider, reason, fallbackPath, selectedCount, dataAgeSeconds }`.
 
 ## Deterministic Validations
 

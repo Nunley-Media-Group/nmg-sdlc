@@ -26,6 +26,7 @@ import {
   WORKER_PERMISSION_MODES,
 } from '../../src/execute-host.mjs';
 import { createFileHost } from '../sdlc-execute-host.mjs';
+import { awaitWorkerHandoff } from '../sdlc-execute.mjs';
 
 const SESSION = '00000000-0000-4000-8000-000000000538';
 const NOW = 1_800_000_000_000;
@@ -625,5 +626,91 @@ describe('createFileHost finish', () => {
     h.host.finish();
     expect(fs.existsSync(path.join(h.sessionDir, 'worker.json'))).toBe(false);
     expect(() => h.host.finish()).not.toThrow();
+  });
+});
+
+// #550: a settled worker behind its waiting marker already counts as "working", so the controller waits for its
+// next turn instead. These drive the real file host and the controller's wait with an injected clock and sleep.
+describe('controller wait on a settled worker behind its waiting marker (#550)', () => {
+  const POLL_MS = 250;
+  const RESUME_MS = 60_000;
+  const handoffFile = (h) => path.join(h.root, '.nmg-sdlc/handoffs/42-verify.json');
+  const passed = { schemaVersion: 1, issue: 42, step: 'verify', status: 'passed', intervention: false,
+    summary: 'verified', artifacts: [], next: 'deliver', reasonCode: null };
+  // A worker that settled idle with a marker and no handoff. `onSleep` scripts what happens as time passes; the
+  // heartbeat stays fresh, and the wait is cut off if it ever polls without the clock moving.
+  function waiting({ onSleep = () => {} } = {}) {
+    let waits = 0;
+    const h = harness({ onSleep: (count, clock) => {
+      h.writeHeartbeat(clock.now);
+      onSleep(count, clock, h);
+    } });
+    fs.mkdirSync(path.dirname(handoffFile(h)), { recursive: true });
+    fs.writeFileSync(`${handoffFile(h)}.waiting`, 'sdlc-verify-steering.mjs\n');
+    h.writeAgent('agent-1', { status: 'idle' });
+    const waitFor = (args) => {
+      waits += 1;
+      if (waits > 200) throw new Error('controller polled the settled worker without blocking');
+      return h.host.wait({ agentId: 'agent-1', ...args });
+    };
+    const run = () => ({ status: 1, stdout: '', stderr: '' });
+    const observe = () => awaitWorkerHandoff({ host: h.host, agentId: 'agent-1', cwd: h.root, issue: 42,
+      step: 'verify', prior: null, run, waitFor });
+    return { h, observe, waits: () => waits };
+  }
+  const resume = (h, clock) => {
+    fs.writeFileSync(handoffFile(h), JSON.stringify(passed));
+    h.writeAgent('agent-1', { status: 'idle', lastActivityAt: clock.now });
+  };
+
+  it('sleeps between every poll of an unchanged settled worker, bounded by the resume bound (AC1)', () => {
+    const elapsedAt = 3 * RESUME_MS;
+    const { h, observe, waits } = waiting({ onSleep: (_count, clock, harnessed) => {
+      if (clock.now - NOW >= elapsedAt && !fs.existsSync(handoffFile(harnessed))) resume(harnessed, clock);
+    } });
+    expect(observe()).toMatchObject({ handoff: passed, state: 'idle' });
+    // Every poll before the worker resumed was followed by a sleep of the host poll interval.
+    expect(h.sleeps.length).toBeGreaterThanOrEqual(elapsedAt / POLL_MS);
+    expect(h.sleeps.length).toBeLessThanOrEqual(elapsedAt / POLL_MS + 5);
+    expect(h.sleeps.every((ms) => ms === POLL_MS)).toBe(true);
+    // One bounded wait per resume bound, plus the opening waits and the final one.
+    expect(waits()).toBeLessThanOrEqual(elapsedAt / RESUME_MS + 4);
+  });
+
+  it('observes the next turn and its fresh handoff within one host poll (AC2)', () => {
+    let resumedAt = null;
+    const { h, observe } = waiting({ onSleep: (count, clock, harnessed) => {
+      if (count === 7) { resumedAt = clock.now; resume(harnessed, clock); }
+    } });
+    expect(observe()).toMatchObject({ handoff: passed });
+    expect(h.clock.now - resumedAt).toBeLessThanOrEqual(POLL_MS);
+    expect(h.sleeps).toHaveLength(7);
+  });
+
+  it('ends the wait when the marker is removed without a new turn (AC4)', () => {
+    const { h, observe } = waiting({ onSleep: (count, _clock, harnessed) => {
+      if (count === 3) fs.rmSync(`${handoffFile(harnessed)}.waiting`);
+    } });
+    // A settled worker without a marker is reminded once; the fake hooks module refuses nothing, and the worker
+    // never starts, so the controller reports the settled turn without a handoff.
+    expect(observe()).toMatchObject({ handoff: null, state: 'idle' });
+    expect(h.sleeps.length).toBeGreaterThanOrEqual(3);
+    expect(h.served.filter((request) => request.kind === 'append')).toHaveLength(1);
+  });
+
+  it('still returns at once from wait until working for a settled worker (AC4)', () => {
+    const h = harness();
+    h.writeAgent('agent-1', { status: 'idle' });
+    expect(h.host.wait({ agentId: 'agent-1', until: 'working', timeoutMs: RESUME_MS })).toMatchObject({ timedOut: false });
+    expect(h.sleeps).toEqual([]);
+  });
+
+  it('ends a started wait as soon as its change probe reports a change', () => {
+    let polls = 0;
+    const h = harness();
+    h.writeAgent('agent-1', { status: 'idle' });
+    expect(h.host.wait({ agentId: 'agent-1', until: 'started', since: NOW, timeoutMs: RESUME_MS,
+      changed: () => { polls += 1; return polls === 4; } })).toMatchObject({ timedOut: false });
+    expect(h.sleeps).toHaveLength(3);
   });
 });

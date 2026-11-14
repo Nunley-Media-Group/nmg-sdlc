@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 
-/** Branch-first controller. A lease coordinates concurrent invocations; Git, GitHub,
- * the Approved spec and registered verification are the only lifecycle evidence. Stage workers run as
- * hooks-module subagents through the `host` transport (scripts/sdlc-execute-host.mjs). */
+/** Branch-first controller. Each issue is worked in its own checkout: the invoking checkout when it is already on
+ * the issue's branch, otherwise the issue's worktree, which holds that issue's lease, handoffs and verification
+ * records. Git, GitHub, the Approved spec and registered verification are the only lifecycle evidence. A branch
+ * whose review passed enters the repository's merge queue; only the queue head integrates the default branch,
+ * prepares its version, runs the pre-merge validations and merges. Stage workers run as hooks-module subagents
+ * through the `host` transport (scripts/sdlc-execute-host.mjs). */
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -21,6 +24,9 @@ import { createIssueDependencyClient, eligibleIssues, issueDependencyStatus, rea
 import { issueHasSpecCreatedLabel, SPEC_CREATED_LABEL } from './spec-created-label.mjs';
 import { acquireControllerLease, readControllerLease, reclaimStaleControllerLease, releaseControllerLease } from './sdlc-controller-lease.mjs';
 import { isCliEntry, materializeControllerPaths } from './plugin-controller-path.mjs';
+import { readReview, repairPathsSince } from './sdlc-review.mjs';
+import { clearInFlight, enterMergeQueue, inFlightOverlaps, leaveMergeQueue, recordInFlight } from './sdlc-shared-state.mjs';
+import { fastForwardPrimary, findWorktree, isLinkedWorktree, removeWorktree } from './sdlc-worktree.mjs';
 
 export const VALID_STEPS = ['start', 'implement', 'verify', 'deliver'];
 export const REMEDIABLE_STEPS = ['implement', 'verify', 'deliver'];
@@ -33,6 +39,10 @@ const MAX_GATE_ARTIFACT_BYTES = 4 * 1024 * 1024;
 // How long a resumed or prompted worker may take to start a new turn, and how often a worker that is waiting on its
 // own background work is rechecked; the background wait itself has no deadline.
 const RESUME_POLL_MS = 60_000;
+// How often a queued branch rechecks whether it has reached the head of the merge queue.
+const QUEUE_POLL_MS = 5_000;
+// Files only version preparation writes: a merge conflict confined to them is resolved to the default branch's side.
+const VERSION_ARTIFACTS = Object.freeze(['VERSION', 'CHANGELOG.md']);
 const SHA = /^[0-9a-f]{40}$/;
 // A supervised worker is checked in on after this long without a handoff, or once its activity or
 // waiting marker has been unchanged this long; waits are sliced so a check-in is never late by more than a slice.
@@ -339,6 +349,99 @@ function cleanupDeliveredBranch(cwd, run, issue, current) {
   if (!succeeded(run('git', ['branch', '-D', branch], { cwd }))) return skipped('local_branch_delete_failed');
   return [...lines, `#${issue}: branch cleanup: deleted ${branch} and fast-forwarded ${defaultBranch}`];
 }
+function samePath(left, right) {
+  const real = (path) => { try { return realpathSync(path); } catch { return resolve(path); } };
+  return real(left) === real(right);
+}
+/** The checkout an issue is worked in: the invoking checkout when it is on the issue's branch, otherwise the
+ * issue's worktree. Null while the issue has neither. */
+function issueWorkdir(cwd, run, issue) {
+  const here = run('git', ['branch', '--show-current'], { cwd });
+  if (succeeded(here) && parseIssueBranch(String(here.stdout ?? '').trim())?.issueNumber === issue) return cwd;
+  try {
+    return findWorktree(cwd, (branch) => parseIssueBranch(branch)?.issueNumber === issue, run)?.path ?? null;
+  } catch { return null; }
+}
+// Post-delivery cleanup of an issue's own worktree: the remote branch at the proven head, the worktree, its local
+// branch, and a best-effort fast-forward of the primary checkout. It never switches a checkout and never throws.
+function cleanupDeliveredWorktree(cwd, run, issue, current, workdir, env) {
+  const lines = [];
+  const remoteWarning = deleteRemoteDeliveredBranch(cwd, run, current.branch, current.head);
+  if (remoteWarning) lines.push(`#${issue}: remote branch cleanup skipped: ${remoteWarning}`);
+  let dirty;
+  try { dirty = dirtyOutsideRuntime(workdir, run); } catch { dirty = true; }
+  if (dirty) return [...lines, `#${issue}: worktree cleanup skipped: worktree_dirty (${workdir})`];
+  const removal = removeWorktree({ cwd, branch: current.branch, run, env });
+  lines.push(...removal.lines.map((line) => `#${issue}: ${line}`));
+  let forwarded = null;
+  try {
+    const base = defaultBranchName(cwd, run);
+    if (fastForwardPrimary({ cwd, base, run })) forwarded = base;
+  } catch { /* the fast-forward is best-effort */ }
+  if (removal.removed) lines.push(`#${issue}: worktree cleanup: removed ${current.branch}${forwarded ? ` and fast-forwarded ${forwarded}` : ''}`);
+  return lines;
+}
+// A run started inside the issue's own linked worktree cannot switch it to the default branch or remove it from
+// under itself: only the remote branch is cleaned up, and the worktree is named for the operator.
+function cleanupInsideWorktree(cwd, run, issue, current) {
+  const remoteWarning = deleteRemoteDeliveredBranch(cwd, run, current.branch, current.head);
+  return [...(remoteWarning ? [`#${issue}: remote branch cleanup skipped: ${remoteWarning}`] : []),
+    `#${issue}: worktree cleanup skipped: run_inside_worktree (${cwd})`];
+}
+/** Whether a passed review still covers `head`: it was finalized at this head, or only merges of the default branch
+ * and controller commits (version preparation, the verification report) have landed since. */
+function reviewCurrent(cwd, run, issue, head) {
+  const record = readReview(cwd, issue);
+  if (record?.status !== 'passed' || !SHA.test(record.headSha ?? '')) return false;
+  if (record.headSha === head) return true;
+  if (!succeeded(run('git', ['merge-base', '--is-ancestor', record.headSha, 'HEAD'], { cwd }))) return false;
+  const repair = repairPathsSince(cwd, run, record.headSha);
+  return Array.isArray(repair) && repair.length === 0;
+}
+/** Merges the freshly fetched remote default branch into the issue branch and publishes the result. Returns
+ * `current` when nothing was needed, `merged`, or `conflict` with the conflicting files after aborting the merge. */
+function integrateDefault(cwd, run, base) {
+  const ref = `refs/remotes/origin/${base}`;
+  if (!succeeded(run('git', ['fetch', '--quiet', '--no-tags', 'origin', `refs/heads/${base}:${ref}`], { cwd }))) {
+    throw new Error('default_branch_unreadable');
+  }
+  if (succeeded(run('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], { cwd }))) return { status: 'current' };
+  if (!succeeded(run('git', ['merge', '--no-edit', ref], { cwd }))) {
+    const conflicted = run('git', ['diff', '--name-only', '--diff-filter=U'], { cwd });
+    const files = String(conflicted?.stdout ?? '').split(/\r?\n/).filter(Boolean);
+    // The version is prepared after integration, so a conflict confined to the version artifacts takes the default
+    // branch's content; any other conflict goes back to implement.
+    const versionOnly = files.length > 0 && files.every((file) => VERSION_ARTIFACTS.includes(file));
+    if (!versionOnly || !succeeded(run('git', ['checkout', '--theirs', '--', ...files], { cwd }))
+      || !succeeded(run('git', ['add', '--', ...files], { cwd }))
+      || !succeeded(run('git', ['commit', '--no-edit'], { cwd }))) {
+      run('git', ['merge', '--abort'], { cwd });
+      return { status: 'conflict', files };
+    }
+    if (!succeeded(run('git', ['push', 'origin', 'HEAD'], { cwd }))) throw new Error('integration_push_failed');
+    return { status: 'merged', resolved: files };
+  }
+  if (!succeeded(run('git', ['push', 'origin', 'HEAD'], { cwd }))) throw new Error('integration_push_failed');
+  return { status: 'merged' };
+}
+/** Reverts the issue's version-preparation commit when the branch still carries one, and publishes the revert, so a
+ * branch that leaves the merge queue claims no version. Returns whether a revert was published. */
+function revertPreparedVersion(cwd, run, issue, base) {
+  const log = run('git', ['log', '--first-parent', '--format=%H%x09%s', `refs/remotes/origin/${base}..HEAD`], { cwd });
+  if (!succeeded(log)) return false;
+  const delivery = new RegExp(`^(?:feat|fix): deliver issue #${issue}$`);
+  for (const line of String(log.stdout ?? '').split(/\r?\n/).filter(Boolean)) {
+    const [sha, subject = ''] = line.split('\t');
+    if (subject.startsWith('Revert "') && subject.includes(`deliver issue #${issue}"`)) return false;
+    if (!delivery.test(subject)) continue;
+    if (!succeeded(run('git', ['revert', '--no-edit', sha], { cwd }))) {
+      run('git', ['revert', '--abort'], { cwd });
+      return false;
+    }
+    return succeeded(run('git', ['push', 'origin', 'HEAD'], { cwd }));
+  }
+  return false;
+}
 function readRegularEvidence(root, path, maxBytes) {
   const relativePath = relative(resolve(root), resolve(path));
   if (relativePath.startsWith('..') || relativePath.startsWith('/') || !relativePath) return null;
@@ -395,7 +498,7 @@ function gitDirOf(cwd, run) {
  * until it resumes, and one that did not is reminded once through the append path and awaited through its resumed
  * turn. Before it returns, the worker's tracked background commands and the git index lock must clear, so the
  * commits they made are visible to the stage report. */
-function awaitWorkerHandoff({ host, agentId, cwd, issue, step, prior, run = defaultRun,
+export function awaitWorkerHandoff({ host, agentId, cwd, issue, step, prior, run = defaultRun,
   waitFor = (args) => host.wait({ agentId, ...args }),
   pause = (args) => host.wait({ agentId, ...args, timeoutMs: CHECK_IN_SLICE_MS }) }) {
   const handoffPath = `${HANDOFF_DIR}/${issue}-${step}.json`;
@@ -409,21 +512,30 @@ function awaitWorkerHandoff({ host, agentId, cwd, issue, step, prior, run = defa
 function awaitTurnEnd({ host, agentId, cwd, issue, step, prior, waitFor, handoffPath, waiting }) {
   const settle = () => ({ handoff: freshHandoff(cwd, issue, step, prior), state: workerState(host, agentId) });
   let reminded = false;
+  // What ends a wait on a settled worker besides its next turn: its marker is gone or its handoff has changed.
+  const changed = () => {
+    try { return !waitingMarker(waiting) || freshHandoff(cwd, issue, step, prior) !== null; } catch { return true; }
+  };
   for (;;) {
     waitFor({});
+    // The mark is read before the handoff, so a turn that starts after either read ends the wait below at once.
+    let mark = activityMark(host.activity(agentId));
     let observed = settle();
     if (observed.handoff || !SETTLED.includes(observed.state)) return observed;
     if (!waitingMarker(waiting)) {
       if (reminded) return observed;
       // The reminder resumes the settled turn through append; the resumed turn must start within the bound.
-      const mark = activityMark(host.activity(agentId));
+      mark = activityMark(host.activity(agentId));
       if (!host.append({ agentId, text: reminderPrompt(handoffPath) })) return observed;
       reminded = true;
       if (waitFor({ until: 'started', since: mark, timeoutMs: RESUME_POLL_MS }).timedOut) return observed;
       continue;
     }
+    // A settled worker already counts as working, so the wait is for its next turn: it blocks between host polls
+    // until the worker starts one, its marker or handoff changes, or the resume bound passes.
     while (SETTLED.includes(observed.state) && waitingMarker(waiting)) {
-      waitFor({ until: 'working', timeoutMs: RESUME_POLL_MS });
+      waitFor({ until: 'started', since: mark, timeoutMs: RESUME_POLL_MS, changed });
+      mark = activityMark(host.activity(agentId));
       observed = settle();
       if (observed.handoff) return observed;
     }
@@ -707,7 +819,8 @@ function liveGateIntent(cwd, run, issue, head, report) {
  * runs unsupervised. */
 export function runExecute({ args = '', cwd = process.cwd(), env = process.env, run = defaultRun,
   host = null, supervisorSession, processApi = process, onLeaseAcquired = () => {},
-  supervise = null, now = Date.now, checkInMs } = {}) {
+  supervise = null, now = Date.now, checkInMs,
+  sleep = (milliseconds) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds); } } = {}) {
   const fail = (reason, status = 1) => ({ status, stdout: '', stderr: `${reason}\n` });
   if (!host) return { status: 2, stdout: '', stderr: 'execute requires /sdlc-execute in a Claude Code session\n' };
   let selected;
@@ -720,16 +833,24 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
   if (!succeeded(run('gh', ['auth', 'status'], { cwd }))) return warned(fail('gh auth status failed'));
 
   const invocationId = randomUUID();
-  let lease;
-  try {
-    const previous = readControllerLease(cwd);
-    if (previous) reclaimStaleControllerLease({ projectRoot: cwd, runId: previous.runId, processApi, now });
-    lease = acquireControllerLease({ projectRoot: cwd, runId: invocationId, supervisorSession });
-    onLeaseAcquired(invocationId);
-  } catch (error) {
+  // The lease is held on the checkout an issue is worked in, so runs for different issues never contend for the
+  // invoking checkout. The supervising session's heartbeat stays under the invoking checkout (`sessionRoot`).
+  let lease = null;
+  let leaseRoot = null;
+  const dropLease = () => {
     if (lease) releaseControllerLease(lease);
-    return warned(fail(error?.reasonCode ?? error?.message ?? 'controller_lease_held'));
-  }
+    lease = null;
+    leaseRoot = null;
+  };
+  const holdLease = (root) => {
+    if (leaseRoot === root) return;
+    dropLease();
+    const previous = readControllerLease(root);
+    if (previous) reclaimStaleControllerLease({ projectRoot: root, runId: previous.runId, processApi, now });
+    lease = acquireControllerLease({ projectRoot: root, runId: invocationId, supervisorSession, sessionRoot: cwd });
+    leaseRoot = root;
+    onLeaseAcquired(invocationId, root);
+  };
   const interval = checkInMs ?? (selected.checkInSeconds ? selected.checkInSeconds * 1000 : DEFAULT_CHECK_IN_MS);
   const decide = (report) => {
     const decision = supervise(report);
@@ -742,7 +863,8 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
   };
   /** Waits for one dispatched stage subagent under supervision: check-in reports while it runs, then a stage
    * report at its settlement. Returns `{ handoff, state }` to accept, plus `decision` to re-dispatch or halt. */
-  const superviseWorker = ({ issue, step, host, agentId, name, prior, before, history }) => {
+  const superviseWorker = ({ issue, step, host, agentId, name, prior, before, history, workdir, overlaps = [] }) => {
+    const cwd = workdir;
     const handoffPath = `${HANDOFF_DIR}/${issue}-${step}.json`;
     const waitingPath = join(cwd, `${handoffPath}.waiting`);
     let specPath = null;
@@ -753,7 +875,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
     const dispatchedAt = now();
     const monitor = { lastCheckIn: dispatchedAt, activityAt: null, changedAt: dispatchedAt, activityReported: false, markerReported: null };
     const base = () => ({ issue, stage: step, worker: name, agentId, ...addedWork(cwd, run, before, specPath),
-      failureHistory: reportHistory(history) });
+      failureHistory: reportHistory(history), ...(overlaps.length ? { overlaps } : {}) });
     const guide = (decision, boundary) => host.append({ agentId,
       text: guidancePrompt({ issue, step, text: decision.text, handoffPath, boundary }) });
     const checkIn = () => {
@@ -859,9 +981,9 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
     const first = checkout(cwd, run);
     let active = parseIssueBranch(first.branch);
     if (active && selected.issues.length && selected.issues[0] !== active.issueNumber) {
-      if (!leaveDeliveredBranch(cwd, run, first, active)) {
-        throw new Error(`active_issue_conflict: branch ${first.branch} belongs to #${active.issueNumber}`);
-      }
+      // Another issue's branch is no conflict: the selected issues run in their own worktrees. A delivered, clean
+      // branch is still left for the default branch where this checkout can switch to it.
+      try { leaveDeliveredBranch(cwd, run, first, active); } catch { /* the checkout stays as it is */ }
       active = null;
     }
     let issues = selected.issues;
@@ -879,9 +1001,24 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
     for (const issue of issues) {
       let failure = null;
       const history = [];
+      // The checkout this issue is worked in, once it has one; until then the invoking checkout only starts it.
+      let workdir = null;
+      let queued = false;
+      let queueReported = false;
+      let overlaps = null;
       const recordFailure = (packet) => {
-        failure = { ...packet, ...observedSource(cwd, run) };
+        failure = { ...packet, ...observedSource(workdir ?? cwd, run) };
         history.push(failure);
+      };
+      const leaveQueue = () => {
+        try { leaveMergeQueue(cwd, issue, { run }); } catch { /* an unreadable queue holds no entry to remove */ }
+        queued = false;
+      };
+      // Repository-wide and host-wide state is informational: a failure to record it never stops delivery.
+      const inFlight = (stage, branch, declaredFiles) => {
+        try {
+          recordInFlight(cwd, { issue, branch, worktree: workdir ?? cwd, stage, session: supervisorSession ?? null, declaredFiles }, { run, env });
+        } catch { /* reported by status as absent */ }
       };
       let needsImplement = false;
       let requiresPrEvidence = false;
@@ -889,17 +1026,26 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
       let forced = null;
       let guidance = null;
       const implementedHeads = new Set();
+      try {
       for (;;) {
-        const current = checkout(cwd, run);
-        const branchIssue = parseIssueBranch(current.branch);
-        if (branchIssue && branchIssue.issueNumber !== issue) {
-          if (!leaveDeliveredBranch(cwd, run, current, branchIssue)) throw new Error('active_issue_conflict');
-          continue;
-        }
-        const evidence = branchIssue ? statusEvidence(cwd, run) : null;
-        if (branchIssue && completed(cwd, run, issue, current.branch, current.head)) {
+        if (!workdir || !existsSync(workdir)) workdir = issueWorkdir(cwd, run, issue);
+        const at = workdir ?? cwd;
+        if (workdir) holdLease(workdir);
+        const current = checkout(at, run);
+        const branchIssue = workdir ? parseIssueBranch(current.branch) : null;
+        if (workdir && branchIssue?.issueNumber !== issue) throw new Error('worker_branch_mismatch');
+        const evidence = branchIssue ? statusEvidence(at, run) : null;
+        if (branchIssue && completed(at, run, issue, current.branch, current.head)) {
           output.push(`#${issue}: MERGED and CLOSED`);
-          output.push(...cleanupDeliveredBranch(cwd, run, issue, current));
+          leaveQueue();
+          try { clearInFlight(cwd, issue, { run, env }); } catch { /* nothing recorded */ }
+          let linked = false;
+          try { linked = isLinkedWorktree(cwd, run); } catch { /* treated as the primary checkout */ }
+          if (!samePath(at, cwd)) {
+            // The worktree's lease goes before the worktree does.
+            dropLease();
+            output.push(...cleanupDeliveredWorktree(cwd, run, issue, current, at, env));
+          } else output.push(...(linked ? cleanupInsideWorktree(cwd, run, issue, current) : cleanupDeliveredBranch(cwd, run, issue, current)));
           break;
         }
         if (!branchIssue && !failure) {
@@ -913,12 +1059,31 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           const graph = readDependencyGraph(createIssueDependencyClient({ cwd, run }), [issue]);
           const dependency = issueDependencyStatus(graph, issue);
           if (dependency.status !== 'eligible') throw new Error(dependency.reasonCode ?? 'dependency_blocked');
-          const spec = specStatus(issue, cwd);
+          let spec = specStatus(issue, cwd);
+          if (!spec.approved) {
+            // A primary checkout behind the remote default branch may not hold the approved spec yet.
+            try { if (fastForwardPrimary({ cwd, base: defaultBranchName(cwd, run), run })) spec = specStatus(issue, cwd); } catch { /* best-effort */ }
+          }
           if (!spec.approved) throw new Error(`approved_spec_missing: #${issue} (${spec.reasonCode ?? 'no singular four-file Approved package'})`);
         }
+        if (overlaps === null) {
+          // At start, the spec's declared files are compared with those of the repository's in-flight issues.
+          overlaps = [];
+          try {
+            const dir = resolveSpecDir(at, issue);
+            const declaredFiles = dir ? declaredSpecEntries(at, relative(at, dir).split(sep).join('/')) : [];
+            overlaps = inFlightOverlaps(cwd, { issue, declaredFiles }, { run });
+            for (const overlap of overlaps) {
+              output.push(`#${issue}: overlaps in-flight #${overlap.issue} (${overlap.branch}) on ${overlap.files.join(', ')}`);
+            }
+            inFlight(branchIssue ? 'resumed' : 'start', branchIssue ? current.branch : '', declaredFiles);
+          } catch { /* overlap reporting never blocks the run */ }
+        }
         let step;
+        // A verify dispatch is a review (no validation) or, at the head of the merge queue, the pre-merge gate.
+        let phase = null;
         if (!branchIssue) {
-          if (dirtyOutsideRuntime(cwd, run)) throw new Error('active_issue_conflict: preserve dirty worktree');
+          // The invoking checkout is left as it is, clean or not: start-issue gives the issue its own worktree.
           step = 'start';
         } else {
           if (!evidence?.spec?.complete || ['repair_required', 'unverifiable'].includes(evidence.spec.scope?.status)) {
@@ -928,53 +1093,93 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           if (evidence.issue.dependency?.status !== 'eligible') {
             throw new Error(evidence.issue.dependency?.reasonCode ?? 'dependency_unreadable');
           }
-          const status = run('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd });
+          const status = run('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: at });
           if (!succeeded(status)) throw new Error('worktree_status_unavailable');
           const changedPaths = String(status.stdout ?? '').split(/\r?\n/).filter(Boolean)
             .map((line) => line.slice(3).split(' -> ').at(-1))
             .filter((path) => !path.startsWith('.nmg-sdlc/'));
           const dirtyReport = changedPaths.includes(evidence.verification?.path);
           const dirty = changedPaths.some((path) => path !== evidence.verification?.path);
-          const published = remoteHead(cwd, run, current.branch) === current.head;
+          const published = remoteHead(at, run, current.branch) === current.head;
           if (evidence.pullRequest?.state === 'OPEN' && evidence.pullRequest.isDraft === true) {
             requiresPrEvidence = true;
           }
-          if (registeredGateStatus(cwd, run, issue, current.head, evidence, { allowPending: true })
+          if (registeredGateStatus(at, run, issue, current.head, evidence, { allowPending: true })
             === 'pr_evidence_pending') requiresPrEvidence = true;
-          const gateStatus = registeredGateStatus(cwd, run, issue, current.head, evidence);
+          const gateStatus = registeredGateStatus(at, run, issue, current.head, evidence);
           const green = ['pass', 'pr_evidence_satisfied'].includes(gateStatus)
             && (!requiresPrEvidence || (gateStatus === 'pr_evidence_satisfied'
               && evidence.pullRequest?.state === 'OPEN'
               && evidence.pullRequest.isDraft === true
               && evidence.pullRequest.headRefOid === current.head));
           // A verify dispatched at this head whose gate result has not landed yet answers the older result.
-          const intentLive = liveGateIntent(cwd, run, issue, current.head, evidence.verification?.path);
+          const intentLive = liveGateIntent(at, run, issue, current.head, evidence.verification?.path);
           if (!failure && !forced && !dirty && published && !intentLive) {
-            const liveFailure = currentGateFailure(cwd, run, issue, current.head, evidence.verification?.path);
+            const liveFailure = currentGateFailure(at, run, issue, current.head, evidence.verification?.path);
             if (liveFailure) { recordFailure(liveFailure); needsImplement = true; }
           }
           // A branch with nothing on it relative to the default branch has nothing to verify yet.
-          const unimplemented = !implementedHeads.has(current.head) && !branchCommits(cwd, run, evidence);
+          const unimplemented = !implementedHeads.has(current.head) && !branchCommits(at, run, evidence);
           if (dirty || needsImplement || unimplemented || (!published && !green)) step = 'implement';
           else step = green && published && !dirtyReport ? 'deliver' : 'verify';
           if (intentLive && step !== 'implement') step = 'verify';
           // A re-dispatched verify runs again even where a green gate would deliver; a re-dispatched
           // deliver runs only where routing delivers, so no decision skips the full-green gate.
           if (forced === 'verify' && step === 'deliver') step = 'verify';
-          // The version commit lands before verification, so the registered gate runs at the
-          // head delivery merges; a new commit is verified before anything is delivered. The
-          // issue branch's merged spec PR shares its name, so only an open PR stops preparation.
-          if (['verify', 'deliver'].includes(step) && !dirty && !dirtyReport && published
-            && evidence.pullRequest?.state !== 'OPEN'
-            && prepareVersion(cwd, run, issue, invocationId) !== current.head) continue;
+          const base = evidence.project?.defaultBranch;
+          const noOpenPr = evidence.pullRequest?.state !== 'OPEN';
+          if (step === 'verify') phase = reviewCurrent(at, run, issue, current.head) ? 'gate' : 'review';
+          if (step === 'implement') {
+            // A branch that goes back to implement leaves the merge queue and gives up the version it prepared, so
+            // the next queue entry proceeds and no two branches claim one version.
+            const held = queued;
+            leaveQueue();
+            if ((held || failure) && base && noOpenPr && !dirty && published
+              && revertPreparedVersion(at, run, issue, base)) continue;
+          } else if (phase !== 'review' && !dirty && !dirtyReport && published) {
+            // Only the queue head integrates, prepares its version, validates and merges; every other entry waits.
+            const entry = () => enterMergeQueue(cwd, { issue, branch: current.branch, worktree: at,
+              session: supervisorSession ?? null }, { run });
+            let place = entry();
+            queued = true;
+            if (!place.head) {
+              if (!queueReported) output.push(`#${issue}: queued at position ${place.position} behind ${place.ahead.map((ahead) => `#${ahead}`).join(', ')}`);
+              queueReported = true;
+              inFlight('queued', current.branch);
+              while (!place.head) {
+                sleep(QUEUE_POLL_MS);
+                place = entry();
+              }
+              // The default branch moved while this branch waited, so its state is observed again.
+              continue;
+            }
+            if (step === 'verify' && base && noOpenPr) {
+              const integrated = integrateDefault(at, run, base);
+              if (integrated.status === 'conflict') {
+                recordFailure({ step: 'verify', head: current.head, reasonCode: 'queue_integration_conflict',
+                  summary: `merging origin/${base} into ${current.branch} at the head of the merge queue conflicts in ${integrated.files.join(', ') || 'unnamed files'}; merge origin/${base} into the branch, resolve the conflicts and publish`,
+                  artifacts: [] });
+                needsImplement = true;
+                continue;
+              }
+              if (integrated.resolved) output.push(`#${issue}: integration took origin/${base} for ${integrated.resolved.join(', ')}`);
+              if (integrated.status === 'merged') continue;
+            }
+            // The version commit lands at the queue head, after integration and before the pre-merge validations,
+            // so the registered gate runs at the head delivery merges. Only an open PR stops preparation.
+            if (noOpenPr && prepareVersion(at, run, issue, invocationId) !== current.head) continue;
+          }
         }
-        if (step === 'implement') inspectPublicationScope({ cwd, issue, spec: evidence.spec.path, step, run });
-        const path = join(cwd, HANDOFF_DIR, `${issue}-${step}.json`);
-        const prior = handoffSnapshot(cwd, path);
+        if (step === 'implement') inspectPublicationScope({ cwd: at, issue, spec: evidence.spec.path, step, run });
+        inFlight(phase ? `${step}:${phase}` : step, branchIssue ? current.branch : '');
+        const path = join(at, HANDOFF_DIR, `${issue}-${step}.json`);
+        const prior = handoffSnapshot(at, path);
         rmSync(`${path}.waiting`, { force: true });
         const name = `s${issue}-${step}-${invocationId.slice(0, 8)}`;
         const instructions = [
-          `Invocation ${invocationId}; branch ${current.branch}; observed HEAD ${current.head}.`,
+          `Invocation ${invocationId}; branch ${current.branch}; observed HEAD ${current.head}; checkout ${at}.`,
+          ...(phase === 'review' ? ['Verify phase: review. Complete the review checklist against the Approved spec and finalize it with sdlc-review.mjs. Run no steering validation in this phase: the pre-merge validations run once, later, at the head of the merge queue. Report every finding of every severity in the one handoff.'] : []),
+          ...(phase === 'gate' ? ['Verify phase: gate. The review already passed for this source. This branch is at the head of the merge queue with the default branch integrated and its version prepared: run the pre-merge validations once through the steering verification runner, write the report and finalize with --queue-gate. Do not repeat the review.'] : []),
           'Use the live branch, Approved spec, registered gate and remote. Ignore old run.json, safe-recoveries.json and handoffs.',
           ...(step === 'implement' ? ['Map every Approved AC to satisfied or remaining work before editing; preserve partial work and do not repeat published work.'] : []),
           ...(failure ? [
@@ -994,31 +1199,31 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
                 'Create/observe only the exact-head draft and required PR-only checks. Never mark ready, merge or close here. After real green draft evidence, publish a truthful Pass report and fresh handoff via the verifier.',
               ]
           ) : []),
-          workerPrompt({ step, issue, cwd, controllerRunId: invocationId }),
+          workerPrompt({ step, issue, cwd: at, controllerRunId: invocationId }),
         ].join('\n\n');
         // A verify dispatch is recorded before it starts, so a restart at this head resumes verify.
-        if (step === 'verify') writeGateIntent(cwd, { issue, head: current.head, dispatchedAt: now() });
+        if (step === 'verify') writeGateIntent(at, { issue, head: current.head, dispatchedAt: now() });
         // The spawn carries the whole worker prompt; the hooks module registers `execute-<entry>` with this model and effort.
         const { agentId } = host.spawn({
           issue, step, entry: entryName(step, failure), agent: STAGE_AGENTS[step], name,
           model: stageModel(step, failure, stageModels.config),
           effort: stageEffort(step, failure, stageModels.config) ?? null,
-          permissionMode: workerPermissionMode(env), prompt: instructions, cwd,
+          permissionMode: workerPermissionMode(env), prompt: instructions, cwd: at,
         });
         forced = null;
         guidance = null;
         const { handoff, state, decision } = supervise
-          ? superviseWorker({ issue, step, host, agentId, name, prior, before: current.head, history })
-          : awaitWorkerHandoff({ host, agentId, cwd, issue, step, prior, run });
+          ? superviseWorker({ issue, step, host, agentId, name, prior, before: current.head, history, workdir: at, overlaps: overlaps ?? [] })
+          : awaitWorkerHandoff({ host, agentId, cwd: at, issue, step, prior, run });
         host.finish();
         // A verify stage that completed without a redispatch or halt is answered, so its intent no longer applies.
-        if (step === 'verify' && !decision) clearGateIntent(cwd, issue);
+        if (step === 'verify' && !decision) clearGateIntent(at, issue);
         // A redispatch or halt stops the running subagent before its replacement starts or the run stops.
         if (decision?.action === 'redispatch' || decision?.action === 'halt') host.stop(agentId);
         if (decision?.action === 'halt') throw new Error(`supervisor_halt: ${decision.text}`);
         if (decision?.action === 'redispatch') {
           if (handoff && handoff.status !== 'passed') {
-            recordFailure({ step, head: checkout(cwd, run).head, reasonCode: handoff.reasonCode ?? 'failed',
+            recordFailure({ step, head: checkout(at, run).head, reasonCode: handoff.reasonCode ?? 'failed',
               summary: handoff.summary, artifacts: handoff.artifacts });
           }
           forced = step;
@@ -1030,26 +1235,40 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
         if (!handoff) {
           // The stage subagent ended before retry, and Git/GitHub must be re-observed
           // even when a worker lost its final acknowledgment.
-          const after = checkout(cwd, run);
-          if (branchIssue && completed(cwd, run, issue, current.branch, after.head)) continue;
+          const after = checkout(at, run);
+          if (branchIssue && completed(at, run, issue, current.branch, after.head)) continue;
           recordFailure({ step, head: after.head, reasonCode: lostReason(state),
             summary: 'worker ended without durable handoff; reconcile current source and remote', artifacts: [] });
           // A lost verify handoff is retried as verify; an implement repair would be told to change source for it.
           needsImplement = after.head === current.head && step === 'implement';
           continue;
         }
-        const after = checkout(cwd, run);
+        let after = checkout(at, run);
+        // A review that the finalizer closed: a passed one sends the branch to the merge queue for its gate.
+        const reviewed = step === 'verify' && handoff.phase === 'review';
         if (handoff.status === 'passed') {
-          if (handoff.intervention || handoff.next !== { start: 'implement', implement: 'verify',
-            verify: 'deliver', deliver: null }[step]) throw new Error('invalid_passed_handoff');
+          if (handoff.intervention || handoff.next !== (reviewed ? 'verify' : { start: 'implement', implement: 'verify',
+            verify: 'deliver', deliver: null }[step])) throw new Error('invalid_passed_handoff');
+          if (reviewed) {
+            if (after.branch !== current.branch || !reviewCurrent(at, run, issue, after.head)) throw new Error('review_handoff_unproven');
+            needsImplement = false;
+            failure = null;
+            output.push(`#${issue}: review passed`);
+            continue;
+          }
           if (step === 'start') {
+            // The issue's checkout is the worktree start-issue names, or the invoking checkout it used in place.
+            const started = issueWorkdir(cwd, run, issue);
+            if (!started || (handoff.worktree !== undefined && !samePath(handoff.worktree, started))) throw new Error('start_handoff_head_unproven');
+            after = checkout(started, run);
             if (parseIssueBranch(after.branch)?.issueNumber !== issue || handoff.branch !== after.branch
-              || handoff.head !== after.head || remoteHead(cwd, run, after.branch) !== after.head) {
+              || handoff.head !== after.head || remoteHead(started, run, after.branch) !== after.head) {
               throw new Error('start_handoff_head_unproven');
             }
+            workdir = started;
           } else if (after.branch !== current.branch || parseIssueBranch(after.branch)?.issueNumber !== issue) {
-            if (step !== 'deliver' || !completed(cwd, run, issue, current.branch, current.head)) throw new Error('worker_branch_mismatch');
-          } else if (step === 'implement' && remoteHead(cwd, run, after.branch) !== after.head) {
+            if (step !== 'deliver' || !completed(at, run, issue, current.branch, current.head)) throw new Error('worker_branch_mismatch');
+          } else if (step === 'implement' && remoteHead(at, run, after.branch) !== after.head) {
             throw new Error('implementation_not_published');
           }
           if (step === 'implement' && failure?.step === 'verify' && after.head === current.head) {
@@ -1060,8 +1279,8 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
             continue;
           }
           if (step === 'verify') {
-            const afterEvidence = statusEvidence(cwd, run);
-            const gateStatus = registeredGateStatus(cwd, run, issue, after.head, afterEvidence);
+            const afterEvidence = statusEvidence(at, run);
+            const gateStatus = registeredGateStatus(at, run, issue, after.head, afterEvidence);
             const green = ['pass', 'pr_evidence_satisfied'].includes(gateStatus)
               && (!requiresPrEvidence || (gateStatus === 'pr_evidence_satisfied'
                 && afterEvidence.pullRequest?.state === 'OPEN'
@@ -1069,7 +1288,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
                 && afterEvidence.pullRequest.headRefOid === after.head));
             if (!green) {
               const report = afterEvidence.verification?.path;
-              const reportStatus = report && run('git', ['status', '--porcelain=v1', '--', report], { cwd });
+              const reportStatus = report && run('git', ['status', '--porcelain=v1', '--', report], { cwd: at });
               const unpublished = reportStatus && succeeded(reportStatus) && String(reportStatus.stdout ?? '').trim();
               recordFailure({ step, head: after.head,
                 reasonCode: requiresPrEvidence ? 'pr_evidence_pending'
@@ -1085,7 +1304,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
             }
           }
           if (step === 'implement') implementedHeads.add(after.head);
-          if (step === 'deliver' && !completed(cwd, run, issue, current.branch, after.head)) {
+          if (step === 'deliver' && !completed(at, run, issue, current.branch, after.head)) {
             throw new Error('delivery_not_merged_and_closed');
           }
           needsImplement = false;
@@ -1093,10 +1312,10 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           output.push(`#${issue}: ${step} passed`);
           continue;
         }
-        if (step === 'verify' && handoff.status === 'failed') {
-          const afterEvidence = statusEvidence(cwd, run);
+        if (step === 'verify' && handoff.status === 'failed' && !reviewed) {
+          const afterEvidence = statusEvidence(at, run);
           if (handoff.reasonCode === 'pr_evidence_pending' && afterEvidence.verification?.status === 'pr_evidence_pending'
-            && after.head !== current.head && remoteHead(cwd, run, after.branch) === after.head) {
+            && after.head !== current.head && remoteHead(at, run, after.branch) === after.head) {
             requiresPrEvidence = true;
             recordFailure({ step, head: after.head, reasonCode: 'pr_evidence_pending',
               summary: 'draft evidence changed the source head; rerun registered verification on this head',
@@ -1104,7 +1323,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
             needsImplement = false;
             continue;
           }
-          if (gatePassed(cwd, run, issue, after.head, afterEvidence, { allowPending: true })) {
+          if (gatePassed(at, run, issue, after.head, afterEvidence, { allowPending: true })) {
             requiresPrEvidence = true;
             recordFailure({ step, head: after.head, reasonCode: 'pr_evidence_pending',
               summary: 'local registered gate passed; collect exact-head draft PR evidence before final Pass',
@@ -1120,7 +1339,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           summary: handoff.summary, artifacts: handoff.artifacts });
         if (step === 'deliver' && handoff.reasonCode === 'mergeability_reverification_required') {
           if (handoff.next !== 'verify' || after.head === current.head
-            || after.branch !== current.branch || remoteHead(cwd, run, after.branch) !== after.head) {
+            || after.branch !== current.branch || remoteHead(at, run, after.branch) !== after.head) {
             throw new Error('mergeability_reverification_unproven');
           }
           needsImplement = false;
@@ -1129,11 +1348,15 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
         needsImplement = step !== 'start';
         if (step === 'start') throw new Error(`${failure.reasonCode}: ${failure.summary}`);
       }
+      } finally {
+        // A run that stops, for any reason, never keeps a place in the merge queue.
+        if (queued) leaveQueue();
+      }
     }
     return warned({ status: 0, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: '' });
   } catch (error) { return warned(fail(error?.reasonCode ?? error?.message ?? 'controller_failed')); }
   finally {
-    releaseControllerLease(lease);
+    dropLease();
   }
 }
 

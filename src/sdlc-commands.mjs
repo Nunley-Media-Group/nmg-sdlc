@@ -29,6 +29,7 @@ export const AUTOMATED_ARGUMENT_HINTS = Object.freeze({
   "sdlc-status": "[--json]",
   "sdlc-verify-code": "[#N]",
   "sdlc-open-pr": "[#N]",
+  "sdlc-verify-full": "[REF] | check --action NAME --commit REF",
 });
 
 const REPAIR_COMMANDS = new Set(["sdlc-onboard-project", "sdlc-upgrade-project", "sdlc-steering"]);

@@ -20,6 +20,7 @@ export const AUTOMATED_COMMANDS = [
   ["sdlc-status", "status", "Report read-only SDLC status"],
   ["sdlc-verify-code", "verify-code", "Verify implementation against the approved spec"],
   ["sdlc-open-pr", "open-pr", "Deliver verified work through exact-head PR merge"],
+  ["sdlc-verify-full", "verify-full", "Run full-tier validations against a named ref"],
 ];
 
 // The Claude Code model alias each nmg-sdlc command runs on, except `/sdlc-execute`,
@@ -30,6 +31,7 @@ export const SDLC_MODELS = Object.freeze({
   commands: Object.freeze({
     "sdlc-status": "haiku",
     "sdlc-open-pr": "haiku",
+    "sdlc-verify-full": "haiku",
     "sdlc-verify-code": "opus",
     "sdlc-draft-issue": "opus",
     "sdlc-write-spec": "opus",

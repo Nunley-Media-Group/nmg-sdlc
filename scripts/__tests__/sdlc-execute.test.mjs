@@ -11,9 +11,12 @@ import { packageRoot } from '../../src/sdlc-workflows.mjs';
 import { STAGE_MODEL_DEFAULTS, STAGE_MODELS_PATH } from '../sdlc-models.mjs';
 import { inspectIssueSpecScope } from '../issue-spec-scope.mjs';
 import { canonicalJson } from '../../src/sdlc-steering-runtime.mjs';
+import { enterMergeQueue, leaveMergeQueue, listMergeQueue, recordInFlight } from '../sdlc-shared-state.mjs';
+import { ensureWorktree, listWorktrees } from '../sdlc-worktree.mjs';
 
 const roots = [];
-const env = {};
+// Host-wide state (the in-flight mirror) stays inside a temporary directory, never the developer's home.
+const env = { NMG_SDLC_HOST_STATE_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'execute-host-state-')) };
 // The committed project stage configuration every fixture starts with; `stageModels: null` leaves it absent.
 const DEFAULT_STAGE_MODELS_TEXT = `${JSON.stringify(STAGE_MODEL_DEFAULTS, null, 2)}\n`;
 const git = (root, ...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
@@ -103,7 +106,10 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
   fs.writeFileSync(path.join(runtime, 'run.json'), '{stale corrupted checkpoint');
   fs.writeFileSync(path.join(runtime, 'safe-recoveries.json'), '{stale corrupted ledger');
   const state = { merged: false, closed: false, starts: [], prompts: [], reminders: [], appends: [], stops: [], log: [],
-    waits: [], finished: 0, sourcePushes: 0, versionPreparations: [], commands: [] };
+    waits: [], finished: 0, sourcePushes: 0, versionPreparations: [], commands: [], workdir: root };
+  // The checkout the issue is worked in: the fixture root, or the worktree a start worker sets as `state.workdir`.
+  const at = () => state.workdir;
+  const runtimeAt = () => path.join(at(), '.nmg-sdlc');
   // `sdlc-deliver.mjs prepare-version`: synchronized (no commit) unless a test arranges a bump or a failure.
   let onPrepareVersion = () => null;
   const run = (command, args, options = {}) => {
@@ -113,10 +119,10 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
       return { status: response.status, stdout: response.stdout, stderr: response.stderr };
     }
     if (command === process.execPath && args[1] === 'prepare-version') {
-      state.versionPreparations.push({ args, head: git(root, 'rev-parse', 'HEAD') });
-      const outcome = onPrepareVersion({ state, root, publish });
+      state.versionPreparations.push({ args, head: git(at(), 'rev-parse', 'HEAD') });
+      const outcome = onPrepareVersion({ state, root: at(), publish });
       if (outcome) return outcome;
-      const prepared = { issue: 42, version: '1.0.0', headSha: git(root, 'rev-parse', 'HEAD'), changedPaths: [] };
+      const prepared = { issue: 42, version: '1.0.0', headSha: git(at(), 'rev-parse', 'HEAD'), changedPaths: [] };
       return result(`NMG_SDLC_VERSION_PREPARED: ${JSON.stringify(prepared)}\n`);
     }
     if (command !== 'gh') throw new Error(`unexpected binary ${command}`);
@@ -132,7 +138,7 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
         labels: state.labels ?? [{ name: 'spec-created' }], projectItems: { nodes: [] } });
     }
     if (args[0] === 'pr' && args[1] === 'list') return result(state.merged
-      ? [{ number: 9, state: 'MERGED', headRefName: '42-example', headRefOid: git(root, 'rev-parse', 'HEAD') }]
+      ? [{ number: 9, state: 'MERGED', headRefName: '42-example', headRefOid: git(at(), 'rev-parse', 'HEAD') }]
       : []);
     if (args[0] === 'pr' && args[1] === 'view') {
       const unknownField = ghPrViewUnknownField(args);
@@ -142,20 +148,24 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
         headRefName: '42-example', headRefOid: 'b'.repeat(40), closingIssuesReferences: [] });
       if (!state.merged && !state.draft) return { status: 1, stdout: '', stderr: 'no pull requests found for branch "42-example"\n' };
       if (state.draft && !state.merged) return result({ number: 9, state: 'OPEN',
-        isDraft: true, headRefName: '42-example', headRefOid: git(root, 'rev-parse', 'HEAD') });
+        isDraft: true, headRefName: '42-example', headRefOid: git(at(), 'rev-parse', 'HEAD') });
       return result({ number: 9, state: 'MERGED', headRefName: '42-example',
-        headRefOid: git(root, 'rev-parse', 'HEAD'), mergedAt: '2026-09-25T00:00:00Z',
+        headRefOid: git(at(), 'rev-parse', 'HEAD'), mergedAt: '2026-09-25T00:00:00Z',
         mergeCommit: { oid: 'a'.repeat(40) }, closingIssuesReferences: [{ number: 42 }] });
     }
     throw new Error(`unexpected gh ${args.join(' ')}`);
   };
   const publish = (message) => {
-    git(root, 'add', '.');
-    git(root, 'commit', '-m', message);
-    git(root, 'push', 'origin', 'HEAD:42-example');
+    git(at(), 'add', '.');
+    git(at(), 'commit', '-m', message);
+    git(at(), 'push', 'origin', 'HEAD:42-example');
     state.sourcePushes += 1;
   };
   const passGate = ({ satisfied = false } = {}) => {
+    const root = at();
+    const runtime = runtimeAt();
+    const specDir = path.join(root, specPath);
+    const manifestPath = path.join(root, 'steering/manifest.json');
     const head = git(root, 'rev-parse', 'HEAD');
     const scope = inspectIssueSpecScope({ projectRoot: root, specPath, issueNumber: 42 });
     const marker = { issueNumber: 42, specPath, status: scope.status,
@@ -198,13 +208,24 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
       git(root, 'push', 'origin', 'HEAD:42-example');
     }
   };
+  // The review finalizer's record for the current head: a passed review sends the branch to the merge queue.
+  const passReview = (status = 'passed') => {
+    fs.mkdirSync(path.join(runtimeAt(), 'verification'), { recursive: true });
+    fs.writeFileSync(path.join(runtimeAt(), 'verification/42-review.json'), JSON.stringify({ schemaVersion: 1, issue: 42,
+      specPath, headSha: git(at(), 'rev-parse', 'HEAD'), mode: 'full', rows: [], findings: [], lenses: [], status }));
+  };
   const writeHandoff = (step, outcome) => {
+    // A start handoff is written where the start worker ran: the invoking checkout.
+    const runtime = step === 'start' ? path.join(root, '.nmg-sdlc') : runtimeAt();
     fs.mkdirSync(path.join(runtime, 'handoffs'), { recursive: true });
     fs.writeFileSync(path.join(runtime, 'handoffs', `42-${step}.json`), JSON.stringify({ schemaVersion: 1,
       issue: 42, step, status: outcome.status, intervention: outcome.intervention ?? false,
       summary: outcome.summary ?? `${step} complete`, artifacts: outcome.artifacts ?? [],
       next: outcome.next ?? null, reasonCode: outcome.reasonCode ?? null,
-      ...(step === 'start' ? { branch: '42-example', head: git(root, 'rev-parse', 'HEAD') } : {}) }));
+      ...(outcome.phase ? { phase: outcome.phase } : {}),
+      ...(outcome.findings ? { findings: outcome.findings } : {}),
+      ...(step === 'start' ? { branch: '42-example', head: git(at(), 'rev-parse', 'HEAD'),
+        ...(at() === root ? {} : { worktree: at() }) } : {}) }));
   };
   // The controller's reminder to a worker that settled without a handoff; by default the worker ignores it.
   let onReminder = () => null;
@@ -239,7 +260,7 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
       const record = { schemaVersion: 1, agentId, step, status: 'idle', toolCalls: [], latestText: '',
         lastActivityAt: 0, slices: 0, slicesDone: 0, onSlice: null, onWait: null, onFinish: null };
       agents.set(agentId, record);
-      const outcome = onWorker({ step, prompt, state, root, publish, passGate, record });
+      const outcome = onWorker({ step, prompt, state, root, publish, passGate, passReview, record });
       if (outcome?.handoff !== false) writeHandoff(step, outcome);
       return { agentId };
     },
@@ -302,11 +323,21 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
       state.finished += 1;
     },
   };
-  return { root, state, run, host, hooks, publish, passGate, writeHandoff, setWorker: (fn) => { onWorker = fn; },
+  return { root, state, run, host, hooks, publish, passGate, passReview, writeHandoff, setWorker: (fn) => { onWorker = fn; },
     setPrepareVersion: (fn) => { onPrepareVersion = fn; },
     setReminder: (fn) => { onReminder = fn; },
     execute: (args = '', options = {}) => runExecute({ args, cwd: root, env, run, host, ...options }) };
 }
+
+// A worker that follows the verify phases: the review passes with no validation, then the gate runs at the queue head.
+const phasedWorker = (seen = () => {}) => ({ step, prompt, state, passGate, passReview }) => {
+  const phase = step !== 'verify' ? null : prompt.includes('Verify phase: gate.') ? 'gate' : 'review';
+  seen({ step, phase });
+  if (phase === 'review') { passReview(); return { status: 'passed', next: 'verify', phase: 'review' }; }
+  if (phase === 'gate') passGate();
+  if (step === 'deliver') { state.merged = true; state.closed = true; }
+  return { status: 'passed', next: { verify: 'deliver', deliver: null }[step] };
+};
 
 const ABSENT_STAGE_MODELS_WARNING = 'Warning: steering/sdlc-models.json is missing; using plugin default stage models and efforts. Run /sdlc-upgrade-project to create it.';
 
@@ -414,7 +445,8 @@ describe('stage subagent dispatch (#538)', () => {
     for (const [workerEnv, mode] of [[{ NMG_SDLC_WORKER_PERMISSION_MODE: 'dontAsk' }, 'dontAsk'],
       [{ NMG_SDLC_WORKER_PERMISSION_MODE: 'yolo' }, 'auto'], [{}, 'auto']]) {
       const f = fixture();
-      expect(f.execute('#42', { env: workerEnv })).toMatchObject({ status: 0 });
+      // The injected host state directory stays in the environment, so the run never records in the real ~/.nmg-sdlc.
+      expect(f.execute('#42', { env: { ...env, ...workerEnv } })).toMatchObject({ status: 0 });
       expect(f.state.starts.map((start) => start.permissionMode)).toEqual([mode, mode]);
     }
   });
@@ -541,7 +573,7 @@ describe('branch-first execute', () => {
     expect(fs.readFileSync(path.join(f.root, '.nmg-sdlc/run.json'), 'utf8')).toContain('stale corrupted');
   });
 
-  it('prepares the version before verification and verifies the version commit before delivery', () => {
+  it('prepares the version at the queue head, after the review and before the gate, and delivers the version commit', () => {
     const f = fixture();
     let bumped = false;
     f.setPrepareVersion(({ root, publish }) => {
@@ -552,16 +584,14 @@ describe('branch-first execute', () => {
       return null;
     });
     const heads = [];
-    f.setWorker(({ step, state, passGate }) => {
-      heads.push({ step, head: git(f.root, 'rev-parse', 'HEAD') });
-      if (step === 'verify') passGate();
-      if (step === 'deliver') { state.merged = true; state.closed = true; }
-      return { status: 'passed', next: { verify: 'deliver', deliver: null }[step] };
-    });
-    expect(f.execute('#42')).toMatchObject({ status: 0 });
-    expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['verify', 'deliver']);
-    // The verifier saw the version commit; the first preparation ran before any worker started.
-    expect(git(f.root, 'log', '-1', '--format=%s', heads[0].head)).toBe('feat: deliver issue #42');
+    f.setWorker(phasedWorker(({ step, phase }) => heads.push({ step, phase, head: git(f.root, 'rev-parse', 'HEAD'),
+      preparations: f.state.versionPreparations.length })));
+    expect(f.execute('#42')).toMatchObject({ status: 0, stdout: expect.stringContaining('#42: review passed\n#42: verify passed') });
+    expect(heads.map(({ step, phase }) => phase ?? step)).toEqual(['review', 'gate', 'deliver']);
+    // The review ran before any version was claimed; the gate and delivery saw the version commit.
+    expect(heads[0].preparations).toBe(0);
+    expect(git(f.root, 'log', '-1', '--format=%s', heads[0].head)).not.toBe('feat: deliver issue #42');
+    expect(git(f.root, 'log', '-1', '--format=%s', heads[1].head)).toBe('feat: deliver issue #42');
     expect(f.state.versionPreparations[0].args).toEqual([
       path.join(packageRoot, 'scripts', 'sdlc-deliver.mjs'), 'prepare-version', '--issue', '42',
       '--controller-run-id', expect.any(String),
@@ -571,7 +601,7 @@ describe('branch-first execute', () => {
     expect(git(f.root, 'log', '--format=%s', '--grep=deliver issue #42').split('\n')).toHaveLength(1);
   });
 
-  it('prepares the version although the merged spec PR shares the issue branch name', () => {
+  it('prepares the version although a merged spec PR shares the issue branch name', () => {
     const f = fixture();
     f.state.specPr = true;
     const heads = [];
@@ -581,19 +611,15 @@ describe('branch-first execute', () => {
       publish('feat: deliver issue #42');
       return null;
     });
-    f.setWorker(({ step, state, passGate }) => {
-      heads.push(git(f.root, 'rev-parse', 'HEAD'));
-      if (step === 'verify') passGate();
-      if (step === 'deliver') { state.merged = true; state.closed = true; }
-      return { status: 'passed', next: { verify: 'deliver', deliver: null }[step] };
-    });
+    f.setWorker(phasedWorker(({ phase }) => heads.push({ phase, head: git(f.root, 'rev-parse', 'HEAD') })));
     expect(f.execute('#42')).toMatchObject({ status: 0 });
-    expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['verify', 'deliver']);
-    expect(git(f.root, 'log', '-1', '--format=%s', heads[0])).toBe('feat: deliver issue #42');
+    expect(heads.map(({ phase }) => phase)).toEqual(['review', 'gate', null]);
+    expect(git(f.root, 'log', '-1', '--format=%s', heads[1].head)).toBe('feat: deliver issue #42');
   });
 
-  it('stops with the preparation reason and starts no worker when the version cannot be prepared', () => {
+  it('stops with the preparation reason after the review, starting no gate, when the version cannot be prepared', () => {
     const f = fixture();
+    f.setWorker(phasedWorker());
     f.setPrepareVersion(({ root }) => {
       fs.mkdirSync(path.join(root, '.nmg-sdlc/handoffs'), { recursive: true });
       fs.writeFileSync(path.join(root, '.nmg-sdlc/handoffs/42-deliver.json'), JSON.stringify({ reasonCode: 'major_bump_required' }));
@@ -602,11 +628,13 @@ describe('branch-first execute', () => {
     expect(f.execute('#42')).toMatchObject({
       status: 1, stderr: expect.stringContaining('version_preparation_failed: major_bump_required'),
     });
-    expect(f.state.starts).toEqual([]);
+    expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['verify']);
+    expect(f.state.prompts[0].prompt).toContain('Verify phase: review');
   });
 
-  it('prints the version_artifact_missing reason with the deliver handoff summary and starts no worker', () => {
+  it('prints the version_artifact_missing reason with the deliver handoff summary and starts no gate', () => {
     const f = fixture();
+    f.setWorker(phasedWorker());
     f.setPrepareVersion(({ root }) => {
       fs.mkdirSync(path.join(root, '.nmg-sdlc/handoffs'), { recursive: true });
       fs.writeFileSync(path.join(root, '.nmg-sdlc/handoffs/42-deliver.json'), JSON.stringify({
@@ -619,7 +647,7 @@ describe('branch-first execute', () => {
       status: 1,
       stderr: expect.stringContaining('version_preparation_failed: version_artifact_missing — CHANGELOG.md is missing'),
     });
-    expect(f.state.starts).toEqual([]);
+    expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['verify']);
   });
 
   it('keeps the bare reason when the preparation handoff carries no summary', () => {
@@ -801,7 +829,7 @@ describe('branch-first execute', () => {
     expect(f.state.starts).toEqual([]);
   });
 
-  it('keeps a dirty delivered issue branch instead of moving to the next queued issue', () => {
+  it('keeps a dirty delivered issue branch as it is and moves to the next issue without a conflict', () => {
     const f = fixture({ branch: 'main' });
     f.setWorker(({ step, root, publish, passGate, state }) => {
       if (step === 'start') {
@@ -819,7 +847,10 @@ describe('branch-first execute', () => {
       }
       throw new Error(step);
     });
-    expect(f.execute('#42 #43')).toMatchObject({ status: 1, stderr: expect.stringContaining('active_issue_conflict') });
+    // The next issue runs in its own worktree, so the kept branch is no conflict; the fixture knows no issue #43.
+    const response = f.execute('#42 #43');
+    expect(response).toMatchObject({ status: 1, stderr: 'delivery_evidence_unavailable: #43\n' });
+    expect(response.stderr).not.toContain('active_issue_conflict');
     expect(git(f.root, 'branch', '--show-current')).toBe('42-example');
     expect(fs.readFileSync(path.join(f.root, 'notes.txt'), 'utf8')).toBe('uncommitted\n');
   });
@@ -1003,10 +1034,14 @@ describe('branch-first execute', () => {
     expect(fs.readFileSync(path.join(f.root, 'helper.py'), 'utf8')).toContain('preserved partial change');
   });
 
-  it('rejects explicit different issue on active branch without starting a worker', () => {
+  it('leaves another issue\'s dirty branch untouched when a different issue is selected', () => {
     const f = fixture({ dirty: true });
-    expect(f.execute('#43')).toMatchObject({ status: 1, stderr: expect.stringContaining('active_issue_conflict') });
+    const before = git(f.root, 'status', '--porcelain');
+    // No conflict: the selected issue would get its own worktree. The fixture knows no issue #43, so nothing starts.
+    expect(f.execute('#43')).toEqual({ status: 1, stdout: '', stderr: 'delivery_evidence_unavailable: #43\n' });
     expect(f.state.starts).toEqual([]);
+    expect(git(f.root, 'branch', '--show-current')).toBe('42-example');
+    expect(git(f.root, 'status', '--porcelain')).toBe(before);
   });
 
   it('stops on a real intervention without treating it as another repair attempt', () => {
@@ -1099,7 +1134,7 @@ describe('worker supervision while its background work runs (#470)', () => {
     });
     expect(f.execute('#42')).toMatchObject({ status: 0 });
     expect(f.state.starts.map((entry) => entry.step)).toEqual(['verify', 'deliver']);
-    expect(f.state.waits).toContainEqual({ agentId: f.state.starts[0].agentId, until: 'working', timeoutMs: 60000 });
+    expect(f.state.waits).toContainEqual({ agentId: f.state.starts[0].agentId, until: 'started', timeoutMs: 60000 });
     expect(f.state.reminders).toEqual([]);
     expect(f.state.stops).toEqual([]);
   });
@@ -1547,18 +1582,17 @@ describe('stale local default branch (#502)', () => {
     expect(versionsBeforeImplement).toBe(0);
   });
 
-  it('routes a branch with real commits to verify, preparing the version first, despite the stale local default branch', () => {
+  it('routes a branch with real commits to review, then integrates the moved default branch and prepares the version before the gate', () => {
     const f = fixture();
     advanceOrigin(f.root);
-    let versionsBeforeVerify = null;
-    f.setWorker(({ step, state, passGate }) => {
-      if (step === 'verify') { versionsBeforeVerify = f.state.versionPreparations.length; passGate(); }
-      if (step === 'deliver') { state.merged = true; state.closed = true; }
-      return { status: 'passed', next: { verify: 'deliver', deliver: null }[step] };
-    });
+    const seen = [];
+    f.setWorker(phasedWorker(({ step, phase }) => seen.push({ stage: phase ?? step, preparations: f.state.versionPreparations.length,
+      integrated: spawnSync('git', ['merge-base', '--is-ancestor', 'origin/main', 'HEAD'], { cwd: f.root }).status === 0 })));
     expect(f.execute('#42')).toMatchObject({ status: 0 });
-    expect(steps(f)).toEqual(['verify', 'deliver']);
-    expect(versionsBeforeVerify).toBeGreaterThan(0);
+    expect(seen.map(({ stage }) => stage)).toEqual(['review', 'gate', 'deliver']);
+    expect(seen[0]).toMatchObject({ preparations: 0, integrated: false });
+    expect(seen[1].preparations).toBeGreaterThan(0);
+    expect(seen[1].integrated).toBe(true);
   });
 
   it('fails closed with default_branch_unreadable and starts no worker when the remote default ref cannot be fetched', () => {
@@ -1873,5 +1907,261 @@ describe('idle workers, prompt refusals, restart routing and background activity
     expect(checkIns.map((report) => report.reason)).not.toContain('activity_unchanged');
     expect(checkIns[0].activity.background).toEqual({ command: 'npm run gate', elapsedSeconds: expect.any(Number) });
     expect(checkIns[0].activity.background.elapsedSeconds).toBeGreaterThan(0);
+  });
+});
+
+describe('parallel delivery: worktrees, review-first verify and the merge queue (#551)', () => {
+  const stages = (f) => f.state.prompts.map(({ name, prompt }) => {
+    const step = name.split('-')[1];
+    return step !== 'verify' ? step : prompt.includes('Verify phase: gate.') ? 'gate' : 'review';
+  });
+  // A start worker that does what start-issue does: the issue gets its own worktree and the invoking checkout stays.
+  const worktreeStart = (f) => {
+    roots.push(`${f.root}-wt`);
+    const worktree = ensureWorktree({ cwd: f.root, branch: '42-example', base: 'main' });
+    git(worktree.path, 'push', '-u', 'origin', '42-example');
+    f.state.workdir = worktree.path;
+    return { status: 'passed', next: 'implement' };
+  };
+
+  it('works the issue in its own worktree and leaves a dirty primary checkout untouched (AC1)', () => {
+    const f = fixture({ branch: 'main' });
+    fs.writeFileSync(path.join(f.root, 'scratch.txt'), 'uncommitted local work\n');
+    fs.appendFileSync(path.join(f.root, 'README.md'), 'local edit\n');
+    const primary = () => ({ branch: git(f.root, 'branch', '--show-current'), head: git(f.root, 'rev-parse', 'HEAD'),
+      status: git(f.root, 'status', '--porcelain', '--', '.', ':(exclude).nmg-sdlc') });
+    const before = primary();
+    const leases = [];
+    f.setWorker((context) => {
+      if (context.step === 'start') return worktreeStart(f);
+      // Every later stage holds its lease on the worktree, never on the invoking checkout.
+      leases.push({ primary: fs.existsSync(path.join(f.root, '.nmg-sdlc/controller.lock')),
+        worktree: fs.existsSync(path.join(f.state.workdir, '.nmg-sdlc/controller.lock')) });
+      if (context.step === 'implement') {
+        fs.writeFileSync(path.join(f.state.workdir, 'helper.py'), 'def helper(): return 42\n');
+        context.publish('fix: implement #42');
+        return { status: 'passed', next: 'verify' };
+      }
+      return phasedWorker()(context);
+    });
+    const response = f.execute('#42');
+    expect(response).toMatchObject({ status: 0, stderr: '' });
+    expect(response.stdout).toContain('#42: MERGED and CLOSED\n#42: worktree cleanup: removed 42-example');
+    for (const reason of ['default_checkout_failed', 'issue_branch_unreadable', 'branch_checkout_failed', 'active_issue_conflict']) {
+      expect(response.stdout + response.stderr).not.toContain(reason);
+    }
+    expect(stages(f)).toEqual(['start', 'implement', 'review', 'gate', 'deliver']);
+    const worktree = fs.realpathSync(path.dirname(f.state.workdir)) && f.state.workdir;
+    expect(f.state.starts.map((start) => start.cwd)).toEqual([f.root, worktree, worktree, worktree, worktree]);
+    expect(leases).toEqual(leases.map(() => ({ primary: false, worktree: true })));
+    expect(primary()).toEqual(before);
+    // After delivery the worktree, its local branch and the remote branch are gone.
+    expect(fs.existsSync(worktree)).toBe(false);
+    expect(listWorktrees(f.root)).toHaveLength(1);
+    expect(git(f.root, 'branch', '--list', '42-example')).toBe('');
+    expect(git(f.root, 'ls-remote', '--heads', 'origin', '42-example')).toBe('');
+    expect(listMergeQueue(f.root)).toEqual([]);
+  });
+
+  it('resumes an existing worktree for the issue instead of starting it again (FR5)', () => {
+    const f = fixture({ branch: 'main' });
+    worktreeStart(f);
+    fs.writeFileSync(path.join(f.state.workdir, 'helper.py'), 'def helper(): return 7\n');
+    f.publish('fix: partial work from an abandoned run');
+    f.setWorker(phasedWorker());
+    expect(f.execute('#42')).toMatchObject({ status: 0 });
+    expect(stages(f)).toEqual(['review', 'gate', 'deliver']);
+    expect(git(f.root, 'branch', '--show-current')).toBe('main');
+  });
+
+  it('hands every review finding back in one handoff and runs no validation or version preparation (AC14)', () => {
+    const f = fixture();
+    let gates = 0;
+    let reviews = 0;
+    f.setWorker((context) => {
+      const phase = context.step !== 'verify' ? null : context.prompt.includes('Verify phase: gate.') ? 'gate' : 'review';
+      if (phase === 'review' && (reviews += 1) === 1) {
+        context.passReview('findings');
+        return { status: 'failed', phase: 'review', next: 'implement', reasonCode: 'review_findings',
+          summary: 'Review found 2 finding(s), 2 blocking, with no validation run: F1 [blocking] retry loop never backs off; F2 [blocking] empty input raises',
+          findings: [{ id: 'F1' }, { id: 'F2' }], artifacts: ['.nmg-sdlc/verification/42-review.json'] };
+      }
+      if (phase === 'gate') gates += 1;
+      if (context.step === 'implement') {
+        expect(gates).toBe(0);
+        expect(f.state.versionPreparations).toEqual([]);
+        fs.appendFileSync(path.join(f.root, 'helper.py'), '# both findings repaired\n');
+        context.publish('fix: repair review findings for #42');
+        return { status: 'passed', next: 'verify' };
+      }
+      return phasedWorker()(context);
+    });
+    expect(f.execute('#42')).toMatchObject({ status: 0 });
+    expect(stages(f)).toEqual(['review', 'implement', 'review', 'gate', 'deliver']);
+    const repair = f.state.prompts[1].prompt;
+    expect(repair).toContain('review_findings');
+    expect(repair).toContain('F1 [blocking] retry loop never backs off');
+    expect(repair).toContain('F2 [blocking] empty input raises');
+    expect(f.state.prompts[0].prompt).toContain('Run no steering validation in this phase');
+    expect(gates).toBe(1);
+  });
+
+  it('waits behind the queue head and runs no gate or version preparation until it is the head (AC3)', () => {
+    const f = fixture();
+    enterMergeQueue(f.root, { issue: 7, branch: '7-earlier', worktree: f.root });
+    f.setWorker(phasedWorker());
+    const waits = [];
+    const sleep = (milliseconds) => {
+      waits.push({ milliseconds, stages: stages(f), preparations: f.state.versionPreparations.length,
+        queue: listMergeQueue(f.root).map((entry) => entry.issue) });
+      // The head merges and leaves on the second poll.
+      if (waits.length === 2) leaveMergeQueue(f.root, 7);
+    };
+    const response = f.execute('#42', { sleep });
+    expect(response).toMatchObject({ status: 0 });
+    expect(response.stdout).toContain('#42: queued at position 2 behind #7\n');
+    expect(waits).toHaveLength(2);
+    for (const wait of waits) expect(wait).toMatchObject({ stages: ['review'], preparations: 0, queue: [7, 42] });
+    expect(stages(f)).toEqual(['review', 'gate', 'deliver']);
+    expect(listMergeQueue(f.root)).toEqual([]);
+  });
+
+  it('drops a queue entry whose controller is dead instead of waiting behind it', () => {
+    const f = fixture();
+    enterMergeQueue(f.root, { issue: 7, branch: '7-crashed', worktree: f.root, pid: 2 ** 22 + 12345 });
+    f.setWorker(phasedWorker());
+    const response = f.execute('#42', { sleep: () => { throw new Error('must not wait'); } });
+    expect(response).toMatchObject({ status: 0 });
+    expect(response.stdout).not.toContain('queued at position');
+  });
+
+  it('leaves the queue and gives up its version when the gate fails at the queue head (AC5, FR9)', () => {
+    const f = fixture();
+    let version = 1;
+    f.setPrepareVersion(({ root }) => {
+      const subjects = git(root, 'log', '--format=%s', 'origin/main..HEAD').split('\n');
+      const delivered = subjects.indexOf('feat: deliver issue #42');
+      const reverted = subjects.findIndex((subject) => subject.startsWith('Revert "feat: deliver issue #42"'));
+      if (delivered !== -1 && (reverted === -1 || delivered < reverted)) return null;
+      // Only the version artifact is committed, as prepare-version does; runtime state stays untracked.
+      fs.writeFileSync(path.join(root, 'VERSION'), `1.${version += 1}.0\n`);
+      git(root, 'add', 'VERSION');
+      git(root, 'commit', '-m', 'feat: deliver issue #42');
+      git(root, 'push', 'origin', 'HEAD:42-example');
+      return null;
+    });
+    let gates = 0;
+    let atImplement = null;
+    let delivered = null;
+    f.setWorker((context) => {
+      const phase = context.step !== 'verify' ? null : context.prompt.includes('Verify phase: gate.') ? 'gate' : 'review';
+      if (phase === 'gate' && (gates += 1) === 1) {
+        return { status: 'failed', next: 'implement', reasonCode: 'verification_not_green',
+          summary: 'repository.tests failed after integrating the default branch', artifacts: ['.nmg-sdlc/verification/42.json'] };
+      }
+      if (context.step === 'implement') {
+        atImplement = { queue: listMergeQueue(f.root).map((entry) => entry.issue),
+          subject: git(f.root, 'log', '-1', '--format=%s'), version: fs.existsSync(path.join(f.root, 'VERSION')),
+          published: git(f.root, 'rev-parse', 'HEAD') === git(f.root, 'ls-remote', '--heads', 'origin', '42-example').slice(0, 40) };
+        fs.appendFileSync(path.join(f.root, 'helper.py'), '# repaired\n');
+        git(f.root, 'add', 'helper.py');
+        git(f.root, 'commit', '-m', 'fix: repair the gate failure for #42');
+        git(f.root, 'push', 'origin', 'HEAD:42-example');
+        return { status: 'passed', next: 'verify' };
+      }
+      if (context.step === 'deliver') {
+        delivered = { subjects: git(f.root, 'log', '--format=%s', 'origin/main..HEAD').split('\n'),
+          version: fs.readFileSync(path.join(f.root, 'VERSION'), 'utf8') };
+      }
+      return phasedWorker()(context);
+    });
+    expect(f.execute('#42')).toMatchObject({ status: 0 });
+    expect(stages(f)).toEqual(['review', 'gate', 'implement', 'review', 'gate', 'deliver']);
+    // The failed head left the queue, so the next entry can proceed, and its version commit was reverted.
+    expect(atImplement).toEqual({ queue: [], subject: 'Revert "feat: deliver issue #42"', version: false, published: true });
+    expect(f.state.prompts[2].prompt).toContain('repository.tests failed after integrating the default branch');
+    // The branch that was delivered claimed a fresh version when it reached the queue head again.
+    expect(delivered.subjects.filter((subject) => subject === 'feat: deliver issue #42')).toHaveLength(2);
+    expect(delivered.version).toBe('1.3.0\n');
+  });
+
+  it('sends an integration conflict at the queue head back to implement with the conflicting files', () => {
+    const f = fixture();
+    const clone = fs.mkdtempSync(path.join(os.tmpdir(), 'execute-conflict-'));
+    roots.push(clone);
+    execFileSync('git', ['clone', '--quiet', '--branch', 'main', git(f.root, 'remote', 'get-url', 'origin'), clone], { encoding: 'utf8' });
+    git(clone, 'config', 'user.name', 'Controller Test');
+    git(clone, 'config', 'user.email', 'controller@example.test');
+    fs.writeFileSync(path.join(clone, 'helper.py'), 'def helper(): return "merged elsewhere"\n');
+    git(clone, 'add', '.');
+    git(clone, 'commit', '-m', 'feat: merge #9');
+    git(clone, 'push', 'origin', 'HEAD:main');
+    f.setWorker((context) => {
+      if (context.step === 'implement') {
+        expect(listMergeQueue(f.root)).toEqual([]);
+        expect(git(f.root, 'status', '--porcelain', '--', '.', ':(exclude).nmg-sdlc')).toBe('');
+        git(f.root, 'merge', '-X', 'ours', '--no-edit', 'origin/main');
+        fs.appendFileSync(path.join(f.root, 'helper.py'), '# conflict resolved\n');
+        context.publish('fix: integrate main for #42');
+        return { status: 'passed', next: 'verify' };
+      }
+      return phasedWorker()(context);
+    });
+    expect(f.execute('#42')).toMatchObject({ status: 0 });
+    expect(stages(f)).toEqual(['review', 'implement', 'review', 'gate', 'deliver']);
+    expect(f.state.prompts[1].prompt).toContain('integration_conflict');
+    expect(f.state.prompts[1].prompt).toContain('conflicts in helper.py');
+  });
+
+  it('takes the default branch content for a conflict confined to CHANGELOG.md at the queue head and keeps delivering', () => {
+    const f = fixture();
+    // The branch and the default branch each add their own CHANGELOG.md, so merging origin/main conflicts in it alone.
+    fs.writeFileSync(path.join(f.root, 'CHANGELOG.md'), '# Changelog\n\n## [Unreleased]\n\n- Branch entry (#42)\n');
+    f.publish('docs: changelog for #42');
+    const clone = fs.mkdtempSync(path.join(os.tmpdir(), 'execute-changelog-'));
+    roots.push(clone);
+    execFileSync('git', ['clone', '--quiet', '--branch', 'main', git(f.root, 'remote', 'get-url', 'origin'), clone], { encoding: 'utf8' });
+    git(clone, 'config', 'user.name', 'Controller Test');
+    git(clone, 'config', 'user.email', 'controller@example.test');
+    const merged = '# Changelog\n\n## [1.1.0]\n\n- Merged elsewhere (#9)\n';
+    fs.writeFileSync(path.join(clone, 'CHANGELOG.md'), merged);
+    git(clone, 'add', '.');
+    git(clone, 'commit', '-m', 'feat: merge #9');
+    git(clone, 'push', 'origin', 'HEAD:main');
+    const mainHead = git(clone, 'rev-parse', 'HEAD');
+    let atGate = null;
+    f.setWorker(phasedWorker(({ phase }) => {
+      if (phase !== 'gate') return;
+      atGate = { changelog: fs.readFileSync(path.join(f.root, 'CHANGELOG.md'), 'utf8'),
+        helper: fs.readFileSync(path.join(f.root, 'helper.py'), 'utf8'),
+        integrated: spawnSync('git', ['merge-base', '--is-ancestor', mainHead, 'HEAD'], { cwd: f.root }).status === 0,
+        clean: git(f.root, 'status', '--porcelain', '--', '.', ':(exclude).nmg-sdlc'),
+        published: git(f.root, 'rev-parse', 'HEAD') === git(f.root, 'ls-remote', '--heads', 'origin', '42-example').slice(0, 40),
+        queue: listMergeQueue(f.root).map((entry) => entry.issue) };
+    }));
+    const response = f.execute('#42');
+    expect(response).toMatchObject({ status: 0, stderr: '' });
+    expect(response.stdout).toContain('#42: integration took origin/main for CHANGELOG.md\n');
+    expect(response.stdout).not.toContain('queue_integration_conflict');
+    expect(response.stdout).toContain('#42: MERGED and CLOSED');
+    // No repair was dispatched: the branch stayed at the queue head and went straight to its gate.
+    expect(stages(f)).toEqual(['review', 'gate', 'deliver']);
+    expect(atGate).toEqual({ changelog: merged, helper: 'def helper(): return True\n', integrated: true, clean: '',
+      published: true, queue: [42] });
+    expect(listMergeQueue(f.root)).toEqual([]);
+  });
+
+  it('reports the files an in-flight issue also declares, at start and in supervised reports (AC6)', () => {
+    const f = fixture();
+    recordInFlight(f.root, { issue: 7, branch: '7-other', worktree: f.root, stage: 'implement',
+      declaredFiles: ['helper.py', 'docs/'] }, { env });
+    recordInFlight(f.root, { issue: 8, branch: '8-unrelated', worktree: f.root, stage: 'implement',
+      declaredFiles: ['elsewhere.py'] }, { env });
+    const reports = [];
+    const response = f.execute('#42', { supervise: (report) => { reports.push(report); return { action: 'accept' }; } });
+    expect(response).toMatchObject({ status: 0 });
+    expect(response.stdout).toContain('#42: overlaps in-flight #7 (7-other) on helper.py\n');
+    expect(response.stdout).not.toContain('#8');
+    expect(reports[0].overlaps).toEqual([{ issue: 7, branch: '7-other', files: ['helper.py'] }]);
   });
 });

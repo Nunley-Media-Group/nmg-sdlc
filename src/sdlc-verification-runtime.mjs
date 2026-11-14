@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
-import { canonicalJson, loadSteeringRuntime, SteeringError } from "./sdlc-steering-runtime.mjs";
+import { canonicalJson, loadSteeringRuntime, SteeringError, validationTier } from "./sdlc-steering-runtime.mjs";
+import { acquireHeavySlot } from "./heavy-pool.mjs";
 import { terminateOwnedProcessGroup, terminateOwnedProcessGroupAfterLeaderLoss } from "./process-supervision.mjs";
 
 const SAFE_ENV = ["HOME", "PATH", "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL", "CI"];
@@ -113,7 +114,7 @@ function dirtyIdentity(projectRoot) {
 }
 function identity(projectRoot, specDir, runtime, validation) {
   const headSha = git(projectRoot, ["rev-parse", "HEAD"]).stdout.trim();
-  return Object.freeze({ headSha, ...dirtyIdentity(projectRoot), specHash: specHash(specDir), steeringHash: runtime.steeringHash, validationConfigHash: hash(canonicalJson(validation)) });
+  return Object.freeze({ headSha, ...dirtyIdentity(projectRoot), specHash: specDir ? specHash(specDir) : null, steeringHash: runtime.steeringHash, validationConfigHash: hash(canonicalJson(validation)) });
 }
 function resultEnvelope(status, summary, requestIdentity, evidence = []) { return { schemaVersion: 1, status, summary, identity: requestIdentity, evidence }; }
 function validateProviderResult(result, requestIdentity) {
@@ -124,7 +125,9 @@ function validateProviderResult(result, requestIdentity) {
 }
 function commandProvider(request) {
   return new Promise((resolveResult) => {
-    const { program, args, cwd, env } = request.config;
+    const { program, cwd, env } = request.config;
+    // A change-tier selection replaces the arguments with the ones that run only the selected tests.
+    const args = request.command?.args ?? request.config.args;
     const absoluteCwd = resolve(request.projectRoot, cwd || ".");
     if (!(absoluteCwd === request.projectRoot || absoluteCwd.startsWith(`${request.projectRoot}/`))) return resolveResult(resultEnvelope("incomplete", "command cwd escapes project", request.identity));
     if (request.signal?.aborted) return resolveResult(resultEnvelope("incomplete", "command cancelled", request.identity));
@@ -311,48 +314,122 @@ function setupIdentity(root, specDir, runtime) {
   let headSha = null;
   let currentSpecHash = null;
   try { headSha = git(root, ["rev-parse", "HEAD"]).stdout.trim(); } catch {}
-  try { currentSpecHash = specHash(specDir); } catch {}
+  try { currentSpecHash = specDir ? specHash(specDir) : null; } catch {}
   return { headSha, steeringHash: runtime?.steeringHash ?? null, specHash: currentSpecHash };
 }
-export async function runSteeringValidations({ projectRoot, issue, specDir, baseRef = "main", verificationRunId = null, signal, spawnCommand } = {}) {
+/** Whether a validation runs in a `tier` run. A project that declares no tier runs everything in either. */
+export function runsInTier(tiered, validation, tier) {
+  return !tiered || validationTier(validation) === tier;
+}
+const MAX_SELECTED_TESTS = 5000;
+/**
+ * Decides what a change-tier validation with a selection command runs. Returns null without one, otherwise
+ * `{ run: "selected" | "full", provider, reason, fallbackPath, tests, selectedCount, dataAgeSeconds }`. The full
+ * command runs when a changed path matches a fallback path, the selection command fails or asks for everything, or
+ * its data is missing or stale.
+ */
+export function resolveSelection(validation, { projectRoot, paths, baseRef, runSync = spawnSync } = {}) {
+  const command = validation.selection;
+  if (!command) return null;
+  const provider = [command.program, ...command.args].join(" ");
+  const full = (reason, extra = {}) => ({ run: "full", provider, reason, fallbackPath: null, tests: [], selectedCount: null, dataAgeSeconds: null, ...extra });
+  const fallbackPath = paths.find((path) => matches(path, validation.fallbackPaths ?? []));
+  if (fallbackPath !== undefined) return full("fallback_path", { fallbackPath });
+  const env = Object.fromEntries(SAFE_ENV.filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
+  for (const key of command.env ?? []) if (process.env[key] !== undefined) env[key] = process.env[key];
+  let response;
+  try {
+    response = runSync(command.program, command.args, {
+      cwd: resolve(projectRoot, command.cwd || "."), env, shell: false, encoding: "utf8",
+      input: `${JSON.stringify({ schemaVersion: 1, validationId: validation.id, baseRef, changedPaths: paths })}\n`, maxBuffer: 64 * 1024 * 1024,
+    });
+  } catch { return full("selection_failed"); }
+  if (!response || response.error || response.status !== 0) return full("selection_failed");
+  let output;
+  try { output = JSON.parse(String(response.stdout ?? "")); } catch { return full("selection_failed"); }
+  if (!output || typeof output !== "object" || Array.isArray(output) || output.schemaVersion !== 1 || !["selected", "all"].includes(output.mode)
+    || !["fresh", "stale", "missing"].includes(output.dataStatus)
+    || !(output.dataAgeSeconds === null || (Number.isFinite(output.dataAgeSeconds) && output.dataAgeSeconds >= 0))) return full("selection_failed");
+  const dataAgeSeconds = output.dataAgeSeconds === null ? null : Math.round(output.dataAgeSeconds);
+  if (output.dataStatus !== "fresh") return full(`selection_data_${output.dataStatus}`, { dataAgeSeconds });
+  if (output.mode === "all") return full("selection_all", { dataAgeSeconds });
+  if (!Array.isArray(output.tests) || output.tests.length > MAX_SELECTED_TESTS || !output.tests.every((test) => typeof test === "string" && test)) return full("selection_failed");
+  const tests = [...new Set(output.tests)];
+  return { run: "selected", provider, reason: tests.length ? "selected" : "selection_empty", fallbackPath: null, tests, selectedCount: tests.length, dataAgeSeconds };
+}
+export async function runSteeringValidations({ projectRoot, issue, specDir, baseRef = "main", verificationRunId = null, signal, spawnCommand,
+  tier: requestedTier = "pre-merge", acquireSlot = acquireHeavySlot, runSync = spawnSync } = {}) {
   const root = resolve(projectRoot);
+  // `pre-merge` runs the untiered and `change` validations; `full` runs only the `full` ones.
+  const tier = requestedTier === "full" ? "full" : "change";
+  const recordedTier = tier === "full" ? "full" : "pre-merge";
+  // A full run belongs to a commit, not an issue: it has no spec, no base to diff against, and ignores changed-path conditions.
+  const whole = tier === "full" && (issue === undefined || issue === null);
+  const key = whole ? "full" : issue;
   let runtime;
   try {
     runtime = await loadSteeringRuntime(root);
-    const paths = changedPaths(root, baseRef);
+    const paths = whole ? [] : changedPaths(root, baseRef);
+    const applies = (validation) => runsInTier(runtime.tiered, validation, tier)
+      && ((whole && validation.when.kind === "changed_paths") || evaluateCondition(validation.when, { projectRoot: root, paths }));
     const resultById = new Map();
+    const base = (validation) => ({ id: validation.id, provider: validation.provider, required: validation.required,
+      tier: validation.tier ?? null, selection: null });
+    const requestFor = (validation, selection) => providerRequest({
+      schemaVersion: 1,
+      validationId: validation.id,
+      projectRoot: root,
+      logDir: `.nmg-sdlc/verification/${key}`,
+      config: structuredClone(validation.config),
+      ...(selection?.run === "selected" ? { command: { args: validation.config.args.concat(selection.tests) } } : {}),
+      identity: identity(root, specDir, runtime, validation),
+      verification: verificationRunId && !whole ? {
+        runId: verificationRunId,
+        issue: Number(issue),
+        specPath: relative(root, resolve(specDir)).split("\\").join("/"),
+      } : null,
+    }, signal, spawnCommand);
+    // Runs one applicable validation: its selection, its heavy-job slot, then the provider.
+    const execute = async (validation, deferred = false) => {
+      const selection = deferred ? null : resolveSelection(validation, { projectRoot: root, paths, baseRef, runSync });
+      const request = requestFor(validation, selection);
+      const recorded = selection ? { selection: { provider: selection.provider, reason: selection.reason, fallbackPath: selection.fallbackPath,
+        selectedCount: selection.selectedCount, dataAgeSeconds: selection.dataAgeSeconds } } : {};
+      if (deferred) {
+        const defer = resultEnvelope("incomplete", "deferred until required local validations pass", request.identity);
+        return { ...base(validation), applicable: true, effectiveStatus: "incomplete", request, result: defer };
+      }
+      let result;
+      let pool = null;
+      let held = null;
+      try {
+        if (selection?.reason === "selection_empty") {
+          result = resultEnvelope("passed", "the selection command selected no tests for this change", request.identity,
+            [{ kind: "selection", summary: "selection_empty: 0 tests selected", headSha: request.identity.headSha }]);
+        } else {
+          if (validation.heavy === true) {
+            held = await acquireSlot({ label: whole ? `${validation.id} (full)` : `${validation.id} (#${issue})`, projectRoot: root, issue: whole ? null : Number(issue), signal });
+            pool = { slot: held.slot, waitedMs: held.waitedMs };
+          }
+          result = validateProviderResult(await invokeProvider(runtime, validation, request), request.identity);
+          if (result.status === "skipped" || result.status === "not_applicable") result = resultEnvelope("incomplete", "applicable provider attempted to skip", request.identity);
+        }
+      } catch (error) {
+        result = resultEnvelope("incomplete", error.reasonCode ?? `provider crashed: ${error.message}`, request.identity);
+      } finally {
+        held?.release();
+      }
+      return { ...base(validation), applicable: true, effectiveStatus: result.status, ...recorded, ...(pool ? { heavy: pool } : {}), request, result };
+    };
     // Phase 1: run required local builtin.command validations first.
-    const localRequiredCommandIds = new Set();
     let localRequiredCommandsPassed = true;
     for (const validation of runtime.validations) {
-      const applicable = evaluateCondition(validation.when, { projectRoot: root, paths });
-      if (!applicable) {
-        resultById.set(validation.id, { id: validation.id, provider: validation.provider, required: validation.required, applicable: false, effectiveStatus: "skipped", result: null });
+      if (!applies(validation)) {
+        resultById.set(validation.id, { ...base(validation), applicable: false, effectiveStatus: "skipped", result: null });
         continue;
       }
       if (validation.provider === "builtin.command" && validation.required) {
-        localRequiredCommandIds.add(validation.id);
-        const request = providerRequest({
-          schemaVersion: 1,
-          validationId: validation.id,
-          projectRoot: root,
-          logDir: `.nmg-sdlc/verification/${issue}`,
-          config: structuredClone(validation.config),
-          identity: identity(root, specDir, runtime, validation),
-          verification: verificationRunId ? {
-            runId: verificationRunId,
-            issue: Number(issue),
-            specPath: relative(root, resolve(specDir)).split("\\").join("/"),
-          } : null,
-        }, signal, spawnCommand);
-        let result;
-        try {
-          result = validateProviderResult(await invokeProvider(runtime, validation, request), request.identity);
-          if (result.status === "skipped" || result.status === "not_applicable") result = resultEnvelope("incomplete", "applicable provider attempted to skip", request.identity);
-        } catch (error) {
-          result = resultEnvelope("incomplete", error.reasonCode ?? `provider crashed: ${error.message}`, request.identity);
-        }
-        const entry = { id: validation.id, provider: validation.provider, required: validation.required, applicable: true, effectiveStatus: result.status, request, result };
+        const entry = await execute(validation);
         resultById.set(validation.id, entry);
         if (entry.effectiveStatus !== "passed") localRequiredCommandsPassed = false;
       }
@@ -360,47 +437,18 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
     // Phase 2: non-local-required applicable validations.
     for (const validation of runtime.validations) {
       if (resultById.has(validation.id)) continue;
-      const applicable = evaluateCondition(validation.when, { projectRoot: root, paths });
-      if (!applicable) continue; // already set
-      const request = providerRequest({
-        schemaVersion: 1,
-        validationId: validation.id,
-        projectRoot: root,
-        logDir: `.nmg-sdlc/verification/${issue}`,
-        config: structuredClone(validation.config),
-        identity: identity(root, specDir, runtime, validation),
-        verification: verificationRunId ? {
-          runId: verificationRunId,
-          issue: Number(issue),
-          specPath: relative(root, resolve(specDir)).split("\\").join("/"),
-        } : null,
-      }, signal, spawnCommand);
-      let entry;
       const isProjectProvider = !String(validation.provider).startsWith("builtin.");
-      if (isProjectProvider && !localRequiredCommandsPassed) {
-        const defer = resultEnvelope("incomplete", "deferred until required local validations pass", request.identity);
-        entry = { id: validation.id, provider: validation.provider, required: validation.required, applicable: true, effectiveStatus: "incomplete", request, result: defer };
-      } else {
-        let result;
-        try {
-          result = validateProviderResult(await invokeProvider(runtime, validation, request), request.identity);
-          if (result.status === "skipped" || result.status === "not_applicable") result = resultEnvelope("incomplete", "applicable provider attempted to skip", request.identity);
-        } catch (error) {
-          result = resultEnvelope("incomplete", error.reasonCode ?? `provider crashed: ${error.message}`, request.identity);
-        }
-        entry = { id: validation.id, provider: validation.provider, required: validation.required, applicable: true, effectiveStatus: result.status, request, result };
-      }
-      resultById.set(validation.id, entry);
+      resultById.set(validation.id, await execute(validation, isProjectProvider && !localRequiredCommandsPassed));
     }
     const results = runtime.validations.map((v) => resultById.get(v.id)).filter(Boolean);
     const coverage = validationResultCoverage(runtime.validations, results);
-    const artifact = { schemaVersion: 1, issue: Number(issue), generatedAt: new Date().toISOString(), identity: setupIdentity(root, specDir, runtime), baseRef, ceiling: verificationCeiling(results, coverage), changedPaths: paths, coverage, results };
-    writeVerificationArtifact(root, issue, artifact);
+    const artifact = { schemaVersion: 1, issue: whole ? null : Number(issue), generatedAt: new Date().toISOString(), identity: setupIdentity(root, specDir, runtime), baseRef: whole ? null : baseRef, ...(runtime.tiered || whole ? { tier: recordedTier } : {}), ceiling: verificationCeiling(results, coverage), changedPaths: paths, coverage, results };
+    writeVerificationArtifact(root, key, artifact);
     return artifact;
   } catch (error) {
     const artifact = {
       schemaVersion: 1,
-      issue: Number(issue),
+      issue: whole ? null : Number(issue),
       generatedAt: new Date().toISOString(),
       identity: setupIdentity(root, specDir, runtime),
       ceiling: "Incomplete",
@@ -411,7 +459,7 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
       },
       results: [],
     };
-    writeVerificationArtifact(root, issue, artifact);
+    writeVerificationArtifact(root, key, artifact);
     return artifact;
   }
 }

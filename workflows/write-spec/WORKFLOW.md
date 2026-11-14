@@ -63,8 +63,8 @@ For the initially selected issue, regardless of whether N came from `$ARGUMENTS`
 - If `spec.approved` and `issue.state` is closed, do not rewrite. Print `Spec already approved for closed issue #N. Open a new issue for follow-up work.` and stop.
 - Otherwise extract the eligible slice from the issue body, repository evidence, and steering before Interview. Apply the rendered `/sdlc-execute` eligibility algorithm to every candidate statement. Strip legal, policy, ownership-proof, attestation, sign-off, live-operation, and other externally owned obligations rather than relocating them.
 - Steering may resolve actual paths, interfaces, validation identities, and project conventions. Never copy its process, release, ownership, or verification-policy prose into generated files, and never treat steering as authority to exceed execute boundaries.
-- If no eligible software behavior remains, print exactly `Issue #N has no software requirements executable by /sdlc-execute after excluding non-software obligations.` and stop before writing a plan, calling `ExitPlanMode`, preparing a branch, writing files, committing, publishing, labeling, or merging.
-- When `spec.dir` identifies an open or undelivered existing package, revise `targetDir` in place and later append the revision to Change History. Never write into a directory whose leading number differs from N.
+- If no eligible software behavior remains, print exactly `Issue #N has no software requirements executable by /sdlc-execute after excluding non-software obligations.` and stop before writing a plan, calling `ExitPlanMode`, preparing a spec worktree, writing files, committing, publishing, labeling, or merging.
+- When `spec.dir` identifies an open or undelivered existing package, revise that package (at `targetDir` inside the spec worktree during Approval Behavior) and later append the revision to Change History. Never write into a directory whose leading number differs from N.
 
 ## Interview (max 3 asks per issue)
 
@@ -119,7 +119,7 @@ Cover every proposed AC, FR, task, and scenario in that table. Use only `retain`
 
 Before writing the plan or calling `ExitPlanMode`, audit the complete planned contents of `requirements.md`, `design.md`, `tasks.md`, and `feature.gherkin`. Reject retained rows with blank or unresolved ownership, mutation authority, proof, or prerequisite. Only retained or rewritten content enters the files. The feasibility table, omitted rows, and control-plane rows remain plan-only. No material product choice is deferred to execute.
 
-Every selected issue uses its own plan and its own `ExitPlanMode` call. Discovery and Interview are read-only. Do not run `default-branch` or `prepare`; write files; commit; push; create or merge a pull request; or apply labels for N before that issue's plan is approved.
+Every selected issue uses its own plan and its own `ExitPlanMode` call. Discovery and Interview are read-only. Do not run `prepare`; create a worktree or branch; write files; commit; push; create or merge a pull request; or apply labels for N before that issue's plan is approved.
 
 ## Approval Behavior (in plan execution after ExitPlanMode approval)
 
@@ -127,10 +127,10 @@ Plan approval in the `ExitPlanMode` dialog starts this execution. Approval may c
 
 Exact order after this issue's plan approval:
 
-1. `node "<plugin-root>/scripts/publish-approved-spec.mjs" prepare --issue N --name {N}-{slug}` (`{N}-{slug}` = basename of `targetDir`). Failure → stop, do not write files.
-2. Write/overwrite the four spec files with `**Status**: Approved` (existing frontmatter and Change History rules). Fail closed if any written `**Issue**` ≠ `#N`. Never write into a directory whose leading number ≠ `N`.
-3. `node "<plugin-root>/scripts/publish-approved-spec.mjs" commit-push --issue N --dir specs/{N}-{slug}`. Failure → stop; leave branch and files. Commit subject is exactly `docs: approve spec for #N`.
-4. `node "<plugin-root>/scripts/publish-approved-spec.mjs" merge --issue N --dir specs/{N}-{slug}`. Run it as the entire `Bash` call, verbatim and with `run_in_background: true`: no prefix, suffix, `;` or `&&` chaining, pipe, redirection, or `echo "exit=$?"`, since the `Bash` result already reports a non-zero exit. Backgrounding is what stops a slow CI wait from ending at the foreground `Bash` timeout. Wait for the task's completion notification with no timeout, polling, or stall rule: CI always ends in success or failure and the helper exits on either. Then read the task's complete output with a separate call. The nmg-sdlc hooks module recognizes the publication from that JSON's `issue` and `dir` fields, whether they arrive in the merge call or the read. Require and parse the complete JSON response even on non-zero exit. If the response is malformed, or non-zero without `merged: true`, print its `reasonCode` and stop; leave the spec branch and files. A response with `merged: true` means publication succeeded even when checkout or labeling failed: append `N` to `published[]` exactly once, print the PR number and `reasonCode`, run the matching remediation from `references/publish.md`, and report any remediation failure without rewriting or republishing the package. A successful response leaves the helper on the default branch.
+1. `node "<plugin-root>/scripts/publish-approved-spec.mjs" prepare --issue N --name {N}-{slug}` (`{N}-{slug}` = basename of `targetDir`). It creates, or reuses, the spec worktree on branch `spec/{N}-{slug}` from the remote default branch and returns its absolute `worktree` path and `specDir` (`<worktree>/specs/{N}-{slug}`). The current checkout is never switched and need not be clean. Failure → stop, do not write files.
+2. Write/overwrite the four spec files in `specDir`, inside the spec worktree and never in the current checkout, with `**Status**: Approved` (existing frontmatter and Change History rules). Fail closed if any written `**Issue**` ≠ `#N`. Never write into a directory whose leading number ≠ `N`.
+3. `node "<plugin-root>/scripts/publish-approved-spec.mjs" commit-push --issue N --dir specs/{N}-{slug}`, run from the current checkout; the helper commits and pushes in the spec worktree. Failure → stop; leave the spec worktree, branch, and files. Commit subject is exactly `docs: approve spec for #N`.
+4. `node "<plugin-root>/scripts/publish-approved-spec.mjs" merge --issue N --dir specs/{N}-{slug}`. Run it as the entire `Bash` call, verbatim and with `run_in_background: true`: no prefix, suffix, `;` or `&&` chaining, pipe, redirection, or `echo "exit=$?"`, since the `Bash` result already reports a non-zero exit. Backgrounding is what stops a slow CI wait from ending at the foreground `Bash` timeout. Wait for the task's completion notification with no timeout, polling, or stall rule: CI always ends in success or failure and the helper exits on either. Then read the task's complete output with a separate call. The nmg-sdlc hooks module recognizes the publication from that JSON's `issue` and `dir` fields, whether they arrive in the merge call or the read. Require and parse the complete JSON response even on non-zero exit. If the response is malformed, or non-zero without `merged: true`, print its `reasonCode` (for example `pr_scope_invalid` when the spec PR changes a file outside `specs/{N}-{slug}/`) and stop; leave the spec worktree, branch, and files for the next run to reuse. A response with `merged: true` means publication succeeded even when labeling failed: append `N` to `published[]` exactly once, print the PR number and `reasonCode`, run the matching remediation from `references/publish.md`, and report any remediation failure without rewriting or republishing the package. After the merge the helper removes the spec worktree and its branch and fast-forwards the primary checkout only when that is safe; it never checks out the default branch, and neither do you.
 5. If `N` was not already recorded from a post-merge failure, append it to in-memory `published[]`.
 6. End the execution turn after all documented post-merge remediation finishes. Do not call `candidates` or `AskUserQuestion` in this execution turn. After the turn ends with an empty prompt box, the nmg-sdlc hooks module runs `/plan` and submits the post-publication continuation prompt into native plan mode in the same TUI session; that plan-mode turn carries every `published[]` number and owns Continue/Finished.
 
@@ -160,13 +160,13 @@ Published specs: #<n> on <n>-<slug>[, ...]
 Next step: /sdlc-execute #<first-published>
 ```
 
-Stay on the repository default branch (the spec is already merged). End the reply by calling `ExitPlanMode` as its last action, with no other output after it and without another `AskUserQuestion`; the nmg-sdlc hooks module approves that one call, so plan mode ends without an approval dialog.
+Leave the current checkout on the branch it is on (the spec is already merged into the default branch). End the reply by calling `ExitPlanMode` as its last action, with no other output after it and without another `AskUserQuestion`; the nmg-sdlc hooks module approves that one call, so plan mode ends without an approval dialog.
 
 Continue / candidate / Other `#M`:
 
 - Parse `^#?([1-9]\d*)$`. Invalid → re-ask continue.
 - Already in `published[]` → print `Spec already approved for #M.` and re-ask.
-- Otherwise set N = M and rerun read-only Discovery. Do not call `default-branch` before M's plan is approved.
+- Otherwise set N = M and rerun read-only Discovery. Do not call `prepare` before M's plan is approved.
 - If Discovery returns `spec.approved`:
   - Closed issue → print `Spec already approved for closed issue #M. Open a new issue for follow-up work.` and re-ask.
   - Any other issue state → print `Spec already approved for #M.` and re-ask.

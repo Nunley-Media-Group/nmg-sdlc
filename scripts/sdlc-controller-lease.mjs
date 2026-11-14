@@ -101,7 +101,9 @@ export function reclaimStaleControllerLease({
     if (error?.code !== 'ESRCH') throw leaseError();
   }
 
-  if (typeof record.supervisorSession === 'string' && supervisorAlive(canonicalRoot, record.supervisorSession, now)) {
+  // A worktree's lease names the checkout that holds the supervising session's heartbeat.
+  const sessionRoot = typeof record.sessionRoot === 'string' && record.sessionRoot ? record.sessionRoot : canonicalRoot;
+  if (typeof record.supervisorSession === 'string' && supervisorAlive(sessionRoot, record.supervisorSession, now)) {
     throw leaseError();
   }
 
@@ -122,12 +124,14 @@ export function assertControllerLease({ projectRoot, runId }) {
   return lease;
 }
 
-/** Acquires the project lease. `supervisorSession` names an /sdlc-execute holder; otherwise `controllerPaneId` labels it. */
+/** Acquires the lease of one checkout. `supervisorSession` names an /sdlc-execute holder (whose heartbeat lives under
+ * `sessionRoot` when that is another checkout); otherwise `controllerPaneId` labels it. */
 export function acquireControllerLease({
   projectRoot,
   runId = randomUUID(),
   controllerPaneId,
   supervisorSession,
+  sessionRoot,
   pid = process.pid,
   startedAt = new Date().toISOString(),
 } = {}) {
@@ -141,6 +145,7 @@ export function acquireControllerLease({
     projectRoot: canonicalRoot,
     runId,
     ...holder,
+    ...(typeof sessionRoot === 'string' && sessionRoot ? { sessionRoot: realpathSync(sessionRoot) } : {}),
     pid,
     startedAt,
   };
