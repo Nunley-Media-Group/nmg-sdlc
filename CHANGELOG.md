@@ -12,6 +12,8 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.12.1] - 2026-11-14
+
 ### Fixed
 
 - Stop the `/sdlc-execute` controller busy-waiting at full CPU while a settled stage worker waits behind its `.waiting` marker: the wait now blocks until the worker starts a turn, the marker clears or a handoff arrives (#550)
