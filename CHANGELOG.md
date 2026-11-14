@@ -12,8 +12,6 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
-## [4.13.0] - 2026-11-13
-
 ### Added
 
 - Work each `/sdlc-execute` issue and each `/sdlc-write-spec` spec in its own git worktree created from the remote default branch, with spec work on a separate `spec/{N}-{slug}` branch whose PR is refused with `pr_scope_invalid` when it changes a file outside `specs/{N}-{slug}/`, an optional steering worktree `setup`/`teardown` command, removal of the worktree after delivery, and a primary checkout that is never switched and need not be clean (#551)
@@ -28,9 +26,11 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 - Verify now reviews first and validates last: the review must give a verdict to every row of a spec-derived checklist, hands every finding back to implement in one handoff without running a validation whenever one is `blocking`, `major` or `minor`, and after a repair re-checks only the listed findings and the repair diff unless the repair leaves their scope, as `scripts/sdlc-review-scope.mjs --issue N` reports (#551)
 - Prepare the version at the head of the merge queue instead of before verification, and hold the controller lease on the issue's worktree instead of the invoking checkout, so another issue's branch in the invoking checkout is no longer an `active_issue_conflict` (#551)
 
+## [4.12.1] - 2026-11-14
+
 ### Fixed
 
-- Stop the `/sdlc-execute` controller busy-waiting at full CPU while a settled stage worker waits behind its `.waiting` marker: the wait now blocks until the worker starts a turn, the marker clears or a fresh handoff appears (#550)
+- Stop the `/sdlc-execute` controller busy-waiting at full CPU while a settled stage worker waits behind its `.waiting` marker: the wait now blocks until the worker starts a turn, the marker clears or a handoff arrives (#550)
 
 ## [4.12.0] - 2026-11-13
 
