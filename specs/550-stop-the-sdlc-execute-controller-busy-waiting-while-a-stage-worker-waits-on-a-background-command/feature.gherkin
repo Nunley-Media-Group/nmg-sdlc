@@ -1,0 +1,35 @@
+**Issue**: #550
+**Date**: 2026-11-13
+**Status**: Approved
+**Author**: Claude Code
+**Related Spec**: specs/546-sdlc-execute-stop-losing-time-to-idle-workers-restarts-and-truncated-gate-evidence/
+
+# File: scripts/__tests__/execute-host.test.mjs, scripts/__tests__/sdlc-execute.test.mjs
+# Generated from: specs/550-stop-the-sdlc-execute-controller-busy-waiting-while-a-stage-worker-waits-on-a-background-command/requirements.md
+Feature: The execute controller blocks between polls while a worker waits behind its marker
+
+  @SCN001
+  Scenario: A settled worker behind a waiting marker does not spin the controller
+    Given a stage worker whose agent record is idle with a waiting marker and no fresh handoff
+    When the controller waits for that worker to resume
+    Then every host poll is followed by a sleep of at least the host poll interval
+    And the polls before the 60-second resume bound are bounded by the bound divided by the poll interval
+
+  @SCN002
+  Scenario: The worker's next turn is still observed promptly
+    Given a stage worker waiting behind its marker
+    When the worker starts a new turn and later writes a fresh handoff
+    Then the controller observes the resumed turn within one host poll and returns that handoff
+
+  @SCN003
+  Scenario: Check-ins continue during the wait
+    Given a worker waiting behind its marker for longer than the check-in interval
+    When the interval elapses
+    Then the controller issues the check-in report with the marker's command and age
+
+  @SCN004
+  Scenario: Existing settle and reminder behavior is preserved
+    Given a settled worker whose marker is removed
+    When the controller evaluates it
+    Then the reminder or stop handling runs as before
+    And waiting until working on an already-settled worker returns immediately

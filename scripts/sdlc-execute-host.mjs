@@ -138,9 +138,10 @@ export function createFileHost({ sessionDir, now = Date.now, sleep = pause } = {
     /**
      * Waits until the subagent is working (`until: 'working'`), has started a turn (`until: 'started'`: an active
      * status, or activity recorded after `since`), or has settled (no active status). Returns `{ timedOut }`; with
-     * no `timeoutMs` the wait has no deadline. A stale heartbeat throws.
+     * no `timeoutMs` the wait has no deadline. `changed`, when given, is checked at every poll and ends the wait
+     * when it returns true. A stale heartbeat throws.
      */
-    wait({ agentId, until, timeoutMs, since } = {}) {
+    wait({ agentId, until, timeoutMs, since, changed } = {}) {
       const deadline = timeoutMs === undefined ? Infinity : now() + timeoutMs;
       for (;;) {
         const record = agentRecord(agentId);
@@ -153,7 +154,7 @@ export function createFileHost({ sessionDir, now = Date.now, sleep = pause } = {
           : until === 'working'
             ? status !== null && status !== 'pending'
             : status !== null && !ACTIVE_AGENT_STATUSES.includes(status);
-        if (done) return { timedOut: false, record };
+        if (done || (typeof changed === 'function' && changed())) return { timedOut: false, record };
         if (now() >= deadline) return { timedOut: true, record };
         assertAlive();
         sleep(Math.max(1, Math.min(POLL_MS, deadline - now())));
