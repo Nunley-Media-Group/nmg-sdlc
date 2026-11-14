@@ -19,14 +19,18 @@ import {
 } from '../src/host-events.mjs'
 import {
   agentBody,
+  backgroundTaskOf,
   checkInNotice,
   emptyAgentRecord,
   executeResultPath,
   executeResultText,
   hostResponse,
   missingResultText,
+  recordBackgroundStart,
+  recordStepStart,
   recordToolCall,
   recordTurnEnd,
+  SETTLED_AGENT_STATUSES,
   stoppedWorkerDenial,
   validateHostRequest,
   type AgentRecord,
@@ -111,8 +115,6 @@ const NOTICE_IDLE_MS = 5_000
 const LATEST_TEXT_CHARS = 2_000
 // Tools a stage subagent may never call: it has no user to answer and no plan mode to enter or leave.
 const SUBAGENT_DISALLOWED = ['AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode']
-// Subagent statuses that end a stage turn; anything else at a turn end is recorded as idle.
-const SETTLED_STATUSES = ['idle', 'completed', 'failed', 'killed']
 // Subagent statuses that confirm a stop request.
 const STOPPED_STATUSES = ['killed', 'completed', 'failed']
 const SESSION_LINE = /^NMG_SDLC_EXECUTE_SESSION: ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/m
@@ -681,9 +683,9 @@ export const register: Register = on => {
       if (worker !== undefined) {
         const at = await $.clock.now()
         const agentId = e.agentId
-        void queueAgent(agentId, () => updateAgent($, worker.dir, agentId, (record) => ({
-          ...record, status: 'running', lastActivityAt: at, updatedAt: at,
-        }))).catch(() => undefined)
+        // A settled worker's next turn ends the background commands it was tracking.
+        void queueAgent(agentId, () => updateAgent($, worker.dir, agentId, (record) => recordStepStart(record, at)))
+          .catch(() => undefined)
       }
     } else {
       mainBusy = true
@@ -705,6 +707,16 @@ export const register: Register = on => {
           input: { command: call.command, file_path: call.file_path },
           at,
         }))).catch(() => undefined)
+        const ran = await next(e)
+        // A Bash call that moved to the background is tracked until the worker's next turn after it settles.
+        const taskId = backgroundTaskOf(String(call.tool ?? ''), (ran as unknown as { result?: unknown }).result)
+        if (taskId !== null) {
+          const startedAt = await $.clock.now()
+          void queueAgent(agentId, () => updateAgent($, worker.dir, agentId, (record) => recordBackgroundStart(record, {
+            taskId, command: call.command, at: startedAt,
+          }))).catch(() => undefined)
+        }
+        return ran
       }
     }
     return next(e)
@@ -794,7 +806,8 @@ export const register: Register = on => {
         const agentId = e.agentId
         const listed = await $.agent.list().catch(() => [])
         const listedStatus = listed.find((agent) => agent.id === agentId)?.status
-        const status = listedStatus !== undefined && SETTLED_STATUSES.includes(listedStatus) ? listedStatus : 'idle'
+        // A listed status that ends a stage turn is kept; anything else at a turn end is recorded as idle.
+        const status = listedStatus !== undefined && SETTLED_AGENT_STATUSES.includes(listedStatus) ? listedStatus : 'idle'
         await queueAgent(agentId, () => updateAgent($, worker.dir, agentId, (record) =>
           recordTurnEnd(record, { reason: e.reason, status, at })))
       }

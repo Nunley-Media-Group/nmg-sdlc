@@ -5,8 +5,8 @@
  * hooks-module subagents through the `host` transport (scripts/sdlc-execute-host.mjs). */
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { closeSync, constants as fsConstants, fstatSync, lstatSync, openSync, readFileSync, realpathSync, rmSync } from 'node:fs';
-import { join, relative, resolve, sep } from 'node:path';
+import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { defaultPromptRegistry, renderPrompt, writePromptProvenance } from '../src/sdlc-prompt-snippets.mjs';
 import { packageRoot } from '../src/sdlc-workflows.mjs';
 import { executeGoalCondition } from '../src/host-events.mjs';
@@ -26,8 +26,12 @@ export const VALID_STEPS = ['start', 'implement', 'verify', 'deliver'];
 export const REMEDIABLE_STEPS = ['implement', 'verify', 'deliver'];
 const SKILLS = { start: 'start-issue', implement: 'write-code', verify: 'verify-code', deliver: 'open-pr' };
 const HANDOFF_DIR = '.nmg-sdlc/handoffs';
+const GATE_INTENT_DIR = '.nmg-sdlc/execute/gate-intent';
 const MAX_HANDOFF_BYTES = 256 * 1024;
-// How often a worker that is waiting on its own background work is rechecked; the wait itself has no deadline.
+// The gate artifact holds bounded command evidence for every validation: stream tails, failure lines and log paths.
+const MAX_GATE_ARTIFACT_BYTES = 4 * 1024 * 1024;
+// How long a resumed or prompted worker may take to start a new turn, and how often a worker that is waiting on its
+// own background work is rechecked; the background wait itself has no deadline.
 const RESUME_POLL_MS = 60_000;
 const SHA = /^[0-9a-f]{40}$/;
 // A supervised worker is checked in on after this long without a handoff, or once its activity or
@@ -375,25 +379,47 @@ function waitingMarker(path) {
 function reminderPrompt(handoffPath) {
   return `nmg-sdlc controller: your turn ended without a handoff at ${handoffPath}. If a background command for this step is still running, write ${handoffPath}.waiting naming it and end your turn; you are resumed when it finishes. Otherwise finish the step now and write and validate the handoff.`;
 }
+/** The activity time a later start is measured from: the record's last activity, or 0 before any. */
+function activityMark(record) {
+  return Number.isSafeInteger(record?.lastActivityAt) ? record.lastActivityAt : 0;
+}
+/** The git directory of the checkout, resolved against `cwd`, or null when Git cannot name it. */
+function gitDirOf(cwd, run) {
+  const response = run('git', ['rev-parse', '--git-dir'], { cwd });
+  const value = String(response?.stdout ?? '').trim();
+  return succeeded(response) && value ? resolve(cwd, value) : null;
+}
 /** Supervises one dispatched stage subagent until it writes a fresh handoff or stops. A subagent settles
  * `idle`/`completed` whenever its turn ends, including while a `run_in_background` command it started is still
  * running, so a settled subagent without a handoff is not yet done: one that wrote its waiting marker is awaited
- * until it resumes, and one that did not is reminded once per resumption before it counts as stopped. */
-function awaitWorkerHandoff({ host, agentId, cwd, issue, step, prior,
-  waitFor = (args) => host.wait({ agentId, ...args }) }) {
+ * until it resumes, and one that did not is reminded once through the append path and awaited through its resumed
+ * turn. Before it returns, the worker's tracked background commands and the git index lock must clear, so the
+ * commits they made are visible to the stage report. */
+function awaitWorkerHandoff({ host, agentId, cwd, issue, step, prior, run = defaultRun,
+  waitFor = (args) => host.wait({ agentId, ...args }),
+  pause = (args) => host.wait({ agentId, ...args, timeoutMs: CHECK_IN_SLICE_MS }) }) {
   const handoffPath = `${HANDOFF_DIR}/${issue}-${step}.json`;
   const waiting = join(cwd, `${handoffPath}.waiting`);
-  const settle = () => ({ handoff: freshHandoff(cwd, issue, step, prior), state: workerState(host, agentId) });
   waitFor({ until: 'working' });
+  const observed = awaitTurnEnd({ host, agentId, cwd, issue, step, prior, waitFor, handoffPath, waiting });
+  settleCommits({ host, agentId, cwd, run, pause });
+  return observed;
+}
+// Waits for the worker's turn to end with a fresh handoff, a waiting marker, or a stop; see awaitWorkerHandoff.
+function awaitTurnEnd({ host, agentId, cwd, issue, step, prior, waitFor, handoffPath, waiting }) {
+  const settle = () => ({ handoff: freshHandoff(cwd, issue, step, prior), state: workerState(host, agentId) });
   let reminded = false;
   for (;;) {
     waitFor({});
     let observed = settle();
     if (observed.handoff || !SETTLED.includes(observed.state)) return observed;
     if (!waitingMarker(waiting)) {
-      if (reminded || !host.send({ agentId, text: reminderPrompt(handoffPath) })) return observed;
+      if (reminded) return observed;
+      // The reminder resumes the settled turn through append; the resumed turn must start within the bound.
+      const mark = activityMark(host.activity(agentId));
+      if (!host.append({ agentId, text: reminderPrompt(handoffPath) })) return observed;
       reminded = true;
-      waitFor({ until: 'working' });
+      if (waitFor({ until: 'started', since: mark, timeoutMs: RESUME_POLL_MS }).timedOut) return observed;
       continue;
     }
     while (SETTLED.includes(observed.state) && waitingMarker(waiting)) {
@@ -404,6 +430,20 @@ function awaitWorkerHandoff({ host, agentId, cwd, issue, step, prior,
     if (!SETTLED.includes(observed.state) && !ACTIVE_AGENT_STATUSES.includes(observed.state)) return observed;
     rmSync(waiting, { force: true });
     reminded = false;
+  }
+}
+// Holds the stage report until the worker tracks no background command and the git index is unlocked. An active
+// worker is waited on until it settles; a settled one is waited on until it starts a new turn, which ends its
+// tracked background commands. A worker that stopped is not waited on.
+function settleCommits({ host, agentId, cwd, run, pause }) {
+  const gitDir = gitDirOf(cwd, run);
+  for (;;) {
+    const record = host.activity(agentId);
+    const background = Array.isArray(record?.background) && record.background.length > 0;
+    const locked = gitDir !== null && existsSync(join(gitDir, 'index.lock'));
+    const state = workerState(host, agentId);
+    if ((!background && !locked) || (!SETTLED.includes(state) && !ACTIVE_AGENT_STATUSES.includes(state))) return;
+    pause(ACTIVE_AGENT_STATUSES.includes(state) ? {} : { until: 'started', since: activityMark(record) });
   }
 }
 // A supervisor decision taken at a check-in that ends the current wait.
@@ -522,7 +562,7 @@ function registeredGateStatus(cwd, run, issue, head, snapshot, { allowPending = 
     if (!succeeded(tracked) || !succeeded(status) || String(status.stdout ?? '').trim()) return null;
   }
   try {
-    const gate = readRegularEvidence(cwd, join(cwd, '.nmg-sdlc/verification', `${issue}.json`), 512 * 1024);
+    const gate = readRegularEvidence(cwd, join(cwd, '.nmg-sdlc/verification', `${issue}.json`), MAX_GATE_ARTIFACT_BYTES);
     const report = readRegularEvidence(cwd, join(cwd, reportPath), MAX_VERIFICATION_REPORT_BYTES);
     if (!gate || !report) return null;
     const artifact = JSON.parse(gate.bytes.toString('utf8'));
@@ -586,10 +626,23 @@ function prepareVersion(cwd, run, issue, invocationId) {
     : `version_preparation_failed: ${reason}`);
 }
 
+// The gate's failing results: their ids, the test failure lines extracted from their command output (first ten
+// named), and the full-output log files that hold them.
+function gateFailures(artifact) {
+  const failing = (artifact.results ?? []).filter((item) =>
+    item.required && item.applicable && item.effectiveStatus !== 'passed');
+  const evidence = failing.flatMap((item) => (Array.isArray(item.result?.evidence) ? item.result.evidence : []));
+  return {
+    ids: failing.map((item) => item.id),
+    failures: evidence.flatMap((entry) => (Array.isArray(entry?.failures) ? entry.failures : [])),
+    logs: evidence.filter((entry) => entry?.kind === 'command' && typeof entry.artifact === 'string')
+      .map((entry) => entry.artifact),
+  };
+}
 function currentGateFailure(cwd, run, issue, head, report) {
   try {
     const path = `.nmg-sdlc/verification/${issue}.json`;
-    const snapshot = readRegularEvidence(cwd, join(cwd, path), 512 * 1024);
+    const snapshot = readRegularEvidence(cwd, join(cwd, path), MAX_GATE_ARTIFACT_BYTES);
     if (!snapshot) return null;
     const artifact = JSON.parse(snapshot.bytes.toString('utf8'));
     const gateHead = sourceHeadForGate(cwd, run, head, report, artifact.identity?.headSha);
@@ -598,12 +651,53 @@ function currentGateFailure(cwd, run, issue, head, report) {
       expectedIssueNumber: issue, expectedHeadSha: gateHead,
     });
     if (artifact.ceiling === null && result.gaps.length === 0) return null;
-    const failing = (artifact.results ?? []).filter((item) =>
-      item.required && item.applicable && item.effectiveStatus !== 'passed').map((item) => item.id);
+    const { ids, failures, logs } = gateFailures(artifact);
+    const named = failures.length ? `; failures: ${failures.slice(0, 10).join(' | ')}` : '';
     return { step: 'verify', head, reasonCode: result.reasonCode ?? 'verification_not_green',
-      summary: `Current registered gate is ${artifact.ceiling ?? 'invalid'}: ${failing.join(', ') || result.gaps.join(', ')}`,
-      artifacts: [path, ...(report ? [report] : [])] };
+      summary: `Current registered gate is ${artifact.ceiling ?? 'invalid'}: ${ids.join(', ') || result.gaps.join(', ')}${named}`,
+      artifacts: [path, ...(report ? [report] : []), ...logs] };
   } catch { return null; }
+}
+
+// Gate intent: a verify dispatched at a head is recorded before it starts, so a controller restarted while it runs
+// resumes verify at that head rather than routing on the older failed result. Writes are atomic.
+function gateIntentPath(cwd, issue) { return join(cwd, GATE_INTENT_DIR, `${issue}.json`); }
+function writeGateIntent(cwd, { issue, head, dispatchedAt }) {
+  const path = gateIntentPath(cwd, issue);
+  mkdirSync(dirname(path), { recursive: true });
+  const temporary = `${path}.${process.pid}.tmp`;
+  writeFileSync(temporary, `${JSON.stringify({ schemaVersion: 1, issue, head, dispatchedAt }, null, 2)}\n`, 'utf8');
+  renameSync(temporary, path);
+}
+function readGateIntent(cwd, issue) {
+  try {
+    const snapshot = readRegularEvidence(cwd, gateIntentPath(cwd, issue), 4096);
+    if (!snapshot) return null;
+    const record = JSON.parse(snapshot.bytes.toString('utf8'));
+    return record?.schemaVersion === 1 && record.issue === issue && SHA.test(record.head ?? '')
+      && Number.isSafeInteger(record.dispatchedAt) ? record : null;
+  } catch { return null; }
+}
+function clearGateIntent(cwd, issue) { rmSync(gateIntentPath(cwd, issue), { force: true }); }
+function readGateArtifact(cwd, issue) {
+  try {
+    const snapshot = readRegularEvidence(cwd, join(cwd, '.nmg-sdlc/verification', `${issue}.json`), MAX_GATE_ARTIFACT_BYTES);
+    return snapshot ? JSON.parse(snapshot.bytes.toString('utf8')) : null;
+  } catch { return null; }
+}
+/** Whether a verify dispatched at `head` is still unanswered: its intent exists and no gate result newer than the
+ * dispatch has landed for that head. An intent for another head, or one a newer gate result answers, is removed. */
+function liveGateIntent(cwd, run, issue, head, report) {
+  const intent = readGateIntent(cwd, issue);
+  if (!intent) return false;
+  if (intent.head !== head) { clearGateIntent(cwd, issue); return false; }
+  const gate = readGateArtifact(cwd, issue);
+  const gateHead = gate ? sourceHeadForGate(cwd, run, head, report, gate.identity?.headSha) : null;
+  if (gateHead === head && Date.parse(gate.generatedAt) > intent.dispatchedAt) {
+    clearGateIntent(cwd, issue);
+    return false;
+  }
+  return true;
 }
 
 /** Runs execute to completion. Stage subagents are started, observed, steered and stopped through `host`
@@ -670,7 +764,10 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
         Object.assign(monitor, { activityAt, changedAt: at, activityReported: false });
       }
       const marker = waitingInfo(waitingPath, at);
-      const activityStalled = activityAt !== null && !monitor.activityReported && at - monitor.changedAt >= interval;
+      // A tracked background command is work in progress, so an unchanged activity time is not a stall.
+      const backgrounded = Array.isArray(record?.background) && record.background.length > 0;
+      const activityStalled = activityAt !== null && !monitor.activityReported && !backgrounded
+        && at - monitor.changedAt >= interval;
       const markerStale = Boolean(marker) && marker.ageSeconds * 1000 >= interval && monitor.markerReported !== marker.modified;
       const reason = at - monitor.lastCheckIn >= interval ? 'interval'
         : activityStalled ? 'activity_unchanged' : markerStale ? 'waiting_marker_stale' : null;
@@ -701,12 +798,18 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
         checkIn();
       }
     };
+    // One slice of waiting on the worker's background work; a slice that elapses is a check-in opportunity.
+    const pause = (args) => {
+      const response = host.wait({ agentId, ...args, timeoutMs: CHECK_IN_SLICE_MS });
+      if (response.timedOut) checkIn();
+      return response;
+    };
     let previous = prior;
     let latest = null;
     for (;;) {
       let observed;
       try {
-        observed = awaitWorkerHandoff({ host, agentId, cwd, issue, step, prior: previous, waitFor });
+        observed = awaitWorkerHandoff({ host, agentId, cwd, issue, step, prior: previous, run, waitFor, pause });
       } catch (error) {
         if (error instanceof SupervisorDecision) return { handoff: null, state: workerState(host, agentId), decision: error.decision };
         throw error;
@@ -714,7 +817,8 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
       // The turn has ended, so its running-worker marker goes before the stage report that names it.
       host.finish();
       const handoff = observed.handoff ?? latest;
-      let note = null;
+      // A prompt the worker could not take, or did not start a turn for within the bound, is reported on the next report.
+      let promptRefusal = null;
       for (;;) {
         const headAfter = headOf(cwd, run);
         let evidence = null;
@@ -726,13 +830,26 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
         const decision = decide({ kind: 'stage', ...base(), handoff, handoffFresh: Boolean(observed.handoff),
           workerState: observed.state, headBefore: before, headAfter, gate,
           ...(step === 'verify' ? { verification: verificationSummary(cwd, issue, evidence) } : {}),
-          note, decisions: observed.state ? STAGE_DECISIONS : STAGE_DECISIONS.filter((action) => action !== 'prompt') });
+          promptRefusal, decisions: observed.state && !promptRefusal ? STAGE_DECISIONS : STAGE_DECISIONS.filter((action) => action !== 'prompt') });
         if (decision.action === 'accept') return { handoff, state: observed.state };
         if (decision.action !== 'prompt') return { handoff, state: observed.state, decision };
         // Snapshot before prompting: the handoff the worker writes for this guidance counts as fresh.
         previous = handoffSnapshot(cwd, join(cwd, handoffPath));
-        if (guide(decision, true)) break;
-        note = 'guidance could not be delivered to the stage subagent';
+        const mark = activityMark(host.activity(agentId));
+        if (!guide(decision, true)) {
+          promptRefusal = { reasonCode: 'stage_prompt_undelivered', summary: 'the guidance could not be delivered to the stage subagent' };
+          continue;
+        }
+        let started;
+        try {
+          started = !waitFor({ until: 'started', since: mark, timeoutMs: RESUME_POLL_MS }).timedOut;
+        } catch (error) {
+          if (error instanceof SupervisorDecision) return { handoff, state: observed.state, decision: error.decision };
+          throw error;
+        }
+        if (started) break;
+        promptRefusal = { reasonCode: 'stage_prompt_not_resumed',
+          summary: `the stage subagent did not start a new turn within ${RESUME_POLL_MS / 1000} seconds of the guidance` };
       }
       latest = handoff;
     }
@@ -830,7 +947,9 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
               && evidence.pullRequest?.state === 'OPEN'
               && evidence.pullRequest.isDraft === true
               && evidence.pullRequest.headRefOid === current.head));
-          if (!failure && !forced && !dirty && published) {
+          // A verify dispatched at this head whose gate result has not landed yet answers the older result.
+          const intentLive = liveGateIntent(cwd, run, issue, current.head, evidence.verification?.path);
+          if (!failure && !forced && !dirty && published && !intentLive) {
             const liveFailure = currentGateFailure(cwd, run, issue, current.head, evidence.verification?.path);
             if (liveFailure) { recordFailure(liveFailure); needsImplement = true; }
           }
@@ -838,6 +957,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           const unimplemented = !implementedHeads.has(current.head) && !branchCommits(cwd, run, evidence);
           if (dirty || needsImplement || unimplemented || (!published && !green)) step = 'implement';
           else step = green && published && !dirtyReport ? 'deliver' : 'verify';
+          if (intentLive && step !== 'implement') step = 'verify';
           // A re-dispatched verify runs again even where a green gate would deliver; a re-dispatched
           // deliver runs only where routing delivers, so no decision skips the full-green gate.
           if (forced === 'verify' && step === 'deliver') step = 'verify';
@@ -876,6 +996,8 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           ) : []),
           workerPrompt({ step, issue, cwd, controllerRunId: invocationId }),
         ].join('\n\n');
+        // A verify dispatch is recorded before it starts, so a restart at this head resumes verify.
+        if (step === 'verify') writeGateIntent(cwd, { issue, head: current.head, dispatchedAt: now() });
         // The spawn carries the whole worker prompt; the hooks module registers `execute-<entry>` with this model and effort.
         const { agentId } = host.spawn({
           issue, step, entry: entryName(step, failure), agent: STAGE_AGENTS[step], name,
@@ -887,8 +1009,10 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
         guidance = null;
         const { handoff, state, decision } = supervise
           ? superviseWorker({ issue, step, host, agentId, name, prior, before: current.head, history })
-          : awaitWorkerHandoff({ host, agentId, cwd, issue, step, prior });
+          : awaitWorkerHandoff({ host, agentId, cwd, issue, step, prior, run });
         host.finish();
+        // A verify stage that completed without a redispatch or halt is answered, so its intent no longer applies.
+        if (step === 'verify' && !decision) clearGateIntent(cwd, issue);
         // A redispatch or halt stops the running subagent before its replacement starts or the run stops.
         if (decision?.action === 'redispatch' || decision?.action === 'halt') host.stop(agentId);
         if (decision?.action === 'halt') throw new Error(`supervisor_halt: ${decision.text}`);
