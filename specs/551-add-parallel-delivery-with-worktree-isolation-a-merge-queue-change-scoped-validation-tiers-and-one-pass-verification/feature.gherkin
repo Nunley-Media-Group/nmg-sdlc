@@ -1,0 +1,109 @@
+**Issue**: #551
+**Date**: 2026-11-13
+**Status**: Approved
+**Author**: Claude Code (write-spec)
+**Related Spec**: specs/546-sdlc-execute-stop-losing-time-to-idle-workers-restarts-and-truncated-gate-evidence/
+
+# File: scripts/__tests__/sdlc-worktree.test.mjs, scripts/__tests__/sdlc-merge-queue.test.mjs, scripts/__tests__/sdlc-verification-runtime.test.mjs, scripts/__tests__/sdlc-finalize-verification.test.mjs
+# Generated from: specs/551-add-parallel-delivery-with-worktree-isolation-a-merge-queue-change-scoped-validation-tiers-and-one-pass-verification/requirements.md
+Feature: Parallel delivery with worktrees, a merge queue, validation tiers and one-pass verification
+
+  @SCN001
+  Scenario: Concurrent runs use separate worktrees and leave the primary checkout untouched
+    Given a primary checkout on the default branch with uncommitted changes
+    When two execute runs for different issues and one spec publication start at the same time
+    Then each run uses its own worktree under the sibling worktree root created from the remote default branch
+    And no run reports default_checkout_failed, issue_branch_unreadable or branch_checkout_failed
+    And the primary checkout's branch, HEAD and status are unchanged
+
+  @SCN002
+  Scenario: Spec and code branches never collide
+    Given issue N has an open code PR on branch "{N}-{slug}"
+    When the spec for N is published
+    Then publication uses branch "spec/{N}-{slug}" and never merges the code PR
+
+  @SCN003
+  Scenario: Queue head integrates alone and validates once
+    Given branches A and B passed review and entered the merge queue in that order
+    When the queue processes them
+    Then B starts no pre-merge validation until A has merged
+    And each branch runs its pre-merge validations exactly once after merging the default branch
+
+  @SCN004
+  Scenario: Queued branches never share a version or conflict on the changelog
+    Given a project opted into changelog fragments and two queued branches with fragments
+    When both merge through the queue
+    Then the merges produce different versions, both fragments are assembled into CHANGELOG.md, and no integration conflicts
+
+  @SCN005
+  Scenario: A failing queue head leaves the queue
+    Given a queue head whose pre-merge validations fail after integrating the default branch
+    When the failure is recorded
+    Then the branch leaves the queue with reason "queue_gate_failed", its version commit is reverted, and it returns to implement
+    And the next queue entry proceeds
+
+  @SCN006
+  Scenario: Overlapping in-flight issues are reported at start
+    Given an in-flight issue M whose spec declares a file that issue N's spec also declares
+    When the controller starts issue N
+    Then the start stage report lists issue M and the overlapping files
+
+  @SCN007
+  Scenario: Heavy jobs share a host-wide pool
+    Given heavyJobSlots is 1 and two processes start heavy validations
+    When both start
+    Then the validations run one after the other, the second records its wait, and a dead holder's slot is reclaimed
+
+  @SCN008
+  Scenario: Status shows queue and pool state
+    Given in-flight worktrees, queued branches and heavy-job slot holders
+    When status runs with --json
+    Then the parallel object lists in-flight issues with stage and queue position, the queue, the slot holders and leftover worktrees
+
+  @SCN009
+  Scenario: Change tier runs selected tests outside fallback paths
+    Given a change-tier validation with a selection provider and fallback paths
+    When a change touches only non-fallback files and the provider returns a fresh selection
+    Then the selected tests run and the record shows tier, provider, reason "selected", count and data age
+
+  @SCN010
+  Scenario: Fallback paths and stale selection data run the full command
+    Given a change-tier validation with a selection provider and fallback paths
+    When a change touches a fallback path or the provider reports missing or stale data
+    Then the full command runs and the record states the fallback reason
+
+  @SCN011
+  Scenario: Full tier runs on demand and reports regressions
+    Given a full-tier validation
+    When /sdlc-verify-full runs against a ref and fails
+    Then the result is recorded for that commit and the commits since the last green full record are listed
+
+  @SCN012
+  Scenario: Downstream actions can require a full-green commit
+    Given steering declares the full-green action "deploy"
+    When the check runs for a commit
+    Then it answers green only when a passed full record exists at or after that commit
+
+  @SCN013
+  Scenario: Projects without tiers keep today's behaviour
+    Given validations that declare no tier
+    When the pre-merge gate runs
+    Then every required validation runs its full command and records no tier or selection
+
+  @SCN014
+  Scenario: One verify pass reports every finding without running validations
+    Given a change with two independent blocking defects
+    When verify runs once
+    Then one failed handoff reports both findings and no pre-merge validation runs
+
+  @SCN015
+  Scenario: Unevaluated checklist rows block the handoff
+    Given a review checklist with a row that has no verdict
+    When the finalizer receives the review
+    Then it refuses with "review_checklist_incomplete" and names the unevaluated rows
+
+  @SCN016
+  Scenario: Repair re-verification is scoped
+    Given a prior review with findings and a repair commit
+    When verify runs after the repair
+    Then the scope is "scoped" when the repair stays within the findings' files and "full" naming outside paths otherwise
