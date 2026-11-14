@@ -12,6 +12,8 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.13.0] - 2026-11-14
+
 ### Added
 
 - Work each `/sdlc-execute` issue and each `/sdlc-write-spec` spec in its own git worktree created from the remote default branch, with spec work on a separate `spec/{N}-{slug}` branch whose PR is refused with `pr_scope_invalid` when it changes a file outside `specs/{N}-{slug}/`, an optional steering worktree `setup`/`teardown` command, removal of the worktree after delivery, and a primary checkout that is never switched and need not be clean (#551)
