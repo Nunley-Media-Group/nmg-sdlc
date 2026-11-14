@@ -24,6 +24,8 @@ export function heartbeatFresh(record, now) {
 }
 /** Agent statuses that mean the subagent is still doing work. */
 export const ACTIVE_AGENT_STATUSES = Object.freeze(['pending', 'running', 'waiting']);
+/** Agent statuses that mean the subagent's turn has ended. */
+export const SETTLED_AGENT_STATUSES = Object.freeze(['idle', 'completed', 'failed', 'killed']);
 const RECENT_TOOL_CALLS = 10;
 const LATEST_TEXT_CHARS = 2000;
 const SUMMARY_CHARS = 200;
@@ -119,6 +121,19 @@ export function recordBackgroundStart(record, { taskId, command, at }) {
 /** The record with its backgrounded commands dropped, once the worker has settled and started a new turn. */
 export function clearBackground(record, at) {
   return { ...record, background: [], updatedAt: at };
+}
+
+/** The task id of a Bash call that the timeout or `run_in_background` moved to the background, or null. */
+export function backgroundTaskOf(tool, result) {
+  const taskId = result?.backgroundTaskId;
+  return tool === 'Bash' && typeof taskId === 'string' && taskId.length > 0 ? taskId : null;
+}
+
+/** The record as one of the worker's model steps starts: running, and a settled worker's next turn ends the
+ * background commands it was tracking. */
+export function recordStepStart(record, at) {
+  const kept = SETTLED_AGENT_STATUSES.includes(record.status) ? clearBackground(record, at) : record;
+  return { ...kept, status: 'running', lastActivityAt: at, updatedAt: at };
 }
 
 /** The activity object a check-in report carries: the status, recent tool calls, latest text, seconds since activity,

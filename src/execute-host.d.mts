@@ -5,6 +5,7 @@ export const REQUEST_KINDS: readonly ["spawn", "append", "send", "stop"];
 export const HOST_HEARTBEAT_MS: number;
 export function heartbeatFresh(record: { at?: unknown } | null | undefined, now: () => number): boolean;
 export const ACTIVE_AGENT_STATUSES: readonly ["pending", "running", "waiting"];
+export const SETTLED_AGENT_STATUSES: readonly string[];
 
 export type HostRequestCheck = { ok: true } | { ok: false; deny: string };
 
@@ -46,6 +47,8 @@ export function recordBackgroundStart(
   background: { taskId: string; command: unknown; at: number },
 ): AgentRecord;
 export function clearBackground(record: AgentRecord, at: number): AgentRecord;
+export function backgroundTaskOf(tool: string, result: unknown): string | null;
+export function recordStepStart(record: AgentRecord, at: number): AgentRecord;
 export function activityRecord(
   record: Partial<AgentRecord> | null | undefined,
   now: number,

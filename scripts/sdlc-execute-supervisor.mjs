@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createConnection, createServer } from 'node:net';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { packageRoot } from '../src/sdlc-workflows.mjs';
 import { heartbeatFresh } from '../src/execute-host.mjs';
@@ -39,6 +39,24 @@ const EXECUTE_CLI = join(packageRoot, 'scripts', 'sdlc-execute.mjs');
 
 export function sessionDirectory(cwd, session) {
   return join(cwd, '.nmg-sdlc', 'execute', session);
+}
+/** Removes a finished session's directory, and never throws. The hooks-module bridge can still be writing its
+ * heartbeat or a response there, so the directory is first moved aside: a writer that resolves the session path
+ * then finds nothing, and at most a write already in flight lands in the moved copy, whose ENOTEMPTY is retried. */
+export function removeSessionDirectory(dir) {
+  let target = join(dirname(dir), `.removing-${basename(dir)}-${process.pid}-${randomBytes(4).toString('hex')}`);
+  try {
+    renameSync(dir, target);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return true;
+    target = dir;
+  }
+  try {
+    rmSync(target, { recursive: true, force: true, maxRetries: 20, retryDelay: 25 });
+    return true;
+  } catch {
+    return false;
+  }
 }
 function sessionFromEnvironment(env = process.env) {
   return SESSION_PATTERN.test(env[SESSION_ENV] ?? '') ? env[SESSION_ENV] : null;
@@ -137,8 +155,8 @@ function runningOutput(session) {
 function terminalResult(dir, session) {
   const result = readJson(join(dir, 'result.json'));
   if (result?.session !== session || !Number.isInteger(result.status)) return null;
-  // Best effort: a late write into the directory must not turn a delivered result into a crash.
-  try { rmSync(dir, { recursive: true, force: true }); } catch { /* the directory is left for the next cleanup */ }
+  // A late write into the directory must not turn a delivered result into a crash.
+  removeSessionDirectory(dir);
   return { status: result.status, stdout: String(result.stdout ?? ''), stderr: String(result.stderr ?? '') };
 }
 // A running stage subagent: the supervising session ends its turn and is resumed by the hand-back or a check-in.
@@ -667,7 +685,7 @@ export async function superviseExecute({ args = '', cwd = process.cwd(), env = p
     }
     const value = await outcome;
     // The controller finished before any yield: its session holds nothing further.
-    if (session && value.stdout !== yielded) rmSync(sessionDirectory(cwd, session), { recursive: true, force: true });
+    if (session && value.stdout !== yielded) removeSessionDirectory(sessionDirectory(cwd, session));
     return value;
   } catch (error) {
     return { status: 1, stdout, stderr: `${stderr}${error.message}\n` };

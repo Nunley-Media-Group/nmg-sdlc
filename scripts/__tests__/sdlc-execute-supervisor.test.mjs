@@ -7,7 +7,7 @@ import path from 'node:path';
 import { createConnection } from 'node:net';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { fileSupervisor, resultLines } from '../sdlc-execute-supervisor.mjs';
+import { fileSupervisor, removeSessionDirectory, resultLines } from '../sdlc-execute-supervisor.mjs';
 import { validateHostRequest } from '../../src/execute-host.mjs';
 import { STAGE_MODEL_DEFAULTS, STAGE_MODELS_PATH } from '../sdlc-models.mjs';
 
@@ -825,5 +825,41 @@ describe('resultLines', () => {
     expect(resultLines({ status: 1, stdout: 'supervisor_halt: host disk full\n', stderr: '' }))
       .toEqual(['/sdlc-execute stopped: supervisor_halt: host disk full']);
     expect(resultLines({ status: 2, stdout: '', stderr: '' })).toEqual(['/sdlc-execute stopped: controller_failed']);
+  });
+});
+
+describe('removeSessionDirectory', () => {
+  // Stands in for the hooks-module bridge: it keeps landing heartbeats in the directory until the directory is gone.
+  const WRITER = `
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const dir = process.argv[1];
+    let n = 0;
+    for (;;) {
+      const temporary = path.join(dir, 'host.json.' + (n++) + '.tmp');
+      try { fs.writeFileSync(temporary, '{}'); fs.renameSync(temporary, path.join(dir, 'host.json')); }
+      catch { process.exit(0); }
+      if (n === 1) fs.writeFileSync(dir + '.ready', '');
+    }`;
+
+  it('removes a session directory that a concurrent heartbeat writer keeps writing into', async () => {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const dir = path.join(tempDir(), 'session');
+      fs.mkdirSync(dir);
+      for (let i = 0; i < 200; i += 1) fs.writeFileSync(path.join(dir, `report-${i}.json`), '{}');
+      const writer = spawn(process.execPath, ['-e', WRITER, dir], { stdio: 'ignore' });
+      try {
+        await until(() => fs.existsSync(`${dir}.ready`), 'the heartbeat writer starting');
+        expect(removeSessionDirectory(dir)).toBe(true);
+        expect(fs.existsSync(dir)).toBe(false);
+        expect(fs.readdirSync(path.dirname(dir)).filter((name) => name.startsWith('.removing-'))).toEqual([]);
+      } finally {
+        writer.kill('SIGKILL');
+      }
+    }
+  }, 60_000);
+
+  it('reports a missing directory as removed', () => {
+    expect(removeSessionDirectory(path.join(tempDir(), 'absent'))).toBe(true);
   });
 });

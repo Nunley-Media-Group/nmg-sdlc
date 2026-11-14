@@ -1,6 +1,15 @@
 import type { On } from 'claude-code'
 import { describe, expect, mock, test, type Engine } from 'claude-code/testing'
-import { executeResultPath } from '../src/execute-host.mjs'
+import {
+  activityRecord,
+  backgroundTaskOf,
+  emptyAgentRecord,
+  executeResultPath,
+  recordBackgroundStart,
+  recordStepStart,
+  recordToolCall,
+  recordTurnEnd,
+} from '../src/execute-host.mjs'
 
 const ROOT_TOKEN = '<plugin-root>'
 const FINISHED = 'Finished — stop writing specs'
@@ -656,6 +665,38 @@ describe('stage subagents', () => {
     expect(response(world, session, 2)).toEqual({
       schemaVersion: 1, session, n: 2, ok: false, deny: 'nmg-sdlc: stop not confirmed for worker-1: status running',
     })
+  })
+
+  // The kit starts no subagent, so the module's worker map stays empty; this drives the record transitions the
+  // module's tool.call, turn.complete and turn.step hooks apply to a worker, with the Bash result the engine returns.
+  test('a stage worker\'s backgrounded Bash call is recorded, kept through its turn end, and cleared on its next turn', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    world.bash.push({ command: 'npm test', stdout: '', backgroundTaskId: 'task-7', timedOutAfterMs: 120000 })
+    const backgrounded = await $.tool.call({ tool: 'Bash', command: 'npm test', agentId: 'worker-7' } as never)
+    const foreground = await $.tool.call({ tool: 'Bash', command: 'git status', agentId: 'worker-7' } as never)
+    const taskId = backgroundTaskOf('Bash', (backgrounded as unknown as { result?: unknown }).result)
+    expect(taskId).toBe('task-7')
+    expect(backgroundTaskOf('Bash', (foreground as unknown as { result?: unknown }).result)).toBeNull()
+    expect(backgroundTaskOf('Read', { backgroundTaskId: 'task-7' })).toBeNull()
+
+    let record = recordStepStart(emptyAgentRecord('worker-7', 1_000), 1_000)
+    record = recordToolCall(record, { tool: 'Bash', input: { command: 'npm test' }, at: 2_000 })
+    record = recordBackgroundStart(record, { taskId: String(taskId), command: 'npm test', at: 2_000 })
+    expect(record.background).toEqual([{ taskId: 'task-7', command: expect.stringContaining('npm test'), startedAt: 2_000 }])
+    // A step while the worker is still running keeps the command tracked.
+    record = recordStepStart(record, 3_000)
+    expect(record.background).toHaveLength(1)
+
+    // The worker settles with its command still running: the entry stays, and a check-in names it.
+    record = recordTurnEnd(record, { reason: 'answer', status: 'idle', at: 4_000 })
+    expect(record).toMatchObject({ status: 'idle', background: [expect.objectContaining({ taskId: 'task-7' })] })
+    expect(activityRecord(record, 64_000).background).toEqual({ command: expect.stringContaining('npm test'), elapsedSeconds: 62 })
+
+    // Its next turn ends the background commands it was tracking.
+    record = recordStepStart(record, 70_000)
+    expect(record).toMatchObject({ status: 'running', background: [], lastActivityAt: 70_000 })
+    expect(activityRecord(record, 71_000).background).toBeNull()
   })
 
   test('an undelivered report is not announced while the main loop is mid-turn', async ($, on) => {
