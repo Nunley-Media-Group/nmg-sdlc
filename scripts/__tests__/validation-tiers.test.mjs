@@ -473,7 +473,7 @@ describe('host-wide heavy-job pool (#551 AC7)', () => {
     expect(held).toBeLessThan(waited);
     // Only a validation marked heavy takes a slot, and the holder names its project and issue.
     expect(Object.hasOwn(first.results[1], 'heavy')).toBe(false);
-    expect(requests.map(({ label, projectRoot, issue }) => ({ label, projectRoot, issue })).sort((x, y) => x.projectRoot.localeCompare(y.projectRoot)))
+    expect(requests.map(({ label, projectRoot, issue }) => ({ label, projectRoot, issue })).sort((x, y) => (x.projectRoot < y.projectRoot ? -1 : x.projectRoot > y.projectRoot ? 1 : 0)))
       .toEqual([a, b].sort().map((projectRoot) => ({ label: 'heavy.suite (#42)', projectRoot, issue: 42 })));
     expect(heavyPoolHolders({ env })).toEqual([]);
   });
