@@ -15,9 +15,9 @@ import { enterControllerLease, releaseControllerLease } from './sdlc-controller-
 import { reconcileStagePublication } from './sdlc-safe-recoveries.mjs';
 import { parseIssueBranch } from './sdlc-status.mjs';
 import { canonicalJson, resolveSteeringPath } from '../src/sdlc-steering-runtime.mjs';
-import { changedPaths, evaluateCondition, validationResultCoverage } from '../src/sdlc-verification-runtime.mjs';
+import { changedPaths, evaluateCondition, runsInTier, validationResultCoverage } from '../src/sdlc-verification-runtime.mjs';
 
-const USAGE = 'Usage: node scripts/sdlc-finalize-verification.mjs --issue N --spec specs/N-SLUG [--controller-run-id ID]';
+const USAGE = 'Usage: node scripts/sdlc-finalize-verification.mjs --issue N --spec specs/N-SLUG [--queue-gate] [--controller-run-id ID]';
 
 function defaultRun(command, args, options = {}) {
   return spawnSync(command, args, { encoding: 'utf8', ...options });
@@ -101,9 +101,13 @@ export function matchesRegisteredResults(root, artifact, { issue, specPath, gate
       || artifact.coverage.recorded !== coverage.recorded
       || !['missing', 'duplicate', 'unknown'].every((key) =>
         JSON.stringify(artifact.coverage[key]) === JSON.stringify(coverage[key]))) return false;
+    // A full-tier validation never runs before merge, so its pre-merge result is a skip.
+    const tiered = manifest.validations.some((validation) => Object.hasOwn(validation, 'tier'));
+    if (tiered && artifact.tier !== 'pre-merge') return false;
     return manifest.validations.every((declaration, index) => {
       const result = artifact.results[index];
-      const applicable = evaluateCondition(declaration.when, { projectRoot: root, paths });
+      const applicable = runsInTier(tiered, declaration, 'change')
+        && evaluateCondition(declaration.when, { projectRoot: root, paths });
       if (result?.id !== declaration.id || result.provider !== declaration.provider
         || result.required !== declaration.required || result.applicable !== applicable) return false;
       if (!applicable) return result.effectiveStatus === 'skipped'
@@ -171,6 +175,7 @@ function finalizeVerificationUnlocked({
   run = defaultRun,
   fs = { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync },
   controllerRunId,
+  queueGate = false,
 } = {}) {
   const issueNumber = Number(issue);
   const specPath = String(spec ?? '').split('\\').join('/').replace(/\/$/, '');
@@ -311,7 +316,9 @@ function finalizeVerificationUnlocked({
   // only full-green at current exact head publishes 'passed' handoff; failed/pending/partial/incomplete never do (per acceptance)
   if (readiness.status !== 'pass' && readiness.status !== 'pr_evidence_satisfied') {
     // Truthful non-green evidence is diagnosis input, not a terminal controller intervention.
-    return fail('verification_not_ready', `Verification is not ready for #${issueNumber}: ${readiness.reasonCode}`, {
+    // At the head of the merge queue a failed gate is its own outcome: the branch leaves the queue and is repaired.
+    const queueGateFailed = queueGate === true && readiness.status !== 'pr_evidence_pending';
+    return fail(queueGateFailed ? 'queue_gate_failed' : 'verification_not_ready', `Verification is not ready for #${issueNumber}: ${readiness.reasonCode}`, {
       intervention: false,
       next: readiness.status === 'pr_evidence_pending' ? 'verify' : 'implement',
       artifacts: [reportPath, artifactRelative],
@@ -445,14 +452,16 @@ function parseCli(argv) {
   let issue;
   let spec;
   let controllerRunId;
+  let queueGate = false;
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--issue' && issue === undefined && argv[index + 1] !== undefined) issue = argv[index += 1];
     else if (argv[index] === '--spec' && spec === undefined && argv[index + 1] !== undefined) spec = argv[index += 1];
+    else if (argv[index] === '--queue-gate' && !queueGate) queueGate = true;
     else if (argv[index] === '--controller-run-id' && controllerRunId === undefined && argv[index + 1] !== undefined) controllerRunId = argv[index += 1];
     else return null;
   }
   if (!/^#?[1-9]\d*$/.test(issue ?? '') || !spec) return null;
-  return { issue: Number(String(issue).replace(/^#/, '')), spec, controllerRunId: controllerRunId || undefined };
+  return { issue: Number(String(issue).replace(/^#/, '')), spec, controllerRunId: controllerRunId || undefined, queueGate };
 }
 
 function runCli(argv = process.argv.slice(2)) {

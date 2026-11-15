@@ -10,6 +10,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { isCliEntry } from './plugin-controller-path.mjs';
+import { heavyPoolHolders, heavyPoolSize } from '../src/heavy-pool.mjs';
+import { gitCommonDir, listHostInFlight, listInFlight, listMergeQueue } from './sdlc-shared-state.mjs';
+import { listWorktrees, worktreesRoot } from './sdlc-worktree.mjs';
 
 import {
   createIssueDependencyClient,
@@ -588,6 +591,72 @@ export function inferLifecycle(evidence) {
 }
 
 
+/**
+ * Parallel-delivery state, read without changing anything: this repository's in-flight issues with their stage and
+ * merge-queue position, the queue, every project's in-flight issues on this host, the host's heavy-job slot
+ * holders, and worktrees left by crashed or abandoned runs. Null outside a git repository.
+ */
+export function collectParallelState(projectRoot, { env = process.env, run } = {}) {
+  const options = run ? { run } : {};
+  let commonDir;
+  try { commonDir = gitCommonDir(projectRoot, run); } catch { return null; }
+  const attempt = (read, fallback) => { try { return read(); } catch { return fallback; } };
+  const queue = attempt(() => listMergeQueue(projectRoot, options), []);
+  const position = (issue) => queue.find((entry) => entry.issue === issue)?.position ?? null;
+  const records = attempt(() => listInFlight(projectRoot, options), []);
+  const worktrees = attempt(() => listWorktrees(projectRoot, run), []);
+  const live = new Set(records.filter((record) => record.alive).map((record) => record.worktree));
+  const real = (target) => attempt(() => fs.realpathSync(target), target);
+  const liveReal = new Set([...live].map(real));
+  const worktreeRoot = attempt(() => worktreesRoot(projectRoot, { run, env }), null);
+  const kindOf = (branch) => (String(branch ?? '').startsWith('spec/') ? 'spec' : 'code');
+  const issueOf = (branch) => Number(/^(?:spec\/)?(\d+)-/.exec(String(branch ?? ''))?.[1]) || null;
+  const under = (target) => worktreeRoot !== null && real(target).startsWith(`${real(worktreeRoot)}${path.sep}`);
+  return {
+    repository: {
+      worktreeRoot,
+      inFlight: records.map(({ issue, branch, worktree, stage, session, pid, alive, updatedAt }) => ({
+        issue, kind: kindOf(branch), worktree, branch, stage: position(issue) === 1 ? 'queue-head' : position(issue) ? 'queued' : stage ?? 'start',
+        queuePosition: position(issue), leaseHeld: alive === true, session: session ?? null, pid, updatedAt: updatedAt ?? null })),
+      queue: queue.map(({ issue, branch, worktree, position: place, alive, enqueuedAt }) => ({
+        issue, position: place, state: place === 1 ? 'integrating' : 'waiting', branch, worktree, ownerAlive: alive, enqueuedAt: enqueuedAt ?? null })),
+      // A worktree under the worktree root whose run holds no live controller and that is not queued.
+      leftoverWorktrees: worktrees.filter((worktree) => !worktree.primary && worktree.branch && under(worktree.path)
+        && !liveReal.has(real(worktree.path)) && !queue.some((entry) => real(entry.worktree) === real(worktree.path)))
+        .map(({ path: location, branch, head }) => ({ path: location, issue: issueOf(branch), kind: kindOf(branch), branch, head })),
+    },
+    host: {
+      heavyJobSlots: attempt(() => heavyPoolSize(env), 1),
+      holders: attempt(() => heavyPoolHolders({ env }), []).map((holder) => ({
+        slot: holder.slot, pid: holder.pid, label: holder.label, projectRoot: holder.projectRoot ?? null,
+        startedAt: holder.startedAt ?? null, alive: holder.alive !== false })),
+      inFlight: attempt(() => listHostInFlight({ env, prune: false }), []).map(({ issue, branch, worktree, stage, commonDir: repository, pid }) => ({
+        repository, thisRepository: real(repository) === real(commonDir), issue, branch, worktree, stage: stage ?? null, pid })),
+    },
+  };
+}
+
+function renderParallel(parallel) {
+  if (!parallel) return [];
+  const { repository, host } = parallel;
+  const lines = [];
+  const place = (position) => (position === null ? 'not queued' : position === 1 ? 'queue head' : `queue position ${position}`);
+  for (const item of repository.inFlight) {
+    lines.push(`  In flight: #${item.issue} ${item.stage}, ${place(item.queuePosition)}, ${item.worktree}${item.leaseHeld ? '' : ' (controller not running)'}`);
+  }
+  if (repository.queue.length) lines.push(`  Merge queue: ${repository.queue.map((entry) => `#${entry.issue}`).join(' -> ')}`);
+  for (const item of host.inFlight.filter((entry) => !entry.thisRepository)) {
+    lines.push(`  In flight on this host: #${item.issue} ${item.stage ?? 'unknown stage'}, ${item.worktree}`);
+  }
+  const held = host.holders.filter((holder) => holder.alive);
+  if (held.length) {
+    lines.push(`  Heavy jobs: ${held.length} of ${host.heavyJobSlots} slot(s) held: ${held
+      .map((holder) => `slot ${holder.slot} ${holder.label} (pid ${holder.pid}${holder.projectRoot ? `, ${holder.projectRoot}` : ''})`).join('; ')}`);
+  }
+  for (const worktree of repository.leftoverWorktrees) lines.push(`  Leftover worktree: ${worktree.path} (${worktree.branch})`);
+  return lines.length ? ['Parallel:', ...lines] : [];
+}
+
 function listOrNone(values) {
   return values.length ? values.join(', ') : 'none';
 }
@@ -621,6 +690,7 @@ export function renderText(status) {
   ];
   if (status.gaps.length) lines.push(`Gaps: ${status.gaps.join('; ')}`);
   if (status.recovery) lines.push(`Recovery: ${status.recovery.state}${status.recovery.reasonCode ? ` (${status.recovery.reasonCode})` : ''}${status.recovery.cleanupReasonCode ? `; cleanup: ${status.recovery.cleanupReasonCode}` : ''}`);
+  lines.push(...renderParallel(status.parallel));
   lines.push(`Next: ${status.nextAction.command}`);
   return lines.join('\n');
 }
@@ -668,6 +738,9 @@ export function runCli(argv, options = {}) {
 
   try {
     const status = inferLifecycle(collectEvidence(values.project, options.adapters));
+    // Queue, pool and worktree state is read from the real repository; injected adapters describe a fixture.
+    const parallel = options.adapters ? null : collectParallelState(values.project, { env: options.env ?? process.env });
+    if (parallel) status.parallel = parallel;
     stdout.write(values.json ? renderJson(status) : `${renderText(status)}\n`);
     return 0;
   } catch (error) {

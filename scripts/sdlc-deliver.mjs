@@ -17,7 +17,7 @@ import {
   resolveDeclaredCheck,
 } from './verification-readiness.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
-import { resolveSteeringPath } from '../src/sdlc-steering-runtime.mjs';
+import { readManifestOptions, resolveSteeringPath } from '../src/sdlc-steering-runtime.mjs';
 import {
   assertControllerLease,
   enterControllerLease,
@@ -25,6 +25,7 @@ import {
 } from './sdlc-controller-lease.mjs';
 import { matchesRegisteredResults } from './sdlc-finalize-verification.mjs';
 import { parseIssueBranch } from './sdlc-status.mjs';
+import { primaryCheckout } from './sdlc-worktree.mjs';
 import {
   inspectPublicationScope,
   publicationPathDenied,
@@ -196,11 +197,21 @@ function writeHandoff({
   };
 }
 
-function writeSmokeDeliveryProof({ cwd, env, fs, issue, pullRequest, headSha }) {
+// The receipt must outlive the issue worktree, which is removed after delivery, so it goes to the
+// primary checkout, where the smoke provider reads it. Without a readable worktree list, use cwd.
+function smokeReceiptRoot(cwd, run) {
+  try {
+    return primaryCheckout(cwd, run) || cwd;
+  } catch {
+    return cwd;
+  }
+}
+
+function writeSmokeDeliveryProof({ cwd, env, fs, run, issue, pullRequest, headSha }) {
   if (env.NMG_SDLC_SMOKE_OWNED !== '1') return;
   const invocationId = String(env.NMG_SDLC_SMOKE_RECOVERY ?? '').split('.')[0];
   if (!/^[a-f0-9]{64}$/i.test(invocationId)) throw new Error('smoke invocation identity is unavailable');
-  const directory = ensureDirectoryChain(fs, cwd, ['.nmg-sdlc', 'smoke-deliveries']);
+  const directory = ensureDirectoryChain(fs, smokeReceiptRoot(cwd, run), ['.nmg-sdlc', 'smoke-deliveries']);
   const receipt = path.join(directory, `${issue}.json`);
   if (fs.existsSync(receipt)) {
     const stat = fs.lstatSync(receipt);
@@ -362,6 +373,51 @@ function addGeneratedEntry(unreleased, category, entry) {
     lines.splice(last + 1, 0, entry);
   }
   return `${lines.join('\n')}\n`;
+}
+
+/**
+ * The changelog fragment of issue N in a project that opted in (`changelog.fragments.dir`): `<dir>/<N>.md` as
+ * `{ relative, absolute }`, or null when the project did not opt in or the issue has no regular fragment file.
+ */
+export function changelogFragmentFile(fs, cwd, issue) {
+  let directory;
+  try { directory = readManifestOptions(cwd).changelogFragments?.directory; } catch { return null; }
+  if (!directory || !Number.isSafeInteger(issue) || issue <= 0) return null;
+  const relative = `${directory}/${issue}.md`;
+  const absolute = safeVersionArtifactPath(cwd, relative, fs);
+  let stat;
+  try { stat = fs.lstatSync(absolute); } catch { return null; }
+  return stat.isFile() && !stat.isSymbolicLink() ? { relative, absolute } : null;
+}
+
+/** The bullets of a fragment body, each as `- text` with its indented continuation lines; everything else is left out. */
+export function changelogFragmentBullets(body) {
+  const bullets = [];
+  let open = false;
+  for (const line of String(body).split(/\r?\n/)) {
+    if (/^[-*]\s+\S/.test(line)) { bullets.push(`- ${line.replace(/^[-*]\s+/, '').trimEnd()}`); open = true; continue; }
+    if (open && /^\s+\S/.test(line)) bullets[bullets.length - 1] += `\n${line.trimEnd()}`;
+    else open = false;
+  }
+  return bullets;
+}
+
+/**
+ * Adds a fragment's bullets to the `[Unreleased]` section under `### <category>`, from where version preparation
+ * rolls them into the new version section. A bullet already present is not added twice.
+ */
+export function insertChangelogFragment(content, body, category) {
+  const marker = '## [Unreleased]';
+  const index = content.indexOf(marker);
+  if (index < 0) throw versionArtifactError('CHANGELOG.md lacks a ## [Unreleased] heading');
+  const nextHeading = content.indexOf('\n## [', index + marker.length);
+  const end = nextHeading < 0 ? content.length : nextHeading;
+  let unreleased = content.slice(index + marker.length, end).trim();
+  for (const bullet of changelogFragmentBullets(body)) {
+    if (!unreleased.split('\n').includes(bullet.split('\n')[0])) unreleased = addGeneratedEntry(unreleased, category, bullet).trim();
+  }
+  const suffix = content.slice(end).replace(/^\n+/, '\n');
+  return `${content.slice(0, index)}${marker}\n\n${unreleased ? `${unreleased}\n` : ''}${suffix}`;
 }
 
 function synchronizedDeliveryVersion(changelog, version, issue, title) {
@@ -572,13 +628,16 @@ function synchronizeVersion({ run, fs, cwd, issue, spec, issueData, tech, now })
     error.reasonCode = 'major_bump_required';
     throw error;
   }
-  const changelog = fs.readFileSync(changelogPath, 'utf8');
+  const original = fs.readFileSync(changelogPath, 'utf8');
   if (hasSynchronizedDeliveryState({
-    run, fs, cwd, issue, issueData, tech, changelog, version: current,
+    run, fs, cwd, issue, issueData, tech, changelog: original, version: current,
   })) return { version: current, changed: [] };
   const labels = issueLabels(issueData);
   const bump = breaking && approvedMajor(spec) ? 'major' : labels.includes('bug') ? 'patch' : 'minor';
   const category = breaking ? 'Changed (BREAKING)' : labels.includes('bug') ? 'Fixed' : 'Changed';
+  // A project that keeps changelog fragments has this issue's fragment folded in here, on the branch about to merge.
+  const fragment = changelogFragmentFile(fs, cwd, issue);
+  const changelog = fragment ? insertChangelogFragment(original, fs.readFileSync(fragment.absolute, 'utf8'), category) : original;
   const version = bumpedVersion(current, bump);
   const { declared } = deliveryVersionArtifacts(tech, cwd, fs);
   const mirrors = declared.filter(({ relative }) => !['VERSION', 'CHANGELOG.md'].includes(relative));
@@ -604,9 +663,10 @@ function synchronizeVersion({ run, fs, cwd, issue, spec, issueData, tech, now })
   fs.writeFileSync(versionPath, `${version}\n`);
   for (const update of updates) fs.writeFileSync(update.absolute, update.content);
   fs.writeFileSync(changelogPath, nextChangelog);
+  if (fragment) fs.rmSync(fragment.absolute);
   return {
     version,
-    changed: [...new Set(['VERSION', 'CHANGELOG.md', ...mirrors.map(({ relative }) => relative)])],
+    changed: [...new Set(['VERSION', 'CHANGELOG.md', ...mirrors.map(({ relative }) => relative), ...(fragment ? [fragment.relative] : [])])],
   };
 }
 
@@ -1362,7 +1422,8 @@ function runDeliverUnlocked({
       const tech = registeredTechnicalSteering(fs, cwd);
       publishVersionChanges({
         run, cwd, issue: issueNumber, issueData,
-        changed: versionChange.changed, allowedPaths: deliveryVersionArtifacts(tech, cwd, fs).paths,
+        changed: versionChange.changed,
+        allowedPaths: [...deliveryVersionArtifacts(tech, cwd, fs).paths, ...versionChange.changed],
       });
       const preparedHead = command(run, cwd, 'git', ['rev-parse', 'HEAD']).stdout.trim();
       exactRemoteHead({ run, cwd, branch, head: preparedHead });
@@ -1544,7 +1605,7 @@ function runDeliverUnlocked({
       exactRemoteHead({ run, cwd, branch, head });
       registeredGate({ fs, cwd, run, issue: issueNumber, spec, head, report });
       requireClosingLinkage({ context, run, prNumber: current.number, head });
-      writeSmokeDeliveryProof({ cwd, env, fs, issue: issueNumber, pullRequest: current.number, headSha: head });
+      writeSmokeDeliveryProof({ cwd, env, fs, run, issue: issueNumber, pullRequest: current.number, headSha: head });
       try {
         command(run, cwd, 'gh', ['pr', 'merge', String(current.number), '--squash', '--match-head-commit', head], { allowFailure: true });
       } catch {

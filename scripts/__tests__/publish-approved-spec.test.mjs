@@ -10,7 +10,7 @@ const temporaryRoots = [];
 
 function makeRoot() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-sdlc-publish-'));
-  temporaryRoots.push(root);
+  temporaryRoots.push(root, `${root}-wt`);
   return root;
 }
 
@@ -43,6 +43,7 @@ function makeRepo() {
   fs.mkdirSync(bin, { recursive: true });
   fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh
 printf '%s\\n' "$*" >> .gh-log
+spec_sha() { git rev-parse -q --verify refs/heads/spec/42-add-x 2>/dev/null || git rev-parse HEAD; }
 if [ "$1" = "issue" ] && [ "$2" = "develop" ]; then
   name=""
   base=""
@@ -105,8 +106,12 @@ if [ "$1" = "issue" ] && [ "$2" = "edit" ] && [ "$4" = "--add-label" ] && [ "$5"
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+  if echo "$*" | grep -q -- '--head 42-add-x'; then
+    printf '%s\\n' '[{"number":77}]'
+    exit 0
+  fi
   if [ -f .remote-merged ] && echo "$*" | grep -q -- '--state all'; then
-    sha=$(git rev-parse HEAD)
+    sha=$(spec_sha)
     printf '[{"number":99,"state":"MERGED","headRefOid":"%s"}]\\n' "$sha"
     exit 0
   fi
@@ -148,6 +153,13 @@ if [ "$1" = "api" ]; then
       exit 1 ;;
   esac
 fi
+if [ "$1" = "pr" ] && [ "$2" = "view" ] && [ "$4" = "--json" ] && [ "$5" = "files" ]; then
+  # The PR's changed files are what the remote spec branch changes relative to the remote default branch.
+  if [ "$GH_PR_FILES_UNREADABLE" = "1" ]; then printf '%s\\n' 'files unavailable' >&2; exit 1; fi
+  if [ "$3" != "99" ] || [ "$6" != "--jq" ] || [ "$7" != ".files[].path" ]; then exit 1; fi
+  git --git-dir="$(git remote get-url origin)" diff --name-only main...spec/42-add-x
+  exit $?
+fi
 if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   count=0
   if [ -f .pr-view-count ]; then count=$(cat .pr-view-count); fi
@@ -163,8 +175,8 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   if [ "$GH_EXPECTED_MISSING" = "1" ] && [ "$count" -eq 2 ]; then state=UNSTABLE; fi
   if [ "$GH_BLOCKED_PENDING" = "1" ] && [ "$count" -lt 3 ]; then state=BLOCKED; fi
   printf '%s\\n' "$state" >> .pr-state-log
-  sha=$(git rev-parse HEAD)
-  if [ "$GH_DRIFT_BRANCH" = "1" ] && [ "$count" -ge 2 ]; then prhead=other; else prhead=42-add-x; fi
+  sha=$(spec_sha)
+  if [ "$GH_DRIFT_BRANCH" = "1" ] && [ "$count" -ge 2 ]; then prhead=other; else prhead=spec/42-add-x; fi
   if [ "$GH_DRIFT_HEAD" = "1" ] && [ "$count" -ge 2 ]; then sha=0000000000000000000000000000000000000000; fi
   prstate=OPEN
   if [ "$GH_CLOSED_PR" = "1" ] && [ "$count" -ge 2 ]; then prstate=CLOSED; fi
@@ -202,7 +214,7 @@ if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
     exit 0
   fi
   if [ "$GH_NO_REQUIRED" = "1" ] && [ "$4" = "--required" ]; then
-    printf '%s\\n' "no required checks reported on the '42-add-x' branch" >&2
+    printf '%s\\n' "no required checks reported on the 'spec/42-add-x' branch" >&2
     exit 1
   fi
   if [ "$GH_PENDING_CI" = "1" ] && [ "$count" -eq 1 ]; then
@@ -246,22 +258,17 @@ if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
     printf '%s\\n' 'remote rejected merge' >&2
     exit 1
   fi
+  if [ "$3" != "99" ]; then exit 1; fi
+  tmp=$(mktemp -d)
+  git clone -q -b main "$(git remote get-url origin)" "$tmp/clone" || exit 1
+  git -C "$tmp/clone" merge -q --squash origin/spec/42-add-x >/dev/null || exit 1
+  git -C "$tmp/clone" -c user.name=Test -c user.email=test@example.com commit -q -m "docs: approve spec squash" || exit 1
+  git -C "$tmp/clone" push -q origin HEAD:main || exit 1
+  rm -rf "$tmp"
   if [ "$GH_REMOTE_MERGE_FAIL" = "1" ]; then
-    git -C "$GH_MAIN_WORKTREE" merge --squash "$(git rev-parse HEAD)" || exit 1
-    git -C "$GH_MAIN_WORKTREE" commit -m "docs: approve spec squash" || exit 1
-    git -C "$GH_MAIN_WORKTREE" push origin main || exit 1
     touch .remote-merged
-    printf '%s\\n' "fatal: 'main' is already used by worktree" >&2
+    printf '%s\\n' 'failed to delete local branch spec/42-add-x' >&2
     exit 1
-  fi
-  branch=$(git branch --show-current)
-  git checkout main
-  git merge --squash "$branch"
-  git commit -m "docs: approve spec squash"
-  git push origin main
-  git checkout "$branch"
-  if [ "$FAIL_DEFAULT_CHECKOUT" = "1" ]; then
-    touch .git/index.lock
   fi
   exit 0
 fi
@@ -277,6 +284,8 @@ exit 1
   git(root, ['commit', '-m', 'init']);
   git(root, ['remote', 'add', 'origin', remote]);
   git(root, ['push', '-u', 'origin', 'HEAD']);
+  // The gh stub's scratch files stay out of `git status`.
+  fs.appendFileSync(path.join(root, '.git', 'info', 'exclude'), '.gh-log\n.pr-view-count\n.pr-state-log\n.remote-merged\n');
   return {
     root,
     remote,
@@ -294,6 +303,28 @@ function run(cwd, args, env) {
     env,
   });
 }
+function prepareSpec(root, env) {
+  const result = run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env);
+  expect(result.status).toBe(0);
+  return parse(result).worktree;
+}
+
+const MERGED = {
+  ok: true,
+  branch: 'spec/42-add-x',
+  base: 'main',
+  pr: 99,
+  merged: true,
+  squash: true,
+  labeled: true,
+  issue: 42,
+  dir: 'specs/42-add-x',
+  fastForwarded: true,
+  remoteBranchDeleted: true,
+  worktreeRemoved: true,
+  cleanup: [],
+};
+
 function issueJson(overrides = {}) {
   return JSON.stringify({
     number: 42,
@@ -342,7 +373,7 @@ describe('publish-approved-spec', () => {
       expect(parse(result)).toMatchObject({ ok: false, reasonCode });
     }
     expect(git(root, ['rev-parse', 'HEAD']).trim()).toBe(head);
-    expect(git(root, ['status', '--porcelain'])).toBe('?? .gh-log\n');
+    expect(git(root, ['status', '--porcelain'])).toBe('');
   });
 
   it('discover returns complete feature metadata with issue slug fallback and spike neutrality', () => {
@@ -533,7 +564,7 @@ describe('publish-approved-spec', () => {
     );
     expect(git(root, ['rev-parse', 'HEAD']).trim()).toBe(head);
     expect(git(root, ['branch', '--show-current']).trim()).toBe('main');
-    expect(git(root, ['status', '--porcelain'])).toBe('?? .gh-log\n?? specs/\n');
+    expect(git(root, ['status', '--porcelain'])).toBe('?? specs/\n');
   });
 
   it('candidates rejects malformed GitHub output, invalid arguments, and ambiguous status', () => {
@@ -567,28 +598,135 @@ describe('publish-approved-spec', () => {
   });
 
 
-  it('prepare fails dirty_tree on a dirty other branch', () => {
-    const { root, env } = makeRepo();
-    fs.writeFileSync(path.join(root, 'dirty.txt'), 'nope\n');
+  function primaryState(root) {
+    return {
+      branch: git(root, ['branch', '--show-current']).trim(),
+      head: git(root, ['rev-parse', 'HEAD']).trim(),
+      status: git(root, ['status', '--porcelain']),
+    };
+  }
+
+  it('prepare creates the spec worktree from the remote default branch and leaves a dirty primary checkout alone', () => {
+    const { root, remote, env } = makeRepo();
+    // The remote default branch is ahead of the primary checkout, which holds uncommitted work.
+    const other = path.join(makeRoot(), 'clone');
+    git(root, ['clone', '-q', '-b', 'main', remote, other]);
+    fs.writeFileSync(path.join(other, 'remote-only.txt'), 'ahead\n');
+    git(other, ['add', 'remote-only.txt']);
+    git(other, ['commit', '-m', 'remote ahead']);
+    git(other, ['push', 'origin', 'main']);
+    const remoteHead = git(other, ['rev-parse', 'HEAD']).trim();
+    fs.writeFileSync(path.join(root, 'README.md'), 'uncommitted\n');
+    fs.writeFileSync(path.join(root, 'dirty.txt'), 'untracked\n');
+    const before = primaryState(root);
+
     const result = run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env);
-    expect(result.status).not.toBe(0);
-    expect(parse(result)).toMatchObject({ ok: false, reasonCode: 'dirty_tree' });
-    expect(git(root, ['branch', '--show-current']).trim()).toBe('main');
+
+    expect(result.status).toBe(0);
+    const output = parse(result);
+    expect(output).toEqual({
+      ok: true,
+      branch: 'spec/42-add-x',
+      worktree: expect.any(String),
+      specDir: path.join(output.worktree, 'specs', '42-add-x'),
+      created: true,
+    });
+    expect(path.isAbsolute(output.worktree)).toBe(true);
+    expect(fs.realpathSync(output.worktree)).not.toBe(fs.realpathSync(root));
+    expect(git(output.worktree, ['branch', '--show-current']).trim()).toBe('spec/42-add-x');
+    expect(git(output.worktree, ['rev-parse', 'HEAD']).trim()).toBe(remoteHead);
+    expect(primaryState(root)).toEqual(before);
+    expect(before).toMatchObject({ branch: 'main', status: ' M README.md\n?? dirty.txt\n' });
+    const log = fs.readFileSync(path.join(root, '.gh-log'), 'utf8');
+    expect(log).not.toContain('issue develop');
   });
 
-  it('prepare checks out {N}-{slug} from a clean tree', () => {
+  it('prepare reuses the spec worktree left by an earlier run', () => {
     const { root, env } = makeRepo();
-    const result = run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env);
-    expect(result.status).toBe(0);
-    expect(parse(result)).toEqual({ ok: true, branch: '42-add-x' });
-    expect(git(root, ['branch', '--show-current']).trim()).toBe('42-add-x');
+    const tree = prepareSpec(root, env);
+    writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
+
+    const again = run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env);
+
+    expect(again.status).toBe(0);
+    expect(parse(again)).toMatchObject({ ok: true, branch: 'spec/42-add-x', worktree: tree, created: false });
+    expect(fs.existsSync(path.join(tree, 'specs', '42-add-x', 'requirements.md'))).toBe(true);
+    expect(git(root, ['worktree', 'list', '--porcelain']).match(/^worktree /gm)).toHaveLength(2);
+  });
+
+  it('a dirty primary checkout publishes end to end and keeps its branch, HEAD, and status', () => {
+    const { root, remote, env } = makeRepo();
+    fs.writeFileSync(path.join(root, 'README.md'), 'uncommitted\n');
+    const before = primaryState(root);
+    const tree = prepareSpec(root, env);
+    writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
+    const args = ['--issue', '42', '--dir', 'specs/42-add-x'];
+
+    const pushed = run(root, ['commit-push', ...args], env);
+    const merged = run(root, ['merge', ...args], env);
+
+    expect(parse(pushed)).toMatchObject({ ok: true, branch: 'spec/42-add-x', worktree: tree });
+    expect(merged.status).toBe(0);
+    expect(parse(merged)).toMatchObject({ ok: true, merged: true, fastForwarded: false, worktreeRemoved: true });
+    expect(`${pushed.stdout}${merged.stdout}`).not.toMatch(/default_checkout_failed|branch_checkout_failed|dirty_tree/);
+    expect(primaryState(root)).toEqual(before);
+    expect(git(remote, ['ls-tree', '-r', '--name-only', 'main'])).toContain('specs/42-add-x/requirements.md');
+  });
+
+  it('publishes on spec/{N}-{slug} beside an open code pull request on {N}-{slug} without touching it', () => {
+    const { root, env } = makeRepo();
+    // The code branch is checked out in the primary checkout and its PR (#77 in the gh stub) is open.
+    git(root, ['checkout', '-b', '42-add-x']);
+    fs.writeFileSync(path.join(root, 'code.txt'), 'code\n');
+    git(root, ['add', 'code.txt']);
+    git(root, ['commit', '-m', 'feat: code']);
+    git(root, ['push', '-u', 'origin', '42-add-x']);
+    const before = primaryState(root);
+    const codeRemote = git(root, ['rev-parse', 'origin/42-add-x']).trim();
+    const tree = prepareSpec(root, env);
+    writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
+    const args = ['--issue', '42', '--dir', 'specs/42-add-x'];
+
+    expect(run(root, ['commit-push', ...args], env).status).toBe(0);
+    const specHead = git(tree, ['rev-parse', 'HEAD']).trim();
+    const merged = run(root, ['merge', ...args], env);
+
+    expect(merged.status).toBe(0);
+    expect(parse(merged)).toMatchObject({ ok: true, branch: 'spec/42-add-x', base: 'main', pr: 99, merged: true });
+    const log = fs.readFileSync(path.join(root, '.gh-log'), 'utf8');
+    expect(log).toContain('pr list --head spec/42-add-x --base main');
+    expect(log).toContain('pr create --base main --head spec/42-add-x --title docs: approve spec for #42');
+    expect(log).toContain(`pr merge 99 --squash --match-head-commit ${specHead}`);
+    expect(log).not.toContain('--head 42-add-x');
+    expect(log).not.toMatch(/pr (?:merge|view|checks|close|edit) 77/);
+    expect(git(root, ['ls-tree', '-r', '--name-only', 'origin/main'])).not.toContain('code.txt');
+    git(root, ['fetch', '--prune', 'origin']);
+    expect(git(root, ['rev-parse', 'origin/42-add-x']).trim()).toBe(codeRemote);
+    expect(primaryState(root)).toEqual(before);
+  });
+
+  it('commit-push names the worktree when the approved package was written into the invoking checkout', () => {
+    const { root, env } = makeRepo();
+    const tree = prepareSpec(root, env);
+    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+
+    const result = run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env);
+
+    expect(result.status).not.toBe(0);
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      reasonCode: 'spec_outside_worktree',
+      worktree: tree,
+      specDir: path.join(tree, 'specs', '42-add-x'),
+    });
+    expect(git(root, ['status', '--porcelain'])).toBe('?? specs/\n');
   });
 
   it('commit-push stages only the spec dir with the exact subject and pushes HEAD', () => {
     const { root, env } = makeRepo();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
-    fs.writeFileSync(path.join(root, 'specs', '42-add-x', 'tasks.md'), [
+    const tree = prepareSpec(root, env);
+    writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
+    fs.writeFileSync(path.join(tree, 'specs', '42-add-x', 'tasks.md'), [
       '**Issue**: #42',
       '**Status**: Approved',
       '',
@@ -597,21 +735,25 @@ describe('publish-approved-spec', () => {
       '**File(s)**: `src/not-yet-created.ts`',
       '',
     ].join('\n'));
-    fs.writeFileSync(path.join(root, 'README.md'), 'changed\n');
-    git(root, ['add', 'README.md']);
+    fs.writeFileSync(path.join(tree, 'README.md'), 'changed\n');
+    fs.writeFileSync(path.join(tree, 'stray.txt'), 'untracked\n');
+    git(tree, ['add', 'README.md']);
     const result = run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env);
     expect(result.status).toBe(0);
     expect(parse(result)).toMatchObject({
       ok: true,
-      branch: '42-add-x',
+      branch: 'spec/42-add-x',
+      worktree: tree,
       pushed: true,
       skippedCommit: false,
     });
-    expect(git(root, ['log', '-1', '--pretty=%s']).trim()).toBe('docs: approve spec for #42');
-    const names = git(root, ['show', '--pretty=', '--name-only', 'HEAD']).trim().split('\n');
+    expect(git(tree, ['log', '-1', '--pretty=%s']).trim()).toBe('docs: approve spec for #42');
+    const names = git(tree, ['show', '--pretty=', '--name-only', 'HEAD']).trim().split('\n');
     expect(names.every((name) => name.startsWith('specs/42-add-x/'))).toBe(true);
-    expect(git(root, ['ls-tree', '-r', '--name-only', 'origin/42-add-x'])).toContain('specs/42-add-x/requirements.md');
-    expect(git(root, ['diff', '--cached', '--name-only']).trim()).toBe('README.md');
+    expect(git(root, ['ls-tree', '-r', '--name-only', 'origin/spec/42-add-x'])).toContain('specs/42-add-x/requirements.md');
+    expect(git(root, ['ls-remote', 'origin', 'refs/heads/42-add-x'])).toBe('');
+    expect(git(tree, ['diff', '--cached', '--name-only']).trim()).toBe('README.md');
+    expect(git(root, ['branch', '--show-current']).trim()).toBe('main');
   });
 
   it.each([
@@ -619,8 +761,8 @@ describe('publish-approved-spec', () => {
     ['escaped', 'Prose with escaped \\` delimiter'],
   ])('commit-push accepts a valid declaration after an %s backtick', (_name, prose) => {
     const { root, env } = makeRepo();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    const specDir = path.join(root, 'specs', '42-add-x');
+    const tree = prepareSpec(root, env);
+    const specDir = path.join(tree, 'specs', '42-add-x');
     writeApproved(specDir, 42);
     fs.writeFileSync(path.join(specDir, 'tasks.md'), [
       '**Issue**: #42',
@@ -636,14 +778,14 @@ describe('publish-approved-spec', () => {
 
     expect(result.status).toBe(0);
     expect(parse(result)).toMatchObject({ ok: true });
-    expect(git(root, ['diff', '--cached', '--name-only'])).toBe('');
+    expect(git(tree, ['diff', '--cached', '--name-only'])).toBe('');
   });
 
   it('commit-push rejects an unapproved package', () => {
     const { root, env } = makeRepo();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    fs.mkdirSync(path.join(root, 'specs', '42-add-x'), { recursive: true });
-    fs.writeFileSync(path.join(root, 'specs', '42-add-x', 'requirements.md'), '**Issue**: #42\n**Status**: Draft\n');
+    const tree = prepareSpec(root, env);
+    fs.mkdirSync(path.join(tree, 'specs', '42-add-x'), { recursive: true });
+    fs.writeFileSync(path.join(tree, 'specs', '42-add-x', 'requirements.md'), '**Issue**: #42\n**Status**: Draft\n');
     const result = run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env);
     expect(result.status).not.toBe(0);
     expect(parse(result)).toMatchObject({ ok: false, reasonCode: 'spec_not_approved' });
@@ -658,8 +800,8 @@ describe('publish-approved-spec', () => {
     }],
   ]))('%s rejects a %s File(s) declaration before publication side effects', (command, _name, declaration, expected) => {
     const { root, env } = makeRepo();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    const specDir = path.join(root, 'specs', '42-add-x');
+    const tree = prepareSpec(root, env);
+    const specDir = path.join(tree, 'specs', '42-add-x');
     writeApproved(specDir, 42);
     fs.writeFileSync(path.join(specDir, 'tasks.md'), [
       '**Issue**: #42',
@@ -681,7 +823,7 @@ describe('publish-approved-spec', () => {
       taskId: 'T001',
       ...expected,
     });
-    expect(git(root, ['diff', '--cached', '--name-only'])).toBe('');
+    expect(git(tree, ['diff', '--cached', '--name-only'])).toBe('');
     expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).not.toContain('pr create');
   });
 
@@ -693,8 +835,8 @@ describe('publish-approved-spec', () => {
     [command, 'multiline code span after astral prefix', ['😀 `` opener', '## T001: Hidden task', '**File(s)**: `src/a.ts`', '``']],
   ]))('%s rejects a %s admitted task before publication side effects', (command, _name, hiddenTask) => {
     const { root, env } = makeRepo();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    const specDir = path.join(root, 'specs', '42-add-x');
+    const tree = prepareSpec(root, env);
+    const specDir = path.join(tree, 'specs', '42-add-x');
     writeApproved(specDir, 42);
     fs.writeFileSync(path.join(specDir, 'tasks.md'), [
       '**Issue**: #42',
@@ -714,7 +856,7 @@ describe('publish-approved-spec', () => {
       taskId: 'T001',
       line: 5,
     });
-    expect(git(root, ['diff', '--cached', '--name-only'])).toBe('');
+    expect(git(tree, ['diff', '--cached', '--name-only'])).toBe('');
     expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).not.toContain('pr create');
   });
 
@@ -724,8 +866,8 @@ describe('publish-approved-spec', () => {
     [command, 'tilde fence', ['~~~text', 'unmatched `', '~~~'], 8],
   ]))('%s ignores backticks in a %s before a hidden multiline span', (command, _name, prefix, line) => {
     const { root, env } = makeRepo();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    const specDir = path.join(root, 'specs', '42-add-x');
+    const tree = prepareSpec(root, env);
+    const specDir = path.join(tree, 'specs', '42-add-x');
     writeApproved(specDir, 42);
     fs.writeFileSync(path.join(specDir, 'tasks.md'), [
       '**Issue**: #42',
@@ -749,14 +891,14 @@ describe('publish-approved-spec', () => {
       taskId: 'T001',
       line,
     });
-    expect(git(root, ['diff', '--cached', '--name-only'])).toBe('');
+    expect(git(tree, ['diff', '--cached', '--name-only'])).toBe('');
     expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).not.toContain('pr create');
   });
 
   it.each(['commit-push', 'merge'])('%s rejects a declaration hidden by crossing multiline spans', (command) => {
     const { root, env } = makeRepo();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    const specDir = path.join(root, 'specs', '42-add-x');
+    const tree = prepareSpec(root, env);
+    const specDir = path.join(tree, 'specs', '42-add-x');
     writeApproved(specDir, 42);
     fs.writeFileSync(path.join(specDir, 'tasks.md'), [
       '**Issue**: #42',
@@ -780,7 +922,7 @@ describe('publish-approved-spec', () => {
       taskId: 'T001',
       line: 4,
     });
-    expect(git(root, ['diff', '--cached', '--name-only'])).toBe('');
+    expect(git(tree, ['diff', '--cached', '--name-only'])).toBe('');
     expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).not.toContain('pr create');
   });
 
@@ -789,8 +931,8 @@ describe('publish-approved-spec', () => {
     [command, 'bare level-three', '###'],
   ]))('%s rejects metadata after a %s task boundary before side effects', (command, _name, boundary) => {
     const { root, env } = makeRepo();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    const specDir = path.join(root, 'specs', '42-add-x');
+    const tree = prepareSpec(root, env);
+    const specDir = path.join(tree, 'specs', '42-add-x');
     writeApproved(specDir, 42);
     fs.writeFileSync(path.join(specDir, 'tasks.md'), [
       '**Issue**: #42',
@@ -812,15 +954,15 @@ describe('publish-approved-spec', () => {
       taskId: 'T001',
       line: 4,
     });
-    expect(git(root, ['diff', '--cached', '--name-only'])).toBe('');
+    expect(git(tree, ['diff', '--cached', '--name-only'])).toBe('');
     expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).not.toContain('pr create');
   });
 
 
   it.each(['commit-push', 'merge'])('%s rejects invalid File(s) before publication side effects', (command) => {
     const { root, env } = makeRepo();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    const specDir = path.join(root, 'specs', '42-add-x');
+    const tree = prepareSpec(root, env);
+    const specDir = path.join(tree, 'specs', '42-add-x');
     writeApproved(specDir, 42);
     fs.writeFileSync(path.join(specDir, 'tasks.md'), [
       '**Issue**: #42',
@@ -843,11 +985,11 @@ describe('publish-approved-spec', () => {
       line: 6,
       entry: 'Create `src/a.ts`',
     });
-    expect(git(root, ['diff', '--cached', '--name-only'])).toBe('');
+    expect(git(tree, ['diff', '--cached', '--name-only'])).toBe('');
     expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).not.toContain('pr create');
   });
 
-  it.each(['commit-push', 'merge'])('%s validates the target branch after switching', (command) => {
+  it.each(['commit-push', 'merge'])('%s validates the spec worktree package, not the invoking checkout', (command) => {
     const { root, env } = makeRepo();
     const specDir = path.join(root, 'specs', '42-add-x');
     writeApproved(specDir, 42);
@@ -884,16 +1026,16 @@ describe('publish-approved-spec', () => {
       reasonCode: 'publication_scope_unproven',
       spec: 'specs/42-add-x/tasks.md',
     });
-    expect(git(root, ['branch', '--show-current']).trim()).toBe('42-add-x');
+    expect(git(root, ['branch', '--show-current']).trim()).toBe('other');
     expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).not.toContain('pr create');
   });
 
   it('commit-push skips an identical tree and still pushes', () => {
     const { root, env } = makeRepo();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+    const tree = prepareSpec(root, env);
+    writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
     expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
-    const first = git(root, ['rev-parse', 'HEAD']).trim();
+    const first = git(tree, ['rev-parse', 'HEAD']).trim();
     const second = run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env);
     expect(second.status).toBe(0);
     expect(parse(second)).toMatchObject({
@@ -902,49 +1044,39 @@ describe('publish-approved-spec', () => {
       commit: null,
       pushed: true,
     });
-    expect(git(root, ['rev-parse', 'HEAD']).trim()).toBe(first);
-  });
-
-  it('prepare cuts {N}-{slug} from origin/default without gh issue develop', () => {
-    const { root, env } = makeRepo();
-    const main = git(root, ['rev-parse', 'origin/main']).trim();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    expect(git(root, ['branch', '--show-current']).trim()).toBe('42-add-x');
-    expect(git(root, ['rev-parse', 'HEAD']).trim()).toBe(main);
-    expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).not.toContain('issue develop');
+    expect(git(tree, ['rev-parse', 'HEAD']).trim()).toBe(first);
   });
 
   it('merge squash-merges a docs-only PR into the default branch without Closes', () => {
     const { root, env } = makeRepo();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+    const tree = prepareSpec(root, env);
+    writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
     expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
     const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], env);
     expect(result.status).toBe(0);
-    expect(parse(result)).toEqual({
-      ok: true,
-      branch: 'main',
-      pr: 99,
-      merged: true,
-      squash: true,
-      labeled: true,
-      issue: 42,
-      dir: 'specs/42-add-x',
-    });
+    expect(parse(result)).toEqual(MERGED);
+    // The clean primary checkout on the default branch is fast-forwarded in place, never checked out.
     expect(git(root, ['branch', '--show-current']).trim()).toBe('main');
+    expect(git(root, ['rev-parse', 'HEAD']).trim()).toBe(git(root, ['rev-parse', 'origin/main']).trim());
+    expect(fs.existsSync(path.join(root, 'specs', '42-add-x', 'requirements.md'))).toBe(true);
     expect(git(root, ['ls-tree', '-r', '--name-only', 'origin/main'])).toContain('specs/42-add-x/requirements.md');
+    // The spec worktree, its local branch, and the remote spec branch are gone.
+    expect(fs.existsSync(tree)).toBe(false);
+    expect(git(root, ['worktree', 'list', '--porcelain']).match(/^worktree /gm)).toHaveLength(1);
+    expect(git(root, ['branch', '--list', 'spec/42-add-x'])).toBe('');
+    expect(git(root, ['ls-remote', '--heads', 'origin', 'spec/42-add-x'])).toBe('');
     const log = fs.readFileSync(path.join(root, '.gh-log'), 'utf8');
-    expect(log).toContain('pr create --base main --head 42-add-x --title docs: approve spec for #42');
+    expect(log).toContain('pr create --base main --head spec/42-add-x --title docs: approve spec for #42');
     expect(log).not.toMatch(/Closes #42|Fixes #42|Resolves #42/i);
-    expect(log).toMatch(/pr merge 99 --squash --match-head-commit [0-9a-f]{40} --delete-branch/);
+    expect(log).toMatch(/pr merge 99 --squash --match-head-commit [0-9a-f]{40}$/m);
     expect(log).toContain('issue edit 42 --add-label spec-created');
   });
   it('waits for unreported and pending required CI before an exact-head merge', () => {
     const { root, env } = makeRepo();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+    const tree = prepareSpec(root, env);
+    writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
     expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
-    const head = git(root, ['rev-parse', 'HEAD']).trim();
+    const head = git(tree, ['rev-parse', 'HEAD']).trim();
     const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], { ...env, GH_PENDING_CI: '1' });
     expect(result.status).toBe(0);
     const log = fs.readFileSync(path.join(root, '.gh-log'), 'utf8');
@@ -955,8 +1087,8 @@ describe('publish-approved-spec', () => {
 
   it('waits for reported CI when the branch declares no required checks', () => {
     const { root, env } = makeRepo();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+    const tree = prepareSpec(root, env);
+    writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
     expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
     const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], {
       ...env, GH_PENDING_CI: '1', GH_NO_REQUIRED: '1',
@@ -970,8 +1102,8 @@ describe('publish-approved-spec', () => {
 
   it('keeps observing unfiltered pending CI after required checks pass', () => {
     const { root, env } = makeRepo();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+    const tree = prepareSpec(root, env);
+    writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
     expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
     const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], {
       ...env, GH_OPTIONAL_PENDING: '1',
@@ -984,10 +1116,10 @@ describe('publish-approved-spec', () => {
 
   it('observes BLOCKED with absent then pending checks until passing CLEAN rechecks', () => {
     const { root, env } = makeRepo();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+    const tree = prepareSpec(root, env);
+    writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
     expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
-    const head = git(root, ['rev-parse', 'HEAD']).trim();
+    const head = git(tree, ['rev-parse', 'HEAD']).trim();
     const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], {
       ...env, GH_EXISTING_PR: '1', GH_PENDING_CI: '1', GH_BLOCKED_PENDING: '1',
     });
@@ -998,7 +1130,7 @@ describe('publish-approved-spec', () => {
       .toEqual(['BLOCKED', 'BLOCKED', 'CLEAN', 'CLEAN']);
     expect(log.match(/pr checks 99 --required/g)).toHaveLength(4);
     expect(log.match(/pr merge 99 /g)).toHaveLength(1);
-    expect(log).toContain(`pr merge 99 --squash --match-head-commit ${head} --delete-branch`);
+    expect(log).toContain(`pr merge 99 --squash --match-head-commit ${head}`);
   });
 
   it.each([
@@ -1006,8 +1138,8 @@ describe('publish-approved-spec', () => {
     ['branch protection', { GH_PROTECTED: '1' }],
   ])('does not merge a CLEAN PR while a %s check is not reported', (_policy, flags) => {
     const { root, env } = makeRepo();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+    const tree = prepareSpec(root, env);
+    writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
     expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
     const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], {
       ...env, GH_EXPECTED_MISSING: '1', ...flags,
@@ -1029,8 +1161,8 @@ describe('publish-approved-spec', () => {
     ['pr_head_changed', { GH_DRIFT_HEAD: '1' }, { head: expect.stringMatching(/^[0-9a-f]{40}$/) }],
   ])('fails closed on %s without merging', (reasonCode, flags, evidence) => {
     const { root, env } = makeRepo();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+    const tree = prepareSpec(root, env);
+    writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
     expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
     const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], { ...env, ...flags });
     expect(result.status).not.toBe(0);
@@ -1040,10 +1172,10 @@ describe('publish-approved-spec', () => {
 
   it('waits through stale UNSTABLE on an existing PR before two passing CLEAN views', () => {
     const { root, env } = makeRepo();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+    const tree = prepareSpec(root, env);
+    writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
     expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
-    const head = git(root, ['rev-parse', 'HEAD']).trim();
+    const head = git(tree, ['rev-parse', 'HEAD']).trim();
     const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], {
       ...env, GH_EXISTING_PR: '1', GH_STALE_UNSTABLE: '1',
     });
@@ -1051,31 +1183,114 @@ describe('publish-approved-spec', () => {
     expect(result.status).toBe(0);
     expect(parse(result)).toMatchObject({ ok: true, pr: 99, merged: true });
     expect(log).not.toContain('pr create');
-    expect(log.match(/pr view 99/g)).toHaveLength(4);
+    // Readiness snapshots only: the one changed-files read (`--json files`) is not a snapshot.
+    expect(log.match(/pr view 99 --json number,state,isDraft/g)).toHaveLength(4);
     expect(log.match(/pr checks 99 --required/g)).toHaveLength(4);
     expect(fs.readFileSync(path.join(root, '.pr-state-log'), 'utf8').trim().split('\n'))
       .toEqual(['UNSTABLE', 'UNSTABLE', 'CLEAN', 'CLEAN']);
     expect(log.match(/pr merge 99/g)).toHaveLength(1);
-    expect(log).toContain(`pr merge 99 --squash --match-head-commit ${head} --delete-branch`);
-    expect(git(root, ['rev-parse', '42-add-x']).trim()).toBe(head);
+    expect(log).toContain(`pr merge 99 --squash --match-head-commit ${head}`);
   });
 
   it('reuses the existing spec PR and merges only its exact head', () => {
     const { root, env } = makeRepo();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+    const tree = prepareSpec(root, env);
+    writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
     expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
+    const head = git(tree, ['rev-parse', 'HEAD']).trim();
     const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], { ...env, GH_EXISTING_PR: '1' });
     expect(result.status).toBe(0);
     const log = fs.readFileSync(path.join(root, '.gh-log'), 'utf8');
     expect(log).not.toContain('pr create');
-    expect(log).toContain(`pr merge 99 --squash --match-head-commit ${git(root, ['rev-parse', '42-add-x']).trim()}`);
+    expect(log).toContain(`pr merge 99 --squash --match-head-commit ${head}`);
+  });
+
+  describe('spec pull request scope (#551 AC2, FR2)', () => {
+    const ARGS = ['--issue', '42', '--dir', 'specs/42-add-x'];
+    const FILES_READ = 'pr view 99 --json files --jq .files[].path';
+    const ghLog = (root) => fs.readFileSync(path.join(root, '.gh-log'), 'utf8').trim().split('\n');
+    /** Commits `files` on the spec branch beside the approved package and publishes them, as a stray push would. */
+    function pushOutside(tree, files) {
+      for (const [file, content] of Object.entries(files)) {
+        fs.mkdirSync(path.dirname(path.join(tree, file)), { recursive: true });
+        fs.writeFileSync(path.join(tree, file), content);
+      }
+      git(tree, ['add', '--', ...Object.keys(files)]);
+      git(tree, ['commit', '-m', 'feat: not part of the spec']);
+      git(tree, ['push', 'origin', 'HEAD']);
+    }
+
+    it('merges a PR whose changed files are all under specs/{N}-{slug}/, reading them once before the merge', () => {
+      const { root, remote, env } = makeRepo();
+      const tree = prepareSpec(root, env);
+      writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
+      expect(run(root, ['commit-push', ...ARGS], env).status).toBe(0);
+      // What the stub reports is what the remote branch really changes.
+      expect(git(remote, ['diff', '--name-only', 'main...spec/42-add-x']).trim().split('\n')).toEqual(
+        ['design.md', 'feature.gherkin', 'requirements.md', 'tasks.md'].map((name) => `specs/42-add-x/${name}`));
+
+      const result = run(root, ['merge', ...ARGS], env);
+
+      expect(result.status).toBe(0);
+      expect(parse(result)).toEqual(MERGED);
+      const log = ghLog(root);
+      expect(log.filter((line) => line === FILES_READ)).toHaveLength(1);
+      expect(log.indexOf(FILES_READ)).toBeLessThan(log.findIndex((line) => line.startsWith('pr merge 99 ')));
+      expect(log.indexOf(FILES_READ)).toBeLessThan(log.findIndex((line) => line.startsWith('pr checks 99 ')));
+      // The pull request is only ever looked up on the spec branch.
+      const lookups = log.filter((line) => line.startsWith('pr list '));
+      expect(lookups.length).toBeGreaterThan(0);
+      for (const line of lookups) expect(line).toMatch(/^pr list --head spec\/42-add-x --base main /);
+    });
+
+    it.each([
+      ['a new', {}],
+      ['an existing', { GH_EXISTING_PR: '1' }],
+    ])('refuses %s PR with a file outside the spec directory, naming it, and never merges', (_case, flags) => {
+      const { root, remote, env } = makeRepo();
+      const tree = prepareSpec(root, env);
+      writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
+      expect(run(root, ['commit-push', ...ARGS], env).status).toBe(0);
+      // `specs/42-add-x-extra/` shares the directory's prefix but is another directory.
+      pushOutside(tree, { 'src/code.js': 'export const code = 1;\n', 'specs/42-add-x-extra/notes.md': 'notes\n' });
+      const mainBefore = git(remote, ['rev-parse', 'main']).trim();
+
+      const result = run(root, ['merge', ...ARGS], { ...env, ...flags });
+
+      expect(result.status).not.toBe(0);
+      expect(parse(result)).toEqual({ ok: false, reasonCode: 'pr_scope_invalid', pr: 99,
+        outside: ['specs/42-add-x-extra/notes.md', 'src/code.js'] });
+      const log = ghLog(root);
+      expect(log).toContain(FILES_READ);
+      expect(log.filter((line) => /^pr (?:merge|checks) /.test(line))).toEqual([]);
+      expect(log.filter((line) => line.startsWith('issue edit '))).toEqual([]);
+      for (const line of log.filter((entry) => entry.startsWith('pr list '))) {
+        expect(line).toMatch(/^pr list --head spec\/42-add-x --base main /);
+      }
+      // Nothing was merged or cleaned up: the default branch, the remote spec branch and the worktree are as they were.
+      expect(git(remote, ['rev-parse', 'main']).trim()).toBe(mainBefore);
+      expect(git(remote, ['rev-parse', 'spec/42-add-x']).trim()).toBe(git(tree, ['rev-parse', 'HEAD']).trim());
+      expect(fs.existsSync(tree)).toBe(true);
+    });
+
+    it('fails closed with pr_readiness_failed and never merges when the changed files cannot be read', () => {
+      const { root, env } = makeRepo();
+      const tree = prepareSpec(root, env);
+      writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
+      expect(run(root, ['commit-push', ...ARGS], env).status).toBe(0);
+
+      const result = run(root, ['merge', ...ARGS], { ...env, GH_PR_FILES_UNREADABLE: '1' });
+
+      expect(result.status).not.toBe(0);
+      expect(parse(result)).toMatchObject({ ok: false, reasonCode: 'pr_readiness_failed', pr: 99 });
+      expect(ghLog(root).filter((line) => line.startsWith('pr merge '))).toEqual([]);
+    });
   });
 
   it('reports a post-merge label failure without undoing the merge', () => {
     const { root, env } = makeRepo();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+    const tree = prepareSpec(root, env);
+    writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
     expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
 
     const result = run(
@@ -1092,35 +1307,56 @@ describe('publish-approved-spec', () => {
       pr: 99,
       issue: 42,
       dir: 'specs/42-add-x',
+      worktreeRemoved: true,
     });
     expect(git(root, ['branch', '--show-current']).trim()).toBe('main');
     expect(git(root, ['ls-tree', '-r', '--name-only', 'origin/main'])).toContain('specs/42-add-x/requirements.md');
   });
 
-  it('reports successful merge state when default checkout fails', () => {
-    const { root, env } = makeRepo();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+  it.each([
+    ['has diverged from the default branch', (root) => {
+      fs.writeFileSync(path.join(root, 'local.txt'), 'local\n');
+      git(root, ['add', 'local.txt']);
+      git(root, ['commit', '-m', 'local only']);
+    }, 'main'],
+    ['is on another branch', (root) => git(root, ['checkout', '-b', 'other']), 'other'],
+  ])('merge succeeds without a default-branch checkout when the primary checkout %s', (_case, arrange, branch) => {
+    const { root, remote, env } = makeRepo();
+    const tree = prepareSpec(root, env);
+    writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
     expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
+    arrange(root);
+    const head = git(root, ['rev-parse', 'HEAD']).trim();
 
-    const result = run(
-      root,
-      ['merge', '--issue', '42', '--dir', 'specs/42-add-x'],
-      { ...env, FAIL_DEFAULT_CHECKOUT: '1' },
-    );
+    const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], env);
 
-    expect(result.status).not.toBe(0);
-    expect(parse(result)).toMatchObject({
-      ok: false,
-      reasonCode: 'default_checkout_failed',
-      merged: true,
-      pr: 99,
-      issue: 42,
-      dir: 'specs/42-add-x',
-    });
-    expect(git(root, ['ls-tree', '-r', '--name-only', 'origin/main'])).toContain('specs/42-add-x/requirements.md');
+    expect(result.status).toBe(0);
+    expect(parse(result)).toEqual({ ...MERGED, fastForwarded: false });
+    expect(git(root, ['branch', '--show-current']).trim()).toBe(branch);
+    expect(git(root, ['rev-parse', 'HEAD']).trim()).toBe(head);
+    expect(git(remote, ['ls-tree', '-r', '--name-only', 'main'])).toContain('specs/42-add-x/requirements.md');
+    expect(fs.existsSync(tree)).toBe(false);
+    expect(git(root, ['branch', '--list', 'spec/42-add-x'])).toBe('');
   });
 
+  it('a failed run keeps the spec worktree and the next run reuses it', () => {
+    const { root, env } = makeRepo();
+    const tree = prepareSpec(root, env);
+    writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
+    const args = ['--issue', '42', '--dir', 'specs/42-add-x'];
+    expect(run(root, ['commit-push', ...args], env).status).toBe(0);
+    const head = git(tree, ['rev-parse', 'HEAD']).trim();
+
+    const rejected = run(root, ['merge', ...args], { ...env, GH_MERGE_REJECT: '1' });
+
+    expect(parse(rejected)).toMatchObject({ ok: false, reasonCode: 'pr_merge_failed' });
+    expect(git(tree, ['rev-parse', 'HEAD']).trim()).toBe(head);
+    expect(parse(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env)))
+      .toMatchObject({ ok: true, worktree: tree, created: false });
+    const retried = run(root, ['merge', ...args], { ...env, GH_EXISTING_PR: '1' });
+    expect(parse(retried)).toMatchObject({ ok: true, merged: true, worktreeRemoved: true });
+    expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).toContain(`pr merge 99 --squash --match-head-commit ${head}`);
+  });
 
   it.each([
     ['merged remotely', {}, true],
@@ -1128,40 +1364,30 @@ describe('publish-approved-spec', () => {
     ['still open', { GH_RECONCILE_OPEN: '1' }, false],
     ['changed head', { GH_RECONCILE_HEAD_DRIFT: '1' }, false],
     ['changed base', { GH_RECONCILE_BASE_DRIFT: '1' }, false],
-  ])('classifies CLI checkout failure when PR is %s', (_case, flags, proven) => {
+  ])('classifies a nonzero merge CLI exit when PR is %s', (_case, flags, proven) => {
     const { root, env } = makeRepo();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+    const tree = prepareSpec(root, env);
+    writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
     expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
-    const worktree = path.join(makeRoot(), 'main');
-    git(root, ['worktree', 'add', worktree, 'main']);
     const args = ['merge', '--issue', '42', '--dir', 'specs/42-add-x'];
-    const result = run(root, args, {
-      ...env, GH_REMOTE_MERGE_FAIL: '1', GH_MAIN_WORKTREE: worktree, ...flags,
-    });
-    expect(result.status).not.toBe(0);
+    const result = run(root, args, { ...env, GH_REMOTE_MERGE_FAIL: '1', ...flags });
     if (proven) {
-      expect(parse(result)).toMatchObject({
-        reasonCode: 'default_checkout_failed', merged: true, pr: 99, issue: 42, dir: 'specs/42-add-x',
-      });
+      expect(result.status).toBe(0);
+      expect(parse(result)).toEqual(MERGED);
       expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).toContain('issue edit 42 --add-label spec-created');
-      expect(git(root, ['branch', '--show-current']).trim()).toBe('42-add-x');
-      expect(git(worktree, ['branch', '--show-current']).trim()).toBe('main');
-      const second = run(root, args, { ...env, GH_MAIN_WORKTREE: worktree });
-      expect(parse(second)).toMatchObject({ reasonCode: 'default_checkout_failed', merged: true, pr: 99 });
-      const log = fs.readFileSync(path.join(root, '.gh-log'), 'utf8');
-      expect(log.match(/pr create /g)).toHaveLength(1);
-      expect(log.match(/pr merge 99 /g)).toHaveLength(1);
+      expect(fs.existsSync(tree)).toBe(false);
     } else {
+      expect(result.status).not.toBe(0);
       expect(parse(result)).toMatchObject({ reasonCode: 'pr_merge_failed' });
       expect(parse(result).merged).not.toBe(true);
       expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).not.toContain('issue edit 42 --add-label spec-created');
+      expect(fs.existsSync(tree)).toBe(true);
     }
   });
   it('does not label when the remote rejects the merge', () => {
     const { root, env } = makeRepo();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+    const tree = prepareSpec(root, env);
+    writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
     expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
     const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], {
       ...env, GH_MERGE_REJECT: '1',
@@ -1172,9 +1398,9 @@ describe('publish-approved-spec', () => {
   });
   it('merge rejects an unapproved package', () => {
     const { root, env } = makeRepo();
-    expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-    fs.mkdirSync(path.join(root, 'specs', '42-add-x'), { recursive: true });
-    fs.writeFileSync(path.join(root, 'specs', '42-add-x', 'requirements.md'), '**Issue**: #42\n**Status**: Draft\n');
+    const tree = prepareSpec(root, env);
+    fs.mkdirSync(path.join(tree, 'specs', '42-add-x'), { recursive: true });
+    fs.writeFileSync(path.join(tree, 'specs', '42-add-x', 'requirements.md'), '**Issue**: #42\n**Status**: Draft\n');
     const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], env);
     expect(result.status).not.toBe(0);
     expect(parse(result)).toMatchObject({ ok: false, reasonCode: 'spec_not_approved' });
@@ -1201,10 +1427,10 @@ describe('publish-approved-spec', () => {
 
     function mergeWith(flags) {
       const { root, env } = makeRepo();
-      expect(run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env).status).toBe(0);
-      writeApproved(path.join(root, 'specs', '42-add-x'), 42);
+      const tree = prepareSpec(root, env);
+      writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
       expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
-      const head = git(root, ['rev-parse', 'HEAD']).trim();
+      const head = git(tree, ['rev-parse', 'HEAD']).trim();
       const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], { ...env, ...flags });
       const log = fs.readFileSync(path.join(root, '.gh-log'), 'utf8');
       const stateLog = path.join(root, '.pr-state-log');
@@ -1214,9 +1440,9 @@ describe('publish-approved-spec', () => {
 
     function expectExactHeadMerge({ head, result, log }) {
       expect(result.status).toBe(0);
-      expect(parse(result)).toEqual({ ok: true, branch: 'main', pr: 99, merged: true, squash: true, labeled: true, issue: 42, dir: 'specs/42-add-x' });
+      expect(parse(result)).toEqual(MERGED);
       expect(log.match(/pr merge 99 /g)).toHaveLength(1);
-      expect(log).toContain(`pr merge 99 --squash --match-head-commit ${head} --delete-branch`);
+      expect(log).toContain(`pr merge 99 --squash --match-head-commit ${head}`);
       const lines = log.trim().split('\n');
       expect(lines.findIndex((line) => line.startsWith('pr merge 99 ')))
         .toBeGreaterThan(lines.findLastIndex((line) => line.startsWith('pr view 99 ')));
@@ -1296,7 +1522,7 @@ describe('publish-approved-spec', () => {
       const merged = mergeWith({ ...BOTH_UNAVAILABLE, ...flags });
       expectExactHeadMerge(merged);
       expect(merged.states).toEqual(['UNSTABLE', 'UNSTABLE', 'CLEAN', 'CLEAN']);
-      expect(merged.log.match(/pr view 99 /g)).toHaveLength(4);
+      expect(merged.log.match(/pr view 99 --json number,state,isDraft/g)).toHaveLength(4);
     });
 
     it.each([

@@ -10,10 +10,8 @@ import {
   readDependencyGraph,
 } from './issue-dependencies.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
-import {
-  isAuthorizedNmgSdlcUntrackTransition,
-  untrackNmgSdlcRuntime,
-} from './nmg-sdlc-ignore.mjs';
+import { untrackNmgSdlcRuntime } from './nmg-sdlc-ignore.mjs';
+import { ensureWorktree } from './sdlc-worktree.mjs';
 
 const USAGE = 'Usage: node scripts/start-issue.mjs --issue N';
 
@@ -28,7 +26,7 @@ function defaultRun(command, args, options = {}) {
   return spawnSync(command, args, { encoding: 'utf8', ...options });
 }
 
-function handoffFor(issue, status, summary, reasonCode = null, branch = null, head = null) {
+function handoffFor(issue, status, summary, reasonCode = null, branch = null, head = null, worktree = null) {
   const h = {
     schemaVersion: 1,
     issue,
@@ -43,6 +41,8 @@ function handoffFor(issue, status, summary, reasonCode = null, branch = null, he
   if (status === 'passed' && branch && /^[0-9a-f]{40}$/i.test(String(head || ''))) {
     h.branch = branch;
     h.head = head;
+    // The issue's own worktree, when the branch is not the invoking checkout's.
+    if (worktree) h.worktree = worktree;
   }
   return h;
 }
@@ -79,28 +79,6 @@ function projectStatusInProgress(issue, cwd, run) {
     return;
   }
 }
-function checkoutTrackedRemoteBranch({ run, cwd, expectedBranch }) {
-  const remoteRef = `refs/remotes/origin/${expectedBranch}`;
-  const exactRemoteRefspec = `refs/heads/${expectedBranch}:${remoteRef}`;
-  const fetched = run('git', [
-    'fetch', '--quiet', '--no-tags', 'origin', exactRemoteRefspec,
-  ], { cwd });
-  if (fetched?.status !== 0) return { checkout: fetched, remoteFound: false };
-  const configured = run('git', ['config', '--get-all', 'remote.origin.fetch'], { cwd });
-  const fetchRefspecs = configured?.status === 0
-    ? String(configured.stdout || '').split('\n').filter(Boolean)
-    : [];
-  const registered = fetchRefspecs.some((refspec) => (
-    refspec === exactRemoteRefspec || refspec === `+${exactRemoteRefspec}`
-  ))
-    ? { status: 0 }
-    : run('git', ['config', '--add', 'remote.origin.fetch', exactRemoteRefspec], { cwd });
-  const checkout = registered?.status === 0
-    ? run('git', ['checkout', '--track', '-b', expectedBranch, `origin/${expectedBranch}`], { cwd })
-    : registered;
-  return { checkout, remoteFound: true };
-}
-
 function integrateDefaultHistory({ run, cwd, expectedBranch, issue }) {
   const defaultResult = run('gh', [
     'repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name',
@@ -265,50 +243,44 @@ export function startIssue({
       dependency.reasonCode || 'dependency_unreadable',
     );
   }
-  const untrack = untrackNmgSdlcRuntime({ cwd, run, fs });
+  const expectedBranch = `${issueNumber}-${slugFromTitle(issueData.title)}`;
+  const branchResult = run('git', ['branch', '--show-current'], { cwd });
+  const currentBranch = branchResult?.status === 0 ? String(branchResult.stdout || '').trim() : '';
+  // A checkout already on the issue branch is used in place. Any other checkout is left exactly as it is, clean or
+  // not: the issue gets its own worktree, created from the remote issue branch or the remote default branch.
+  let workdir = cwd;
+  if (currentBranch !== expectedBranch) {
+    const defaultResult = run('gh', ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'], { cwd });
+    const defaultBranch = defaultResult?.status === 0 ? String(defaultResult.stdout || '').trim() : '';
+    if (!defaultBranch || defaultBranch === expectedBranch) return fail('Repository default branch is unreadable', 'default_branch_unreadable');
+    const remoteRef = `refs/remotes/origin/${expectedBranch}`;
+    const known = run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${expectedBranch}`], { cwd })?.status === 0
+      || run('git', ['fetch', '--quiet', '--no-tags', 'origin', `refs/heads/${expectedBranch}:${remoteRef}`], { cwd })?.status === 0;
+    // A new branch is created on the remote, linked to the issue, without checking anything out here.
+    if (!known) run('gh', ['issue', 'develop', String(issueNumber), '--name', expectedBranch, '--base', defaultBranch], { cwd });
+    try {
+      workdir = ensureWorktree({ cwd, branch: expectedBranch, base: defaultBranch, run }).path;
+    } catch (error) {
+      const reasonCode = ['worktree_setup_failed', 'default_branch_unreadable'].includes(error?.reasonCode)
+        ? error.reasonCode : 'branch_checkout_failed';
+      return fail(`Failed to prepare a worktree for ${expectedBranch}: ${error?.message ?? 'unknown'}`, reasonCode);
+    }
+    const checkedOut = String(run('git', ['branch', '--show-current'], { cwd: workdir })?.stdout || '').trim();
+    if (checkedOut !== expectedBranch) return fail(`Worktree ${workdir} is not on ${expectedBranch}`, 'branch_checkout_failed');
+    // A branch that exists only locally is published so its exact head can be proven.
+    if (run('git', ['fetch', '--quiet', '--no-tags', 'origin', `refs/heads/${expectedBranch}:${remoteRef}`], { cwd: workdir })?.status !== 0
+      && run('git', ['push', '-u', 'origin', `${expectedBranch}:refs/heads/${expectedBranch}`], { cwd: workdir })?.status !== 0) {
+      return fail(`Failed to publish ${expectedBranch}`, 'branch_push_failed');
+    }
+  }
+  const untrack = untrackNmgSdlcRuntime({ cwd: workdir, run, fs });
   if (!untrack.ok) {
     return fail('Failed to untrack plugin runtime under .nmg-sdlc', 'runtime_untrack_failed');
   }
-
-
-  const expectedBranch = `${issueNumber}-${slugFromTitle(issueData.title)}`;
-
-  const branchResult = run('git', ['branch', '--show-current'], { cwd });
-  const dirtyResult = run('git', ['status', '--porcelain', '-z'], { cwd });
-  const currentBranch = branchResult?.status === 0 ? String(branchResult.stdout || '').trim() : '';
-  const dirty = String(dirtyResult?.stdout || '');
-  const authorizedUntrack = isAuthorizedNmgSdlcUntrackTransition(dirty, untrack);
-  if (dirtyResult?.status !== 0 || (dirty && !authorizedUntrack && currentBranch !== expectedBranch)) {
-    return fail(`Working tree is dirty and current branch is not ${expectedBranch}`, 'dirty_tree');
+  if (run('git', ['status', '--porcelain', '-z'], { cwd: workdir })?.status !== 0) {
+    return fail(`Working tree status of ${expectedBranch} is unreadable`, 'dirty_tree');
   }
-
-  if (currentBranch !== expectedBranch) {
-    let checkout;
-    if (run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${expectedBranch}`], { cwd })?.status === 0) {
-      checkout = run('git', ['checkout', expectedBranch], { cwd });
-    } else {
-      const tracked = checkoutTrackedRemoteBranch({ run, cwd, expectedBranch });
-      checkout = tracked.checkout;
-      if (!tracked.remoteFound) {
-        const defaultResult = run('gh', ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'], { cwd });
-        const defaultBranch = defaultResult?.status === 0 ? String(defaultResult.stdout || '').trim() : '';
-        if (!defaultBranch) return fail('Repository default branch is unreadable', 'default_branch_unreadable');
-        checkout = run('gh', [
-          'issue', 'develop', String(issueNumber), '--checkout', '--name', expectedBranch, '--base', defaultBranch,
-        ], { cwd });
-        const developedBranch = String(run('git', ['branch', '--show-current'], { cwd })?.stdout || '').trim();
-        if (checkout?.status !== 0 || developedBranch !== expectedBranch) {
-          const fallback = checkoutTrackedRemoteBranch({ run, cwd, expectedBranch });
-          checkout = fallback.checkout;
-        }
-      }
-    }
-    const checkedOut = String(run('git', ['branch', '--show-current'], { cwd })?.stdout || '').trim();
-    if (checkout?.status !== 0 || checkedOut !== expectedBranch) {
-      return fail(`Failed to check out ${expectedBranch}`, 'branch_checkout_failed');
-    }
-  }
-  const integrated = integrateDefaultHistory({ run, cwd, expectedBranch, issue: issueNumber });
+  const integrated = integrateDefaultHistory({ run, cwd: workdir, expectedBranch, issue: issueNumber });
   if (integrated?.reasonCode === 'default_branch_unreadable') {
     return fail('Repository default branch is unreadable', integrated.reasonCode);
   }
@@ -318,9 +290,9 @@ export function startIssue({
   const remoteRef = `refs/remotes/origin/${expectedBranch}`;
   const fetched = run('git', [
     'fetch', '--quiet', '--no-tags', 'origin', `refs/heads/${expectedBranch}:${remoteRef}`,
-  ], { cwd });
-  const localHead = run('git', ['rev-parse', 'HEAD'], { cwd });
-  const remoteHead = fetched?.status === 0 ? run('git', ['rev-parse', remoteRef], { cwd }) : null;
+  ], { cwd: workdir });
+  const localHead = run('git', ['rev-parse', 'HEAD'], { cwd: workdir });
+  const remoteHead = fetched?.status === 0 ? run('git', ['rev-parse', remoteRef], { cwd: workdir }) : null;
   const head = String(localHead?.stdout || '').trim();
   if (!/^[0-9a-f]{40}$/i.test(head) || head !== integrated.head
     || !/^[0-9a-f]{40}$/i.test(integrated.sourceHead) || remoteHead?.status !== 0) {
@@ -331,29 +303,29 @@ export function startIssue({
     return fail(`Origin ${expectedBranch} moved during reconciliation`, 'branch_checkout_failed');
   }
   if (observedRemote !== head) {
-    if (run('git', ['merge-base', '--is-ancestor', observedRemote, head], { cwd })?.status !== 0
-      || run('git', ['push', 'origin', `${head}:refs/heads/${expectedBranch}`], { cwd })?.status !== 0
+    if (run('git', ['merge-base', '--is-ancestor', observedRemote, head], { cwd: workdir })?.status !== 0
+      || run('git', ['push', 'origin', `${head}:refs/heads/${expectedBranch}`], { cwd: workdir })?.status !== 0
       || run('git', [
         'fetch', '--quiet', '--no-tags', 'origin', `refs/heads/${expectedBranch}:${remoteRef}`,
-      ], { cwd })?.status !== 0
-      || String(run('git', ['rev-parse', remoteRef], { cwd })?.stdout || '').trim() !== head) {
+      ], { cwd: workdir })?.status !== 0
+      || String(run('git', ['rev-parse', remoteRef], { cwd: workdir })?.stdout || '').trim() !== head) {
       return fail(`Failed to synchronize ${expectedBranch}`, 'branch_push_failed');
     }
   }
 
   try {
-    projectStatusInProgress(issueNumber, cwd, run);
+    projectStatusInProgress(issueNumber, workdir, run);
   } catch {
     // Project status is best-effort and never blocks branch preparation.
   }
 
-  const finalBranch = run('git', ['branch', '--show-current'], { cwd });
-  const finalHead = run('git', ['rev-parse', 'HEAD'], { cwd });
+  const finalBranch = run('git', ['branch', '--show-current'], { cwd: workdir });
+  const finalHead = run('git', ['rev-parse', 'HEAD'], { cwd: workdir });
   if (finalBranch?.status !== 0 || String(finalBranch.stdout || '').trim() !== expectedBranch
     || finalHead?.status !== 0 || String(finalHead.stdout || '').trim() !== head) {
     return fail(`Branch ${expectedBranch} moved before start handoff`, 'branch_checkout_failed');
   }
-  return writeHandoff(handoffFor(issueNumber, 'passed', `Branch ready for #${issueNumber}`, null, expectedBranch, head));
+  return writeHandoff(handoffFor(issueNumber, 'passed', `Branch ready for #${issueNumber}`, null, expectedBranch, head, workdir === cwd ? null : workdir));
 }
 
 function runCli(argv = process.argv.slice(2)) {

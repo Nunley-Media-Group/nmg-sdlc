@@ -5,6 +5,11 @@ import { pathToFileURL } from "node:url";
 import { ALLOWED_CONSUMERS, ALLOWED_SLOTS } from "./sdlc-prompt-snippets.mjs";
 
 const TOP_KEYS = ["schemaVersion", "runtimeVersion", "managedFiles", "modules", "snippets", "extensions", "validations"];
+// Optional manifest keys: absent ones change nothing.
+export const OPTIONAL_TOP_KEYS = Object.freeze(["worktree", "changelog", "fullGreen"]);
+const OPTIONAL_VALIDATION_KEYS = ["timeoutMs", "tier", "heavy", "selection", "fallbackPaths"];
+export const VALIDATION_TIERS = Object.freeze(["change", "full"]);
+const SHELL_PROGRAMS = ["sh", "bash", "zsh", "cmd", "powershell"];
 const ROLES = ["product", "tech", "structure", "verification"];
 const WHEN_KINDS = new Set(["always", "changed_paths", "path_exists", "glob_exists"]);
 const BUILTIN_PROVIDERS = new Set(["builtin.command", "builtin.artifact", "builtin.external-evidence"]);
@@ -63,6 +68,56 @@ function safeRelativePath(value) {
     && !value.split("/").includes("..");
 }
 
+/** Whether `value` is a `{ program, args, cwd?, env? }` command: no shell program, project-relative cwd, named env keys. */
+function validCommand(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const keys = Object.keys(value);
+  if (keys.some((key) => !["program", "args", "cwd", "env"].includes(key)) || !Object.hasOwn(value, "program") || !Object.hasOwn(value, "args")) return false;
+  return typeof value.program === "string" && value.program !== ""
+    && !SHELL_PROGRAMS.includes(value.program.split(/[\\/]/).at(-1).toLowerCase())
+    && Array.isArray(value.args) && value.args.every((x) => typeof x === "string")
+    && (value.cwd === undefined || safeRelativePath(value.cwd || "."))
+    && (value.env === undefined || (Array.isArray(value.env) && value.env.every((x) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(x)) && new Set(value.env).size === value.env.length));
+}
+
+/** `selection` is a command that picks the tests of a change-tier builtin.command validation; `fallbackPaths` are the globs that always run the full command. */
+function validateSelection(validation) {
+  const scoped = validation.tier === "change" && validation.provider === "builtin.command";
+  if (Object.hasOwn(validation, "selection") && (!scoped || !validCommand(validation.selection))) fail("steering_validation_invalid", "selection requires a change-tier builtin.command validation and a command");
+  if (Object.hasOwn(validation, "fallbackPaths")) {
+    const paths = validation.fallbackPaths;
+    if (!scoped || !Array.isArray(paths) || !paths.every((x) => safeRelativePath(x) && !x.startsWith("!"))) fail("steering_validation_invalid", "fallbackPaths");
+  }
+}
+
+/** Validates the optional manifest keys and returns them normalized; absent keys are null or empty. */
+function optionalManifest(manifest) {
+  let worktree = null;
+  if (Object.hasOwn(manifest, "worktree")) {
+    const value = manifest.worktree;
+    if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some((key) => !["setup", "teardown"].includes(key))) fail("steering_manifest_invalid", "worktree");
+    for (const key of ["setup", "teardown"]) if (Object.hasOwn(value, key) && !validCommand(value[key])) fail("steering_manifest_invalid", `worktree.${key}`);
+    worktree = Object.freeze({ setup: value.setup ?? null, teardown: value.teardown ?? null });
+  }
+  let changelogFragments = null;
+  if (Object.hasOwn(manifest, "changelog")) {
+    const value = manifest.changelog;
+    const directory = value?.fragments?.dir;
+    if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).join() !== "fragments"
+      || !value.fragments || typeof value.fragments !== "object" || Array.isArray(value.fragments) || Object.keys(value.fragments).join() !== "dir"
+      || !safeRelativePath(directory) || directory.endsWith("/") || directory === "." || directory.startsWith(".nmg-sdlc")) fail("steering_manifest_invalid", "changelog");
+    changelogFragments = Object.freeze({ directory });
+  }
+  let fullGreenActions = [];
+  if (Object.hasOwn(manifest, "fullGreen")) {
+    const value = manifest.fullGreen?.actions;
+    if (!manifest.fullGreen || typeof manifest.fullGreen !== "object" || Array.isArray(manifest.fullGreen) || Object.keys(manifest.fullGreen).join() !== "actions"
+      || !Array.isArray(value) || !value.every((x) => typeof x === "string" && ID_RE.test(x)) || new Set(value).size !== value.length) fail("steering_manifest_invalid", "fullGreen");
+    fullGreenActions = [...value];
+  }
+  return { worktree, changelogFragments, fullGreenActions: Object.freeze(fullGreenActions) };
+}
+
 function validateWhen(when) {
   if (!when || typeof when !== "object" || Array.isArray(when) || !WHEN_KINDS.has(when.kind)) fail("steering_condition_invalid");
   const keys = when.kind === "always" ? ["kind"] : when.kind === "changed_paths" ? (Object.hasOwn(when, "exclude") ? ["kind", "include", "exclude"] : ["kind", "include"]) : when.kind === "path_exists" ? ["kind", "path"] : ["kind", "root", "pattern"];
@@ -102,7 +157,8 @@ export async function loadSteeringRuntime(projectRoot, { manifestPath = "steerin
   if (!existsSync(absoluteManifest)) fail("steering_manifest_missing");
   let manifest;
   try { manifest = JSON.parse(readFileSync(absoluteManifest, "utf8")); } catch { fail("steering_manifest_invalid"); }
-  exactKeys(manifest, TOP_KEYS);
+  exactKeys(manifest, [...TOP_KEYS, ...OPTIONAL_TOP_KEYS.filter((key) => Object.hasOwn(manifest, key))]);
+  const optional = optionalManifest(manifest);
   if (manifest.schemaVersion !== 1 || manifest.runtimeVersion !== "1" || !["managedFiles", "modules", "snippets", "extensions", "validations"].every((key) => Array.isArray(manifest[key]))) fail("steering_manifest_invalid");
 
   const ids = new Set();
@@ -173,16 +229,17 @@ export async function loadSteeringRuntime(projectRoot, { manifestPath = "steerin
 
   const validations = [];
   for (const record of manifest.validations) {
-    const keys = Object.hasOwn(record, "timeoutMs")
-      ? ["id", "provider", "required", "when", "timeoutMs", "config"]
-      : ["id", "provider", "required", "when", "config"];
-    exactKeys(record, keys);
+    if (!record || typeof record !== "object" || Array.isArray(record)) fail("steering_manifest_invalid");
+    exactKeys(record, ["id", "provider", "required", "when", "config", ...OPTIONAL_VALIDATION_KEYS.filter((key) => Object.hasOwn(record, key))]);
     addId("validation", record.id);
     validateId(record.provider);
     if (!providers.has(record.provider)) fail("steering_provider_unresolved");
     if (typeof record.required !== "boolean") fail("steering_manifest_invalid");
     validateWhen(record.when);
     validateConfig(record);
+    if (Object.hasOwn(record, "tier") && !VALIDATION_TIERS.includes(record.tier)) fail("steering_validation_invalid", "tier");
+    if (Object.hasOwn(record, "heavy") && typeof record.heavy !== "boolean") fail("steering_validation_invalid", "heavy");
+    validateSelection(record);
     const { timeoutMs: _legacyTimeoutMs, ...validation } = record;
     validations.push(Object.freeze(validation));
   }
@@ -190,7 +247,24 @@ export async function loadSteeringRuntime(projectRoot, { manifestPath = "steerin
   const steeringFiles = [absoluteManifest, ...manifest.modules.map((x) => resolve(root, x.path)), ...manifest.snippets.map((x) => resolve(root, x.path)), ...manifest.extensions.map((x) => resolve(root, x.path))];
   const steeringHash = hash(steeringFiles.map((file) => `${relative(root, file)}\0${readFileSync(file)}`).join("\0"));
   const registrationHash = hash(canonicalJson({ snippets: manifest.snippets, extensions: manifest.extensions, validations: manifest.validations }));
-  return Object.freeze({ projectRoot: root, manifest, modules, snippets, extensions, providers, validations, steeringHash, registrationHash });
+  // Tiers apply only once a validation declares one; a project that declares none keeps every validation pre-merge.
+  const tiered = validations.some((validation) => Object.hasOwn(validation, "tier"));
+  return Object.freeze({ projectRoot: root, manifest, modules, snippets, extensions, providers, validations, steeringHash, registrationHash, tiered, ...optional });
+}
+
+/** The tier a validation runs in: its declared tier, or `change` (before merge) when it declares none. */
+export function validationTier(validation) {
+  return validation?.tier === "full" ? "full" : "change";
+}
+
+/** Reads only the optional manifest settings (worktree commands, changelog fragments, full-green actions), validated. */
+export function readManifestOptions(projectRoot) {
+  const path = resolve(projectRoot, "steering/manifest.json");
+  if (!existsSync(path)) return { worktree: null, changelogFragments: null, fullGreenActions: Object.freeze([]) };
+  let manifest;
+  try { manifest = JSON.parse(readFileSync(path, "utf8")); } catch { fail("steering_manifest_invalid"); }
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) fail("steering_manifest_invalid");
+  return optionalManifest(manifest);
 }
 
 export function projectPromptFragments(runtime) {

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, test } from '@jest/globals';
 
-import { parseDeliverCli, runDeliver } from '../sdlc-deliver.mjs';
+import { changelogFragmentBullets, changelogFragmentFile, insertChangelogFragment, parseDeliverCli, runDeliver } from '../sdlc-deliver.mjs';
 import { inspectIssueSpecScope } from '../issue-spec-scope.mjs';
 import { canonicalJson } from '../../src/sdlc-steering-runtime.mjs';
 const SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'sdlc-deliver.mjs');
@@ -20,7 +20,7 @@ function git(cwd, ...args) {
   return result.stdout.trim();
 }
 
-function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'passed', remoteIssueState = 'OPEN', existing = false, lostAck = false, checksState = 'SUCCESS', declaredName = 'contract-tests', checkResponses = {}, smokeOwned = false, humanReview = false, versionPrepared = true, issueTitle = 'Deliver verified changes', labels = ['enhancement'], unreleased = '', requirements = '', versionBump = false, closingReferences = [{ number: 42, url: 'https://github.test/owner/repo/issues/42' }] } = {}) {
+function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'passed', remoteIssueState = 'OPEN', existing = false, lostAck = false, checksState = 'SUCCESS', declaredName = 'contract-tests', checkResponses = {}, smokeOwned = false, receiptRoot = null, humanReview = false, versionPrepared = true, issueTitle = 'Deliver verified changes', labels = ['enhancement'], unreleased = '', requirements = '', versionBump = false, closingReferences = [{ number: 42, url: 'https://github.test/owner/repo/issues/42' }] } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-delivery-current-'));
   const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-delivery-remote-'));
   roots.push(root, remote);
@@ -188,7 +188,7 @@ function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'p
     if (args[0] === 'pr' && args[1] === 'ready') { pr.isDraft = false; return { status: 0, stdout: '', stderr: '' }; }
     if (args[0] === 'pr' && args[1] === 'merge') {
       if (smokeOwned) {
-        const receipt = JSON.parse(fs.readFileSync(path.join(root, '.nmg-sdlc/smoke-deliveries/42.json'), 'utf8'));
+        const receipt = JSON.parse(fs.readFileSync(path.join(receiptRoot ?? root, '.nmg-sdlc/smoke-deliveries/42.json'), 'utf8'));
         if (receipt.pullRequest !== 77 || receipt.headSha !== git(root, 'rev-parse', 'HEAD')) {
           throw new Error('Smoke receipt was not written before exact-head merge');
         }
@@ -621,6 +621,20 @@ console.log(JSON.stringify(value));
       });
   });
 
+  test('smoke receipt from an issue worktree is written to the primary checkout, which outlives the worktree (#551)', () => {
+    const primary = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-delivery-primary-')));
+    roots.push(primary);
+    const f = fixture({ smokeOwned: true, receiptRoot: primary });
+    const run = (binary, args, opts = {}) => (binary === 'git' && args[0] === 'worktree' && args[1] === 'list'
+      ? { status: 0, stdout: `worktree ${primary}\nHEAD ${'c'.repeat(40)}\nbranch refs/heads/main\n\nworktree ${f.root}\nHEAD ${f.currentHead}\nbranch refs/heads/feature/42-delivery\n`, stderr: '' }
+      : f.run(binary, args, opts));
+    const result = runDeliver({ cwd: f.root, issue: 42, run, env: f.env });
+    expect(result).toMatchObject({ status: 0, handoff: { status: 'passed' } });
+    expect(JSON.parse(fs.readFileSync(path.join(primary, '.nmg-sdlc/smoke-deliveries/42.json'), 'utf8')))
+      .toMatchObject({ issue: 42, invocationId: 'a'.repeat(64), pullRequest: 77, recordedBeforeMerge: true });
+    expect(fs.existsSync(path.join(f.root, '.nmg-sdlc/smoke-deliveries/42.json'))).toBe(false);
+  });
+
   test('lost merge acknowledgment reconciles remote MERGED and CLOSED without replay', () => {
     const f = fixture({ existing: true, lostAck: true });
     const first = runDeliver({ cwd: f.root, issue: 42, run: f.run });
@@ -811,6 +825,330 @@ console.log(JSON.stringify(value));
       expect(merge).toBeGreaterThan(firstWait);
       expect(deliveryCalls(f, 'merge')).toHaveLength(1);
       expect(deliveryCalls(f, 'merge')[0]).toContain(f.currentHead);
+    });
+  });
+});
+
+describe('changelog fragments (#551 AC4)', () => {
+  function tryGit(cwd, ...args) {
+    return spawnSync('git', args, { cwd, encoding: 'utf8' });
+  }
+  function write(root, files) {
+    for (const [file, content] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      fs.writeFileSync(path.join(root, file), content);
+    }
+  }
+  function directory(files = {}) {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-fragments-')));
+    roots.push(root);
+    write(root, files);
+    return root;
+  }
+  const optIn = (dir = 'changelog.d') => ({ 'steering/manifest.json': `${JSON.stringify({ changelog: { fragments: { dir } } })}\n` });
+  const read = (root, file) => fs.readFileSync(path.join(root, file), 'utf8');
+
+  describe('changelogFragmentFile', () => {
+    test('is the issue\'s own <dir>/<N>.md in a project that opted in', () => {
+      const root = directory({ ...optIn(), 'changelog.d/42.md': '- Queue (#42)\n', 'changelog.d/43.md': '- Pool (#43)\n', 'changelog.d/README.md': 'How to\n' });
+
+      expect(changelogFragmentFile(fs, root, 42)).toEqual({ relative: 'changelog.d/42.md', absolute: path.join(root, 'changelog.d/42.md') });
+      expect(changelogFragmentFile(fs, root, 43)).toEqual({ relative: 'changelog.d/43.md', absolute: path.join(root, 'changelog.d/43.md') });
+      expect(changelogFragmentFile(fs, root, 4)).toBeNull();
+      expect(changelogFragmentFile(fs, root, 420)).toBeNull();
+
+      const nested = directory({ ...optIn('docs/changes'), 'docs/changes/42.md': '- Queue (#42)\n', 'changelog.d/42.md': '- Elsewhere (#42)\n' });
+      expect(changelogFragmentFile(fs, nested, 42)).toEqual({ relative: 'docs/changes/42.md', absolute: path.join(nested, 'docs/changes/42.md') });
+    });
+
+    test('is null without the opt-in, with the old `directory` key, or with an invalid manifest', () => {
+      const fragment = { 'changelog.d/42.md': '- Queue (#42)\n' };
+      for (const manifest of [
+        null, '{"schemaVersion":1}', '{broken', '[]',
+        JSON.stringify({ changelog: { fragments: { directory: 'changelog.d' } } }),
+        JSON.stringify({ changelog: { fragments: { dir: '../outside' } } }),
+        JSON.stringify({ changelog: { fragments: { dir: '.nmg-sdlc/changes' } } }),
+        JSON.stringify({ changelog: { fragments: { dir: 'changelog.d', pattern: '*.md' } } }),
+        JSON.stringify({ changelog: { fragments: {} } }),
+      ]) {
+        const root = directory({ ...fragment, ...(manifest === null ? {} : { 'steering/manifest.json': manifest }) });
+        expect([manifest, changelogFragmentFile(fs, root, 42)]).toEqual([manifest, null]);
+      }
+    });
+
+    test('is null when the fragment is missing, a directory or a symbolic link, or the issue is not a positive integer', () => {
+      const root = directory({ ...optIn(), 'changelog.d/42-queue.md': '- Wrong name (#42)\n', 'outside.md': '- Outside (#44)\n' });
+      fs.mkdirSync(path.join(root, 'changelog.d/43.md'));
+      fs.symlinkSync(path.join(root, 'outside.md'), path.join(root, 'changelog.d/44.md'));
+      fs.symlinkSync(path.join(root, 'missing.md'), path.join(root, 'changelog.d/45.md'));
+
+      for (const issue of [42, 43, 44, 45, 0, -1, 1.5, '42', null]) expect([issue, changelogFragmentFile(fs, root, issue)]).toEqual([issue, null]);
+      expect(changelogFragmentFile(fs, directory(optIn()), 42)).toBeNull();
+    });
+
+    test('refuses a fragments directory that resolves outside the project', () => {
+      const outside = directory({ '42.md': '- Queue (#42)\n' });
+      const root = directory(optIn());
+      fs.symlinkSync(outside, path.join(root, 'changelog.d'));
+
+      expect(() => changelogFragmentFile(fs, root, 42)).toThrow('version artifact path escapes the repository');
+    });
+  });
+
+  describe('changelogFragmentBullets and insertChangelogFragment', () => {
+    const RELEASED = '## [1.2.0] - 2026-01-01\n\n### Changed\n\n- Older change (#7)\n\n## [1.1.0] - 2025-12-01\n\n- Oldest change (#3)\n';
+    const changelog = (unreleased = '') => `# Changelog\n\nAll notable changes.\n\n## [Unreleased]\n\n${unreleased ? `${unreleased}\n\n` : ''}${RELEASED}`;
+    const insert = (unreleased, body, category = 'Changed') => insertChangelogFragment(changelog(unreleased), body, category);
+
+    test('a fragment\'s bullets are its bullet lines with their indented continuation lines, and nothing else', () => {
+      expect(changelogFragmentBullets('# Fragment for #42\n\nSome prose.\n\n### Added\n\n- Add a merge queue (#42)   \n  One queue per repository.\n    - nested detail\n'
+        + '* Second entry (#42)\n\n  Not a continuation: a blank line ended the bullet.\n-not a bullet\n- \n')).toEqual([
+        '- Add a merge queue (#42)\n  One queue per repository.\n    - nested detail', '- Second entry (#42)',
+      ]);
+      expect(changelogFragmentBullets('- Add a merge queue (#42)\r\n  More detail.\r\n')).toEqual(['- Add a merge queue (#42)\n  More detail.']);
+      expect(changelogFragmentBullets('')).toEqual([]);
+      expect(changelogFragmentBullets('Only prose.\n\n### Added\n')).toEqual([]);
+    });
+
+    test('bullets go under the classification heading, whatever headings the fragment itself has', () => {
+      expect(insert('', '- Add a merge queue (#42)\n- Queue survives a crash (#42)\n')).toBe(changelog('### Changed\n\n- Add a merge queue (#42)\n- Queue survives a crash (#42)'));
+      expect(insert('', '### Added\n\n- Add a merge queue (#42)\n\n### Security\n\n- Validate the queue file (#42)\n', 'Fixed'))
+        .toBe(changelog('### Fixed\n\n- Add a merge queue (#42)\n- Validate the queue file (#42)'));
+    });
+
+    test('an existing classification section is appended to rather than duplicated, and other sections are kept', () => {
+      const existing = '### Added\n\n- Hand-written addition (#40)\n\n### Fixed\n\n- Hand-written fix (#41)';
+      const result = insert(existing, '- Stop losing the queue (#42)\n  It is written atomically.\n', 'Fixed');
+
+      expect(result).toBe(changelog('### Added\n\n- Hand-written addition (#40)\n\n### Fixed\n\n- Hand-written fix (#41)\n- Stop losing the queue (#42)\n  It is written atomically.'));
+      expect(result.match(/^### Fixed$/gm)).toHaveLength(1);
+      expect(insert(existing, '- Rework the queue (#42)\n', 'Changed')).toBe(changelog(`${existing}\n\n### Changed\n\n- Rework the queue (#42)`));
+    });
+
+    test('a bullet already present is not added twice', () => {
+      const existing = '### Added\n\n- Add a merge queue (#42)';
+      expect(insert(existing, '- Add a merge queue (#42)\n- Add a pool (#42)\n', 'Added')).toBe(changelog('### Added\n\n- Add a merge queue (#42)\n- Add a pool (#42)'));
+      expect(insert(existing, '- Add a merge queue (#42)\n', 'Changed')).toBe(changelog(existing));
+      expect(insert('', '- Pool heavy jobs (#43)\n- Pool heavy jobs (#43)\n')).toBe(changelog('### Changed\n\n- Pool heavy jobs (#43)'));
+      const once = insert('', '- Add a merge queue (#42)\n  More detail.\n');
+      expect(insertChangelogFragment(once, '- Add a merge queue (#42)\n  More detail.\n', 'Changed')).toBe(once);
+    });
+
+    test('released sections are left untouched, and a fragment without bullets changes nothing', () => {
+      const result = insert('### Changed\n\n- Hand-written change (#40)', '- Older change (#7)\n- Add a merge queue (#42)\n');
+      // A bullet that only an earlier release holds is still new to this one.
+      expect(result).toBe(changelog('### Changed\n\n- Hand-written change (#40)\n- Older change (#7)\n- Add a merge queue (#42)'));
+      expect(result.endsWith(`\n\n${RELEASED}`)).toBe(true);
+      expect(insert('### Added\n\n- Hand-written addition (#40)', 'Only prose.\n')).toBe(changelog('### Added\n\n- Hand-written addition (#40)'));
+      expect(insertChangelogFragment('# Changelog\n\n## [Unreleased]\n', '- Add a merge queue (#42)\n', 'Changed'))
+        .toBe('# Changelog\n\n## [Unreleased]\n\n### Changed\n\n- Add a merge queue (#42)\n');
+    });
+
+    test('a changelog without an Unreleased section throws version_artifact_missing', () => {
+      let failure = null;
+      try { insertChangelogFragment(`# Changelog\n\n${RELEASED}`, '- Add a merge queue (#42)\n', 'Changed'); } catch (error) { failure = error; }
+      expect(failure).toBeInstanceOf(Error);
+      expect(failure.reasonCode).toBe('version_artifact_missing');
+      expect(failure.message).toBe('CHANGELOG.md lacks a ## [Unreleased] heading');
+    });
+  });
+
+  describe('prepare-version', () => {
+    const HEADER = (issue) => `**Issue**: #${issue}\n**Status**: Approved\n\n`;
+    const BASE_CHANGELOG = '# Changelog\n\n## [Unreleased]\n\n## [3.4.5] - 2026-01-01\n\n- old\n';
+    const ISSUES = {
+      42: { title: 'Queue merges', branch: 'feature/42-queue', spec: 'specs/42-queue', labels: ['enhancement'] },
+      43: { title: 'Pool heavy jobs', branch: 'feature/43-pool', spec: 'specs/43-pool', labels: ['bug'] },
+    };
+    const FRAGMENTS = {
+      42: '- Queue merges across worktrees (#42)\n  One queue per repository.\n- Stop a crashed session blocking the queue (#42)\n',
+      43: '- Reclaim a heavy-job slot from a dead holder (#43)\n',
+    };
+
+    /**
+     * A project with a bare remote and two pushed issue branches cut from the same `main`. Each branch adds its
+     * spec, its work and `fragmentFiles(issue)`; neither edits CHANGELOG.md. `changelog` is the manifest's opt-in.
+     */
+    function fragmentProject({ changelog = { fragments: { dir: 'changelog.d' } }, fragmentFiles = (issue) => ({ [`changelog.d/${issue}.md`]: FRAGMENTS[issue] }) } = {}) {
+      const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-fragments-deliver-')));
+      const remote = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-fragments-remote-')));
+      roots.push(root, remote);
+      git(remote, 'init', '--bare', '-q');
+      git(root, 'init', '-q', '-b', 'main');
+      git(root, 'config', 'user.name', 'Test Author');
+      git(root, 'config', 'user.email', 'test@example.test');
+      const tech = '# Tech\n\n## Versioning\n\n| File | Path | Notes |\n|------|------|-------|\n| `VERSION` | file text | version |\n| `package.json` | `version` | version |\n';
+      const manifest = {
+        schemaVersion: 1, runtimeVersion: '1', modules: [], extensions: [],
+        snippets: [{ id: 'project.tech', path: 'steering/snippets/project-tech.md', consumers: ['worker:deliver'] }],
+        validations: [], ...(changelog ? { changelog } : {}),
+      };
+      write(root, {
+        '.gitignore': '.nmg-sdlc/\n',
+        'README.md': '# Base\n',
+        'steering/snippets/project-tech.md': tech,
+        'steering/manifest.json': `${JSON.stringify(manifest)}\n`,
+        ...Object.fromEntries(['product', 'tech', 'structure', 'verification'].map((name) => [`steering/modules/${name}.mjs`, 'export default {};\n'])),
+        VERSION: '3.4.5\n',
+        'package.json': '{"name":"fixture","version":"3.4.5"}\n',
+        'CHANGELOG.md': BASE_CHANGELOG,
+        'changelog.d/README.md': 'One fragment file per issue: <N>.md.\n',
+      });
+      git(root, 'add', '.');
+      git(root, 'commit', '-qm', 'chore: base');
+      git(root, 'remote', 'add', 'origin', remote);
+      git(root, 'push', '-q', '-u', 'origin', 'main');
+      for (const issue of [42, 43]) {
+        const { branch, spec, title } = ISSUES[issue];
+        git(root, 'checkout', '-q', '-b', branch, 'main');
+        write(root, {
+          [`${spec}/requirements.md`]: `${HEADER(issue)}### AC1: ${title}\n\n| FR1 | ${title} | Must |\n`,
+          [`${spec}/design.md`]: `${HEADER(issue)}${title}.\n`,
+          [`${spec}/tasks.md`]: `${HEADER(issue)}### T001: ${title}\n\n**File(s)**: \`src/${issue}.js\`\n`,
+          [`${spec}/feature.gherkin`]: `${HEADER(issue)}Feature: ${title}\n  Scenario: ${title}\n    Given the project\n    When the change ships\n    Then it works\n`,
+          [`src/${issue}.js`]: `export const issue = ${issue};\n`,
+          ...fragmentFiles(issue),
+        });
+        git(root, 'add', '.');
+        git(root, 'commit', '-qm', `feat: implement #${issue}`);
+        git(root, 'push', '-q', '-u', 'origin', branch);
+      }
+      const run = (binary, args, opts = {}) => {
+        if (binary === 'git' || binary === process.execPath) {
+          const result = spawnSync(binary, args, { cwd: opts.cwd ?? root, encoding: 'utf8' });
+          return { status: result.status ?? 1, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
+        }
+        if (binary !== 'gh') throw new Error(`Unexpected binary ${binary}`);
+        if (args[0] === 'repo') return {
+          status: 0, stderr: '',
+          stdout: args.includes('--jq') ? 'main\n' : JSON.stringify({ url: 'https://github.test/owner/repo', defaultBranchRef: { name: 'main' } }),
+        };
+        if (args[0] === 'issue' && args[1] === 'view') {
+          const number = Number(args[2]);
+          const { title, labels } = ISSUES[number];
+          return { status: 0, stderr: '', stdout: JSON.stringify({ number, title, body: '', labels: labels.map((name) => ({ name })), state: 'OPEN',
+            url: `https://github.test/owner/repo/issues/${number}` }) };
+        }
+        if (args[0] === 'pr' && args[1] === 'list') return { status: 0, stdout: '[]', stderr: '' };
+        throw new Error(`Unexpected gh ${args.join(' ')}`);
+      };
+      const prepare = (issue) => runDeliver({ cwd: root, issue, action: 'prepare-version', run, now: () => Date.parse('2026-02-03T04:05:06Z') });
+      return { root, remote, prepare };
+    }
+
+    test('inserts the issue\'s fragment bullets into the new version section, skips the generated line and deletes the fragment in the version commit', () => {
+      const f = fragmentProject({ fragmentFiles: (issue) => ({
+        [`changelog.d/${issue}.md`]: FRAGMENTS[issue],
+        // Another issue's fragment, and a file that is not `<N>.md`, are not this issue's to assemble.
+        ...(issue === 42 ? { 'changelog.d/99.md': '- Someone else\'s change (#99)\n', 'changelog.d/42-notes.md': '- Not a fragment (#42)\n' } : {}),
+      }) });
+      git(f.root, 'checkout', '-q', ISSUES[42].branch);
+      const before = git(f.root, 'rev-parse', 'HEAD');
+
+      const result = f.prepare(42);
+
+      expect(result).toMatchObject({ status: 0, handoff: null, prepared: { issue: 42, version: '3.5.0' } });
+      expect(result.prepared.changedPaths).toEqual(['VERSION', 'CHANGELOG.md', 'package.json', 'changelog.d/42.md']);
+      // The bullets sit under the issue's classification heading; no `- Queue merges (#42)` line was generated.
+      expect(read(f.root, 'CHANGELOG.md')).toBe('# Changelog\n\n## [Unreleased]\n\n## [3.5.0] - 2026-02-03\n\n'
+        + '### Changed\n\n- Queue merges across worktrees (#42)\n  One queue per repository.\n- Stop a crashed session blocking the queue (#42)\n\n'
+        + '## [3.4.5] - 2026-01-01\n\n- old\n');
+      expect(read(f.root, 'VERSION')).toBe('3.5.0\n');
+      expect(JSON.parse(read(f.root, 'package.json')).version).toBe('3.5.0');
+      // Only this issue's fragment is gone.
+      expect(fs.readdirSync(path.join(f.root, 'changelog.d')).sort()).toEqual(['42-notes.md', '99.md', 'README.md']);
+      expect(read(f.root, 'changelog.d/99.md')).toBe('- Someone else\'s change (#99)\n');
+
+      // One version commit carries the changelog, the version files and the deletion.
+      const head = git(f.root, 'rev-parse', 'HEAD');
+      expect(result.prepared.headSha).toBe(head);
+      expect(git(f.root, 'rev-parse', 'HEAD~1')).toBe(before);
+      expect(git(f.root, 'log', '-1', '--format=%s')).toBe('feat: deliver issue #42');
+      expect(git(f.root, 'show', '--name-status', '--format=', 'HEAD').split('\n').sort()).toEqual([
+        'D\tchangelog.d/42.md', 'M\tCHANGELOG.md', 'M\tVERSION', 'M\tpackage.json',
+      ]);
+      expect(git(f.root, 'status', '--porcelain')).toBe('');
+      expect(git(f.remote, 'rev-parse', `refs/heads/${ISSUES[42].branch}`)).toBe(head);
+
+      // Preparing again finds the version already synchronized and commits nothing.
+      expect(f.prepare(42)).toMatchObject({ status: 0, prepared: { version: '3.5.0', headSha: head, changedPaths: [] } });
+      expect(git(f.root, 'rev-parse', 'HEAD')).toBe(head);
+    });
+
+    test('adds the generated line as well when no fragment bullet cites the issue', () => {
+      const f = fragmentProject({ fragmentFiles: (issue) => ({ [`changelog.d/${issue}.md`]: '- Reclaim a slot from a dead holder\n- See also (#430) and (#4)\n' }) });
+      git(f.root, 'checkout', '-q', ISSUES[43].branch);
+
+      expect(f.prepare(43)).toMatchObject({ status: 0, prepared: { version: '3.4.6' } });
+
+      expect(read(f.root, 'CHANGELOG.md')).toBe('# Changelog\n\n## [Unreleased]\n\n## [3.4.6] - 2026-02-03\n\n'
+        + '### Fixed\n\n- Reclaim a slot from a dead holder\n- See also (#430) and (#4)\n- Pool heavy jobs (#43)\n\n## [3.4.5] - 2026-01-01\n\n- old\n');
+      expect(fs.existsSync(path.join(f.root, 'changelog.d/43.md'))).toBe(false);
+    });
+
+    test('AC4: two branches with fragments get different versions, both issues\' bullets reach CHANGELOG.md, and neither integration conflicts', () => {
+      const f = fragmentProject();
+      // Until version preparation, CHANGELOG.md is identical on main and on both issue branches.
+      for (const { branch } of Object.values(ISSUES)) {
+        expect(git(f.root, 'diff', '--name-only', `main...${branch}`).split('\n')).not.toContain('CHANGELOG.md');
+        expect(git(f.root, 'show', `${branch}:CHANGELOG.md`)).toBe(BASE_CHANGELOG.trim());
+      }
+
+      // #42 is at the head of the queue: it prepares its version and merges.
+      git(f.root, 'checkout', '-q', ISSUES[42].branch);
+      const first = f.prepare(42);
+      expect(first).toMatchObject({ status: 0, prepared: { issue: 42, version: '3.5.0' } });
+      git(f.root, 'checkout', '-q', 'main');
+      git(f.root, 'merge', '-q', '--no-ff', '-m', 'Queue merges (#42)', ISSUES[42].branch);
+      git(f.root, 'push', '-q', 'origin', 'main');
+
+      // #43 integrates the new default branch: the changelog and version files changed on one side only.
+      git(f.root, 'checkout', '-q', ISSUES[43].branch);
+      const merge = tryGit(f.root, 'merge', '--no-ff', '-m', "Merge branch 'main' into feature/43-pool", 'main');
+      expect(merge.status).toBe(0);
+      expect(`${merge.stdout}${merge.stderr}`).not.toMatch(/CONFLICT/);
+      expect(git(f.root, 'status', '--porcelain')).toBe('');
+      expect(fs.readdirSync(path.join(f.root, 'changelog.d')).sort()).toEqual(['43.md', 'README.md']);
+
+      const second = f.prepare(43);
+
+      expect(second).toMatchObject({ status: 0, prepared: { issue: 43, version: '3.5.1' } });
+      expect(second.prepared.version).not.toBe(first.prepared.version);
+      expect(second.prepared.changedPaths).toEqual(['VERSION', 'CHANGELOG.md', 'package.json', 'changelog.d/43.md']);
+      expect(read(f.root, 'CHANGELOG.md')).toBe('# Changelog\n\n## [Unreleased]\n\n## [3.5.1] - 2026-02-03\n\n'
+        + '### Fixed\n\n- Reclaim a heavy-job slot from a dead holder (#43)\n\n'
+        + '## [3.5.0] - 2026-02-03\n\n'
+        + '### Changed\n\n- Queue merges across worktrees (#42)\n  One queue per repository.\n- Stop a crashed session blocking the queue (#42)\n\n'
+        + '## [3.4.5] - 2026-01-01\n\n- old\n');
+      expect(git(f.root, 'log', '-1', '--format=%s')).toBe('fix: deliver issue #43');
+      // Both fragment files are gone.
+      expect(fs.readdirSync(path.join(f.root, 'changelog.d'))).toEqual(['README.md']);
+
+      // The prepared branch merges into the default branch cleanly too.
+      git(f.root, 'checkout', '-q', 'main');
+      expect(tryGit(f.root, 'merge', '--no-ff', '-m', 'Pool heavy jobs (#43)', ISSUES[43].branch).status).toBe(0);
+      expect(read(f.root, 'VERSION')).toBe('3.5.1\n');
+      expect(fs.readdirSync(path.join(f.root, 'changelog.d'))).toEqual(['README.md']);
+    });
+
+    test('is unchanged without the opt-in: the fragment file is neither read nor deleted', () => {
+      const f = fragmentProject({ changelog: null });
+      git(f.root, 'checkout', '-q', ISSUES[42].branch);
+
+      const result = f.prepare(42);
+
+      expect(result).toMatchObject({ status: 0, prepared: { version: '3.5.0', changedPaths: ['VERSION', 'CHANGELOG.md', 'package.json'] } });
+      expect(read(f.root, 'CHANGELOG.md')).toBe('# Changelog\n\n## [Unreleased]\n\n## [3.5.0] - 2026-02-03\n\n### Changed\n\n- Queue merges (#42)\n\n## [3.4.5] - 2026-01-01\n\n- old\n');
+      expect(read(f.root, 'changelog.d/42.md')).toBe(FRAGMENTS[42]);
+      expect(git(f.root, 'show', '--name-status', '--format=', 'HEAD').split('\n').sort()).toEqual(['M\tCHANGELOG.md', 'M\tVERSION', 'M\tpackage.json']);
+    });
+
+    test('with the opt-in but no fragment for the issue, the generated line is the entry', () => {
+      const f = fragmentProject({ fragmentFiles: () => ({}) });
+      git(f.root, 'checkout', '-q', ISSUES[43].branch);
+
+      expect(f.prepare(43)).toMatchObject({ status: 0, prepared: { version: '3.4.6', changedPaths: ['VERSION', 'CHANGELOG.md', 'package.json'] } });
+      expect(read(f.root, 'CHANGELOG.md')).toBe('# Changelog\n\n## [Unreleased]\n\n## [3.4.6] - 2026-02-03\n\n### Fixed\n\n- Pool heavy jobs (#43)\n\n## [3.4.5] - 2026-01-01\n\n- old\n');
     });
   });
 });

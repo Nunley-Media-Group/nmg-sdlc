@@ -39,6 +39,7 @@ const WORKFLOW_CAPABILITY = new Map([
   ['steering', 'steering'],
   ['upgrade-project', 'project-upgrade'],
   ['verify-code', 'verify-code'],
+  ['verify-full', 'verify-code'],
   ['write-code', 'write-code'],
   ['write-spec', 'write-spec'],
 ]);
@@ -72,6 +73,7 @@ const COMMAND_CAPABILITY = new Map([
   ['sdlc-status', 'status'],
   ['sdlc-verify-code', 'verify-code'],
   ['sdlc-open-pr', 'open-pr'],
+  ['sdlc-verify-full', 'verify-code'],
 ]);
 
 const DEPRECATED_WORKFLOW_STUBS = new Map([

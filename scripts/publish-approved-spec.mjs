@@ -1,19 +1,21 @@
 #!/usr/bin/env node
 
 /**
- * Publish an approved specs/{N}-{slug}/ package onto a branch cut from the
- * repository default, then squash-merge that spec-only PR. JSON stdout.
- * Never force-push. Never git add -A. Spec PRs must not close the issue.
+ * Publish an approved specs/{N}-{slug}/ package from its own worktree on the
+ * spec branch spec/{N}-{slug}, cut from the remote default branch, then
+ * squash-merge that spec-only PR. The invoking checkout is never switched.
+ * JSON stdout. Never force-push. Never git add -A. Spec PRs must not close the issue.
  */
 
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { join, relative } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 
 import { isSpecApproved, resolveSpecDir, specStatus } from './issue-spec-scope.mjs';
 import { applySpecCreatedLabel, issueHasSpecCreatedLabel } from './spec-created-label.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
 import { parseDeliveryTaskFileLines } from './sdlc-safe-recoveries.mjs';
+import { ensureWorktree, fastForwardPrimary, primaryCheckout, removeWorktree, specBranchName } from './sdlc-worktree.mjs';
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -61,7 +63,7 @@ function parseSpecDir(issueN, raw) {
   if (!match || Number.parseInt(match[1], 10) !== issueN) {
     fail('invalid_arguments', { detail: '--dir must be specs/{N}-{slug}' });
   }
-  return { dir, branch: `${match[1]}-${match[2]}` };
+  return { dir, name: `${match[1]}-${match[2]}` };
 }
 
 function run(command, args, options = {}) {
@@ -215,16 +217,8 @@ function missingSpecCreated(argv) {
 }
 
 
-function git(args) {
-  return run('git', args);
-}
-
-function currentBranch() {
-  return git(['branch', '--show-current']).stdout.trim();
-}
-
-function porcelain() {
-  return git(['status', '--porcelain']).stdout;
+function git(args, cwd = process.cwd()) {
+  return run('git', args, { cwd });
 }
 
 function readDefaultBranch() {
@@ -243,27 +237,26 @@ function readDefaultBranch() {
   return name;
 }
 
-function ensureOnBranch(issueN, name) {
-  if (currentBranch() === name) return;
-  const dirty = porcelain();
-  if (dirty.trim() !== '') {
-    process.stderr.write(dirty);
-    fail('dirty_tree', { porcelain: dirty });
+/** A primary checkout holding uncommitted or untracked work keeps its HEAD: it is not fast-forwarded. */
+function primaryIsClean() {
+  try {
+    const status = git(['status', '--porcelain'], primaryCheckout(process.cwd()));
+    return status.status === 0 && status.stdout.trim() === '';
+  } catch {
+    return false;
   }
-  const base = readDefaultBranch();
-  const fetched = git(['fetch', 'origin', base]);
-  if (fetched.status !== 0) {
-    fail('branch_checkout_failed', {
-      stderr: fetched.stderr || '',
-      stdout: fetched.stdout || '',
-    });
-  }
-  const checkedOut = git(['checkout', '-B', name, `origin/${base}`]);
-  if (checkedOut.status !== 0 || currentBranch() !== name) {
-    fail('branch_checkout_failed', {
-      stderr: checkedOut.stderr || '',
-      stdout: checkedOut.stdout || '',
-    });
+}
+
+/**
+ * Creates, or reuses, the worktree of spec/{N}-{slug} from the remote default branch.
+ * Every git command of a publication runs there, never in the invoking checkout.
+ */
+function specWorktree(name, base = readDefaultBranch()) {
+  const branch = specBranchName(name);
+  try {
+    return { ...ensureWorktree({ cwd: process.cwd(), branch, base }), base };
+  } catch (error) {
+    return fail(error.reasonCode ?? 'worktree_create_failed', { branch, detail: error.message });
   }
 }
 
@@ -288,13 +281,28 @@ function parseCreatedPr(stdout) {
 function prepare(argv) {
   const issueN = parseIssue(flag(argv, '--issue'));
   const name = parseName(issueN, flag(argv, '--name'));
-  ensureOnBranch(issueN, name);
-  ok({ branch: name });
+  const tree = specWorktree(name);
+  ok({
+    branch: tree.branch,
+    worktree: tree.path,
+    specDir: join(tree.path, 'specs', name),
+    created: tree.created,
+  });
 }
 
-function validatePublicationFiles(dir) {
+/** The approved, valid package must be in the spec worktree; a copy in the invoking checkout is never published. */
+function requirePublishablePackage(tree, dir, issueN) {
+  if (!isSpecApproved(join(tree.path, dir), issueN)) {
+    const elsewhere = resolve(process.cwd()) !== resolve(tree.path) && isSpecApproved(join(process.cwd(), dir), issueN);
+    fail(elsewhere ? 'spec_outside_worktree' : 'spec_not_approved', {
+      branch: tree.branch,
+      worktree: tree.path,
+      specDir: join(tree.path, dir),
+      ...(elsewhere ? { detail: 'the approved package is in the invoking checkout; write it under specDir' } : {}),
+    });
+  }
   try {
-    parseDeliveryTaskFileLines(readFileSync(join(process.cwd(), dir, 'tasks.md'), 'utf8'), {
+    parseDeliveryTaskFileLines(readFileSync(join(tree.path, dir, 'tasks.md'), 'utf8'), {
       spec: `${dir}/tasks.md`,
     });
   } catch (error) {
@@ -310,51 +318,40 @@ function validatePublicationFiles(dir) {
 
 function commitPush(argv) {
   const issueN = parseIssue(flag(argv, '--issue'));
-  const { dir, branch } = parseSpecDir(issueN, flag(argv, '--dir'));
-  ensureOnBranch(issueN, branch);
-  if (!isSpecApproved(join(process.cwd(), dir), issueN)) {
-    fail('spec_not_approved');
-  }
-  validatePublicationFiles(dir);
+  const { dir, name } = parseSpecDir(issueN, flag(argv, '--dir'));
+  const tree = specWorktree(name);
+  requirePublishablePackage(tree, dir, issueN);
 
-  const added = git(['add', '--', dir]);
+  const added = git(['add', '--', dir], tree.path);
   if (added.status !== 0) {
     fail('add_failed', { stderr: added.stderr || '' });
   }
 
-  const cached = git(['diff', '--cached', '--quiet', '--', dir]);
+  const cached = git(['diff', '--cached', '--quiet', '--', dir], tree.path);
   let skippedCommit = false;
   let commit = null;
   if (cached.status === 0) {
     skippedCommit = true;
   } else {
-    const committed = git(['commit', '--only', '-m', `docs: approve spec for #${issueN}`, '--', dir]);
+    const committed = git(['commit', '--only', '-m', `docs: approve spec for #${issueN}`, '--', dir], tree.path);
     if (committed.status !== 0) {
       fail('commit_failed', { stderr: committed.stderr || '', stdout: committed.stdout || '' });
     }
-    commit = git(['rev-parse', 'HEAD']).stdout.trim() || null;
+    commit = git(['rev-parse', 'HEAD'], tree.path).stdout.trim() || null;
   }
 
-  const pushed = git(['push', '-u', 'origin', 'HEAD']);
+  const pushed = git(['push', '-u', 'origin', 'HEAD'], tree.path);
   if (pushed.status !== 0) {
     fail('push_rejected', { stderr: pushed.stderr || '', stdout: pushed.stdout || '' });
   }
 
   ok({
-    branch,
+    branch: tree.branch,
+    worktree: tree.path,
     commit,
     pushed: true,
     skippedCommit,
   });
-}
-
-function defaultBranch() {
-  const name = readDefaultBranch();
-  const checkedOut = git(['checkout', name]);
-  if (checkedOut.status !== 0 || currentBranch() !== name) {
-    fail('default_checkout_failed', { stderr: checkedOut.stderr || '' });
-  }
-  ok({ branch: name });
 }
 
 const PASSING_CHECK_STATES = new Set(['SUCCESS', 'NEUTRAL', 'SKIPPED']);
@@ -467,9 +464,7 @@ function publicationSnapshot(pr, branch, base, head) {
   return !pending && details.mergeStateStatus === 'CLEAN';
 }
 
-async function awaitPublicationReady(pr, branch, base) {
-  const head = git(['rev-parse', 'HEAD']).stdout.trim();
-  if (!/^[0-9a-f]{40}$/i.test(head)) fail('pr_readiness_failed', { pr, detail: 'local head unavailable' });
+async function awaitPublicationReady(pr, branch, base, head) {
   for (;;) {
     if (publicationSnapshot(pr, branch, base, head)
       && publicationSnapshot(pr, branch, base, head)) return head;
@@ -515,20 +510,15 @@ function priorMergedPr(branch, base, head) {
 
 async function mergeSpec(argv) {
   const issueN = parseIssue(flag(argv, '--issue'));
-  const { dir, branch } = parseSpecDir(issueN, flag(argv, '--dir'));
-  ensureOnBranch(issueN, branch);
-  if (!isSpecApproved(join(process.cwd(), dir), issueN)) {
-    fail('spec_not_approved');
-  }
-  validatePublicationFiles(dir);
-
+  const { dir, name } = parseSpecDir(issueN, flag(argv, '--dir'));
   const base = readDefaultBranch();
-  if (base === branch) {
-    fail('invalid_arguments', { detail: 'spec branch must not equal the default branch' });
-  }
+  const tree = specWorktree(name, base);
+  const { branch } = tree;
+  requirePublishablePackage(tree, dir, issueN);
 
-  const head = git(['rev-parse', 'HEAD']).stdout.trim();
+  const head = git(['rev-parse', 'HEAD'], tree.path).stdout.trim();
   if (!/^[0-9a-f]{40}$/i.test(head)) fail('pr_readiness_failed', { detail: 'local head unavailable' });
+  // --head is the spec namespace, so the code PR on {N}-{slug} is never selected.
   const listed = run('gh', [
     'pr', 'list', '--head', branch, '--base', base, '--json', 'number', '--limit', '1',
   ]);
@@ -551,44 +541,44 @@ async function mergeSpec(argv) {
     }
   }
 
-  let mergeDiagnostic = null;
   if (!alreadyMerged) {
-    const readyHead = await awaitPublicationReady(pr, branch, base);
-    const merged = run('gh', [
-      'pr', 'merge', String(pr), '--squash', '--match-head-commit', readyHead, '--delete-branch',
-    ]);
-    if (merged.status !== 0) {
-      mergeDiagnostic = { stderr: merged.stderr || '', stdout: merged.stdout || '' };
-      if (!mergedPrAtHead(pr, branch, base, readyHead)) {
-        fail('pr_merge_failed', { pr, ...mergeDiagnostic });
-      }
+    // A spec pull request carries the spec package and nothing else.
+    const scope = run('gh', ['pr', 'view', String(pr), '--json', 'files', '--jq', '.files[].path']);
+    if (scope.status !== 0) fail('pr_readiness_failed', { pr, stderr: scope.stderr || '' });
+    const outside = String(scope.stdout ?? '').split(/\r?\n/).filter(Boolean).filter((file) => !file.startsWith(`${dir}/`));
+    if (outside.length) fail('pr_scope_invalid', { pr, outside });
+    const readyHead = await awaitPublicationReady(pr, branch, base, head);
+    // No --delete-branch: gh would try to delete a local branch that the spec worktree still holds.
+    const merged = run('gh', ['pr', 'merge', String(pr), '--squash', '--match-head-commit', readyHead]);
+    if (merged.status !== 0 && !mergedPrAtHead(pr, branch, base, readyHead)) {
+      fail('pr_merge_failed', { pr, stderr: merged.stderr || '', stdout: merged.stdout || '' });
     }
   }
 
-  let checkoutError = null;
-  const checkedOut = git(['checkout', base]);
-  if (checkedOut.status !== 0 || currentBranch() !== base) {
-    checkoutError = { stderr: checkedOut.stderr || '' };
-  } else {
-    const pulled = git(['pull', '--ff-only', 'origin', base]);
-    if (pulled.status !== 0) {
-      checkoutError = { stderr: pulled.stderr || '', stdout: pulled.stdout || '' };
-    }
-  }
   let labelError = null;
   try {
     applySpecCreatedLabel(issueN);
   } catch (error) {
     labelError = { stderr: error?.stderr || error?.message || '', stdout: error?.stdout || '' };
   }
-  if (checkoutError) {
-    fail('default_checkout_failed', {
-      ...checkoutError, mergeDiagnostic, labelError, merged: true, pr, issue: issueN, dir,
-    });
-  }
-  if (labelError) fail('spec_created_label_failed', { ...labelError, merged: true, pr, issue: issueN, dir });
-  ok({ branch: base, pr, merged: true, squash: true, labeled: true, issue: issueN, dir });
-
+  // Best-effort cleanup: none of it can turn a merged publication into a failure.
+  const remoteBranchDeleted = git(['push', 'origin', '--delete', branch], tree.path).status === 0;
+  const fastForwarded = primaryIsClean() && fastForwardPrimary({ cwd: process.cwd(), base });
+  const cleanup = removeWorktree({ cwd: process.cwd(), branch });
+  const published = {
+    branch,
+    base,
+    pr,
+    merged: true,
+    issue: issueN,
+    dir,
+    fastForwarded,
+    remoteBranchDeleted,
+    worktreeRemoved: cleanup.removed,
+    cleanup: cleanup.lines,
+  };
+  if (labelError) fail('spec_created_label_failed', { ...labelError, ...published });
+  ok({ ...published, squash: true, labeled: true });
 }
 
 async function main(argv = process.argv.slice(2)) {
@@ -617,12 +607,8 @@ async function main(argv = process.argv.slice(2)) {
     await mergeSpec(rest);
     return;
   }
-  if (command === 'default-branch') {
-    defaultBranch();
-    return;
-  }
   fail('invalid_arguments', {
-    detail: 'Usage: node scripts/publish-approved-spec.mjs <discover|candidates|missing-spec-created|prepare|commit-push|merge|default-branch> ...',
+    detail: 'Usage: node scripts/publish-approved-spec.mjs <discover|candidates|missing-spec-created|prepare|commit-push|merge> ...',
   });
 }
 

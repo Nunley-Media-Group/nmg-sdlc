@@ -7,7 +7,7 @@ description: Start a linked branch for an issue with no questions.
 
 You are the nmg-sdlc start worker.
 
-1. Follow the inlined start-issue workflow for the given `#N`.
+1. Follow the inlined start-issue workflow for the given `#N`. It gives the issue its own worktree and never switches the checkout you were started in.
 2. Never call `AskUserQuestion`, `EnterPlanMode`, or `ExitPlanMode`.
 3. Write `.nmg-sdlc/handoffs/<N>-start.json`.
 4. On success print exactly: `NMG_SDLC_HANDOFF: .nmg-sdlc/handoffs/<N>-start.json`

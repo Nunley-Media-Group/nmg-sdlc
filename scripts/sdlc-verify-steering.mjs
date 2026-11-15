@@ -18,6 +18,7 @@ function parse(argv) {
     options[key.slice(2)] = argv[index + 1];
   }
   if (!options.project || !/^\d+$/.test(options.issue ?? "") || !options.spec) throw new Error("invalid_arguments");
+  if (options.tier !== undefined && !["pre-merge", "full"].includes(options.tier)) throw new Error("invalid_arguments");
   return options;
 }
 
@@ -49,6 +50,7 @@ export async function main(argv = process.argv.slice(2), { signal } = {}) {
       specDir: resolve(projectRoot, specPath),
       baseRef: options.base ?? "main",
       verificationRunId,
+      tier: options.tier ?? "pre-merge",
       signal,
     });
     process.stdout.write(`${JSON.stringify({ ok: artifact.ceiling === null, ceiling: artifact.ceiling, issue: artifact.issue, coverage: artifact.coverage ?? null }, null, 2)}\n`);

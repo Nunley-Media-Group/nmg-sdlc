@@ -62,9 +62,26 @@ For each task in sequence (lowest to highest T number, follow declared Depends o
 
 If a File(s) hint is incomplete or absent, continue from Acceptance and repository evidence. If a hinted path is denied, do not mutate it; report the conflict only when Acceptance cannot be satisfied through permitted paths.
 
+## Changelog Entry
+
+Read `steering/manifest.json`. When it declares `changelog.fragments.dir`, the project keeps changelog fragments: write this issue's entry as one file `<dir>/N.md`, named by the issue number only, and do not edit `CHANGELOG.md`. The file holds the bullets for this issue; every bullet ends with the citation `(#N)`, and lines that are not bullets are left out. Delivery (`prepare-version` for issue N) assembles only that file into `CHANGELOG.md`, under the heading of the issue's classification, and deletes it when the branch reaches the head of the merge queue, so branches in flight never conflict on the changelog. A project that declares no fragment directory keeps its existing `CHANGELOG.md` convention.
+
+Never edit `VERSION` or its mirrors: the version is prepared at the head of the merge queue.
+
+## Heavy Commands
+
+Run the narrow check that covers the change, not the repository suite. When a command that steering marks as heavy, or any other long machine-heavy command, is needed, take a slot from the host-wide heavy-job pool so concurrent sessions on this machine do not run heavy jobs on top of each other:
+
+```bash
+node <plugin-root>/scripts/sdlc-heavy-pool.mjs run --label "implement #N" -- <program> [args...]
+```
+
+The wrapper waits for a slot, reports how long it waited on stderr, runs the command and exits with its status.
+
 ## Repair and Reverify
 
 1. Read the complete active requirements, design, tasks, and scenarios plus bounded relevant repository contracts and existing implementations. In a fresh `rN-implement` session, also consume the captured failure evidence and inspect preserved partial changes; retain the original `implement` step and handoff path.
+   When the failure evidence is `review_findings`, it lists every finding of the review, of every severity (`blocking`, `major`, `minor` and any `info` note): repair all of them in this one pass, and keep the repair inside the files the findings name where the defects allow it, because a repair that stays inside that scope is re-verified against the findings and the repair diff instead of by a full review. When it is `queue_integration_conflict`, merge the remote default branch into the issue branch, resolve the named conflicts and publish. When it is `queue_gate_failed`, the pre-merge gate failed at the head of the merge queue: repair the failing validations named in the verification record.
    Map every `tasks.md` (and requirements) Acceptance bullet as already satisfied, remaining authorized work, or a still-blocked prerequisite before any edit. Skip every already satisfied task. Preserve `step:"implement"` and the implement handoff path. Completed work must not be reset or re-published. Preserve authorized partial changes.
 2. Distinguish engineering work from unavailable authority. Missing internal code or an unspecified implementation detail is work to resolve within approved outcomes, not a reason to demand external implementation policy. Choose a conservative implementation supported by repository evidence and approved constraints; record the rationale and any necessary in-scope clarification in the active design.
 3. Implement the repair and rerun the failing check plus the narrow checks covering affected behavior. If another repairable defect appears, repeat investigation, repair, and reverification under the same contract. Never weaken acceptance criteria, fabricate provider/calibration facts or verification evidence, or invent approval to make a check pass.

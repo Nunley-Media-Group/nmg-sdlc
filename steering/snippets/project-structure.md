@@ -77,7 +77,7 @@ scripts/
 |-------|------|-------------|
 | Plugin manifest | Declares identity and version | Define workflow logic |
 | Hooks module | Registers interactive `/sdlc-*` commands and `/sdlc-execute`, enters native plan mode for the interactive ones, materializes `<plugin-root>`, drives write-spec Continue/Finished, and starts execute stage subagents | Interview users, import Node built-ins, or run execute stages outside their subagents |
-| Command files | Expand `/sdlc-status`, `/sdlc-verify-code`, and `/sdlc-open-pr` into their workflows | Hold hand-edited logic; they are generated |
+| Command files | Expand `/sdlc-status`, `/sdlc-verify-code`, `/sdlc-open-pr`, and `/sdlc-verify-full` into their workflows | Hold hand-edited logic; they are generated |
 | Runtime libraries | Load steering, render prompts, run deterministic validations | Own lifecycle decisions that belong in workflows |
 | Workflow entrypoints | Define triggers and concise workflow skeletons | Inline all variants or duplicate shared contracts |
 | Shared references | Hold rules consumed by two or more workflows | Hold one-workflow-only details |
