@@ -1,29 +1,65 @@
 # Verification Report: Add parallel delivery with worktree isolation, a merge queue, change-scoped validation tiers, and one-pass verification
 
-**Date**: 2026-11-13
+**Date**: 2026-11-15
 **Issue**: #551
 **Reviewer**: Claude Code
-**Scope**: Implementation verification against spec, on the working tree of branch `551-parallel-delivery-and-550-controller-busy-wait` (based on 091ca5d)
+**Scope**: Implementation verification against spec, branch `551-parallel-delivery-and-550-controller-busy-wait` merged with `main` after #550 (PR #554)
+
+**Verification head**: 6b0a2ae223603af60a17e4d3ff15f69b0ab1661e
 
 ---
 
 ## Executive Summary
 
-### Implementation Status: Pass (local validation) with recorded design deviations; registered smoke gate not run
+### Implementation Status: Pass
 
-The sixteen acceptance criteria are implemented and each has a passing test. The change was implemented directly, outside `/sdlc-execute`, so the registered `repository.nmg-sdlc-smoke` validation, which delivers a live smoke issue through GitHub, was not run. No end-to-end run of two concurrent `/sdlc-execute` sessions against GitHub was made; concurrency is covered by tests against temporary repositories and a fake `gh`.
+All sixteen acceptance criteria are implemented and each has a passing test. The full registered gate passed at the verification head: `repository.tests` and the live `repository.nmg-sdlc-smoke` delivery, which ran `/sdlc-execute` with this plugin build (per-issue worktree, review-first verify, merge queue) against smoke issue #311 and merged it. The implementation meets the requirements but differs from `design.md` in the places listed under Design Deviations.
 
-The implementation meets the requirements but differs from `design.md` in the places listed under Design Deviations.
+## Issue Scope
+
+- Active issue: #551
+- Spec: `specs/551-add-parallel-delivery-with-worktree-isolation-a-merge-queue-change-scoped-validation-tiers-and-one-pass-verification`
+- Manifest: `implicit single issue`
+- Resolver status: `implicit_single_issue`
+- Delivery: AC [AC1, AC2, AC3, AC4, AC5, AC6, AC7, AC8, AC9, AC10, AC11, AC12, AC13, AC14, AC15, AC16]; FR [FR1, FR2, FR3, FR4, FR5, FR6, FR7, FR8, FR9, FR10, FR11, FR12, FR13, FR14, FR15, FR16, FR17, FR18, FR19, FR20, FR21, FR22, FR23, FR24, FR25, FR26, FR27]; tasks [T001, T002, T003, T004, T005, T006, T007, T008, T009, T010, T011, T012, T013, T014, T015, T016, T017, T018, T019, T020]
+
+<!-- nmg-sdlc-issue-scope: {"issueNumber":551,"specPath":"specs/551-add-parallel-delivery-with-worktree-isolation-a-merge-queue-change-scoped-validation-tiers-and-one-pass-verification","status":"implicit_single_issue","delivery":{"acceptanceCriteria":["AC1","AC2","AC3","AC4","AC5","AC6","AC7","AC8","AC9","AC10","AC11","AC12","AC13","AC14","AC15","AC16"],"functionalRequirements":["FR1","FR2","FR3","FR4","FR5","FR6","FR7","FR8","FR9","FR10","FR11","FR12","FR13","FR14","FR15","FR16","FR17","FR18","FR19","FR20","FR21","FR22","FR23","FR24","FR25","FR26","FR27"],"tasks":["T001","T002","T003","T004","T005","T006","T007","T008","T009","T010","T011","T012","T013","T014","T015","T016","T017","T018","T019","T020"],"scenarios":["SCN001","SCN002","SCN003","SCN004","SCN005","SCN006","SCN007","SCN008","SCN009","SCN010","SCN011","SCN012","SCN013","SCN014","SCN015","SCN016"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]}} -->
+
+## Delivery Validation
+
+- Local verification: Complete (2/2 required validations passed)
+- PR evidence: Not required
+
+## Deterministic Steering Artifact and Ceiling
+
+- Runner: `node scripts/sdlc-verify-steering.mjs --project . --issue 551 --spec specs/551-… --base main` (standalone); exit 0, `ok: true`.
+- Artifact: `.nmg-sdlc/verification/551.json`, generated 2026-11-15T01:02:34.486Z.
+- Identity: head `6b0a2ae223603af60a17e4d3ff15f69b0ab1661e`, tree clean, steering `sha256:cc80105a430c7fd1d914c6e253145b44d198660fb624848c166e778d00887aba`, spec `sha256:c8e6b4a336bc3a0cccb0f655e41709ba2a9cd588f5c842a3a194d61373cd96a3`.
+- Coverage: declared 2, recorded 2, complete `true`.
+- Ceiling: none.
 
 ## Validation Results
 
-| Command | Result |
-|---------|--------|
-| `cd scripts && npm test` | passed: exit 0; Test Suites: 68 passed, 1 skipped (69); Tests: 1612 passed, 2 skipped (1614); 326 s |
-| `node scripts/verify-plugin-surface.mjs --root . --label repository --claude-validate` | passed: exit 0 |
-| `node scripts/verify-current-specs.mjs` | passed: exit 0, 127 genuine issue specs |
-| `node scripts/skill-inventory-audit.mjs --check` | passed: exit 0, 90 items mapped (baseline regenerated) |
-| `repository.nmg-sdlc-smoke` | not run |
+| Validation | Result |
+|------------|--------|
+| `repository.tests` (required) | Pass: `npm test -- --runInBand` exited 0; Test Suites: 68 passed, 1 skipped; Tests: 1613 passed, 2 skipped; 770 s |
+| `repository.nmg-sdlc-smoke` (required) | Pass: `nmg-sdlc-smoke delivered #311`; smoke PR https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull/313 merged at `91a990a2`, #311 CLOSED |
+| `node scripts/verify-plugin-surface.mjs --root . --label repository --claude-validate` | Pass |
+| `node scripts/verify-current-specs.mjs` | Pass, 127 genuine issue specs |
+| `node scripts/skill-inventory-audit.mjs --check` | Pass, 90 items mapped |
+
+**Gate Summary**: 2/2 passed, 0 failed, 0 incomplete
+
+## Fixes Applied
+
+Earlier gate runs on this branch found these defects, fixed before the passing run:
+
+| Severity | Location | Original Issue | Fix Applied |
+|----------|----------|----------------|-------------|
+| High | `scripts/sdlc-deliver.mjs` | Delivery from an issue worktree wrote the smoke delivery receipt inside that worktree, which is removed after merge, so the smoke gate failed with `missing invocation delivery proof` although smoke #308 merged | The receipt is written to the primary checkout; regression test in `sdlc-deliver.test.mjs` |
+| Medium | `workflows/open-pr/WORKFLOW.md` | The deliver worker was not told to pass the controller run id, so its first delivery hit `controller_lease_held` on the worktree lease | The workflow passes `--controller-run-id R` from the worker header; command file regenerated |
+| Low | `src/heavy-pool.mjs` | A slot taken on the first attempt could report `waitedMs: 1` under load | `waitedMs` is 0 unless the job slept |
+| Low | `scripts/__tests__/validation-tiers.test.mjs` | The AC7 test compared lists sorted in two different orders and failed when temp names differed in case | Both sides use one order |
 
 ## Acceptance Criteria Verification
 
@@ -69,7 +105,6 @@ The change follows `steering/manifest.json` and the registered steering snippets
 
 ## Remaining Issues
 
-- The registered smoke validation was not run.
 - A stale primary checkout can hide a spec that is already published on the default branch, because spec status reads the local tree.
 - The worktree `setup` command also runs for spec worktrees.
 - The shared-state lock is broken on age (30 s) without checking its holder; current critical sections are short.
