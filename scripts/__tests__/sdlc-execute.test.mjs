@@ -821,6 +821,39 @@ describe('branch-first execute', () => {
       .toEqual({ status: 1, stdout: '', stderr: `${reasonCode}: #42\n` });
     expect(f.state.starts).toEqual([]);
   });
+  it('finds the approved spec on the fetched remote default branch when the checkout lacks it and cannot fast-forward (#556 AC1)', () => {
+    const f = fixture({ branch: 'main' });
+    // The primary checkout is on another branch without the spec, so it is neither holding nor able to fast-forward to it.
+    git(f.root, 'checkout', '-q', '-b', 'elsewhere');
+    git(f.root, 'rm', '-r', '-q', 'specs');
+    git(f.root, 'commit', '-q', '-m', 'chore: work without the spec');
+    f.setWorker(({ step, root, publish, passGate, state }) => {
+      if (step === 'start') {
+        git(root, 'checkout', '-q', '-b', '42-example', 'origin/main');
+        git(root, 'push', '-u', 'origin', '42-example');
+        return { status: 'passed', next: 'implement' };
+      }
+      if (step === 'implement') { publish('fix: implement #42 on its new branch'); return { status: 'passed', next: 'verify' }; }
+      if (step === 'verify') { passGate(); return { status: 'passed', next: 'deliver' }; }
+      if (step === 'deliver') { state.merged = true; state.closed = true; return { status: 'passed', next: null }; }
+      throw new Error(step);
+    });
+    const response = f.execute('#42');
+    expect(response.stderr).not.toContain('approved_spec_missing');
+    expect(response).toMatchObject({ status: 0 });
+    expect(f.state.starts[0].step).toBe('start');
+  });
+  it('still fails approved_spec_missing when the remote default branch lacks the spec too (#556 AC1)', () => {
+    const f = fixture({ branch: 'main' });
+    git(f.root, 'checkout', '-q', '-b', 'elsewhere');
+    git(f.root, 'rm', '-r', '-q', 'specs');
+    git(f.root, 'commit', '-q', '-m', 'chore: drop the spec');
+    git(f.root, 'push', '-q', '-f', 'origin', 'elsewhere:main');
+    const response = f.execute('#42');
+    expect(response).toMatchObject({ status: 1 });
+    expect(response.stderr).toContain('approved_spec_missing: #42');
+    expect(f.state.starts).toEqual([]);
+  });
   it('keeps spec-created label admission for an open off-branch issue', () => {
     const f = fixture({ branch: 'main' });
     f.state.labels = [];
@@ -1447,6 +1480,37 @@ describe('Opus supervisor decisions (#491)', () => {
     expect(checkIns.some((report) => report.activity.latestText === 'smoke delivering #237')).toBe(true);
     checkIns.forEach((report) => expect(report.stopsAtReport).toEqual([]));
     expect(reports.at(-2)).toMatchObject({ kind: 'stage', stage: 'verify' });
+    expect(steps(f)).toEqual(['verify', 'deliver']);
+  });
+
+  it('checks in on a settled worker waiting behind its marker, naming the waiting command (#556 AC6)', () => {
+    const f = fixture();
+    const clock = { now: 0 };
+    f.hooks.advance = (ms) => { clock.now += ms; };
+    const marker = path.join(f.root, '.nmg-sdlc/handoffs/42-verify.json.waiting');
+    let resumeWaits = 0;
+    f.setWorker((context) => {
+      if (context.step !== 'verify') return deliver(context);
+      fs.mkdirSync(path.dirname(marker), { recursive: true });
+      fs.writeFileSync(marker, 'node scripts/sdlc-verify-steering.mjs --issue 42\n');
+      // Settled idle behind its marker: the background gate's notification resumes the turn after five resume waits.
+      context.record.onWait = ({ until }, record) => {
+        if (until !== 'started' || record.status !== 'idle' || (resumeWaits += 1) < 5) return;
+        record.status = 'running';
+        record.onFinish = () => {
+          f.passGate();
+          f.writeHandoff('verify', { status: 'passed', next: 'deliver' });
+        };
+      };
+      return { handoff: false };
+    });
+    const { reports, supervise } = supervisor(f);
+    expect(f.execute('#42', { supervise, now: () => clock.now, checkInMs: 1000 })).toMatchObject({ status: 0 });
+    const checkIns = reports.filter((report) => report.kind === 'checkin');
+    expect(checkIns.length).toBeGreaterThanOrEqual(3);
+    checkIns.forEach((report) => expect(report).toMatchObject({ stage: 'verify', activity: { status: 'idle' },
+      waiting: { command: 'node scripts/sdlc-verify-steering.mjs --issue 42' } }));
+    expect(f.state.reminders).toEqual([]);
     expect(steps(f)).toEqual(['verify', 'deliver']);
   });
 
@@ -2113,7 +2177,7 @@ describe('parallel delivery: worktrees, review-first verify and the merge queue 
     expect(f.state.prompts[1].prompt).toContain('conflicts in helper.py');
   });
 
-  it('takes the default branch content for a conflict confined to CHANGELOG.md at the queue head and keeps delivering', () => {
+  it('takes the default branch content for a conflict confined to CHANGELOG.md at the queue head, keeps the branch entry, and keeps delivering (#556 AC4)', () => {
     const f = fixture();
     // The branch and the default branch each add their own CHANGELOG.md, so merging origin/main conflicts in it alone.
     fs.writeFileSync(path.join(f.root, 'CHANGELOG.md'), '# Changelog\n\n## [Unreleased]\n\n- Branch entry (#42)\n');
@@ -2141,12 +2205,12 @@ describe('parallel delivery: worktrees, review-first verify and the merge queue 
     }));
     const response = f.execute('#42');
     expect(response).toMatchObject({ status: 0, stderr: '' });
-    expect(response.stdout).toContain('#42: integration took origin/main for CHANGELOG.md\n');
+    expect(response.stdout).toContain('#42: integration took origin/main for CHANGELOG.md and kept 1 branch changelog entry\n');
     expect(response.stdout).not.toContain('queue_integration_conflict');
     expect(response.stdout).toContain('#42: MERGED and CLOSED');
     // No repair was dispatched: the branch stayed at the queue head and went straight to its gate.
     expect(stages(f)).toEqual(['review', 'gate', 'deliver']);
-    expect(atGate).toEqual({ changelog: merged, helper: 'def helper(): return True\n', integrated: true, clean: '',
+    expect(atGate).toEqual({ changelog: '# Changelog\n\n## [Unreleased]\n\n### Changed\n\n- Branch entry (#42)\n\n## [1.1.0]\n\n- Merged elsewhere (#9)\n', helper: 'def helper(): return True\n', integrated: true, clean: '',
       published: true, queue: [42] });
     expect(listMergeQueue(f.root)).toEqual([]);
   });

@@ -6,6 +6,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, statSync, writeFileSync } from 'node:fs';
+import { hostname as osHostname } from 'node:os';
 import { join, resolve } from 'node:path';
 import { hostStateDir } from '../src/heavy-pool.mjs';
 
@@ -46,21 +47,40 @@ export function sharedStateDir(cwd, run = defaultRun) {
   return dir;
 }
 
-/** Runs `action` while holding the named lock in `dir`. A lock left by a crashed holder is broken once it is stale. */
-export function withLock(dir, name, action, { now = Date.now, sleep = pause } = {}) {
+const LOCK_HOLDER = 'holder.json';
+
+function removeLock(lock) {
+  rmSync(join(lock, LOCK_HOLDER), { force: true });
+  rmdirSync(lock);
+}
+/** Whether a held lock may be broken: its recorded holder is dead on this host, or, when the holder cannot be
+ * checked (no readable record yet, or another host), the lock is older than the stale age. A live holder's lock
+ * is never broken. */
+function lockBreakable(lock, { alive, hostname }) {
+  let age = 0;
+  try { age = Date.now() - statSync(lock).mtimeMs; } catch { return true; }
+  const holder = readJson(join(lock, LOCK_HOLDER));
+  if (Number.isSafeInteger(holder?.pid) && holder.pid > 0 && holder.host === hostname) return !alive(holder.pid);
+  return age > LOCK_STALE_MS;
+}
+
+/** Runs `action` while holding the named lock in `dir`. The lock records its holder; it is broken only when that
+ * holder has died, or, when the holder cannot be checked, once the lock is stale. */
+export function withLock(dir, name, action, { now = Date.now, sleep = pause, alive = processAlive, hostname = osHostname() } = {}) {
   const lock = join(dir, `${name}.lock`);
   const deadline = now() + LOCK_WAIT_MS;
   for (;;) {
     try { mkdirSync(lock); break; } catch (error) {
       if (error?.code !== 'EEXIST') throw error;
-      let age = 0;
-      try { age = Date.now() - statSync(lock).mtimeMs; } catch { continue; }
-      if (age > LOCK_STALE_MS) { try { rmdirSync(lock); } catch { /* another process broke it first */ } continue; }
+      if (lockBreakable(lock, { alive, hostname })) { try { removeLock(lock); } catch { /* another process broke it first */ } continue; }
       if (now() >= deadline) throw new Error(`shared_state_locked: ${name}`);
       sleep(LOCK_POLL_MS);
     }
   }
-  try { return action(); } finally { try { rmdirSync(lock); } catch { /* already broken as stale */ } }
+  try {
+    try { writeFileSync(join(lock, LOCK_HOLDER), `${JSON.stringify({ pid: process.pid, host: hostname, at: Date.now() })}\n`); } catch { /* breakable on age alone */ }
+    return action();
+  } finally { try { removeLock(lock); } catch { /* already broken */ } }
 }
 
 // --- Merge queue -----------------------------------------------------------------------------------------------

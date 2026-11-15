@@ -251,6 +251,28 @@ describe('ensureWorktree', () => {
     expect(fs.readFileSync(path.join(worktree, 'setup.log'), 'utf8')).toBe('xxx');
   });
 
+  it('runs neither setup nor teardown for a spec worktree, while an issue worktree still runs both (#556 AC2)', () => {
+    const setup = node("require('fs').appendFileSync('../setup.log', process.cwd() + '\\n')");
+    const teardown = node("require('fs').appendFileSync('../teardown.log', process.cwd() + '\\n')");
+    const repo = repository({ files: manifest({ setup, teardown }) });
+    const log = (name) => (fs.existsSync(`${repo.cwd}-wt/${name}`) ? fs.readFileSync(`${repo.cwd}-wt/${name}`, 'utf8') : '');
+    const spec = specBranchName('7-new-thing');
+
+    const created = ensureWorktree({ cwd: repo.cwd, branch: spec, base: 'main' });
+    expect(created.setup).toEqual({ ran: false, ok: true, summary: 'spec worktree: setup not run' });
+    expect(record(created.path).setup).toEqual(created.setup);
+    expect(ensureWorktree({ cwd: repo.cwd, branch: spec, base: 'main' })).toMatchObject({ created: false, setup: created.setup });
+    expect(removeWorktree({ cwd: repo.cwd, branch: spec })).toEqual({ removed: true, lines: [], path: created.path });
+    expect(log('setup.log')).toBe('');
+    expect(log('teardown.log')).toBe('');
+
+    const code = ensureWorktree({ cwd: repo.cwd, branch: '7-new-thing', base: 'main' });
+    expect(code.setup).toMatchObject({ ran: true, ok: true });
+    removeWorktree({ cwd: repo.cwd, branch: '7-new-thing' });
+    expect(log('setup.log')).toBe(`${code.path}\n`);
+    expect(log('teardown.log')).toBe(`${code.path}\n`);
+  });
+
   it('throws worktree_setup_failed for an invalid manifest worktree declaration', () => {
     const repo = repository({ files: manifest({ setup: { program: 'sh', args: ['-c', 'true'] } }) });
     expect(reason(() => ensureWorktree({ cwd: repo.cwd, branch: '7-new-thing', base: 'main' }))).toBe('worktree_setup_failed');

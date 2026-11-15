@@ -145,6 +145,20 @@ export function specStatus(issueN, root = process.cwd()) {
   }
   return { dir: specRel, approved: true, ref };
 }
+/**
+ * The issue's spec as committed on `ref` (for example the fetched remote default branch), without reading the
+ * working tree: the single `specs/{N}-*` directory on that ref and whether its four files are Approved for N.
+ */
+export function specStatusOnRef(issueN, root, ref) {
+  if (!Number.isInteger(issueN) || issueN <= 0 || typeof ref !== 'string' || !ref) return { dir: null, approved: false };
+  const listed = spawnSync('git', ['-C', root, 'ls-tree', '--name-only', `${ref}:specs`], { encoding: 'utf8' });
+  if (listed.status !== 0) return { dir: null, approved: false, reasonCode: 'spec_status_unreadable' };
+  const matches = listed.stdout.split('\n').map((line) => line.trim()).filter((name) => name.startsWith(`${issueN}-`));
+  if (matches.length > 1) return { dir: null, approved: false, reasonCode: 'spec_status_ambiguous' };
+  if (matches.length === 0) return { dir: null, approved: false };
+  const specRel = `specs/${matches[0]}`;
+  return specApprovedOnRef(root, ref, specRel, issueN) ? { dir: specRel, approved: true, ref } : { dir: null, approved: false };
+}
 export const ISSUE_SPEC_MARKDOWN_LIMIT_BYTES = 256 * 1024;
 const MANIFEST_LIMIT_BYTES = 128 * 1024;
 const GROUP_CATEGORIES = Object.freeze({
