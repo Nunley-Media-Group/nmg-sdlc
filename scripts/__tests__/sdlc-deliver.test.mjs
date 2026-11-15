@@ -20,7 +20,7 @@ function git(cwd, ...args) {
   return result.stdout.trim();
 }
 
-function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'passed', remoteIssueState = 'OPEN', existing = false, lostAck = false, checksState = 'SUCCESS', declaredName = 'contract-tests', checkResponses = {}, smokeOwned = false, humanReview = false, versionPrepared = true, issueTitle = 'Deliver verified changes', labels = ['enhancement'], unreleased = '', requirements = '', versionBump = false, closingReferences = [{ number: 42, url: 'https://github.test/owner/repo/issues/42' }] } = {}) {
+function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'passed', remoteIssueState = 'OPEN', existing = false, lostAck = false, checksState = 'SUCCESS', declaredName = 'contract-tests', checkResponses = {}, smokeOwned = false, receiptRoot = null, humanReview = false, versionPrepared = true, issueTitle = 'Deliver verified changes', labels = ['enhancement'], unreleased = '', requirements = '', versionBump = false, closingReferences = [{ number: 42, url: 'https://github.test/owner/repo/issues/42' }] } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-delivery-current-'));
   const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-delivery-remote-'));
   roots.push(root, remote);
@@ -188,7 +188,7 @@ function fixture({ pending = false, unpublishedPending = false, smokeStatus = 'p
     if (args[0] === 'pr' && args[1] === 'ready') { pr.isDraft = false; return { status: 0, stdout: '', stderr: '' }; }
     if (args[0] === 'pr' && args[1] === 'merge') {
       if (smokeOwned) {
-        const receipt = JSON.parse(fs.readFileSync(path.join(root, '.nmg-sdlc/smoke-deliveries/42.json'), 'utf8'));
+        const receipt = JSON.parse(fs.readFileSync(path.join(receiptRoot ?? root, '.nmg-sdlc/smoke-deliveries/42.json'), 'utf8'));
         if (receipt.pullRequest !== 77 || receipt.headSha !== git(root, 'rev-parse', 'HEAD')) {
           throw new Error('Smoke receipt was not written before exact-head merge');
         }
@@ -619,6 +619,20 @@ console.log(JSON.stringify(value));
         issue: 42, invocationId: 'a'.repeat(64), pullRequest: 77,
         headSha: f.currentHead, recordedBeforeMerge: true,
       });
+  });
+
+  test('smoke receipt from an issue worktree is written to the primary checkout, which outlives the worktree (#551)', () => {
+    const primary = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-delivery-primary-')));
+    roots.push(primary);
+    const f = fixture({ smokeOwned: true, receiptRoot: primary });
+    const run = (binary, args, opts = {}) => (binary === 'git' && args[0] === 'worktree' && args[1] === 'list'
+      ? { status: 0, stdout: `worktree ${primary}\nHEAD ${'c'.repeat(40)}\nbranch refs/heads/main\n\nworktree ${f.root}\nHEAD ${f.currentHead}\nbranch refs/heads/feature/42-delivery\n`, stderr: '' }
+      : f.run(binary, args, opts));
+    const result = runDeliver({ cwd: f.root, issue: 42, run, env: f.env });
+    expect(result).toMatchObject({ status: 0, handoff: { status: 'passed' } });
+    expect(JSON.parse(fs.readFileSync(path.join(primary, '.nmg-sdlc/smoke-deliveries/42.json'), 'utf8')))
+      .toMatchObject({ issue: 42, invocationId: 'a'.repeat(64), pullRequest: 77, recordedBeforeMerge: true });
+    expect(fs.existsSync(path.join(f.root, '.nmg-sdlc/smoke-deliveries/42.json'))).toBe(false);
   });
 
   test('lost merge acknowledgment reconciles remote MERGED and CLOSED without replay', () => {

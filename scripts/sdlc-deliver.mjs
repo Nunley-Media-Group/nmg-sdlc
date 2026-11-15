@@ -25,6 +25,7 @@ import {
 } from './sdlc-controller-lease.mjs';
 import { matchesRegisteredResults } from './sdlc-finalize-verification.mjs';
 import { parseIssueBranch } from './sdlc-status.mjs';
+import { primaryCheckout } from './sdlc-worktree.mjs';
 import {
   inspectPublicationScope,
   publicationPathDenied,
@@ -196,11 +197,21 @@ function writeHandoff({
   };
 }
 
-function writeSmokeDeliveryProof({ cwd, env, fs, issue, pullRequest, headSha }) {
+// The receipt must outlive the issue worktree, which is removed after delivery, so it goes to the
+// primary checkout, where the smoke provider reads it. Without a readable worktree list, use cwd.
+function smokeReceiptRoot(cwd, run) {
+  try {
+    return primaryCheckout(cwd, run) || cwd;
+  } catch {
+    return cwd;
+  }
+}
+
+function writeSmokeDeliveryProof({ cwd, env, fs, run, issue, pullRequest, headSha }) {
   if (env.NMG_SDLC_SMOKE_OWNED !== '1') return;
   const invocationId = String(env.NMG_SDLC_SMOKE_RECOVERY ?? '').split('.')[0];
   if (!/^[a-f0-9]{64}$/i.test(invocationId)) throw new Error('smoke invocation identity is unavailable');
-  const directory = ensureDirectoryChain(fs, cwd, ['.nmg-sdlc', 'smoke-deliveries']);
+  const directory = ensureDirectoryChain(fs, smokeReceiptRoot(cwd, run), ['.nmg-sdlc', 'smoke-deliveries']);
   const receipt = path.join(directory, `${issue}.json`);
   if (fs.existsSync(receipt)) {
     const stat = fs.lstatSync(receipt);
@@ -1594,7 +1605,7 @@ function runDeliverUnlocked({
       exactRemoteHead({ run, cwd, branch, head });
       registeredGate({ fs, cwd, run, issue: issueNumber, spec, head, report });
       requireClosingLinkage({ context, run, prNumber: current.number, head });
-      writeSmokeDeliveryProof({ cwd, env, fs, issue: issueNumber, pullRequest: current.number, headSha: head });
+      writeSmokeDeliveryProof({ cwd, env, fs, run, issue: issueNumber, pullRequest: current.number, headSha: head });
       try {
         command(run, cwd, 'gh', ['pr', 'merge', String(current.number), '--squash', '--match-head-commit', head], { allowFailure: true });
       } catch {
