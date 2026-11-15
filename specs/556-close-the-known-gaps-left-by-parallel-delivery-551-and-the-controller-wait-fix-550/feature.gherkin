@@ -1,0 +1,47 @@
+**Issue**: #556
+**Date**: 2026-11-15
+**Status**: Approved
+**Author**: Claude Code
+**Related Spec**: specs/551-add-parallel-delivery-with-worktree-isolation-a-merge-queue-change-scoped-validation-tiers-and-one-pass-verification/
+
+# File: scripts/__tests__/
+# Generated from: specs/556-close-the-known-gaps-left-by-parallel-delivery-551-and-the-controller-wait-fix-550/requirements.md
+Feature: Close the known gaps left by parallel delivery and the controller wait fix
+
+  @SCN001
+  Scenario: A spec published on the remote default branch is found from a stale checkout
+    Given an approved spec merged on the remote default branch
+    And a primary checkout that lacks it and cannot be fast-forwarded
+    When execute starts the issue
+    Then the spec check finds the spec on the fetched remote default branch and the start proceeds
+
+  @SCN002
+  Scenario: Spec worktrees run no setup or teardown
+    Given a manifest that declares worktree setup and teardown
+    When a spec worktree is created and removed
+    Then neither command runs, while an issue worktree still runs both
+
+  @SCN003
+  Scenario: A live lock holder's lock is never broken on age
+    Given a lock held by a live process on this host for longer than the stale age
+    When another process waits on it
+    Then the lock is not broken and the wait fails shared_state_locked at its deadline
+    And a lock held by a dead process is broken at once
+
+  @SCN004
+  Scenario: A changelog-only queue conflict keeps the branch's own entries
+    Given a queue-head branch with its own Unreleased bullet and a default branch that conflicts only in VERSION and CHANGELOG.md
+    When the controller integrates the default branch
+    Then the resolved changelog holds the default branch's content and the branch bullet under its category
+
+  @SCN005
+  Scenario: A stopped worker behind its waiting marker is noticed at once
+    Given a settled worker behind its waiting marker
+    When its status becomes failed or killed with no new activity
+    Then the wait ends before the resume bound and the stage ends as process_lost
+
+  @SCN006
+  Scenario: Check-ins continue while a settled worker waits behind its marker
+    Given a settled worker waiting behind its marker past the check-in interval
+    When the controller supervises it
+    Then check-in reports name the waiting command
