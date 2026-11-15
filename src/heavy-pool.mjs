@@ -91,6 +91,8 @@ export async function acquireHeavySlot({ label, projectRoot = null, issue = null
   const started = now();
   const record = { schemaVersion: 1, pid, label: String(label ?? "heavy job"), projectRoot,
     ...(Number.isSafeInteger(issue) ? { issue } : {}), startedAt: started };
+  // A slot taken on the first attempt was not waited for, whatever the clock moved between two reads.
+  let waited = false;
   for (;;) {
     if (signal?.aborted) throw Object.assign(new Error("heavy slot wait cancelled"), { reasonCode: "cancelled" });
     record.startedAt = now();
@@ -106,8 +108,9 @@ export async function acquireHeavySlot({ label, projectRoot = null, issue = null
         rmSync(path, { force: true });
         return true;
       };
-      return { slot, slots, waitedMs: Math.max(0, record.startedAt - started), release };
+      return { slot, slots, waitedMs: waited ? Math.max(0, record.startedAt - started) : 0, release };
     }
     await sleep(pollMs);
+    waited = true;
   }
 }
