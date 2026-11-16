@@ -20,8 +20,11 @@ describe('README documents per-project stage models (FR8)', () => {
     const models = section('### Models');
     expect(models).toContain('steering/sdlc-models.json');
     expect(models).toContain('verify.effort` (default `high`)');
+    expect(models).toContain('`implement.model` in `steering/sdlc-models.json` (default `opus`) | `implement.effort` (default `medium`)');
     const perProject = section('### Per-project stage models');
     expect(perProject).toContain('"verify": { "model": "opus", "effort": "high" }');
+    expect(perProject).toContain('"implement": { "model": "opus", "effort": "medium" }');
+    expect(perProject).toContain('offers to move an entry that still holds an earlier plugin default');
     expect(perProject).toContain('provider/model');
     expect(perProject).toContain('opencode-go/kimi-k3.1-pro');
     expect(perProject).toContain('Effort `default` passes no `--effort` flag');

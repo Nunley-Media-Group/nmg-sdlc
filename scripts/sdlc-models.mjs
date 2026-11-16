@@ -11,6 +11,7 @@ import {
   STAGE_MODELS_PATH,
   STAGE_NAMES,
   StageModelsError,
+  SUPERSEDED_STAGE_MODEL_DEFAULTS,
   TOP_LEVEL_KEYS,
   stageModelsWarning,
   validateStageModels,
@@ -21,6 +22,7 @@ export {
   STAGE_MODELS_PATH,
   STAGE_NAMES,
   StageModelsError,
+  SUPERSEDED_STAGE_MODEL_DEFAULTS,
   isValidStageModel,
   stageModelsWarning,
   validateStageModels,
@@ -141,6 +143,48 @@ export function completeStageModels(root) {
   fs.writeFileSync(target, text);
   validateStageModels(JSON.parse(text));
   return { ok: true, changed: true, status: 'completed', added: missing };
+}
+
+/** The stages of a parsed, valid file whose entry still holds a superseded plugin default (model and effort both). */
+export function staleStageDefaults(parsed) {
+  return STAGE_NAMES.filter((name) => {
+    const entry = parsed?.[name];
+    return entry && (SUPERSEDED_STAGE_MODEL_DEFAULTS[name] ?? [])
+      .some((old) => entry.model === old.model && entry.effort === old.effort);
+  });
+}
+
+/** Moves each entry that still holds a superseded plugin default to the current default, keeping every other value and
+ * the key order. Statuses: refreshed, already-current (no write), invalid (no write; also for an absent file). */
+export function refreshStageModelDefaults(root) {
+  const target = path.join(path.resolve(root), STAGE_MODELS_PATH);
+  let stat;
+  try {
+    stat = fs.lstatSync(target);
+  } catch (error) {
+    return invalid(`${STAGE_MODELS_PATH}: unreadable: ${error.code ?? error.message}`);
+  }
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    return invalid(`${STAGE_MODELS_PATH}: must be a regular file, not a symlink or directory`);
+  }
+  let parsed;
+  try {
+    parsed = parseFile(target);
+    validateStageModels(parsed);
+  } catch (error) {
+    if (error instanceof StageModelsError) return invalid(error.message);
+    throw error;
+  }
+  const stale = staleStageDefaults(parsed);
+  if (!stale.length) return { ok: true, changed: false, status: 'already-current', refreshed: [] };
+  const refreshed = { ...parsed };
+  for (const name of stale) {
+    refreshed[name] = { ...parsed[name], model: STAGE_MODEL_DEFAULTS[name].model, effort: STAGE_MODEL_DEFAULTS[name].effort };
+  }
+  const text = serialize(refreshed);
+  validateStageModels(JSON.parse(text));
+  fs.writeFileSync(target, text);
+  return { ok: true, changed: true, status: 'refreshed', refreshed: stale };
 }
 
 function runCli(argv) {

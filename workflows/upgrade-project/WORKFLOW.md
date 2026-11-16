@@ -63,6 +63,7 @@ For epic: explicit per group "The detector found an epic group whose child specs
 Runner cleanup: approve batch or narrow.
 v3 → v4 runtime state and the ignore-rule swap are one category-group question showing the exact moves, duplicates, obsolete deletions, and preserved conflicts with their reason codes.
 Official dependency reconciliation is one category-group question showing the exact proposed edges and evidence. Approval authorizes those writes; do not ask per edge.
+Stage model defaults (`sdlc-models-defaults`) is one category-group question showing each offered entry's current value and the new default; recommend approving it. Declining leaves `steering/sdlc-models.json` unchanged.
 Steering-runtime migration or update is one category-group question showing the exact source digest, writes, registrations, preserved paths, and legacy deletions. Approval authorizes only that plan.
 
 No silent apply.

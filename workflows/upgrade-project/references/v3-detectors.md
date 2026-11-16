@@ -143,6 +143,9 @@ v3 kept plugin runtime state under `.omp/sdlc/` and ignored it with the managed 
 18. **Stage models** (`id: sdlc-models`, `kind: sdlc-models`)
    - Signal: `steering/sdlc-models.json` is absent (`action: create`), or is a regular file that parses, validates, and lacks keys (`action: complete`, `missingKeys`). Symlinked or non-regular files, invalid JSON, and invalid values emit nothing.
    - Apply (order 10.8, after `changelog-create` and before `issue-dependencies`) calls `completeStageModels` from `scripts/sdlc-models.mjs` after a live re-check. An absent file is created with plugin defaults (`created`). A valid partial file gains only its missing keys and keeps every project value and key order (`completed`). A complete file returns `already-current` with no write. An invalid file fails with its diagnostic and is never rewritten.
+19. **Stage model defaults** (`id: sdlc-models-defaults`, `kind: sdlc-models-defaults`)
+   - Signal: `steering/sdlc-models.json` is a regular, valid file with an entry whose model and effort equal an earlier plugin default from `SUPERSEDED_STAGE_MODEL_DEFAULTS` (`action: refresh`, `entries`).
+   - Apply (order 10.81, after `sdlc-models`) calls `refreshStageModelDefaults` after a live re-check and changes only those entries. A project-chosen value is never offered or changed.
 
 Re-running detect after a successful v4 apply reports none of these items.
 

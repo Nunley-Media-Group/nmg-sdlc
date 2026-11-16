@@ -81,7 +81,7 @@ Every step runs on the Claude Code model suited to its workload, and your sessio
 | Step | Model | Effort |
 |------|-------|--------|
 | execute stage `start` | `start.model` in `steering/sdlc-models.json` (default `haiku`) | `start.effort` (default `default`, no flag) |
-| execute stage `implement` | `implement.model` in `steering/sdlc-models.json` (default `haiku`) | `implement.effort` (default `xhigh`) |
+| execute stage `implement` | `implement.model` in `steering/sdlc-models.json` (default `opus`) | `implement.effort` (default `medium`) |
 | execute stage `verify` | `verify.model` in `steering/sdlc-models.json` (default `opus`) | `verify.effort` (default `high`) |
 | execute stage `deliver` | `deliver.model` in `steering/sdlc-models.json` (default `haiku`) | `deliver.effort` (default `xhigh`) |
 | execute repair re-dispatch (`implement`, `verify`, `deliver`) | `repair.model` in `steering/sdlc-models.json` (default `opus`) | `repair.effort` (default `default`, no flag) |
@@ -96,13 +96,13 @@ A repair re-dispatch is the next implement, verify, or deliver worker after a re
 
 ### Per-project stage models
 
-The model and effort of each execute stage and of the repair re-dispatch come from the committed project file `steering/sdlc-models.json`. `/sdlc-onboard-project` creates it with the plugin defaults. `/sdlc-upgrade-project` creates it when it is absent, or adds only the missing keys to a valid file, and never changes a value the project already set. The file is project-owned and is not registered in `steering/manifest.json`.
+The model and effort of each execute stage and of the repair re-dispatch come from the committed project file `steering/sdlc-models.json`. `/sdlc-onboard-project` creates it with the plugin defaults. `/sdlc-upgrade-project` creates it when it is absent, or adds only the missing keys to a valid file. It also offers to move an entry that still holds an earlier plugin default (such as `implement` `haiku`/`xhigh`) to the current default, and changes it only when you approve. It never changes a value the project chose itself. The file is project-owned and is not registered in `steering/manifest.json`.
 
 ```json
 {
   "version": 1,
   "start": { "model": "haiku", "effort": "default" },
-  "implement": { "model": "haiku", "effort": "xhigh" },
+  "implement": { "model": "opus", "effort": "medium" },
   "verify": { "model": "opus", "effort": "high" },
   "deliver": { "model": "haiku", "effort": "xhigh" },
   "repair": { "model": "opus", "effort": "default" }
@@ -146,7 +146,7 @@ For package-bounded publication repair, use `node <plugin-root>/scripts/sdlc-upg
 Onboarding/upgrade manage:
 
 - `steering/manifest.json`, runtime descriptors, and registered project context.
-- `steering/sdlc-models.json`: execute stage and repair models and efforts (see [Per-project stage models](#per-project-stage-models)). Onboarding creates it with plugin defaults when it is absent. Upgrade creates it when absent, or adds only missing keys to a valid file, and never changes a project value or rewrites an invalid file.
+- `steering/sdlc-models.json`: execute stage and repair models and efforts (see [Per-project stage models](#per-project-stage-models)). Onboarding creates it with plugin defaults when it is absent. Upgrade creates it when absent, adds only missing keys to a valid file, offers to move entries that still hold an earlier plugin default to the current defaults, and never changes a project-chosen value or rewrites an invalid file.
 - `CONTRIBUTING.md` and its README link.
 - The bounded spec-context section in root `CLAUDE.md`.
 - `.github/workflows/nmg-sdlc-contribution-gate.yml`.
