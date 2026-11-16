@@ -2,9 +2,9 @@
 // A job that steering marks as heavy holds one slot while it runs; a slot whose holder process is dead is reclaimed.
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { linkSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { linkSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { hostname as osHostname, homedir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 const DEFAULT_SLOTS = 1;
 const POLL_MS = 500;
@@ -39,6 +39,10 @@ function defaultAlive(pid) {
 const START_TOKEN_TTL_MS = 5_000;
 const startTokens = new Map();
 
+// `ps -o lstart=` prints the start time in the caller's time zone and locale, so it runs with fixed ones: every process
+// then reads one token for a pid whatever its own TZ, LANG, LC_ALL or LC_TIME.
+const PS_ENV = { PATH: process.env.PATH ?? "/usr/bin:/bin", TZ: "UTC", LC_ALL: "C", LANG: "C", LC_TIME: "C" };
+
 function readStartToken(pid, platform) {
   if (platform === "linux") {
     try {
@@ -51,7 +55,7 @@ function readStartToken(pid, platform) {
   const response = platform === "win32"
     ? spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command",
       `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().Ticks`], { encoding: "utf8", timeout: 10_000, windowsHide: true })
-    : spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", timeout: 10_000 });
+    : spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", timeout: 10_000, env: PS_ENV });
   const value = response?.status === 0 ? String(response.stdout ?? "").trim().replace(/\s+/g, " ") : "";
   return value ? `${platform}:${value}` : null;
 }
@@ -63,7 +67,10 @@ export function processStartToken(pid, { platform = process.platform, now = Date
   const cached = startTokens.get(pid);
   if (cached && now() - cached.at < START_TOKEN_TTL_MS) return cached.token;
   const token = readStartToken(pid, platform);
-  startTokens.set(pid, { token, at: now() });
+  const at = now();
+  // Expired entries are dropped, so a long-lived process keeps only the pids it read recently.
+  for (const [key, entry] of startTokens) if (at - entry.at >= START_TOKEN_TTL_MS) startTokens.delete(key);
+  startTokens.set(pid, { token, at });
   return token;
 }
 
@@ -151,6 +158,21 @@ function breakStaleGuard(guard, check) {
   return same;
 }
 
+/** Removes guards moved aside more than the stale age ago and left behind, for instance by an earlier plugin version
+ * that broke a guard file as if it were a directory. Runs only while holding the guard. */
+function sweepStaleAsides(guard) {
+  const dir = dirname(guard);
+  const prefix = `${basename(guard)}.`;
+  let names = [];
+  try { names = readdirSync(dir); } catch { return; }
+  for (const name of names) {
+    if (!name.startsWith(prefix) || !/^\d+\.[0-9a-f]{8}\.stale$/.test(name.slice(prefix.length))) continue;
+    const path = join(dir, name);
+    // ctime is when the guard was moved aside; its mtime is still the guard's own.
+    try { if (Date.now() - lstatSync(path).ctimeMs > RECLAIM_GUARD_STALE_MS) rmSync(path, { recursive: true, force: true }); } catch { /* removed meanwhile */ }
+  }
+}
+
 /**
  * Runs `action` while holding the reclaim guard file `<path>.reclaim`, so that only one process at a time can re-read and
  * remove the lock at `path`. Returns the action's result, or `false` when another process holds the guard. The guard
@@ -165,7 +187,10 @@ export function underReclaimGuard(path, action, check = {}) {
       if (attempt > 0 || !breakStaleGuard(guard, check)) return false;
     }
   }
-  try { return action(); } finally {
+  try {
+    sweepStaleAsides(guard);
+    return action();
+  } finally {
     // Only this process's own guard is removed; one broken meanwhile and taken by another process stays.
     if (readGuard(guard) === record) {
       try { unlinkSync(guard); } catch { /* broken meanwhile */ }

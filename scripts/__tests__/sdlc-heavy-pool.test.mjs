@@ -3,7 +3,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import * as pool from '../../src/heavy-pool.mjs';
 import { heavyPoolList, parseHeavyPoolCli, runHeavy } from '../sdlc-heavy-pool.mjs';
@@ -238,6 +238,39 @@ describe('acquireHeavySlot', () => {
     expect(ran).toBe(false);
     expect(fs.readFileSync(guard, 'utf8')).toBe(fresh);
     expect(fs.readdirSync(h.dir).filter((name) => name.startsWith('target'))).toEqual(['target.reclaim']);
+  });
+
+  it('reads one start token for a pid whatever the reader\'s time zone and locale (#560 AC1)', () => {
+    const holder = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30_000)'], { stdio: 'ignore' });
+    try {
+      const module = pathToFileURL(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src/heavy-pool.mjs')).href;
+      const read = (env) => spawnSync(process.execPath, ['--input-type=module', '-e',
+        `import(${JSON.stringify(module)}).then((m) => process.stdout.write(String(m.processStartToken(${holder.pid}))))`],
+      { encoding: 'utf8', env: { PATH: process.env.PATH, ...env } }).stdout;
+      const tokens = new Set([
+        read({ TZ: 'UTC', LC_ALL: 'C' }),
+        read({ TZ: 'America/Los_Angeles', LC_ALL: 'fr_FR.UTF-8' }),
+        read({ TZ: 'Asia/Tokyo', LANG: 'ja_JP.UTF-8', LC_TIME: 'de_DE.UTF-8' }),
+        read({}),
+      ]);
+      expect(tokens.size).toBe(1);
+      expect([...tokens][0]).toMatch(new RegExp(`^${process.platform}:`));
+    } finally { holder.kill(); }
+  });
+
+  it('removes a guard left moved aside past the stale age while holding the guard, and keeps a recent one (#560 AC2)', () => {
+    const h = host(1);
+    const target = path.join(h.dir, 'target');
+    const left = `${target}.reclaim.4242.0badf00d.stale`;
+    fs.writeFileSync(left, JSON.stringify({ pid: 4242, host: os.hostname(), start: null, at: 0 }));
+    expect(underReclaimGuard(target, () => 'ran')).toBe('ran');
+    expect(fs.existsSync(left)).toBe(true);
+    const later = Date.now() + 60_000;
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(later);
+    try {
+      expect(underReclaimGuard(target, () => 'ran')).toBe('ran');
+    } finally { clock.mockRestore(); }
+    expect(fs.readdirSync(h.dir).filter((name) => name.startsWith('target'))).toEqual([]);
   });
 
   it('records the issue when one is given, and defaults the label and project root', async () => {

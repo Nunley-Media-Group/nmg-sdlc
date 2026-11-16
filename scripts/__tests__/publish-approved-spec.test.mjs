@@ -110,6 +110,10 @@ if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
     printf '%s\\n' '[{"number":77}]'
     exit 0
   fi
+  if [ -n "$GH_PRIOR_ROWS" ] && echo "$*" | grep -q -- '--state all'; then
+    printf '%s\\n' "$GH_PRIOR_ROWS" | sed "s/@HEAD@/$(spec_sha)/g"
+    exit 0
+  fi
   if [ "$GH_PRIOR_MERGED" = "1" ] && [ ! -f .remote-merged ] && echo "$*" | grep -q -- '--state all'; then
     printf '%s\\n' '[{"number":95,"state":"MERGED","headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},{"number":90,"state":"CLOSED","headRefOid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]'
     exit 0
@@ -1079,6 +1083,38 @@ describe('publish-approved-spec', () => {
     const log = fs.readFileSync(path.join(root, '.gh-log'), 'utf8');
     expect(log).not.toContain('pr create');
     expect(log).not.toContain('pr merge');
+  });
+
+  describe('ambiguous spec PR history (#560 AC3)', () => {
+    const other = (n) => ({ number: n, state: 'MERGED', headRefOid: 'a'.repeat(40) });
+    it.each([
+      ['a full page of 100 rows', Array.from({ length: 100 }, (_, i) => other(i + 1))],
+      ['two merged PRs at the local head', [{ number: 97, state: 'MERGED', headRefOid: '@HEAD@' }, { number: 98, state: 'MERGED', headRefOid: '@HEAD@' }]],
+      ['a merged PR at the local head that GitHub does not prove', [{ number: 99, state: 'MERGED', headRefOid: '@HEAD@' }, other(95)]],
+    ])('fails pr_head_changed and never opens or merges a PR for %s', (_, rows) => {
+      const { root, env } = makeRepo();
+      const tree = prepareSpec(root, env);
+      writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
+      expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
+      const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], { ...env, GH_PRIOR_ROWS: JSON.stringify(rows) });
+      expect(result.status).not.toBe(0);
+      expect(parse(result)).toMatchObject({ ok: false, reasonCode: 'pr_head_changed' });
+      const log = fs.readFileSync(path.join(root, '.gh-log'), 'utf8');
+      expect(log).not.toContain('pr create');
+      expect(log).not.toContain('pr merge');
+    });
+
+    it('fails pr_readiness_failed when the default branch cannot be fetched to compare an earlier publication', () => {
+      const { root, env } = makeRepo();
+      const tree = prepareSpec(root, env);
+      writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
+      expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
+      git(root, ['remote', 'set-url', 'origin', path.join(root, 'no-such-remote.git')]);
+      const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], { ...env, GH_PRIOR_MERGED: '1' });
+      expect(result.status).not.toBe(0);
+      expect(parse(result)).toMatchObject({ ok: false, reasonCode: 'pr_readiness_failed', detail: 'default branch fetch failed' });
+      expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8')).not.toContain('pr create');
+    });
   });
 
   it('merge squash-merges a docs-only PR into the default branch without Closes', () => {
