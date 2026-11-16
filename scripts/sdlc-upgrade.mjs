@@ -29,7 +29,7 @@ import {
 } from './issue-dependencies.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
 import { backfillSpecCreatedLabels } from './spec-created-label.mjs';
-import { completeStageModels, STAGE_MODELS_PATH, validateStageModels } from './sdlc-models.mjs';
+import { completeStageModels, refreshStageModelDefaults, STAGE_MODEL_DEFAULTS, STAGE_MODELS_PATH, staleStageDefaults, validateStageModels } from './sdlc-models.mjs';
 import { NMG_SDLC_IGNORE_LINE } from './nmg-sdlc-ignore.mjs';
 import { canonicalSnippetRecord, createInitializePlan, steeringSourceDigest } from './sdlc-steering.mjs';
 import { OPTIONAL_TOP_KEYS } from '../src/sdlc-steering-runtime.mjs';
@@ -2542,6 +2542,41 @@ function detectSdlcModels(root) {
   };
 }
 
+// A valid file whose entries still hold a superseded plugin default: offer to move just those entries to the current
+// defaults. Values the project chose itself are never offered, and only an approved item is applied.
+function detectSdlcModelsDefaults(root) {
+  const target = path.join(root, STAGE_MODELS_PATH);
+  const stat = lstatOrNull(target);
+  if (!stat || !stat.isFile() || stat.isSymbolicLink()) return null;
+  let parsed;
+  let entries;
+  try {
+    parsed = JSON.parse(fs.readFileSync(target, 'utf8'));
+    validateStageModels(parsed);
+    entries = staleStageDefaults(parsed);
+  } catch {
+    return null;
+  }
+  if (!entries.length) return null;
+  const changes = entries.map((name) => `${name} from ${parsed[name].model}/${parsed[name].effort} to ${STAGE_MODEL_DEFAULTS[name].model}/${STAGE_MODEL_DEFAULTS[name].effort}`);
+  return {
+    id: 'sdlc-models-defaults',
+    kind: 'sdlc-models-defaults',
+    description: `Update ${STAGE_MODELS_PATH} entries that still hold an earlier plugin default to the current defaults: ${changes.join(', ')}. Other values are kept.`,
+    rel: STAGE_MODELS_PATH,
+    actionable: true,
+    action: 'refresh',
+    entries,
+  };
+}
+
+function applySdlcModelsDefaults(root, item) {
+  const result = refreshStageModelDefaults(root);
+  if (!result.ok) return { id: item.id, status: `failed:${result.message}` };
+  if (result.status === 'refreshed') return { id: item.id, status: 'applied', updated: [STAGE_MODELS_PATH], refreshed: result.refreshed };
+  return { id: item.id, status: 'already-current' };
+}
+
 function applySdlcModels(root, item) {
   const result = completeStageModels(root);
   if (!result.ok) return { id: item.id, status: `failed:${result.message}` };
@@ -2861,6 +2896,8 @@ function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRu
   if (changelogCreate) items.push(changelogCreate);
   const sdlcModels = detectSdlcModels(rootAbs);
   if (sdlcModels) items.push(sdlcModels);
+  const sdlcModelsDefaults = detectSdlcModelsDefaults(rootAbs);
+  if (sdlcModelsDefaults) items.push(sdlcModelsDefaults);
 
   if (dependencyItem) {
     items.push(dependencyItem);
@@ -3161,10 +3198,15 @@ function applyUpgrade(root, approvedItemIds = [], run, {
 
   // Split cumulative packages before renaming their shared legacy source.
   const order = (a, b) => {
-    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'steering-runtime': 2, 'publication-files': 3, 'cumulative-split': 4, 'directory-rename': 5, 'epic-flatten': 6, 'spike-flatten': 7, 'spike-remove': 7, 'spike-issue-form': 7, 'agents-spike-language': 7, 'agents-host-language': 7.5, 'agents-to-claude-md': 7.75, 'frontmatter-fix': 8, 'v2-cleanup': 9, 'runtime-state-v4': 9.5, 'nmg-sdlc-ignore': 10, 'steering-v4-host-language': 10.5, 'contributing-v4-host-language': 10.5, 'changelog-create': 10.75, 'sdlc-models': 10.8, 'issue-dependencies': 11, 'already-current': 99 }[k] ?? 50);
+    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'steering-runtime': 2, 'publication-files': 3, 'cumulative-split': 4, 'directory-rename': 5, 'epic-flatten': 6, 'spike-flatten': 7, 'spike-remove': 7, 'spike-issue-form': 7, 'agents-spike-language': 7, 'agents-host-language': 7.5, 'agents-to-claude-md': 7.75, 'frontmatter-fix': 8, 'v2-cleanup': 9, 'runtime-state-v4': 9.5, 'nmg-sdlc-ignore': 10, 'steering-v4-host-language': 10.5, 'contributing-v4-host-language': 10.5, 'changelog-create': 10.75, 'sdlc-models': 10.8, 'sdlc-models-defaults': 10.81, 'issue-dependencies': 11, 'already-current': 99 }[k] ?? 50);
     return pri(a.kind) - pri(b.kind);
   };
-  const toApply = [...report.items].filter((it) => approvedSet.has(it.id)).sort(order);
+  const toApply = [...report.items].filter((it) => approvedSet.has(it.id));
+  // An approved refresh whose offer vanished (file now invalid, or entries edited) still reports its live outcome.
+  if (approvedSet.has('sdlc-models-defaults') && !toApply.some((it) => it.id === 'sdlc-models-defaults')) {
+    toApply.push({ id: 'sdlc-models-defaults', kind: 'sdlc-models-defaults', rel: STAGE_MODELS_PATH });
+  }
+  toApply.sort(order);
   const invalidPublicationIssues = new Set();
 
   for (const item of toApply) {
@@ -3208,6 +3250,8 @@ function applyUpgrade(root, approvedItemIds = [], run, {
       res = applyChangelogCreate(rootAbs, item);
     } else if (item.kind === 'sdlc-models') {
       res = applySdlcModels(rootAbs, item);
+    } else if (item.kind === 'sdlc-models-defaults') {
+      res = applySdlcModelsDefaults(rootAbs, item);
     } else if (item.kind === 'issue-dependencies') {
       res = applyIssueDependencyUpgrade(item, { cwd: rootAbs, run });
     } else if (item.kind === 'packaging' || item.kind === 'legacy-layout' || item.kind === 'already-current') {

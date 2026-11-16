@@ -8,7 +8,10 @@ import {
   completeStageModels,
   isValidStageModel,
   loadStageModels,
+  refreshStageModelDefaults,
+  staleStageDefaults,
   StageModelsError,
+  SUPERSEDED_STAGE_MODEL_DEFAULTS,
   STAGE_MODEL_DEFAULTS,
   STAGE_MODELS_PATH,
   stageModelsWarning,
@@ -43,11 +46,11 @@ const noNetworkRun = () => ({ status: 1, stdout: '', stderr: 'network disabled f
 const ABSENT_WARNING = 'Warning: steering/sdlc-models.json is missing; using plugin default stage models and efforts. Run /sdlc-upgrade-project to create it.';
 
 describe('plugin defaults', () => {
-  it('match the AC2 table, with verify effort high and default meaning no --effort flag', () => {
+  it('implement runs on opus at medium and verify on opus at high, with default meaning no --effort flag (#561 AC1)', () => {
     expect(STAGE_MODEL_DEFAULTS).toEqual({
       version: 1,
       start: { model: 'haiku', effort: 'default' },
-      implement: { model: 'haiku', effort: 'xhigh' },
+      implement: { model: 'opus', effort: 'medium' },
       verify: { model: 'opus', effort: 'high' },
       deliver: { model: 'haiku', effort: 'xhigh' },
       repair: { model: 'opus', effort: 'default' },
@@ -214,15 +217,97 @@ describe('sdlc-models upgrade item (AC3)', () => {
   });
 });
 
+describe('superseded defaults refresh (#561 AC2, AC3)', () => {
+  const OLD = { ...STAGE_MODEL_DEFAULTS, implement: { model: 'haiku', effort: 'xhigh' } };
+  const items = (root) => detectUpgrade(root, { run: noNetworkRun }).items;
+
+  it('records the earlier implement default as superseded', () => {
+    expect(SUPERSEDED_STAGE_MODEL_DEFAULTS.implement).toEqual([{ model: 'haiku', effort: 'xhigh' }]);
+    expect(staleStageDefaults(OLD)).toEqual(['implement']);
+    expect(staleStageDefaults(STAGE_MODEL_DEFAULTS)).toEqual([]);
+  });
+
+  it('creates and completes files with the new defaults', () => {
+    const root = project({ 'VERSION': '0.1.0\n' });
+    applyUpgrade(root, ['sdlc-models'], noNetworkRun);
+    expect(JSON.parse(fs.readFileSync(modelsFile(root), 'utf8')).implement).toEqual({ model: 'opus', effort: 'medium' });
+    const partial = project({ [STAGE_MODELS_PATH]: json({ version: 1, start: STAGE_MODEL_DEFAULTS.start }) });
+    completeStageModels(partial);
+    const completed = JSON.parse(fs.readFileSync(modelsFile(partial), 'utf8'));
+    expect(completed.implement).toEqual({ model: 'opus', effort: 'medium' });
+    expect(completed.verify).toEqual({ model: 'opus', effort: 'high' });
+  });
+
+  it('offers an approvable item for an entry on the old default and refreshes only that entry', () => {
+    const custom = { ...OLD, verify: { model: 'sonnet', effort: 'max' } };
+    const root = project({ 'VERSION': '0.1.0\n', [STAGE_MODELS_PATH]: json(custom) });
+    const item = items(root).find((candidate) => candidate.id === 'sdlc-models-defaults');
+    expect(item).toMatchObject({ kind: 'sdlc-models-defaults', action: 'refresh', entries: ['implement'], actionable: true, rel: STAGE_MODELS_PATH });
+    expect(items(root).some((candidate) => candidate.id === 'sdlc-models')).toBe(false);
+    const applied = applyUpgrade(root, [item.id], noNetworkRun).results.find((result) => result.id === item.id);
+    expect(applied).toEqual({ id: item.id, status: 'applied', updated: [STAGE_MODELS_PATH], refreshed: ['implement'] });
+    const after = JSON.parse(fs.readFileSync(modelsFile(root), 'utf8'));
+    expect(after).toEqual({ ...custom, implement: { model: 'opus', effort: 'medium' } });
+    expect(Object.keys(after)).toEqual(Object.keys(custom));
+    expect(items(root).some((candidate) => candidate.id === 'sdlc-models-defaults')).toBe(false);
+  });
+
+  it('names each offered entry\'s current value and the new default in the item description', () => {
+    const root = project({ 'VERSION': '0.1.0\n', [STAGE_MODELS_PATH]: json(OLD) });
+    const item = items(root).find((candidate) => candidate.id === 'sdlc-models-defaults');
+    expect(item.description).toContain('implement from haiku/xhigh to opus/medium');
+  });
+
+  it('reports failed with a diagnostic when an approved refresh meets a file made invalid after detection', () => {
+    const root = project({ 'VERSION': '0.1.0\n', [STAGE_MODELS_PATH]: json(OLD) });
+    expect(items(root).some((candidate) => candidate.id === 'sdlc-models-defaults')).toBe(true);
+    const badText = json({ ...OLD, verify: { model: 'opus', effort: 'extreme' } });
+    fs.writeFileSync(modelsFile(root), badText);
+    const result = applyUpgrade(root, ['sdlc-models-defaults'], noNetworkRun).results.find((candidate) => candidate.id === 'sdlc-models-defaults');
+    expect(result.status).toMatch(/^failed:.+/);
+    expect(fs.readFileSync(modelsFile(root), 'utf8')).toBe(badText);
+  });
+
+  it('reports already-current when an approved refresh meets an entry edited to a custom value after detection', () => {
+    const root = project({ 'VERSION': '0.1.0\n', [STAGE_MODELS_PATH]: json(OLD) });
+    expect(items(root).some((candidate) => candidate.id === 'sdlc-models-defaults')).toBe(true);
+    const customText = json({ ...OLD, implement: { model: 'sonnet', effort: 'low' } });
+    fs.writeFileSync(modelsFile(root), customText);
+    const result = applyUpgrade(root, ['sdlc-models-defaults'], noNetworkRun).results.find((candidate) => candidate.id === 'sdlc-models-defaults');
+    expect(result).toEqual({ id: 'sdlc-models-defaults', status: 'already-current' });
+    expect(fs.readFileSync(modelsFile(root), 'utf8')).toBe(customText);
+  });
+
+  it('leaves the file unchanged when the offer is declined', () => {
+    const text = json(OLD);
+    const root = project({ 'VERSION': '0.1.0\n', [STAGE_MODELS_PATH]: text });
+    applyUpgrade(root, [], noNetworkRun);
+    expect(fs.readFileSync(modelsFile(root), 'utf8')).toBe(text);
+  });
+
+  it('never offers a project-chosen value, and never rewrites an invalid file', () => {
+    const chosen = project({ [STAGE_MODELS_PATH]: json({ ...STAGE_MODEL_DEFAULTS, implement: { model: 'haiku', effort: 'high' } }) });
+    expect(items(chosen).some((candidate) => candidate.id === 'sdlc-models-defaults')).toBe(false);
+    expect(refreshStageModelDefaults(chosen)).toMatchObject({ ok: true, changed: false, status: 'already-current' });
+    const badText = json({ ...OLD, verify: { model: 'opus', effort: 'extreme' } });
+    const bad = project({ [STAGE_MODELS_PATH]: badText });
+    expect(items(bad).some((candidate) => candidate.id === 'sdlc-models-defaults')).toBe(false);
+    expect(refreshStageModelDefaults(bad)).toMatchObject({ ok: false, status: 'invalid' });
+    expect(fs.readFileSync(modelsFile(bad), 'utf8')).toBe(badText);
+    expect(refreshStageModelDefaults(project())).toMatchObject({ ok: false, status: 'invalid' });
+  });
+});
+
 describe('checked-in repository stage models file (AC1, AC2)', () => {
   it('deep-equals the plugin defaults', () => {
     const checkedIn = JSON.parse(fs.readFileSync(path.join(repoRoot, STAGE_MODELS_PATH), 'utf8'));
     expect(checkedIn).toEqual(STAGE_MODEL_DEFAULTS);
   });
 
-  it('emits no sdlc-models upgrade item for the repository root', () => {
+  it('emits no sdlc-models or sdlc-models-defaults upgrade item for the repository root', () => {
     const items = detectUpgrade(repoRoot, { run: noNetworkRun }).items;
     expect(items.some((candidate) => candidate.id === 'sdlc-models')).toBe(false);
+    expect(items.some((candidate) => candidate.id === 'sdlc-models-defaults')).toBe(false);
   });
 });
 

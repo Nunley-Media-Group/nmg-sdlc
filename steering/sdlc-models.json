@@ -5,8 +5,8 @@
     "effort": "default"
   },
   "implement": {
-    "model": "haiku",
-    "effort": "xhigh"
+    "model": "opus",
+    "effort": "medium"
   },
   "verify": {
     "model": "opus",

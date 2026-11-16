@@ -27,4 +27,6 @@
 
 16. Stage models: when `steering/sdlc-models.json` is absent, emit actionable `id: sdlc-models`, `kind: sdlc-models`, `action: create`. When it is a regular file that parses, validates, and lacks keys, emit the same id with `action: complete` and `missingKeys` (dotted, such as `repair` or `verify.effort`). A complete file emits nothing. A symlinked or non-regular file emits nothing, and an invalid file emits nothing and is never rewritten.
 
+17. Stage model defaults: when `steering/sdlc-models.json` is a regular, valid file and an entry still holds an earlier plugin default (`implement` `haiku`/`xhigh`), emit actionable `id: sdlc-models-defaults`, `kind: sdlc-models-defaults`, `action: refresh`, with `entries` naming those stages. An entry with any other value is never offered.
+
 All detectors are read-only until plan approval and helper apply. Dependency apply re-reads the graph digest before the first POST and preserves issue body text.

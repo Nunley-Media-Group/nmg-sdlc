@@ -15,6 +15,8 @@ export const STAGE_MODEL_DEFAULTS: {
   readonly repair: StageEntry;
 };
 
+export const SUPERSEDED_STAGE_MODEL_DEFAULTS: { readonly [stage in StageName]?: readonly StageEntry[] };
+
 export class StageModelsError extends Error {
   readonly key: string;
   readonly value: unknown;

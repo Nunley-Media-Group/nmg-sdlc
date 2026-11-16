@@ -12,6 +12,13 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.16.0] - 2026-11-16
+
+### Changed
+
+- The `/sdlc-execute` implement stage now defaults to Opus at medium effort (was Haiku at xhigh); verify stays on Opus at high effort. Onboarding and upgrade write the new defaults (#561).
+- `/sdlc-upgrade-project` offers an approvable `sdlc-models-defaults` item that moves `steering/sdlc-models.json` entries still holding an earlier plugin default to the current defaults, keeping every project-chosen value (#561).
+
 ## [4.15.0] - 2026-11-16
 
 ### Fixed

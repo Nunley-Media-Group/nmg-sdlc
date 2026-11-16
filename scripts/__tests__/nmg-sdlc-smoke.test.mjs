@@ -250,13 +250,15 @@ function commandFixture() {
   // process group open until it is killed. The controller file only has to resolve.
   executable('claude', `
     const { spawn } = require('node:child_process');
-    const { writeFileSync } = require('node:fs');
+    const { renameSync, writeFileSync } = require('node:fs');
     const descendant = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
       stdio: ['ignore', 'inherit', 'inherit'],
     });
     process.stdout.write('owned command stdout\\n');
     process.stderr.write('owned command stderr\\n');
-    writeFileSync(${JSON.stringify(marker)}, JSON.stringify({ pid: process.pid, descendant: descendant.pid }));
+    // Write then rename, so the test never reads a created but still empty marker.
+    writeFileSync(${JSON.stringify(`${marker}.tmp`)}, JSON.stringify({ pid: process.pid, descendant: descendant.pid }));
+    renameSync(${JSON.stringify(`${marker}.tmp`)}, ${JSON.stringify(marker)});
     setInterval(() => {}, 1000);
   `);
   fs.writeFileSync(path.join(root, 'scripts', 'sdlc-execute.mjs'), 'export {};\n');

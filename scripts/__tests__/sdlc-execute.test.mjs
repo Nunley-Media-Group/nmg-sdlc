@@ -452,7 +452,7 @@ describe('stage subagent dispatch (#538)', () => {
   });
 
   it('starts each fresh stage on its model and a repair re-dispatch on opus', () => {
-    expect(VALID_STEPS.map((step) => stageModel(step, null))).toEqual(['haiku', 'haiku', 'opus', 'haiku']);
+    expect(VALID_STEPS.map((step) => stageModel(step, null))).toEqual(['haiku', 'opus', 'opus', 'haiku']);
     for (const step of ['implement', 'verify', 'deliver']) {
       expect(stageModel(step, { reasonCode: 'verification_not_green' })).toBe('opus');
       expect(stageModel(step, { reasonCode: 'pr_evidence_pending' })).toBe(stageModel(step, null));
@@ -462,8 +462,8 @@ describe('stage subagent dispatch (#538)', () => {
     expect(() => stageModel('rem', null)).toThrow('unknown stage: rem');
   });
 
-  it('starts verify at high, implement and deliver at xhigh, and every repair re-dispatch at the default effort', () => {
-    expect(VALID_STEPS.map((step) => stageEffort(step, null))).toEqual([undefined, 'xhigh', 'high', 'xhigh']);
+  it('starts verify at high, implement at medium, deliver at xhigh, and every repair re-dispatch at the default effort', () => {
+    expect(VALID_STEPS.map((step) => stageEffort(step, null))).toEqual([undefined, 'medium', 'high', 'xhigh']);
     for (const step of ['implement', 'verify', 'deliver']) {
       expect(stageEffort(step, { reasonCode: 'verification_not_green' })).toBeUndefined();
       expect(stageEffort(step, { reasonCode: 'pr_evidence_pending' })).toBe(stageEffort(step, null));
@@ -762,8 +762,8 @@ describe('branch-first execute', () => {
     expect(f.execute('#42')).toMatchObject({ status: 0 });
     // The new branch has no commits relative to main, so it is implemented before anything is verified.
     expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual(['start', 'implement', 'verify', 'deliver']);
-    expect(f.state.starts.map((entry) => entry.model)).toEqual(['haiku', 'haiku', 'opus', 'haiku']);
-    expect(f.state.starts.map((entry) => entry.effort)).toEqual([null, 'xhigh', 'high', 'xhigh']);
+    expect(f.state.starts.map((entry) => entry.model)).toEqual(['haiku', 'opus', 'opus', 'haiku']);
+    expect(f.state.starts.map((entry) => entry.effort)).toEqual([null, 'medium', 'high', 'xhigh']);
   });
   it('continues an explicit queue on the default branch after the previous issue is delivered', () => {
     const f = fixture({ branch: 'main' });
@@ -1123,12 +1123,12 @@ describe('branch-first execute', () => {
     expect(f.state.starts.map((entry) => entry.name.split('-')[1])).toEqual([
       'implement', 'verify', 'implement', 'verify', 'implement', 'verify', 'deliver',
     ]);
-    // Fresh implement on haiku; each repair implement after a failed verify on opus; deliver after the pass on haiku.
+    // Fresh implement on opus; each repair implement after a failed verify on opus; deliver after the pass on haiku.
     expect(f.state.starts.map((entry) => entry.model)).toEqual([
-      'haiku', 'opus', 'opus', 'opus', 'opus', 'opus', 'haiku',
+      'opus', 'opus', 'opus', 'opus', 'opus', 'opus', 'haiku',
     ]);
     expect(f.state.starts.map((entry) => entry.effort)).toEqual([
-      'xhigh', 'high', null, 'high', null, 'high', 'xhigh',
+      'medium', 'high', null, 'high', null, 'high', 'xhigh',
     ]);
     expect(f.state.prompts[2].prompt).toContain('gate-1.json');
     expect(f.state.prompts[4].prompt).toContain('gate-2.json');
