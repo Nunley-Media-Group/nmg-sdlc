@@ -1,0 +1,42 @@
+**Issue**: #560
+**Date**: 2026-11-15
+**Status**: Approved
+**Author**: Claude Code
+**Related Spec**: specs/556-close-the-known-gaps-left-by-parallel-delivery-551-and-the-controller-wait-fix-550/
+
+# File: scripts/__tests__/
+# Generated from: specs/560-close-the-gaps-left-open-after-556-lock-pid-reuse-reclaim-guard-put-back-spec-revision-publishing-and-untested-paths/requirements.md
+Feature: Close the gaps left open after #556
+
+  @SCN001
+  Scenario: A lock whose holder pid was reused is broken
+    Given a lock whose holder record names a live pid with a different start token
+    When another process waits on the lock
+    Then the lock is broken at once
+    And a holder with a matching or unreadable start token is not broken
+
+  @SCN002
+  Scenario: A reclaim guard is never put back over another process's guard
+    Given a process that moved a fresh guard while breaking a stale one
+    When another process has taken the guard path meanwhile
+    Then the moved guard is not restored over it and the taken guard stays
+
+  @SCN003
+  Scenario: A revised spec publishes after an earlier spec PR merged
+    Given a spec branch with a merged spec PR at another head and a changed spec package
+    When the publish helper merges the spec
+    Then it opens a new spec-only PR and merges it at its exact head
+    And an unchanged package reports the latest merged PR without a new PR
+
+  @SCN004
+  Scenario: A remote default branch with no specs directory reads as absent
+    Given a readable remote ref without a specs directory
+    When the spec status is read from it
+    Then no spec_status_unreadable reason is reported
+
+  @SCN005
+  Scenario: The #556 paths have regression tests
+    Given the changelog-merge and remote spec-check paths
+    When the tests run
+    Then a failed git show aborts to conflict, a failed fetch fails approved_spec_missing, a later-merged spec is found, and a kept bullet is rolled into the version section
+    And a bullet present with a star marker is not added again
