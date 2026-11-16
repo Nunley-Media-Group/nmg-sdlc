@@ -2548,16 +2548,17 @@ function detectSdlcModelsDefaults(root) {
   const target = path.join(root, STAGE_MODELS_PATH);
   const stat = lstatOrNull(target);
   if (!stat || !stat.isFile() || stat.isSymbolicLink()) return null;
+  let parsed;
   let entries;
   try {
-    const parsed = JSON.parse(fs.readFileSync(target, 'utf8'));
+    parsed = JSON.parse(fs.readFileSync(target, 'utf8'));
     validateStageModels(parsed);
     entries = staleStageDefaults(parsed);
   } catch {
     return null;
   }
   if (!entries.length) return null;
-  const changes = entries.map((name) => `${name} to ${STAGE_MODEL_DEFAULTS[name].model}/${STAGE_MODEL_DEFAULTS[name].effort}`);
+  const changes = entries.map((name) => `${name} from ${parsed[name].model}/${parsed[name].effort} to ${STAGE_MODEL_DEFAULTS[name].model}/${STAGE_MODEL_DEFAULTS[name].effort}`);
   return {
     id: 'sdlc-models-defaults',
     kind: 'sdlc-models-defaults',
@@ -3200,7 +3201,12 @@ function applyUpgrade(root, approvedItemIds = [], run, {
     const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'steering-runtime': 2, 'publication-files': 3, 'cumulative-split': 4, 'directory-rename': 5, 'epic-flatten': 6, 'spike-flatten': 7, 'spike-remove': 7, 'spike-issue-form': 7, 'agents-spike-language': 7, 'agents-host-language': 7.5, 'agents-to-claude-md': 7.75, 'frontmatter-fix': 8, 'v2-cleanup': 9, 'runtime-state-v4': 9.5, 'nmg-sdlc-ignore': 10, 'steering-v4-host-language': 10.5, 'contributing-v4-host-language': 10.5, 'changelog-create': 10.75, 'sdlc-models': 10.8, 'sdlc-models-defaults': 10.81, 'issue-dependencies': 11, 'already-current': 99 }[k] ?? 50);
     return pri(a.kind) - pri(b.kind);
   };
-  const toApply = [...report.items].filter((it) => approvedSet.has(it.id)).sort(order);
+  const toApply = [...report.items].filter((it) => approvedSet.has(it.id));
+  // An approved refresh whose offer vanished (file now invalid, or entries edited) still reports its live outcome.
+  if (approvedSet.has('sdlc-models-defaults') && !toApply.some((it) => it.id === 'sdlc-models-defaults')) {
+    toApply.push({ id: 'sdlc-models-defaults', kind: 'sdlc-models-defaults', rel: STAGE_MODELS_PATH });
+  }
+  toApply.sort(order);
   const invalidPublicationIssues = new Set();
 
   for (const item of toApply) {

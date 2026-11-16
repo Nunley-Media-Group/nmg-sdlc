@@ -252,6 +252,32 @@ describe('superseded defaults refresh (#561 AC2, AC3)', () => {
     expect(items(root).some((candidate) => candidate.id === 'sdlc-models-defaults')).toBe(false);
   });
 
+  it('names each offered entry\'s current value and the new default in the item description', () => {
+    const root = project({ 'VERSION': '0.1.0\n', [STAGE_MODELS_PATH]: json(OLD) });
+    const item = items(root).find((candidate) => candidate.id === 'sdlc-models-defaults');
+    expect(item.description).toContain('implement from haiku/xhigh to opus/medium');
+  });
+
+  it('reports failed with a diagnostic when an approved refresh meets a file made invalid after detection', () => {
+    const root = project({ 'VERSION': '0.1.0\n', [STAGE_MODELS_PATH]: json(OLD) });
+    expect(items(root).some((candidate) => candidate.id === 'sdlc-models-defaults')).toBe(true);
+    const badText = json({ ...OLD, verify: { model: 'opus', effort: 'extreme' } });
+    fs.writeFileSync(modelsFile(root), badText);
+    const result = applyUpgrade(root, ['sdlc-models-defaults'], noNetworkRun).results.find((candidate) => candidate.id === 'sdlc-models-defaults');
+    expect(result.status).toMatch(/^failed:.+/);
+    expect(fs.readFileSync(modelsFile(root), 'utf8')).toBe(badText);
+  });
+
+  it('reports already-current when an approved refresh meets an entry edited to a custom value after detection', () => {
+    const root = project({ 'VERSION': '0.1.0\n', [STAGE_MODELS_PATH]: json(OLD) });
+    expect(items(root).some((candidate) => candidate.id === 'sdlc-models-defaults')).toBe(true);
+    const customText = json({ ...OLD, implement: { model: 'sonnet', effort: 'low' } });
+    fs.writeFileSync(modelsFile(root), customText);
+    const result = applyUpgrade(root, ['sdlc-models-defaults'], noNetworkRun).results.find((candidate) => candidate.id === 'sdlc-models-defaults');
+    expect(result).toEqual({ id: 'sdlc-models-defaults', status: 'already-current' });
+    expect(fs.readFileSync(modelsFile(root), 'utf8')).toBe(customText);
+  });
+
   it('leaves the file unchanged when the offer is declined', () => {
     const text = json(OLD);
     const root = project({ 'VERSION': '0.1.0\n', [STAGE_MODELS_PATH]: text });
