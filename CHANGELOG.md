@@ -12,6 +12,8 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.16.0] - 2026-11-16
+
 ### Changed
 
 - The `/sdlc-execute` implement stage now defaults to Opus at medium effort (was Haiku at xhigh); verify stays on Opus at high effort. Onboarding and upgrade write the new defaults (#561).
