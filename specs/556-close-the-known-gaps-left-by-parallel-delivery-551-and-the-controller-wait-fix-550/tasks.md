@@ -48,20 +48,28 @@
 **Acceptance**:
 - FR5/AC5: a `failed` or `killed` status ends the wait at the next host poll and the stage ends `process_lost`
 
-### T006: Regression tests
+### T006: Reclaim a dead heavy-job slot under a guard
+
+**File(s)**: `src/heavy-pool.mjs`
+**Type**: Modify
+**Depends**: none
+**Acceptance**:
+- FR7/AC7: a slot lock is removed only under the per-slot guard after re-reading the holder; a stale guard is broken
+
+### T007: Regression tests
 
 **File(s)**: `scripts/__tests__/`
 **Type**: Modify
-**Depends**: T001, T002, T003, T004, T005
+**Depends**: T001, T002, T003, T004, T005, T006
 **Acceptance**:
-- FR6: tests cover AC1, AC2, AC3, AC4, AC5 and AC6 (check-ins on a settled worker behind its marker)
+- FR6: tests cover AC1, AC2, AC3, AC4, AC5, AC6 (check-ins on a settled worker behind its marker) and AC7
 - `cd scripts && npm test` exits 0
 
-### T007: Add the CHANGELOG entry
+### T008: Add the CHANGELOG entry
 
 **File(s)**: `CHANGELOG.md`
 **Type**: Modify
-**Depends**: T005
+**Depends**: T006
 **Acceptance**:
 - The change has `[Unreleased]` bullets ending `(#556)`
 
@@ -70,3 +78,4 @@
 | Issue | Date | Summary |
 |-------|------|---------|
 | #556 | 2026-11-15 | Initial feature tasks |
+| #556 | 2026-11-15 | Spec revised before delivery: AC7 heavy-job slot reclaim race |

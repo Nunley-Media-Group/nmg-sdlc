@@ -22,6 +22,7 @@
 - `integrateDefault` resolves a `VERSION`/`CHANGELOG.md`-only conflict with `git checkout --theirs`, which drops the branch's own `[Unreleased]` bullets.
 - `awaitTurnEnd` notices a worker that goes from `idle` to `failed` or `killed` behind its waiting marker only after the 60 s resume bound.
 - No committed test covers check-ins while a settled worker waits behind its marker.
+- `src/heavy-pool.mjs` reclaims a dead holder's slot lock by deleting it and creating its own. Two processes that both read the dead holder can interleave so that the second deletes the first's new, live lock, and both hold the slot.
 
 ## Acceptance Criteria
 
@@ -70,6 +71,12 @@
 **Then** it sends check-in reports that name the waiting command
 **And** a committed regression test asserts this
 
+### AC7: Only one process takes a reclaimed heavy-job slot
+
+**Given** a heavy-job slot lock whose holder is dead, read by two processes
+**When** one reclaims the slot and takes it before the other acts on its earlier read
+**Then** the other does not delete the new holder's lock, and it waits for the slot instead of running beside the holder
+
 ## Functional Requirements
 
 | ID | Requirement | Priority |
@@ -79,7 +86,8 @@
 | FR3 | `withLock` writes a holder record (`pid`, `host`, `at`) into the lock and breaks it only when that holder is dead on this host, or when the record is missing, unreadable or from another host and the lock is older than the stale age. | Must |
 | FR4 | A queue-head conflict confined to `VERSION` and `CHANGELOG.md` keeps the default branch's content and re-adds the branch's `[Unreleased]` bullets that the default branch's file lacks. | Must |
 | FR5 | The settled-worker marker wait also ends when the worker's status becomes `failed` or `killed`. | Must |
-| FR6 | Tests cover AC1 to AC6, including a check-in regression test on a settled worker behind its marker. | Must |
+| FR6 | Tests cover AC1 to AC7, including a check-in regression test on a settled worker behind its marker. | Must |
+| FR7 | A heavy-job slot is reclaimed under a per-slot guard that re-reads the holder before deleting the lock; a guard left by a crashed process is broken once it is stale. | Must |
 
 ## Out of Scope
 
@@ -92,3 +100,4 @@
 | Issue | Date | Summary |
 |-------|------|---------|
 | #556 | 2026-11-15 | Initial feature spec |
+| #556 | 2026-11-15 | Spec revised before delivery: AC7 heavy-job slot reclaim race |

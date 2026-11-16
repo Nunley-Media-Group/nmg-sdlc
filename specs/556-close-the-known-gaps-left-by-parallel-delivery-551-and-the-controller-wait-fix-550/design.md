@@ -46,6 +46,12 @@ Six independent, small changes, one per gap. No new files, commands or steering 
 
 - The `changed` predicate also returns true when `workerState(host, agentId)` is `failed` or `killed`. The loop then re-observes, leaves the marker loop because the state is not settled, and returns the stopped state, which the caller already ends as `process_lost`.
 
+### Atomic heavy-job slot reclaim (`src/heavy-pool.mjs`, `tryAcquire`)
+
+- A slot lock that looks reclaimable (dead holder, or unreadable and older than the unreadable age) is removed only while holding the per-slot guard directory `slot-<k>.lock.reclaim`, created with `mkdirSync`.
+- Under the guard, the holder is read again. Only if it is still the same reclaimable lock is it removed; the guard is then removed and the exclusive `wx` create is retried.
+- A process that cannot create the guard does not remove anything and tries again on its next poll. A guard older than 10 s (its owner crashed inside the few-statement section) is removed.
+
 ## Error and State Paths
 
 | Condition | Result |
@@ -68,3 +74,4 @@ Six independent, small changes, one per gap. No new files, commands or steering 
 | Issue | Date | Summary |
 |-------|------|---------|
 | #556 | 2026-11-15 | Initial feature design |
+| #556 | 2026-11-15 | Spec revised before delivery: AC7 heavy-job slot reclaim race |
