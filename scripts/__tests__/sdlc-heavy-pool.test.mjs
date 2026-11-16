@@ -112,6 +112,43 @@ describe('acquireHeavySlot', () => {
     expect(fs.readdirSync(fallbackHost)).toEqual([]);
   });
 
+  it('leaves a dead holder\'s slot to the process that reclaimed it first, and waits instead (#556 AC7)', async () => {
+    const h = host(1);
+    const dead = { schemaVersion: 1, pid: 999_001, label: 'crashed suite', projectRoot: '/projects/crashed', startedAt: 1 };
+    const other = { schemaVersion: 1, pid: 999_002, label: 'other suite', projectRoot: '/projects/b', startedAt: 2 };
+    writeLock(h, 1, dead);
+    let raced = false;
+    // While this process is deciding that the holder is dead, another process that read the same dead holder
+    // reclaims the slot and takes it.
+    const alive = (pid) => {
+      if (pid === dead.pid && !raced) { raced = true; fs.rmSync(h.lock(1)); writeLock(h, 1, other); }
+      return pid === other.pid;
+    };
+    const controller = new AbortController();
+    const sleep = async () => { controller.abort(); };
+
+    await expect(acquireHeavySlot({ label: 'this suite', env: h.env, alive, signal: controller.signal, sleep }))
+      .rejects.toMatchObject({ reasonCode: 'cancelled' });
+    expect(raced).toBe(true);
+    expect(readLock(h, 1)).toEqual(other);
+    expect(lockFiles(h)).toEqual(['slot-1.lock']);
+  });
+
+  it('breaks a reclaim guard left by a crashed process once it is stale, then reclaims the dead slot (#556 AC7)', async () => {
+    const h = host(1);
+    writeLock(h, 1, { schemaVersion: 1, pid: 999_001, label: 'crashed suite', projectRoot: null, startedAt: 1 });
+    const guard = `${h.lock(1)}.reclaim`;
+    fs.mkdirSync(guard);
+    const old = new Date(Date.now() - 11_000);
+    fs.utimesSync(guard, old, old);
+
+    const held = await acquireHeavySlot({ label: 'this suite', env: h.env, alive: () => false, sleep: noWait });
+    expect(held.slot).toBe(1);
+    expect(readLock(h, 1)).toMatchObject({ pid: process.pid, label: 'this suite' });
+    expect(lockFiles(h)).toEqual(['slot-1.lock']);
+    held.release();
+  });
+
   it('records the issue when one is given, and defaults the label and project root', async () => {
     const h = host(2);
     const first = await acquireHeavySlot({ label: 'suite (#42)', projectRoot: '/projects/a', issue: 42, env: h.env, now: () => 1 });

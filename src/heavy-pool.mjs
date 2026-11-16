@@ -1,6 +1,6 @@
 // The host-wide heavy-job pool: a machine-level set of slots shared by every project and session on this machine.
 // A job that steering marks as heavy holds one slot while it runs; a slot whose holder process is dead is reclaimed.
-import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, rmSync, rmdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -54,6 +54,40 @@ export function heavyPoolHolders({ env = process.env, alive = defaultAlive } = {
       startedAt: record.startedAt, alive: alive(record.pid), ...(Number.isSafeInteger(record.issue) ? { issue: record.issue } : {}) }));
 }
 
+// How long a reclaim guard may stand before it is treated as left by a crashed process.
+const RECLAIM_GUARD_STALE_MS = 10_000;
+
+/** Whether a slot lock may be reclaimed: its holder is dead, or it has been unreadable for longer than a write takes. */
+function reclaimable(path, holder, alive) {
+  if (validHolder(holder)) return !alive(holder.pid);
+  if (holder !== null) return true;
+  // A holder that is still being written is read again on the next poll rather than reclaimed.
+  try { return Date.now() - statSync(path).mtimeMs > UNREADABLE_LOCK_MS; } catch { return true; /* released meanwhile */ }
+}
+
+/** Removes a reclaimable slot lock while holding its guard directory, after reading it again. Returns whether the
+ * slot may be tried again now; false when another process holds the guard or the lock has a new, live holder. */
+function reclaimUnderGuard(path, seen, alive, retry = true) {
+  const guard = `${path}.reclaim`;
+  try { mkdirSync(guard); } catch (error) {
+    if (error?.code !== "EEXIST") throw error;
+    let age = 0;
+    try { age = Date.now() - statSync(guard).mtimeMs; } catch { return false; }
+    if (!retry || age <= RECLAIM_GUARD_STALE_MS) return false;
+    // A guard this old was left by a crashed process: break it and take it once.
+    try { rmdirSync(guard); } catch { /* broken by another process */ }
+    return reclaimUnderGuard(path, seen, alive, false);
+  }
+  try {
+    const current = readJson(path);
+    if (JSON.stringify(current) !== JSON.stringify(seen) || !reclaimable(path, current, alive)) return false;
+    rmSync(path, { force: true });
+    return true;
+  } finally {
+    try { rmdirSync(guard); } catch { /* broken as stale */ }
+  }
+}
+
 /** Takes a free slot without waiting, reclaiming one whose holder is dead. Returns the slot number or null. */
 function tryAcquire({ env, alive, record, slots }) {
   mkdirSync(poolDir(env), { recursive: true });
@@ -66,14 +100,10 @@ function tryAcquire({ env, alive, record, slots }) {
       } catch (error) {
         if (error?.code !== "EEXIST") throw error;
         const holder = readJson(path);
-        if (validHolder(holder) && alive(holder.pid)) break;
-        if (holder === null) {
-          // A holder that is still being written is read again on the next poll rather than reclaimed.
-          let age;
-          try { age = Date.now() - statSync(path).mtimeMs; } catch { continue; /* released meanwhile: try the slot again */ }
-          if (age <= UNREADABLE_LOCK_MS) break;
-        }
-        rmSync(path, { force: true });
+        if (!reclaimable(path, holder, alive)) break;
+        // Another process that read the same dead holder may already have replaced the lock with its own, so the
+        // lock is removed only under the slot's reclaim guard, and only if it still holds what was read.
+        if (!reclaimUnderGuard(path, holder, alive)) break;
       }
     }
   }
