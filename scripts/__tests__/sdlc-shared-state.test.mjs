@@ -178,9 +178,53 @@ describe('withLock', () => {
     const checked = [];
     expect(withLock(dir, 'queue', () => 'entered', { ...dead, alive: (pid) => { checked.push(pid); return false; }, hostname: 'this-host' }))
       .toBe('entered');
-    expect(checked).toEqual([4242]);
+    // Checked when read, and again under the reclaim guard before the lock is broken.
+    expect(checked).toEqual([4242, 4242]);
     expect(dead.state.sleeps).toEqual([]);
     expect(fs.existsSync(lock)).toBe(false);
+  });
+
+  it('leaves a dead holder\'s lock to the waiter that broke it first, and waits instead (#556 AC3)', () => {
+    const dir = lockDir();
+    const lock = path.join(dir, 'queue.lock');
+    const holderFile = path.join(lock, 'holder.json');
+    const dead = { pid: 999_001, host: 'this-host', at: 0 };
+    const other = { pid: 999_002, host: 'this-host', at: 1 };
+    fs.mkdirSync(lock);
+    fs.writeFileSync(holderFile, JSON.stringify(dead));
+    let raced = false;
+    // While this waiter is deciding that the holder is dead, another waiter that read the same dead holder breaks
+    // the lock and takes it.
+    const alive = (pid) => {
+      if (pid === dead.pid && !raced) {
+        raced = true;
+        fs.rmSync(holderFile);
+        fs.rmdirSync(lock);
+        fs.mkdirSync(lock);
+        fs.writeFileSync(holderFile, JSON.stringify(other));
+      }
+      return pid === other.pid;
+    };
+    let entered = false;
+    expect(() => withLock(dir, 'queue', () => { entered = true; }, { ...clock(), alive, hostname: 'this-host' }))
+      .toThrow('shared_state_locked: queue');
+    expect(raced).toBe(true);
+    expect(entered).toBe(false);
+    expect(JSON.parse(fs.readFileSync(holderFile, 'utf8'))).toEqual(other);
+    expect(fs.readdirSync(dir)).toEqual(['queue.lock']);
+  });
+
+  it('breaks a reclaim guard left by a crashed waiter once it is stale, then breaks the dead holder\'s lock (#556 AC3)', () => {
+    const dir = lockDir();
+    const lock = path.join(dir, 'queue.lock');
+    fs.mkdirSync(lock);
+    fs.writeFileSync(path.join(lock, 'holder.json'), JSON.stringify({ pid: 999_001, host: 'this-host', at: 0 }));
+    fs.mkdirSync(`${lock}.reclaim`);
+    const old = new Date(Date.now() - 11_000);
+    fs.utimesSync(`${lock}.reclaim`, old, old);
+
+    expect(withLock(dir, 'queue', () => 'entered', { ...clock(), alive: () => false, hostname: 'this-host' })).toBe('entered');
+    expect(fs.readdirSync(dir)).toEqual([]);
   });
 
   it('breaks a lock recorded on another host only once it is stale (#556 AC3)', () => {

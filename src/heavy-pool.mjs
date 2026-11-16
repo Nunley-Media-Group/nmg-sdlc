@@ -1,6 +1,7 @@
 // The host-wide heavy-job pool: a machine-level set of slots shared by every project and session on this machine.
 // A job that steering marks as heavy holds one slot while it runs; a slot whose holder process is dead is reclaimed.
-import { mkdirSync, readFileSync, readdirSync, rmSync, rmdirSync, statSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -65,27 +66,51 @@ function reclaimable(path, holder, alive) {
   try { return Date.now() - statSync(path).mtimeMs > UNREADABLE_LOCK_MS; } catch { return true; /* released meanwhile */ }
 }
 
-/** Removes a reclaimable slot lock while holding its guard directory, after reading it again. Returns whether the
- * slot may be tried again now; false when another process holds the guard or the lock has a new, live holder. */
-function reclaimUnderGuard(path, seen, alive, retry = true) {
-  const guard = `${path}.reclaim`;
-  try { mkdirSync(guard); } catch (error) {
-    if (error?.code !== "EEXIST") throw error;
-    let age = 0;
-    try { age = Date.now() - statSync(guard).mtimeMs; } catch { return false; }
-    if (!retry || age <= RECLAIM_GUARD_STALE_MS) return false;
-    // A guard this old was left by a crashed process: break it and take it once.
-    try { rmdirSync(guard); } catch { /* broken by another process */ }
-    return reclaimUnderGuard(path, seen, alive, false);
+/** Moves a reclaim guard left by a crashed process aside. The guard is renamed to a unique name rather than removed
+ * by name, so a fresh guard that another process took after the same stale read is put back instead of removed.
+ * Returns whether the guard may be taken again now. */
+function breakStaleGuard(guard) {
+  let seen;
+  try { seen = statSync(guard); } catch { return true; /* released meanwhile */ }
+  if (Date.now() - seen.mtimeMs <= RECLAIM_GUARD_STALE_MS) return false;
+  const aside = `${guard}.${process.pid}.${randomBytes(4).toString("hex")}.stale`;
+  try { renameSync(guard, aside); } catch { return true; /* broken by another process */ }
+  let moved = null;
+  try { moved = statSync(aside); } catch { /* removed meanwhile */ }
+  if (moved && (moved.ino !== seen.ino || moved.dev !== seen.dev)) {
+    try { renameSync(aside, guard); return false; } catch { /* the guard was taken again meanwhile */ }
   }
-  try {
+  try { rmdirSync(aside); } catch { /* already removed */ }
+  return moved !== null && moved.ino === seen.ino && moved.dev === seen.dev;
+}
+
+/**
+ * Runs `action` while holding the reclaim guard directory `<path>.reclaim`, so that only one process at a time can
+ * re-read and remove the lock at `path`. Returns the action's result, or `false` when another process holds the
+ * guard. A guard older than the stale age was left by a crashed process and is broken once.
+ */
+export function underReclaimGuard(path, action) {
+  const guard = `${path}.reclaim`;
+  for (let attempt = 0; ; attempt += 1) {
+    try { mkdirSync(guard); break; } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+      if (attempt > 0 || !breakStaleGuard(guard)) return false;
+    }
+  }
+  try { return action(); } finally {
+    try { rmdirSync(guard); } catch { /* broken as stale */ }
+  }
+}
+
+/** Removes a reclaimable slot lock under its reclaim guard, after reading it again. Returns whether the slot may be
+ * tried again now; false when another process holds the guard or the lock has a new, live holder. */
+function reclaimUnderGuard(path, seen, alive) {
+  return underReclaimGuard(path, () => {
     const current = readJson(path);
     if (JSON.stringify(current) !== JSON.stringify(seen) || !reclaimable(path, current, alive)) return false;
     rmSync(path, { force: true });
     return true;
-  } finally {
-    try { rmdirSync(guard); } catch { /* broken as stale */ }
-  }
+  });
 }
 
 /** Takes a free slot without waiting, reclaiming one whose holder is dead. Returns the slot number or null. */

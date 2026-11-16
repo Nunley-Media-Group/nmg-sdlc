@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import * as pool from '../../src/heavy-pool.mjs';
 import { heavyPoolList, parseHeavyPoolCli, runHeavy } from '../sdlc-heavy-pool.mjs';
 
-const { HOST_STATE_ENV, acquireHeavySlot, heavyPoolHolders, heavyPoolSize, hostStateDir } = pool;
+const { HOST_STATE_ENV, acquireHeavySlot, heavyPoolHolders, heavyPoolSize, hostStateDir, underReclaimGuard } = pool;
 
 jest.setTimeout(60_000);
 
@@ -147,6 +147,26 @@ describe('acquireHeavySlot', () => {
     expect(readLock(h, 1)).toMatchObject({ pid: process.pid, label: 'this suite' });
     expect(lockFiles(h)).toEqual(['slot-1.lock']);
     held.release();
+  });
+
+  it('runs an action under a reclaim guard only while no live process holds the guard (#556 AC7)', () => {
+    const h = host(1);
+    const target = path.join(h.dir, 'target');
+    const guard = `${target}.reclaim`;
+    expect(underReclaimGuard(target, () => fs.existsSync(guard))).toBe(true);
+    expect(fs.existsSync(guard)).toBe(false);
+
+    fs.mkdirSync(guard);
+    let ran = false;
+    expect(underReclaimGuard(target, () => { ran = true; })).toBe(false);
+    expect(ran).toBe(false);
+    expect(fs.existsSync(guard)).toBe(true);
+
+    // A stale guard is moved aside, not left behind under another name.
+    const old = new Date(Date.now() - 11_000);
+    fs.utimesSync(guard, old, old);
+    expect(underReclaimGuard(target, () => 'ran')).toBe('ran');
+    expect(fs.readdirSync(h.dir).filter((name) => name.startsWith('target'))).toEqual([]);
   });
 
   it('records the issue when one is given, and defaults the label and project root', async () => {

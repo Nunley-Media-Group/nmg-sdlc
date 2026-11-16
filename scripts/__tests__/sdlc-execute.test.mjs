@@ -854,6 +854,54 @@ describe('branch-first execute', () => {
     expect(response.stderr).toContain('approved_spec_missing: #42');
     expect(f.state.starts).toEqual([]);
   });
+  it('fetches a spec merged after the checkout last fetched, and reads its declared files from that ref (#556 AC1)', () => {
+    const f = fixture({ branch: 'main' });
+    // The checkout's remote-tracking ref predates the spec, and the checkout itself is on a branch without it.
+    git(f.root, 'update-ref', 'refs/remotes/origin/main', 'HEAD~1');
+    git(f.root, 'checkout', '-q', '-b', 'elsewhere', 'HEAD~1');
+    recordInFlight(f.root, { issue: 7, branch: '7-other', worktree: f.root, stage: 'implement', declaredFiles: ['helper.py'] }, { env });
+    f.setWorker(({ step, root, publish, passGate, state }) => {
+      if (step === 'start') {
+        git(root, 'checkout', '-q', '-b', '42-example', 'origin/main');
+        git(root, 'push', '-u', 'origin', '42-example');
+        return { status: 'passed', next: 'implement' };
+      }
+      if (step === 'implement') { publish('fix: implement #42 on its new branch'); return { status: 'passed', next: 'verify' }; }
+      if (step === 'verify') { passGate(); return { status: 'passed', next: 'deliver' }; }
+      if (step === 'deliver') { state.merged = true; state.closed = true; return { status: 'passed', next: null }; }
+      throw new Error(step);
+    });
+    const response = f.execute('#42');
+    expect(response).toMatchObject({ status: 0 });
+    expect(f.state.starts[0].step).toBe('start');
+    expect(response.stdout).toContain('#42: overlaps in-flight #7 (7-other) on helper.py\n');
+  });
+  it('names an ambiguous spec on the remote default branch when the checkout has none (#556 AC1)', () => {
+    const f = fixture({ branch: 'main' });
+    fs.cpSync(path.join(f.root, 'specs/42-example'), path.join(f.root, 'specs/42-duplicate'), { recursive: true });
+    git(f.root, 'add', 'specs');
+    git(f.root, 'commit', '-q', '-m', 'docs: a second spec for #42');
+    git(f.root, 'push', '-q', 'origin', 'main');
+    git(f.root, 'checkout', '-q', '-b', 'elsewhere');
+    git(f.root, 'rm', '-r', '-q', 'specs');
+    git(f.root, 'commit', '-q', '-m', 'chore: work without the spec');
+    const response = f.execute('#42');
+    expect(response).toMatchObject({ status: 1 });
+    expect(response.stderr).toContain('approved_spec_missing: #42 (spec_status_ambiguous)');
+    expect(f.state.starts).toEqual([]);
+  });
+  it('keeps approved_spec_missing when the remote default branch cannot be fetched (#556 AC1)', () => {
+    const f = fixture({ branch: 'main' });
+    git(f.root, 'checkout', '-q', '-b', 'elsewhere');
+    git(f.root, 'rm', '-r', '-q', 'specs');
+    git(f.root, 'commit', '-q', '-m', 'chore: work without the spec');
+    // The stale remote-tracking ref still holds the spec, but it is read only after a fetch that succeeded.
+    git(f.root, 'remote', 'set-url', 'origin', path.join(f.root, 'no-such-remote'));
+    const response = f.execute('#42');
+    expect(response).toMatchObject({ status: 1 });
+    expect(response.stderr).toContain('approved_spec_missing: #42');
+    expect(f.state.starts).toEqual([]);
+  });
   it('keeps spec-created label admission for an open off-branch issue', () => {
     const f = fixture({ branch: 'main' });
     f.state.labels = [];

@@ -420,6 +420,9 @@ export function insertChangelogFragment(content, body, category) {
   return `${content.slice(0, index)}${marker}\n\n${unreleased ? `${unreleased}\n` : ''}${suffix}`;
 }
 
+// A bullet line written with `- ` or `* `, as `- ` (the form fragments and version preparation write).
+const bulletLine = (line) => line.trimEnd().replace(/^[-*]\s+/, '- ');
+
 /** The `[Unreleased]` bullets of a changelog, each `{ category, bullet }` with its indented continuation lines. */
 function unreleasedBullets(content) {
   const marker = '## [Unreleased]';
@@ -431,7 +434,7 @@ function unreleasedBullets(content) {
   let open = false;
   for (const line of content.slice(index + marker.length, nextHeading < 0 ? content.length : nextHeading).split(/\r?\n/)) {
     if (line.startsWith('### ')) { category = line.slice(4).trim(); open = false; continue; }
-    if (/^- \S/.test(line)) { bullets.push({ category, bullet: line.trimEnd() }); open = true; continue; }
+    if (/^[-*]\s+\S/.test(line)) { bullets.push({ category, bullet: bulletLine(line) }); open = true; continue; }
     if (open && /^\s+\S/.test(line)) bullets[bullets.length - 1].bullet += `\n${line.trimEnd()}`;
     else if (line.trim()) open = false;
   }
@@ -444,8 +447,13 @@ function unreleasedBullets(content) {
  * (`Changed` for a bullet outside any). Returns `{ content, kept }`, `kept` being the number of bullets added.
  */
 export function mergeUnreleasedEntries(theirs, ours) {
-  const present = new Set(String(theirs).split(/\r?\n/).map((line) => line.trimEnd()));
-  const missing = unreleasedBullets(String(ours)).filter(({ bullet }) => !present.has(bullet.split('\n')[0]));
+  const present = new Set(String(theirs).split(/\r?\n/).map(bulletLine));
+  const missing = unreleasedBullets(String(ours)).filter(({ bullet }) => {
+    const first = bullet.split('\n')[0];
+    if (present.has(first)) return false;
+    present.add(first);
+    return true;
+  });
   let content = String(theirs);
   if (missing.length && !content.includes('## [Unreleased]')) {
     // Version preparation needs the heading, so it goes back above the first version section.

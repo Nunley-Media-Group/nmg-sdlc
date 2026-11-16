@@ -593,12 +593,19 @@ function headOf(cwd, run) {
   const value = String(head?.stdout ?? '').trim();
   return succeeded(head) && SHA.test(value) ? value : null;
 }
-/** The spec's declared files: its own directory plus every task `**File(s)**:` entry. */
-function declaredSpecEntries(cwd, specPath) {
+/** The spec's declared files: its own directory plus every task `**File(s)**:` entry. `tasks.md` is read from the
+ * working tree, or, given a `ref`, as committed on that ref. */
+function declaredSpecEntries(cwd, specPath, { ref = null, run = defaultRun } = {}) {
   if (!specPath) return [];
   const entries = [`${specPath}/`];
   let tasks = '';
-  try { tasks = readFileSync(join(cwd, specPath, 'tasks.md'), 'utf8'); } catch { return entries; }
+  if (ref) {
+    const shown = run('git', ['show', `${ref}:${specPath}/tasks.md`], { cwd });
+    if (!succeeded(shown)) return entries;
+    tasks = String(shown.stdout ?? '');
+  } else {
+    try { tasks = readFileSync(join(cwd, specPath, 'tasks.md'), 'utf8'); } catch { return entries; }
+  }
   for (const match of tasks.matchAll(/^\*\*File\(s\)\*\*:\s*(.+)$/gm)) {
     try { entries.push(...publicationFileEntries(match[1])); } catch { /* an unparsable declaration declares nothing */ }
   }
@@ -1027,6 +1034,8 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
       let queued = false;
       let queueReported = false;
       let overlaps = null;
+      // The approved spec when start found it only on a ref (the fetched remote default branch), not in the checkout.
+      let specOnRef = null;
       const recordFailure = (packet) => {
         failure = { ...packet, ...observedSource(workdir ?? cwd, run) };
         history.push(failure);
@@ -1091,10 +1100,12 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
               const ref = `refs/remotes/origin/${base}`;
               if (!spec.approved && succeeded(run('git', ['fetch', '--quiet', '--no-tags', 'origin', `refs/heads/${base}:${ref}`], { cwd }))) {
                 const remote = specStatusOnRef(issue, cwd, ref);
-                if (remote.approved) spec = remote;
+                // An ambiguous or unreadable spec on the remote ref is reported when the checkout gave no reason.
+                if (remote.approved || (!spec.reasonCode && remote.reasonCode)) spec = remote;
               }
             } catch { /* best-effort */ }
           }
+          if (spec.approved && spec.ref) specOnRef = spec;
           if (!spec.approved) throw new Error(`approved_spec_missing: #${issue} (${spec.reasonCode ?? 'no singular four-file Approved package'})`);
         }
         if (overlaps === null) {
@@ -1102,7 +1113,8 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           overlaps = [];
           try {
             const dir = resolveSpecDir(at, issue);
-            const declaredFiles = dir ? declaredSpecEntries(at, relative(at, dir).split(sep).join('/')) : [];
+            const declaredFiles = dir ? declaredSpecEntries(at, relative(at, dir).split(sep).join('/'))
+              : specOnRef ? declaredSpecEntries(cwd, specOnRef.dir, { ref: specOnRef.ref, run }) : [];
             overlaps = inFlightOverlaps(cwd, { issue, declaredFiles }, { run });
             for (const overlap of overlaps) {
               output.push(`#${issue}: overlaps in-flight #${overlap.issue} (${overlap.branch}) on ${overlap.files.join(', ')}`);

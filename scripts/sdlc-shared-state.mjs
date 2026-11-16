@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, statSync, writeFileSync } from 'node:fs';
 import { hostname as osHostname } from 'node:os';
 import { join, resolve } from 'node:path';
-import { hostStateDir } from '../src/heavy-pool.mjs';
+import { hostStateDir, underReclaimGuard } from '../src/heavy-pool.mjs';
 
 const LOCK_STALE_MS = 30_000;
 const LOCK_POLL_MS = 25;
@@ -53,15 +53,25 @@ function removeLock(lock) {
   rmSync(join(lock, LOCK_HOLDER), { force: true });
   rmdirSync(lock);
 }
-/** Whether a held lock may be broken: its recorded holder is dead on this host, or, when the holder cannot be
- * checked (no readable record yet, or another host), the lock is older than the stale age. A live holder's lock
- * is never broken. */
-function lockBreakable(lock, { alive, hostname }) {
+/** Whether a held lock may be broken, given its recorded `holder`: that holder is dead on this host, or, when the
+ * holder cannot be checked (no readable record yet, or another host), the lock is older than the stale age. A live
+ * holder's lock is never broken. */
+function lockBreakable(lock, holder, { alive, hostname }) {
   let age = 0;
   try { age = Date.now() - statSync(lock).mtimeMs; } catch { return true; }
-  const holder = readJson(join(lock, LOCK_HOLDER));
   if (Number.isSafeInteger(holder?.pid) && holder.pid > 0 && holder.host === hostname) return !alive(holder.pid);
   return age > LOCK_STALE_MS;
+}
+/** Breaks a breakable lock under its reclaim guard, after reading its holder again: another waiter that read the
+ * same dead holder may already have broken the lock and taken it, and that live lock must survive. Returns whether
+ * the lock may be tried again now. */
+function breakLock(lock, seen, options) {
+  return underReclaimGuard(lock, () => {
+    const current = readJson(join(lock, LOCK_HOLDER));
+    if (JSON.stringify(current) !== JSON.stringify(seen) || !lockBreakable(lock, current, options)) return false;
+    try { removeLock(lock); } catch { /* released meanwhile */ }
+    return true;
+  });
 }
 
 /** Runs `action` while holding the named lock in `dir`. The lock records its holder; it is broken only when that
@@ -72,7 +82,8 @@ export function withLock(dir, name, action, { now = Date.now, sleep = pause, ali
   for (;;) {
     try { mkdirSync(lock); break; } catch (error) {
       if (error?.code !== 'EEXIST') throw error;
-      if (lockBreakable(lock, { alive, hostname })) { try { removeLock(lock); } catch { /* another process broke it first */ } continue; }
+      const seen = readJson(join(lock, LOCK_HOLDER));
+      if (lockBreakable(lock, seen, { alive, hostname }) && breakLock(lock, seen, { alive, hostname })) continue;
       if (now() >= deadline) throw new Error(`shared_state_locked: ${name}`);
       sleep(LOCK_POLL_MS);
     }

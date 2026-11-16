@@ -422,6 +422,23 @@ console.log(JSON.stringify(value));
       expect(changelog).toMatch(/## \[Unreleased\]\n\n## \[3\.5\.0\] - \d{4}-\d{2}-\d{2}/);
     });
 
+    test('#556 AC4 a branch entry kept by integration is rolled once and no generated Changed line is added', () => {
+      const f = fixture({ versionPrepared: false });
+      const released = '## [3.4.5] - 2026-01-01\n\n- old\n';
+      const theirs = `# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- Merged elsewhere (#9)\n\n${released}`;
+      const ours = `# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- Corrected delivery (#42)\n\n${released}`;
+      const merged = mergeUnreleasedEntries(theirs, ours);
+      expect(merged.kept).toBe(1);
+      fs.writeFileSync(path.join(f.root, 'CHANGELOG.md'), merged.content);
+      git(f.root, 'add', '--', 'CHANGELOG.md');
+      git(f.root, 'commit', '-qm', 'chore: integrate origin/main for #42');
+      expect(prepare(f)).toMatchObject({ status: 0, prepared: { issue: 42, version: '3.5.0' } });
+      const section = releaseAt(changelogAt(f), '3.5.0');
+      expect(section).toContain('### Fixed\n\n- Merged elsewhere (#9)\n- Corrected delivery (#42)\n');
+      expect(section.split('(#42)')).toHaveLength(2);
+      expect(section).not.toContain('Deliver verified changes');
+    });
+
     test.each([
       ['is empty', ''],
       ['holds only a (#7) bullet', '### Fixed\n\n- Corrected parser (#7).'],
@@ -968,6 +985,14 @@ describe('changelog fragments (#551 AC4)', () => {
       const theirs = `# Changelog\n\n## [Unreleased]\n\n## [1.1.0] - 2026-02-01\n\n- Shared (#7)\n\n${RELEASED_100}`;
       const ours = `# Changelog\n\n## [Unreleased]\n\n### Changed\n\n- Shared (#7)\n\n${RELEASED_100}`;
       expect(mergeUnreleasedEntries(theirs, ours)).toEqual({ kept: 0, content: theirs });
+    });
+
+    test('counts a repeated branch bullet once and reads bullets written with an asterisk', () => {
+      const theirs = `# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n* Other fix (#9)\n\n${RELEASED_100}`;
+      const ours = '# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- Other fix (#9)\n* Fix (#42)\n- Fix (#42)\n\n'
+        + RELEASED_100;
+      expect(mergeUnreleasedEntries(theirs, ours)).toEqual({ kept: 1, content: '# Changelog\n\n## [Unreleased]\n\n'
+        + `### Fixed\n\n* Other fix (#9)\n- Fix (#42)\n\n${RELEASED_100}` });
     });
 
     test('restores the Unreleased heading above the first version when the default branch has none', () => {
