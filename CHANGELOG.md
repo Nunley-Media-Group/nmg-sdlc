@@ -12,6 +12,8 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.14.0] - 2026-11-16
+
 ### Fixed
 
 - `/sdlc-execute` finds an approved spec on the fetched remote default branch when the primary checkout lacks it and cannot be fast-forwarded (#556)
