@@ -951,6 +951,13 @@ describe('changelog fragments (#551 AC4)', () => {
       expect(insertChangelogFragment(once, '- Add a merge queue (#42)\n  More detail.\n', 'Changed')).toBe(once);
     });
 
+    test('a bullet already present with an asterisk marker is not added again with a dash (#560 AC5)', () => {
+      const existing = '### Added\n\n* Add a merge queue (#42)';
+      expect(insert(existing, '- Add a merge queue (#42)\n', 'Added')).toBe(changelog(existing));
+      expect(insert(existing, '* Add a merge queue (#42)\n- Add a pool (#42)\n', 'Added'))
+        .toBe(changelog('### Added\n\n* Add a merge queue (#42)\n- Add a pool (#42)'));
+    });
+
     test('released sections are left untouched, and a fragment without bullets changes nothing', () => {
       const result = insert('### Changed\n\n- Hand-written change (#40)', '- Older change (#7)\n- Add a merge queue (#42)\n');
       // A bullet that only an earlier release holds is still new to this one.

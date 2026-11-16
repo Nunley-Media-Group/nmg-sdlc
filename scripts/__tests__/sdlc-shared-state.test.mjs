@@ -251,6 +251,28 @@ describe('withLock', () => {
     expect(fs.existsSync(path.join(dir, 'queue.lock'))).toBe(false);
   });
 
+  it('breaks a lock whose live pid now names a later process, and keeps one whose start matches or is unreadable (#560 AC1)', () => {
+    const dir = lockDir();
+    const lock = path.join(dir, 'queue.lock');
+    fs.mkdirSync(lock);
+    fs.writeFileSync(path.join(lock, 'holder.json'), JSON.stringify({ pid: 4242, host: 'this-host', start: 'start-a', at: 0 }));
+    const options = (startToken) => ({ ...clock(), alive: () => true, hostname: 'this-host', startToken });
+    expect(() => withLock(dir, 'queue', () => 'entered', options(() => 'start-a'))).toThrow('shared_state_locked: queue');
+    expect(() => withLock(dir, 'queue', () => 'entered', options(() => null))).toThrow('shared_state_locked: queue');
+    expect(fs.existsSync(path.join(lock, 'holder.json'))).toBe(true);
+    const reused = options((pid) => (pid === 4242 ? 'start-b' : 'start-self'));
+    expect(withLock(dir, 'queue', () => 'entered', reused)).toBe('entered');
+    expect(reused.state.sleeps).toEqual([]);
+    expect(fs.existsSync(lock)).toBe(false);
+  });
+
+  it('records its own process start with its holder (#560 AC1)', () => {
+    const dir = lockDir();
+    const holder = withLock(dir, 'queue', () => JSON.parse(fs.readFileSync(path.join(dir, 'queue.lock', 'holder.json'), 'utf8')),
+      { hostname: 'this-host', startToken: (pid) => `start-${pid}` });
+    expect(holder).toMatchObject({ pid: process.pid, host: 'this-host', start: `start-${process.pid}` });
+  });
+
   it('rethrows a failure that is not a held lock', () => {
     const dir = lockDir();
     expect(() => withLock(path.join(dir, 'absent'), 'queue', () => 'entered')).toThrow(/ENOENT/);

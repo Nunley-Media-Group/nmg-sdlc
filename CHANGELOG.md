@@ -17,6 +17,16 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 - The `/sdlc-execute` implement stage now defaults to Opus at medium effort (was Haiku at xhigh); verify stays on Opus at high effort. Onboarding and upgrade write the new defaults (#561).
 - `/sdlc-upgrade-project` offers an approvable `sdlc-models-defaults` item that moves `steering/sdlc-models.json` entries still holding an earlier plugin default to the current defaults, keeping every project-chosen value (#561).
 
+## [4.15.0] - 2026-11-16
+
+### Fixed
+
+- A shared-state lock or heavy-job slot whose crashed holder's process id is reused by another live process is now broken at once instead of looking held forever: holders record their process start, read the same whatever the reader's time zone or locale, and a live pid with a different start counts as dead (#560).
+- Breaking a stale reclaim guard can no longer replace a guard another process just took: the guard records its owner, is broken only when that owner has gone, and a guard moved by mistake is restored with a link that never replaces a newer one (#560).
+- `publish-approved-spec.mjs merge` publishes a revised spec through a new spec PR after an earlier spec PR for the same issue merged, and reports the latest merged PR when the package is already published (#560).
+- A remote default branch without a `specs/` directory now reads as an absent spec in the `/sdlc-execute` start check, not as `spec_status_unreadable` (#560).
+- A changelog bullet already present as `* text` is no longer added again as `- text` (#560).
+
 ## [4.14.0] - 2026-11-16
 
 ### Fixed

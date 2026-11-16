@@ -484,7 +484,22 @@ function mergedPrAtHead(pr, branch, base, head) {
     && details.headRefOid === head;
 }
 
-function priorMergedPr(branch, base, head) {
+/** Whether the spec directory at the spec worktree's head is the one already on the fetched remote default branch. */
+function specPublishedOnBase(tree, base, dir) {
+  const ref = `refs/remotes/origin/${base}`;
+  if (git(['fetch', '--quiet', '--no-tags', 'origin', `refs/heads/${base}:${ref}`], tree.path).status !== 0) {
+    fail('pr_readiness_failed', { detail: 'default branch fetch failed' });
+  }
+  const local = git(['rev-parse', '--verify', '--quiet', `HEAD:${dir}`], tree.path);
+  const remote = git(['rev-parse', '--verify', '--quiet', `${ref}:${dir}`], tree.path);
+  return local.status === 0 && remote.status === 0 && local.stdout.trim() === remote.stdout.trim();
+}
+
+/** The merged spec PR for the spec worktree's head, or null when a new spec PR must be opened. Merged PRs at other
+ * heads are earlier publications of this issue's spec: a revised package opens a new PR, and a package already equal
+ * to the default branch's reports the latest of them. */
+function priorMergedPr(tree, base, head, dir) {
+  const { branch } = tree;
   const listed = run('gh', [
     'pr', 'list', '--head', branch, '--base', base, '--state', 'all',
     '--json', 'number,headRefOid,state', '--limit', '100',
@@ -501,11 +516,13 @@ function priorMergedPr(branch, base, head) {
   }
   const merged = rows.filter((row) => row.state === 'MERGED' && row.headRefOid === head);
   if (rows.length === 100 || merged.length > 1 || (merged.length === 1
-    && !mergedPrAtHead(merged[0].number, branch, base, head))
-    || (merged.length === 0 && rows.some((row) => row.state === 'MERGED'))) {
+    && !mergedPrAtHead(merged[0].number, branch, base, head))) {
     fail('pr_head_changed', { head, detail: 'merged PR history ambiguous or unproven' });
   }
-  return merged[0]?.number ?? null;
+  if (merged.length === 1) return merged[0].number;
+  const earlier = rows.filter((row) => row.state === 'MERGED').map((row) => row.number);
+  if (earlier.length && specPublishedOnBase(tree, base, dir)) return Math.max(...earlier);
+  return null;
 }
 
 async function mergeSpec(argv) {
@@ -526,7 +543,7 @@ async function mergeSpec(argv) {
   let pr = firstPrNumber(listed.stdout);
   let alreadyMerged = false;
   if (pr == null) {
-    pr = priorMergedPr(branch, base, head);
+    pr = priorMergedPr(tree, base, head, dir);
     alreadyMerged = pr != null;
   }
   if (pr == null) {

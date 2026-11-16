@@ -3,12 +3,12 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import * as pool from '../../src/heavy-pool.mjs';
 import { heavyPoolList, parseHeavyPoolCli, runHeavy } from '../sdlc-heavy-pool.mjs';
 
-const { HOST_STATE_ENV, acquireHeavySlot, heavyPoolHolders, heavyPoolSize, hostStateDir, underReclaimGuard } = pool;
+const { HOST_STATE_ENV, acquireHeavySlot, heavyPoolHolders, heavyPoolSize, holderAlive, hostStateDir, processStartToken, underReclaimGuard } = pool;
 
 jest.setTimeout(60_000);
 
@@ -99,7 +99,7 @@ describe('acquireHeavySlot', () => {
   it('takes slot 1 by writing heavy-jobs/slot-1.lock with the holder record, and release removes it', async () => {
     const h = host(1);
 
-    const held = await acquireHeavySlot({ label: 'unit suite', projectRoot: '/projects/a', env: h.env, now: () => 5_000, sleep: noWait });
+    const held = await acquireHeavySlot({ label: 'unit suite', projectRoot: '/projects/a', env: h.env, now: () => 5_000, sleep: noWait, startToken: () => null });
 
     expect(held).toEqual({ slot: 1, slots: 1, waitedMs: 0, release: expect.any(Function) });
     expect(lockFiles(h)).toEqual(['slot-1.lock']);
@@ -169,13 +169,118 @@ describe('acquireHeavySlot', () => {
     expect(fs.readdirSync(h.dir).filter((name) => name.startsWith('target'))).toEqual([]);
   });
 
+  it('reads a start token for a live process, the same one twice, and none for a dead pid (#560 AC1)', () => {
+    const own = processStartToken(process.pid);
+    expect(typeof own).toBe('string');
+    expect(own).toMatch(new RegExp(`^${process.platform}:`));
+    expect(processStartToken(process.pid)).toBe(own);
+    expect(processStartToken(deadPid())).toBeNull();
+    expect(processStartToken(0)).toBeNull();
+  });
+
+  it('counts a live pid with a different recorded start as dead, and keeps the pid rule when a start is unknown (#560 AC1)', () => {
+    const alive = () => true;
+    expect(holderAlive(7, 'start-a', { alive, startToken: () => 'start-a' })).toBe(true);
+    expect(holderAlive(7, 'start-a', { alive, startToken: () => 'start-b' })).toBe(false);
+    expect(holderAlive(7, 'start-a', { alive, startToken: () => null })).toBe(true);
+    expect(holderAlive(7, undefined, { alive, startToken: () => { throw new Error('not read without a recorded start'); } })).toBe(true);
+    expect(holderAlive(7, 'start-a', { alive: () => false, startToken: () => 'start-a' })).toBe(false);
+  });
+
+  it('records the holder start and reclaims a slot whose live pid now names a later process (#560 AC1)', async () => {
+    const h = host(1);
+    writeLock(h, 1, { schemaVersion: 1, pid: 4242, label: 'crashed suite', projectRoot: null, startedAt: 1, processStart: 'start-a' });
+    const startToken = (pid) => (pid === 4242 ? 'start-b' : `start-${pid}`);
+    expect(heavyPoolHolders({ env: h.env, alive: () => true, startToken })[0]).toMatchObject({ pid: 4242, alive: false });
+    const held = await acquireHeavySlot({ label: 'this suite', env: h.env, alive: () => true, startToken, sleep: noWait });
+    expect(held.slot).toBe(1);
+    expect(readLock(h, 1)).toMatchObject({ pid: process.pid, processStart: `start-${process.pid}` });
+    held.release();
+
+    writeLock(h, 1, { schemaVersion: 1, pid: 4242, label: 'live suite', projectRoot: null, startedAt: 1, processStart: 'start-a' });
+    const controller = new AbortController();
+    await expect(acquireHeavySlot({ label: 'this suite', env: h.env, alive: () => true, startToken: () => 'start-a',
+      signal: controller.signal, sleep: async () => { controller.abort(); } })).rejects.toMatchObject({ reasonCode: 'cancelled' });
+    expect(readLock(h, 1)).toMatchObject({ pid: 4242, label: 'live suite' });
+  });
+
+  it('breaks a guard whose owner died at once, and never breaks a live owner\'s guard however old (#560 AC2)', () => {
+    const h = host(1);
+    const target = path.join(h.dir, 'target');
+    const guard = `${target}.reclaim`;
+    fs.writeFileSync(guard, JSON.stringify({ pid: 4242, host: os.hostname(), start: null, at: 0 }));
+    const old = new Date(Date.now() - 3_600_000);
+    fs.utimesSync(guard, old, old);
+    expect(underReclaimGuard(target, () => 'ran', { alive: () => true })).toBe(false);
+    expect(fs.existsSync(guard)).toBe(true);
+    fs.utimesSync(guard, new Date(), new Date());
+    expect(underReclaimGuard(target, () => 'ran', { alive: (pid) => pid !== 4242 })).toBe('ran');
+    expect(fs.readdirSync(h.dir).filter((name) => name.startsWith('target'))).toEqual([]);
+  });
+
+  it('puts back a fresh guard it moved by mistake, as the guard, and does not run the action (#560 AC2)', () => {
+    const h = host(1);
+    const target = path.join(h.dir, 'target');
+    const guard = `${target}.reclaim`;
+    const dead = JSON.stringify({ pid: 999_001, host: os.hostname(), start: null, at: 0 });
+    const fresh = JSON.stringify({ pid: 999_002, host: os.hostname(), start: null, at: 1 });
+    fs.writeFileSync(guard, dead);
+    let swapped = false;
+    // While this process decides that the dead owner's guard may be broken, another process breaks it and takes a
+    // fresh guard of its own.
+    const alive = (pid) => {
+      if (pid === 999_001 && !swapped) { swapped = true; fs.rmSync(guard); fs.writeFileSync(guard, fresh); }
+      return pid === 999_002;
+    };
+    let ran = false;
+    expect(underReclaimGuard(target, () => { ran = true; }, { alive })).toBe(false);
+    expect(swapped).toBe(true);
+    expect(ran).toBe(false);
+    expect(fs.readFileSync(guard, 'utf8')).toBe(fresh);
+    expect(fs.readdirSync(h.dir).filter((name) => name.startsWith('target'))).toEqual(['target.reclaim']);
+  });
+
+  it('reads one start token for a pid whatever the reader\'s time zone and locale (#560 AC1)', () => {
+    const holder = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30_000)'], { stdio: 'ignore' });
+    try {
+      const module = pathToFileURL(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src/heavy-pool.mjs')).href;
+      const read = (env) => spawnSync(process.execPath, ['--input-type=module', '-e',
+        `import(${JSON.stringify(module)}).then((m) => process.stdout.write(String(m.processStartToken(${holder.pid}))))`],
+      { encoding: 'utf8', env: { PATH: process.env.PATH, ...env } }).stdout;
+      const tokens = new Set([
+        read({ TZ: 'UTC', LC_ALL: 'C' }),
+        read({ TZ: 'America/Los_Angeles', LC_ALL: 'fr_FR.UTF-8' }),
+        read({ TZ: 'Asia/Tokyo', LANG: 'ja_JP.UTF-8', LC_TIME: 'de_DE.UTF-8' }),
+        read({}),
+      ]);
+      expect(tokens.size).toBe(1);
+      expect([...tokens][0]).toMatch(new RegExp(`^${process.platform}:`));
+    } finally { holder.kill(); }
+  });
+
+  it('removes a guard left moved aside past the stale age while holding the guard, and keeps a recent one (#560 AC2)', () => {
+    const h = host(1);
+    const target = path.join(h.dir, 'target');
+    const left = `${target}.reclaim.4242.0badf00d.stale`;
+    fs.writeFileSync(left, JSON.stringify({ pid: 4242, host: os.hostname(), start: null, at: 0 }));
+    expect(underReclaimGuard(target, () => 'ran')).toBe('ran');
+    expect(fs.existsSync(left)).toBe(true);
+    const later = Date.now() + 60_000;
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(later);
+    try {
+      expect(underReclaimGuard(target, () => 'ran')).toBe('ran');
+    } finally { clock.mockRestore(); }
+    expect(fs.readdirSync(h.dir).filter((name) => name.startsWith('target'))).toEqual([]);
+  });
+
   it('records the issue when one is given, and defaults the label and project root', async () => {
     const h = host(2);
     const first = await acquireHeavySlot({ label: 'suite (#42)', projectRoot: '/projects/a', issue: 42, env: h.env, now: () => 1 });
     const second = await acquireHeavySlot({ env: h.env, now: () => 2 });
 
-    expect(readLock(h, 1)).toEqual({ schemaVersion: 1, pid: process.pid, label: 'suite (#42)', projectRoot: '/projects/a', issue: 42, startedAt: 1 });
-    expect(readLock(h, 2)).toEqual({ schemaVersion: 1, pid: process.pid, label: 'heavy job', projectRoot: null, startedAt: 2 });
+    const start = processStartToken(process.pid);
+    expect(readLock(h, 1)).toEqual({ schemaVersion: 1, pid: process.pid, label: 'suite (#42)', projectRoot: '/projects/a', issue: 42, startedAt: 1, processStart: start });
+    expect(readLock(h, 2)).toEqual({ schemaVersion: 1, pid: process.pid, label: 'heavy job', projectRoot: null, startedAt: 2, processStart: start });
     first.release();
     second.release();
   });
@@ -432,7 +537,8 @@ describe('command line', () => {
     expect(child.argv).toEqual(['$HOME; echo injected', 'two words']);
     expect(child.cwd).toBe(project);
     // The slot was held, by the CLI process, for this project while the program ran.
-    expect(child.lock).toEqual({ schemaVersion: 1, pid: expect.any(Number), label: 'x', projectRoot: project, startedAt: expect.any(Number) });
+    expect(child.lock).toEqual({ schemaVersion: 1, pid: expect.any(Number), label: 'x', projectRoot: project, startedAt: expect.any(Number),
+      processStart: expect.any(String) });
     expect(child.lock.pid).not.toBe(process.pid);
     expect(lockFiles(h)).toEqual([]);
 
