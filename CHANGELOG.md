@@ -12,6 +12,8 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.15.0] - 2026-11-16
+
 ### Fixed
 
 - A shared-state lock or heavy-job slot whose crashed holder's process id is reused by another live process is now broken at once instead of looking held forever: holders record their process start, read the same whatever the reader's time zone or locale, and a live pid with a different start counts as dead (#560).
