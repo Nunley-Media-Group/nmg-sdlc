@@ -12,6 +12,17 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.14.0] - 2026-11-16
+
+### Fixed
+
+- `/sdlc-execute` finds an approved spec on the fetched remote default branch when the primary checkout lacks it and cannot be fast-forwarded (#556)
+- Spec worktrees no longer run the manifest's `worktree.setup` and `worktree.teardown` commands (#556)
+- The shared-state lock records its holder and is never broken while that holder is alive; a dead holder's lock is broken at once, under a guard that re-reads the holder so two waiters never both take it (#556)
+- A queue-head merge conflict confined to `VERSION` and `CHANGELOG.md` keeps the branch's own `[Unreleased]` entries (#556)
+- The controller notices a stage worker that stops behind its waiting marker at its next poll instead of after 60 s (#556)
+- Two processes reclaiming the same dead heavy-job slot no longer both take it; the reclaim runs under a per-slot guard (#556)
+
 ## [4.13.0] - 2026-11-14
 
 ### Added

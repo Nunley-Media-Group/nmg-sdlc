@@ -19,12 +19,13 @@ import { collectEvidence, parseIssueBranch } from './sdlc-status.mjs';
 import { inspectPublicationScope, publicationFileEntries } from './sdlc-safe-recoveries.mjs';
 import { inspectVerificationArtifactRepair, inspectVerificationReadiness, MAX_VERIFICATION_REPORT_BYTES } from './verification-readiness.mjs';
 import { matchesRegisteredResults } from './sdlc-finalize-verification.mjs';
-import { resolveSpecDir, specStatus } from './issue-spec-scope.mjs';
+import { resolveSpecDir, specStatus, specStatusOnRef } from './issue-spec-scope.mjs';
 import { createIssueDependencyClient, eligibleIssues, issueDependencyStatus, readDependencyGraph } from './issue-dependencies.mjs';
 import { issueHasSpecCreatedLabel, SPEC_CREATED_LABEL } from './spec-created-label.mjs';
 import { acquireControllerLease, readControllerLease, reclaimStaleControllerLease, releaseControllerLease } from './sdlc-controller-lease.mjs';
 import { isCliEntry, materializeControllerPaths } from './plugin-controller-path.mjs';
 import { readReview, repairPathsSince } from './sdlc-review.mjs';
+import { mergeUnreleasedEntries } from './sdlc-deliver.mjs';
 import { clearInFlight, enterMergeQueue, inFlightOverlaps, leaveMergeQueue, recordInFlight } from './sdlc-shared-state.mjs';
 import { fastForwardPrimary, findWorktree, isLinkedWorktree, removeWorktree } from './sdlc-worktree.mjs';
 
@@ -51,6 +52,8 @@ const CHECK_IN_SLICE_MS = 30_000;
 const REPORT_HISTORY = 8;
 // A settled stage subagent whose turn ended cleanly; failed and killed subagents end the stage as process_lost.
 const SETTLED = ['idle', 'completed'];
+// A stage subagent that stopped without ending its turn cleanly.
+const STOPPED = ['failed', 'killed'];
 export const STAGE_DECISIONS = Object.freeze(['accept', 'prompt', 'redispatch', 'halt']);
 export const CHECK_IN_DECISIONS = Object.freeze(['continue', 'prompt', 'redispatch', 'halt']);
 
@@ -398,6 +401,19 @@ function reviewCurrent(cwd, run, issue, head) {
   const repair = repairPathsSince(cwd, run, record.headSha);
   return Array.isArray(repair) && repair.length === 0;
 }
+/** After a conflicted `CHANGELOG.md` took the default branch's side, adds back the branch's `[Unreleased]` bullets that
+ * side lacks. Returns how many were kept, or null when the two sides cannot be read or merged. */
+function keepBranchChangelogEntries(cwd, run, files) {
+  if (!files.includes('CHANGELOG.md')) return 0;
+  const ours = run('git', ['show', ':2:CHANGELOG.md'], { cwd });
+  const theirs = run('git', ['show', ':3:CHANGELOG.md'], { cwd });
+  if (!succeeded(ours) || !succeeded(theirs)) return null;
+  try {
+    const merged = mergeUnreleasedEntries(String(theirs.stdout ?? ''), String(ours.stdout ?? ''));
+    writeFileSync(join(cwd, 'CHANGELOG.md'), merged.content);
+    return merged.kept;
+  } catch { return null; }
+}
 /** Merges the freshly fetched remote default branch into the issue branch and publishes the result. Returns
  * `current` when nothing was needed, `merged`, or `conflict` with the conflicting files after aborting the merge. */
 function integrateDefault(cwd, run, base) {
@@ -410,16 +426,17 @@ function integrateDefault(cwd, run, base) {
     const conflicted = run('git', ['diff', '--name-only', '--diff-filter=U'], { cwd });
     const files = String(conflicted?.stdout ?? '').split(/\r?\n/).filter(Boolean);
     // The version is prepared after integration, so a conflict confined to the version artifacts takes the default
-    // branch's content; any other conflict goes back to implement.
+    // branch's content, keeping the branch's own changelog entries; any other conflict goes back to implement.
     const versionOnly = files.length > 0 && files.every((file) => VERSION_ARTIFACTS.includes(file));
-    if (!versionOnly || !succeeded(run('git', ['checkout', '--theirs', '--', ...files], { cwd }))
-      || !succeeded(run('git', ['add', '--', ...files], { cwd }))
+    const kept = versionOnly && succeeded(run('git', ['checkout', '--theirs', '--', ...files], { cwd }))
+      ? keepBranchChangelogEntries(cwd, run, files) : null;
+    if (kept === null || !succeeded(run('git', ['add', '--', ...files], { cwd }))
       || !succeeded(run('git', ['commit', '--no-edit'], { cwd }))) {
       run('git', ['merge', '--abort'], { cwd });
       return { status: 'conflict', files };
     }
     if (!succeeded(run('git', ['push', 'origin', 'HEAD'], { cwd }))) throw new Error('integration_push_failed');
-    return { status: 'merged', resolved: files };
+    return { status: 'merged', resolved: files, kept };
   }
   if (!succeeded(run('git', ['push', 'origin', 'HEAD'], { cwd }))) throw new Error('integration_push_failed');
   return { status: 'merged' };
@@ -512,9 +529,13 @@ export function awaitWorkerHandoff({ host, agentId, cwd, issue, step, prior, run
 function awaitTurnEnd({ host, agentId, cwd, issue, step, prior, waitFor, handoffPath, waiting }) {
   const settle = () => ({ handoff: freshHandoff(cwd, issue, step, prior), state: workerState(host, agentId) });
   let reminded = false;
-  // What ends a wait on a settled worker besides its next turn: its marker is gone or its handoff has changed.
+  // What ends a wait on a settled worker besides its next turn: its marker is gone, its handoff has changed, or it
+  // has stopped.
   const changed = () => {
-    try { return !waitingMarker(waiting) || freshHandoff(cwd, issue, step, prior) !== null; } catch { return true; }
+    try {
+      return !waitingMarker(waiting) || freshHandoff(cwd, issue, step, prior) !== null
+        || STOPPED.includes(workerState(host, agentId));
+    } catch { return true; }
   };
   for (;;) {
     waitFor({});
@@ -572,12 +593,19 @@ function headOf(cwd, run) {
   const value = String(head?.stdout ?? '').trim();
   return succeeded(head) && SHA.test(value) ? value : null;
 }
-/** The spec's declared files: its own directory plus every task `**File(s)**:` entry. */
-function declaredSpecEntries(cwd, specPath) {
+/** The spec's declared files: its own directory plus every task `**File(s)**:` entry. `tasks.md` is read from the
+ * working tree, or, given a `ref`, as committed on that ref. */
+function declaredSpecEntries(cwd, specPath, { ref = null, run = defaultRun } = {}) {
   if (!specPath) return [];
   const entries = [`${specPath}/`];
   let tasks = '';
-  try { tasks = readFileSync(join(cwd, specPath, 'tasks.md'), 'utf8'); } catch { return entries; }
+  if (ref) {
+    const shown = run('git', ['show', `${ref}:${specPath}/tasks.md`], { cwd });
+    if (!succeeded(shown)) return entries;
+    tasks = String(shown.stdout ?? '');
+  } else {
+    try { tasks = readFileSync(join(cwd, specPath, 'tasks.md'), 'utf8'); } catch { return entries; }
+  }
   for (const match of tasks.matchAll(/^\*\*File\(s\)\*\*:\s*(.+)$/gm)) {
     try { entries.push(...publicationFileEntries(match[1])); } catch { /* an unparsable declaration declares nothing */ }
   }
@@ -1006,6 +1034,8 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
       let queued = false;
       let queueReported = false;
       let overlaps = null;
+      // The approved spec when start found it only on a ref (the fetched remote default branch), not in the checkout.
+      let specOnRef = null;
       const recordFailure = (packet) => {
         failure = { ...packet, ...observedSource(workdir ?? cwd, run) };
         history.push(failure);
@@ -1061,9 +1091,21 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           if (dependency.status !== 'eligible') throw new Error(dependency.reasonCode ?? 'dependency_blocked');
           let spec = specStatus(issue, cwd);
           if (!spec.approved) {
-            // A primary checkout behind the remote default branch may not hold the approved spec yet.
-            try { if (fastForwardPrimary({ cwd, base: defaultBranchName(cwd, run), run })) spec = specStatus(issue, cwd); } catch { /* best-effort */ }
+            // A primary checkout behind the remote default branch may not hold the approved spec yet. It is
+            // fast-forwarded when it can be; otherwise the spec is read from the fetched remote default branch, from
+            // which start-issue creates the issue's worktree.
+            try {
+              const base = defaultBranchName(cwd, run);
+              if (fastForwardPrimary({ cwd, base, run })) spec = specStatus(issue, cwd);
+              const ref = `refs/remotes/origin/${base}`;
+              if (!spec.approved && succeeded(run('git', ['fetch', '--quiet', '--no-tags', 'origin', `refs/heads/${base}:${ref}`], { cwd }))) {
+                const remote = specStatusOnRef(issue, cwd, ref);
+                // An ambiguous or unreadable spec on the remote ref is reported when the checkout gave no reason.
+                if (remote.approved || (!spec.reasonCode && remote.reasonCode)) spec = remote;
+              }
+            } catch { /* best-effort */ }
           }
+          if (spec.approved && spec.ref) specOnRef = spec;
           if (!spec.approved) throw new Error(`approved_spec_missing: #${issue} (${spec.reasonCode ?? 'no singular four-file Approved package'})`);
         }
         if (overlaps === null) {
@@ -1071,7 +1113,8 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           overlaps = [];
           try {
             const dir = resolveSpecDir(at, issue);
-            const declaredFiles = dir ? declaredSpecEntries(at, relative(at, dir).split(sep).join('/')) : [];
+            const declaredFiles = dir ? declaredSpecEntries(at, relative(at, dir).split(sep).join('/'))
+              : specOnRef ? declaredSpecEntries(cwd, specOnRef.dir, { ref: specOnRef.ref, run }) : [];
             overlaps = inFlightOverlaps(cwd, { issue, declaredFiles }, { run });
             for (const overlap of overlaps) {
               output.push(`#${issue}: overlaps in-flight #${overlap.issue} (${overlap.branch}) on ${overlap.files.join(', ')}`);
@@ -1162,7 +1205,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
                 needsImplement = true;
                 continue;
               }
-              if (integrated.resolved) output.push(`#${issue}: integration took origin/${base} for ${integrated.resolved.join(', ')}`);
+              if (integrated.resolved) output.push(`#${issue}: integration took origin/${base} for ${integrated.resolved.join(', ')}${integrated.kept ? ` and kept ${integrated.kept} branch changelog ${integrated.kept === 1 ? 'entry' : 'entries'}` : ''}`);
               if (integrated.status === 'merged') continue;
             }
             // The version commit lands at the queue head, after integration and before the pre-merge validations,

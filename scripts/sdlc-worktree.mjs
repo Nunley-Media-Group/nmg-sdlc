@@ -15,6 +15,7 @@ const SAFE_ENV = ['HOME', 'PATH', 'TMPDIR', 'TEMP', 'TMP', 'LANG', 'LC_ALL', 'CI
 const RECORD = join('.nmg-sdlc', 'worktree.json');
 /** The branch namespace of spec work, so a spec branch never shares a name or pull request with the code branch `{N}-{slug}`. */
 export const SPEC_BRANCH_PREFIX = 'spec/';
+const SPEC_SETUP_SKIPPED = Object.freeze({ ran: false, ok: true, summary: 'spec worktree: setup not run' });
 
 function defaultRun(command, args, options = {}) {
   return spawnSync(command, args, { encoding: 'utf8', ...options });
@@ -112,7 +113,8 @@ export function runWorktreeCommand(kind, path, { run = defaultRun, env = process
 /**
  * Creates, or reuses, the worktree for `branch`. A new worktree starts from the remote branch when it exists,
  * otherwise from the freshly fetched remote default branch `base`; the invoking checkout is never switched. The
- * manifest's worktree setup command runs once per worktree, and again on reuse only if it has not yet succeeded.
+ * manifest's worktree setup command runs once per issue worktree, and again on reuse only if it has not yet succeeded;
+ * a spec worktree (`spec/` branch) runs none.
  * Returns `{ path, branch, created, setup }`; throws with a `reasonCode` on failure.
  */
 export function ensureWorktree({ cwd = process.cwd(), branch, base, run = defaultRun, env = process.env, now = Date.now } = {}) {
@@ -150,7 +152,8 @@ export function ensureWorktree({ cwd = process.cwd(), branch, base, run = defaul
   const record = readRecord(worktree.path);
   let setup = record?.setup ?? null;
   if (!setup?.ok) {
-    setup = runWorktreeCommand('setup', worktree.path, { run, env });
+    // A spec worktree holds only the spec's Markdown files, so the project's setup is not run for it.
+    setup = branch.startsWith(SPEC_BRANCH_PREFIX) ? SPEC_SETUP_SKIPPED : runWorktreeCommand('setup', worktree.path, { run, env });
     writeRecord(worktree.path, { schemaVersion: 1, branch, createdAt: record?.createdAt ?? now(), setup });
     if (!setup.ok) throw fail('worktree_setup_failed', setup.summary);
   }
@@ -158,7 +161,8 @@ export function ensureWorktree({ cwd = process.cwd(), branch, base, run = defaul
 }
 
 /**
- * Removes the worktree for `branch` and, with `deleteBranch`, its local branch. The teardown command runs first.
+ * Removes the worktree for `branch` and, with `deleteBranch`, its local branch. The teardown command runs first,
+ * except for a spec worktree.
  * Never throws: returns `{ removed, lines }` where each line names a step that was skipped or failed.
  */
 export function removeWorktree({ cwd = process.cwd(), branch, deleteBranch = true, run = defaultRun, env = process.env } = {}) {
@@ -172,7 +176,7 @@ export function removeWorktree({ cwd = process.cwd(), branch, deleteBranch = tru
   let removed = false;
   if (worktree?.primary) return { removed: false, lines: ['worktree cleanup skipped: branch is checked out in the primary checkout'] };
   if (worktree) {
-    const teardown = runWorktreeCommand('teardown', worktree.path, { run, env });
+    const teardown = branch.startsWith(SPEC_BRANCH_PREFIX) ? { ran: false, ok: true } : runWorktreeCommand('teardown', worktree.path, { run, env });
     if (teardown.ran && !teardown.ok) lines.push(`worktree teardown failed: ${teardown.summary}`);
     // Git runs from the primary checkout, so a worktree is never removed from inside itself.
     removed = ok(run('git', ['worktree', 'remove', '--force', worktree.path], { cwd: primary }));

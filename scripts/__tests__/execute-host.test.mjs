@@ -698,6 +698,17 @@ describe('controller wait on a settled worker behind its waiting marker (#550)',
     expect(h.served.filter((request) => request.kind === 'append')).toHaveLength(1);
   });
 
+  it.each(['failed', 'killed'])('ends the wait at the next poll when the worker becomes %s without new activity (#556 AC5)', (status) => {
+    const { h, observe } = waiting({ onSleep: (count, _clock, harnessed) => {
+      // The activity time stays where it was when the worker settled.
+      if (count === 3) harnessed.writeAgent('agent-1', { status, lastActivityAt: NOW });
+    } });
+    expect(observe()).toMatchObject({ handoff: null, state: status });
+    // Noticed at the poll after the stop, not when the 60-second resume bound elapses.
+    expect(h.sleeps).toHaveLength(3);
+    expect(h.served.filter((request) => request.kind === 'append')).toHaveLength(0);
+  });
+
   it('still returns at once from wait until working for a settled worker (AC4)', () => {
     const h = harness();
     h.writeAgent('agent-1', { status: 'idle' });

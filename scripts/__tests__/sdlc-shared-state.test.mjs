@@ -160,6 +160,97 @@ describe('withLock', () => {
     expect(fs.existsSync(lock)).toBe(false);
   });
 
+  it('never breaks the lock of a live holder on this host, however old, and breaks a dead holder\'s at once (#556 AC3)', () => {
+    const dir = lockDir();
+    const lock = path.join(dir, 'queue.lock');
+    fs.mkdirSync(lock);
+    fs.writeFileSync(path.join(lock, 'holder.json'), JSON.stringify({ pid: 4242, host: 'this-host', at: 0 }));
+    const old = new Date(Date.now() - 3_600_000);
+    fs.utimesSync(lock, old, old);
+
+    const live = clock();
+    expect(() => withLock(dir, 'queue', () => 'entered', { ...live, alive: () => true, hostname: 'this-host' }))
+      .toThrow('shared_state_locked: queue');
+    expect(live.state.now - 1_000).toBeGreaterThanOrEqual(60_000);
+    expect(fs.existsSync(path.join(lock, 'holder.json'))).toBe(true);
+
+    const dead = clock();
+    const checked = [];
+    expect(withLock(dir, 'queue', () => 'entered', { ...dead, alive: (pid) => { checked.push(pid); return false; }, hostname: 'this-host' }))
+      .toBe('entered');
+    // Checked when read, and again under the reclaim guard before the lock is broken.
+    expect(checked).toEqual([4242, 4242]);
+    expect(dead.state.sleeps).toEqual([]);
+    expect(fs.existsSync(lock)).toBe(false);
+  });
+
+  it('leaves a dead holder\'s lock to the waiter that broke it first, and waits instead (#556 AC3)', () => {
+    const dir = lockDir();
+    const lock = path.join(dir, 'queue.lock');
+    const holderFile = path.join(lock, 'holder.json');
+    const dead = { pid: 999_001, host: 'this-host', at: 0 };
+    const other = { pid: 999_002, host: 'this-host', at: 1 };
+    fs.mkdirSync(lock);
+    fs.writeFileSync(holderFile, JSON.stringify(dead));
+    let raced = false;
+    // While this waiter is deciding that the holder is dead, another waiter that read the same dead holder breaks
+    // the lock and takes it.
+    const alive = (pid) => {
+      if (pid === dead.pid && !raced) {
+        raced = true;
+        fs.rmSync(holderFile);
+        fs.rmdirSync(lock);
+        fs.mkdirSync(lock);
+        fs.writeFileSync(holderFile, JSON.stringify(other));
+      }
+      return pid === other.pid;
+    };
+    let entered = false;
+    expect(() => withLock(dir, 'queue', () => { entered = true; }, { ...clock(), alive, hostname: 'this-host' }))
+      .toThrow('shared_state_locked: queue');
+    expect(raced).toBe(true);
+    expect(entered).toBe(false);
+    expect(JSON.parse(fs.readFileSync(holderFile, 'utf8'))).toEqual(other);
+    expect(fs.readdirSync(dir)).toEqual(['queue.lock']);
+  });
+
+  it('breaks a reclaim guard left by a crashed waiter once it is stale, then breaks the dead holder\'s lock (#556 AC3)', () => {
+    const dir = lockDir();
+    const lock = path.join(dir, 'queue.lock');
+    fs.mkdirSync(lock);
+    fs.writeFileSync(path.join(lock, 'holder.json'), JSON.stringify({ pid: 999_001, host: 'this-host', at: 0 }));
+    fs.mkdirSync(`${lock}.reclaim`);
+    const old = new Date(Date.now() - 11_000);
+    fs.utimesSync(`${lock}.reclaim`, old, old);
+
+    expect(withLock(dir, 'queue', () => 'entered', { ...clock(), alive: () => false, hostname: 'this-host' })).toBe('entered');
+    expect(fs.readdirSync(dir)).toEqual([]);
+  });
+
+  it('breaks a lock recorded on another host only once it is stale (#556 AC3)', () => {
+    const dir = lockDir();
+    const lock = path.join(dir, 'queue.lock');
+    fs.mkdirSync(lock);
+    fs.writeFileSync(path.join(lock, 'holder.json'), JSON.stringify({ pid: 4242, host: 'other-host', at: 0 }));
+    const alive = () => { throw new Error('another host\'s pid is never checked'); };
+    expect(() => withLock(dir, 'queue', () => 'entered', { ...clock(), alive, hostname: 'this-host' }))
+      .toThrow('shared_state_locked: queue');
+
+    const old = new Date(Date.now() - 31_000);
+    fs.utimesSync(lock, old, old);
+    expect(withLock(dir, 'queue', () => 'entered', { ...clock(), alive, hostname: 'this-host' })).toBe('entered');
+    expect(fs.existsSync(lock)).toBe(false);
+  });
+
+  it('records its holder while the action runs and removes it on release (#556 AC3)', () => {
+    const dir = lockDir();
+    const holder = withLock(dir, 'queue', () => JSON.parse(fs.readFileSync(path.join(dir, 'queue.lock', 'holder.json'), 'utf8')),
+      { hostname: 'this-host' });
+    expect(holder).toMatchObject({ pid: process.pid, host: 'this-host' });
+    expect(Number.isSafeInteger(holder.at)).toBe(true);
+    expect(fs.existsSync(path.join(dir, 'queue.lock'))).toBe(false);
+  });
+
   it('rethrows a failure that is not a held lock', () => {
     const dir = lockDir();
     expect(() => withLock(path.join(dir, 'absent'), 'queue', () => 'entered')).toThrow(/ENOENT/);
