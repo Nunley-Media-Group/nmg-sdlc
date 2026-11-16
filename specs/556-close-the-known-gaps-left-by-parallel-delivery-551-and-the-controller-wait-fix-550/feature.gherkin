@@ -45,3 +45,9 @@ Feature: Close the known gaps left by parallel delivery and the controller wait 
     Given a settled worker waiting behind its marker past the check-in interval
     When the controller supervises it
     Then check-in reports name the waiting command
+
+  @SCN007
+  Scenario: Only one process takes a reclaimed heavy-job slot
+    Given a heavy-job slot lock whose holder is dead, read by two processes
+    When one reclaims the slot and takes it before the other acts on its earlier read
+    Then the other leaves the new holder's lock in place and waits for the slot
