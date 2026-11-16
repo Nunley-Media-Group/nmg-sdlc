@@ -152,7 +152,11 @@ export function specStatus(issueN, root = process.cwd()) {
 export function specStatusOnRef(issueN, root, ref) {
   if (!Number.isInteger(issueN) || issueN <= 0 || typeof ref !== 'string' || !ref) return { dir: null, approved: false };
   const listed = spawnSync('git', ['-C', root, 'ls-tree', '--name-only', `${ref}:specs`], { encoding: 'utf8' });
-  if (listed.status !== 0) return { dir: null, approved: false, reasonCode: 'spec_status_unreadable' };
+  if (listed.status !== 0) {
+    // A readable ref without a specs/ tree holds no spec; only an unreadable ref is unreadable.
+    const commit = spawnSync('git', ['-C', root, 'rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { encoding: 'utf8' });
+    return commit.status === 0 ? { dir: null, approved: false } : { dir: null, approved: false, reasonCode: 'spec_status_unreadable' };
+  }
   const matches = listed.stdout.split('\n').map((line) => line.trim()).filter((name) => name.startsWith(`${issueN}-`));
   if (matches.length > 1) return { dir: null, approved: false, reasonCode: 'spec_status_ambiguous' };
   if (matches.length === 0) return { dir: null, approved: false };

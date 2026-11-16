@@ -9,7 +9,7 @@ import { runExecute, parseArgs, stageEffort, stageModel, validateHandoff, VALID_
 import { validateHostRequest } from '../../src/execute-host.mjs';
 import { packageRoot } from '../../src/sdlc-workflows.mjs';
 import { STAGE_MODEL_DEFAULTS, STAGE_MODELS_PATH } from '../sdlc-models.mjs';
-import { inspectIssueSpecScope } from '../issue-spec-scope.mjs';
+import { inspectIssueSpecScope, specStatusOnRef } from '../issue-spec-scope.mjs';
 import { canonicalJson } from '../../src/sdlc-steering-runtime.mjs';
 import { enterMergeQueue, leaveMergeQueue, listMergeQueue, recordInFlight } from '../sdlc-shared-state.mjs';
 import { ensureWorktree, listWorktrees } from '../sdlc-worktree.mjs';
@@ -889,6 +889,26 @@ describe('branch-first execute', () => {
     expect(response).toMatchObject({ status: 1 });
     expect(response.stderr).toContain('approved_spec_missing: #42 (spec_status_ambiguous)');
     expect(f.state.starts).toEqual([]);
+  });
+  it('reports a remote default branch without a specs directory as an absent spec, not an unreadable one (#560 AC4)', () => {
+    const f = fixture({ branch: 'main' });
+    git(f.root, 'checkout', '-q', '-b', 'elsewhere');
+    git(f.root, 'rm', '-r', '-q', 'specs');
+    git(f.root, 'commit', '-q', '-m', 'chore: drop the specs directory');
+    git(f.root, 'push', '-q', '-f', 'origin', 'elsewhere:main');
+    const response = f.execute('#42');
+    expect(response).toMatchObject({ status: 1 });
+    expect(response.stderr).toContain('approved_spec_missing: #42');
+    expect(response.stderr).not.toContain('spec_status_unreadable');
+    expect(f.state.starts).toEqual([]);
+  });
+  it('reports an unreadable ref as spec_status_unreadable and a readable ref without specs as absent (#560 AC4)', () => {
+    const f = fixture({ branch: 'main' });
+    expect(specStatusOnRef(42, f.root, 'refs/remotes/origin/no-such')).toEqual({ dir: null, approved: false, reasonCode: 'spec_status_unreadable' });
+    git(f.root, 'checkout', '-q', '-b', 'elsewhere');
+    git(f.root, 'rm', '-r', '-q', 'specs');
+    git(f.root, 'commit', '-q', '-m', 'chore: drop the specs directory');
+    expect(specStatusOnRef(42, f.root, 'HEAD')).toEqual({ dir: null, approved: false });
   });
   it('keeps approved_spec_missing when the remote default branch cannot be fetched (#556 AC1)', () => {
     const f = fixture({ branch: 'main' });
@@ -2261,6 +2281,47 @@ describe('parallel delivery: worktrees, review-first verify and the merge queue 
     expect(atGate).toEqual({ changelog: '# Changelog\n\n## [Unreleased]\n\n### Changed\n\n- Branch entry (#42)\n\n## [1.1.0]\n\n- Merged elsewhere (#9)\n', helper: 'def helper(): return True\n', integrated: true, clean: '',
       published: true, queue: [42] });
     expect(listMergeQueue(f.root)).toEqual([]);
+  });
+
+  it('sends a CHANGELOG.md-only conflict back to implement when a side of the conflict cannot be read (#560 AC5)', () => {
+    const f = fixture();
+    fs.writeFileSync(path.join(f.root, 'CHANGELOG.md'), '# Changelog\n\n## [Unreleased]\n\n- Branch entry (#42)\n');
+    f.publish('docs: changelog for #42');
+    const clone = fs.mkdtempSync(path.join(os.tmpdir(), 'execute-changelog-unreadable-'));
+    roots.push(clone);
+    execFileSync('git', ['clone', '--quiet', '--branch', 'main', git(f.root, 'remote', 'get-url', 'origin'), clone], { encoding: 'utf8' });
+    git(clone, 'config', 'user.name', 'Controller Test');
+    git(clone, 'config', 'user.email', 'controller@example.test');
+    fs.writeFileSync(path.join(clone, 'CHANGELOG.md'), '# Changelog\n\n## [1.1.0]\n\n- Merged elsewhere (#9)\n');
+    git(clone, 'add', '.');
+    git(clone, 'commit', '-m', 'feat: merge #9');
+    git(clone, 'push', 'origin', 'HEAD:main');
+    let atImplement = null;
+    f.setWorker((context) => {
+      if (context.step === 'implement') {
+        atImplement = { merging: fs.existsSync(path.join(f.root, '.git', 'MERGE_HEAD')),
+          changelog: fs.readFileSync(path.join(f.root, 'CHANGELOG.md'), 'utf8') };
+        git(f.root, 'merge', '-X', 'ours', '--no-edit', 'origin/main');
+        context.publish('fix: integrate main for #42');
+        return { status: 'passed', next: 'verify' };
+      }
+      return phasedWorker()(context);
+    });
+    let shows = 0;
+    const run = (command, args, options) => {
+      if (command === 'git' && args[0] === 'show' && args[1] === ':2:CHANGELOG.md' && (shows += 1) === 1) {
+        return { status: 128, stdout: '', stderr: 'fatal: path not in index' };
+      }
+      return f.run(command, args, options);
+    };
+    expect(f.execute('#42', { run })).toMatchObject({ status: 0 });
+    expect(shows).toBe(1);
+    // A repair that only touches the version artifacts needs no second review.
+    expect(stages(f)).toEqual(['review', 'implement', 'gate', 'deliver']);
+    expect(f.state.prompts[1].prompt).toContain('integration_conflict');
+    expect(f.state.prompts[1].prompt).toContain('conflicts in CHANGELOG.md');
+    // The failed resolution aborted the merge, so implement got the branch as it was.
+    expect(atImplement).toEqual({ merging: false, changelog: '# Changelog\n\n## [Unreleased]\n\n- Branch entry (#42)\n' });
   });
 
   it('reports the files an in-flight issue also declares, at start and in supervised reports (AC6)', () => {

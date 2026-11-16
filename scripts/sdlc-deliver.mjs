@@ -402,6 +402,9 @@ export function changelogFragmentBullets(body) {
   return bullets;
 }
 
+// A bullet line written with `- ` or `* `, as `- ` (the form fragments and version preparation write).
+const bulletLine = (line) => line.trimEnd().replace(/^[-*]\s+/, '- ');
+
 /**
  * Adds a fragment's bullets to the `[Unreleased]` section under `### <category>`, from where version preparation
  * rolls them into the new version section. A bullet already present is not added twice.
@@ -414,14 +417,11 @@ export function insertChangelogFragment(content, body, category) {
   const end = nextHeading < 0 ? content.length : nextHeading;
   let unreleased = content.slice(index + marker.length, end).trim();
   for (const bullet of changelogFragmentBullets(body)) {
-    if (!unreleased.split('\n').includes(bullet.split('\n')[0])) unreleased = addGeneratedEntry(unreleased, category, bullet).trim();
+    if (!unreleased.split('\n').map(bulletLine).includes(bullet.split('\n')[0])) unreleased = addGeneratedEntry(unreleased, category, bullet).trim();
   }
   const suffix = content.slice(end).replace(/^\n+/, '\n');
   return `${content.slice(0, index)}${marker}\n\n${unreleased ? `${unreleased}\n` : ''}${suffix}`;
 }
-
-// A bullet line written with `- ` or `* `, as `- ` (the form fragments and version preparation write).
-const bulletLine = (line) => line.trimEnd().replace(/^[-*]\s+/, '- ');
 
 /** The `[Unreleased]` bullets of a changelog, each `{ category, bullet }` with its indented continuation lines. */
 function unreleasedBullets(content) {
