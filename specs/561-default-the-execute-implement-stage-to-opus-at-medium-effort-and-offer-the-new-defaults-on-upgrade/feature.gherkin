@@ -1,0 +1,33 @@
+**Issue**: #561
+**Date**: 2026-11-15
+**Status**: Approved
+**Author**: Claude Code
+**Related Spec**: specs/535-make-sdlc-execute-stage-models-and-efforts-configurable-per-project-via-steering-sdlc-models-json/
+
+# File: scripts/__tests__/
+# Generated from: specs/561-default-the-execute-implement-stage-to-opus-at-medium-effort-and-offer-the-new-defaults-on-upgrade/requirements.md
+Feature: Default the execute implement stage to Opus at medium effort
+
+  @SCN001
+  Scenario: New plugin defaults
+    Given the plugin stage defaults
+    Then implement is opus at medium effort and verify is opus at high effort
+
+  @SCN002
+  Scenario: Onboarding and upgrade write the new defaults
+    Given a project without steering/sdlc-models.json
+    When onboarding or upgrade creates it
+    Then it holds the new defaults
+
+  @SCN003
+  Scenario: Upgrade offers the new defaults to a project on the old ones
+    Given a complete stage models file whose implement entry is haiku at xhigh
+    When upgrade runs
+    Then it offers an sdlc-models-defaults item for implement
+    And approving it sets implement to opus at medium and keeps every other value
+    And a custom implement entry is never offered
+
+  @SCN004
+  Scenario: Docs and this repository match
+    Given the README and this repository's stage models file
+    Then they state the new defaults
