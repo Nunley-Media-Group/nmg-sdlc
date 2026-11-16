@@ -9,7 +9,7 @@ import { runExecute, parseArgs, stageEffort, stageModel, validateHandoff, VALID_
 import { validateHostRequest } from '../../src/execute-host.mjs';
 import { packageRoot } from '../../src/sdlc-workflows.mjs';
 import { STAGE_MODEL_DEFAULTS, STAGE_MODELS_PATH } from '../sdlc-models.mjs';
-import { inspectIssueSpecScope } from '../issue-spec-scope.mjs';
+import { inspectIssueSpecScope, specStatusOnRef } from '../issue-spec-scope.mjs';
 import { canonicalJson } from '../../src/sdlc-steering-runtime.mjs';
 import { enterMergeQueue, leaveMergeQueue, listMergeQueue, recordInFlight } from '../sdlc-shared-state.mjs';
 import { ensureWorktree, listWorktrees } from '../sdlc-worktree.mjs';
@@ -901,6 +901,14 @@ describe('branch-first execute', () => {
     expect(response.stderr).toContain('approved_spec_missing: #42');
     expect(response.stderr).not.toContain('spec_status_unreadable');
     expect(f.state.starts).toEqual([]);
+  });
+  it('reports an unreadable ref as spec_status_unreadable and a readable ref without specs as absent (#560 AC4)', () => {
+    const f = fixture({ branch: 'main' });
+    expect(specStatusOnRef(42, f.root, 'refs/remotes/origin/no-such')).toEqual({ dir: null, approved: false, reasonCode: 'spec_status_unreadable' });
+    git(f.root, 'checkout', '-q', '-b', 'elsewhere');
+    git(f.root, 'rm', '-r', '-q', 'specs');
+    git(f.root, 'commit', '-q', '-m', 'chore: drop the specs directory');
+    expect(specStatusOnRef(42, f.root, 'HEAD')).toEqual({ dir: null, approved: false });
   });
   it('keeps approved_spec_missing when the remote default branch cannot be fetched (#556 AC1)', () => {
     const f = fixture({ branch: 'main' });
