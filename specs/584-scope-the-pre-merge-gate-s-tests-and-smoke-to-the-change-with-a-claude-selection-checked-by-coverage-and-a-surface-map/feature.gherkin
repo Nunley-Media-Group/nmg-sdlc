@@ -1,0 +1,108 @@
+**Issue**: #584
+**Date**: 2026-11-19
+**Status**: Approved
+**Author**: Claude Code
+**Related Spec**: specs/551-add-parallel-delivery-with-worktree-isolation-a-merge-queue-change-scoped-validation-tiers-and-one-pass-verification/
+
+# File: scripts/__tests__/test-selection.test.mjs, scripts/__tests__/test-selection-gate.test.mjs, scripts/__tests__/validation-tiers.test.mjs, scripts/__tests__/sdlc-models.test.mjs, scripts/__tests__/sdlc-execute.test.mjs, scripts/__tests__/sdlc-finalize-verification.test.mjs, scripts/__tests__/nmg-sdlc-smoke.test.mjs, scripts/__tests__/verification-scope.test.mjs, scripts/__tests__/repository-surfaces.test.mjs
+# Generated from: specs/584-scope-the-pre-merge-gate-s-tests-and-smoke-to-the-change-with-a-claude-selection-checked-by-coverage-and-a-surface-map/requirements.md
+Feature: Scope the pre-merge gate's tests and smoke to the change
+
+  @SCN001
+  Scenario: Claude selects tests and surfaces for a change
+    Given a manifest declaring the top-level selection object and a project snippet routed to gate:selection
+    When the pre-merge gate runs for a change
+    Then headless Claude receives the rendered prompt, base ref, changed paths, diff and surface ids
+    And the opted-in builtin.command validation runs only the selected tests
+    And each project provider request carries the changed paths and selected surfaces
+    And the artifact selection records the prompt provenance, model, effort, reason, tests and surfaces
+
+  @SCN002
+  Scenario: Selection model and effort are configurable
+    Given steering/sdlc-models.json declares selection model sonnet and effort high
+    When the gate asks Claude for a selection
+    Then the call uses sonnet at high
+    And without the entry the call uses haiku at xhigh
+    And selection effort "huge" fails with the steering/sdlc-models.json diagnostic naming selection.effort
+
+  @SCN003
+  Scenario: The command form of selection is rejected
+    Given a manifest whose selection is a command with program and args
+    When the steering runtime loads it
+    Then loading fails with steering_validation_invalid naming selection
+    And the message states that selection takes a prompt
+
+  @SCN004
+  Scenario: Changed code lines must be covered by the selected tests
+    Given a valid steering/test-coverage.json and selected tests that pass
+    And a changed executable line that no selected test hits
+    When the gate runs the coverage command for the selected tests
+    Then the opted-in result records coverage with changedLines, hitLines and uncovered
+    And the selection is rejected as selection_uncovered naming the line
+
+  @SCN005
+  Scenario: Changed surfaces must be selected
+    Given a surfaces map whose surface sources match a changed path
+    When Claude's answer omits that surface
+    Then the selection is rejected as selection_surface_missing naming the surface
+    And an answer with that surface plus an extra surface is accepted
+
+  @SCN006
+  Scenario: Surface-bound validations run only for selected surfaces
+    Given a project-provider validation bound to a surface
+    When the gate runs and the surface is not selected
+    Then the validation passes as surface_not_selected without running
+    And when the surface is selected the validation runs with the selected surfaces in its request
+
+  @SCN007
+  Scenario: Every changed path must be accounted for
+    Given a changed path outside the coverage report, the selected surfaces, docPaths and fallbackPaths
+    When the gate checks the selection
+    Then the selection is rejected as selection_unaccounted naming the path
+
+  @SCN008
+  Scenario: A rejected selection escalates to the orchestrator
+    Given a gate artifact whose selection is rejected
+    When the verify finalizer and the supervised controller process it
+    Then the handoff reason is selection_escalation with the escalation details
+    And the stage report offers only redispatch and halt and does not route to implement
+    And redispatch with guidance reruns verify whose selection prompt contains the guidance and records guidanceSupplied
+
+  @SCN009
+  Scenario: Only a docs-only change may select nothing
+    Given docPaths globs
+    When every changed path matches docPaths and Claude selects nothing
+    Then the opted-in validations pass with selection_empty without running and providers receive no surfaces
+    And an empty selection for a change with a code path is rejected as selection_empty_code_change
+
+  @SCN010
+  Scenario: Full-run fallbacks are kept
+    Given a manifest that declares selection
+    When a changed path matches fallbackPaths
+    Then Claude is not asked and the opted-in validations run in full with fallback_path
+    And a failed, timed-out, malformed or all answer runs in full with selection_failed or selection_all
+    And providers receive every declared surface
+
+  @SCN011
+  Scenario: This repository's smoke runs only the selected surfaces
+    Given the smoke validation bound to the interactive command surfaces and execute
+    When the selection includes write-spec with a head-bound passed record and not execute
+    Then smoke passes listing the write-spec evidence without running a delivery
+    And a selected surface without a head-bound record fails as not exercised
+    And a selection with execute runs one full provisioned delivery with exact-head merge evidence
+
+  @SCN012
+  Scenario: Onboard and upgrade enforce the configuration
+    Given a project with a legacy command selection and no surfaces map
+    When verification-scope detection runs
+    Then it reports a digest-bound verification-scope item listing each finding
+    And applying the approved proposal writes selection, surfaces and test coverage configuration
+    And a repeat detection proposes nothing
+
+  @SCN013
+  Scenario: This repository adopts scoped verification
+    Given this repository's steering
+    When the repository tests run
+    Then every tracked file under workflows, agents, references, commands, hooks and .claude-plugin matches a surface
+    And repository.tests opts into selection and steering/test-coverage.json validates
+    And verification-scope detection on the repository reports nothing
