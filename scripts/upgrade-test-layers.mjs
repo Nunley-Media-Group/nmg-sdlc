@@ -109,23 +109,40 @@ export function classifyTestFile(rel, text = '', featureFileRefs = new Set()) {
   return 'unit';
 }
 
-// In a Git work tree, drops untracked paths Git ignores (.venv/, target/, coverage/, …); tracked files stay.
-function withoutIgnored(root, files) {
-  if (files.length === 0) return files;
-  const result = spawnSync('git', ['check-ignore', '--stdin', '-z'], {
-    cwd: path.resolve(root),
+const byWalkOrder = (a, b) => {
+  const x = a.split('/');
+  const y = b.split('/');
+  for (let i = 0; i < Math.min(x.length, y.length); i += 1) {
+    if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
+  }
+  return x.length - y.length;
+};
+
+// In a Git work tree, Git lists tracked plus untracked non-ignored files and prunes ignored directories
+// (.venv/, target/, coverage/, …) without descending them; outside one, walk() is the fallback.
+function listFiles(root) {
+  const rootAbs = path.resolve(root);
+  const result = spawnSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', '.'], {
+    cwd: rootAbs,
     encoding: 'utf8',
     shell: false,
-    input: `${files.join('\0')}\0`,
     maxBuffer: 256 * 1024 * 1024,
   });
-  if (result.error || (result.status !== 0 && result.status !== 1)) return files;
-  const ignored = new Set(result.stdout.split('\0').filter(Boolean));
-  return files.filter((rel) => !ignored.has(rel));
+  if (result.error || result.status !== 0) return walk(root);
+  const files = new Set();
+  for (const rel of result.stdout.split('\0')) {
+    if (!rel || rel.split('/').some((segment) => SKIP_DIRS.has(segment))) continue;
+    try {
+      if (fs.lstatSync(path.join(rootAbs, ...rel.split('/'))).isFile()) files.add(rel);
+    } catch {
+      // Tracked but deleted from the work tree.
+    }
+  }
+  return [...files].sort(byWalkOrder);
 }
 
 function scan(root) {
-  const all = withoutIgnored(root, walk(root));
+  const all = listFiles(root);
   const refs = new Set();
   for (const rel of all) {
     if (!isFeature(rel) && path.posix.basename(rel) !== 'feature.gherkin') continue;
@@ -451,8 +468,10 @@ export function restore(root, tree, batchId) {
     && git(root, ['write-tree'], indexFile, { allowFailure: true }).trim() === tree;
   if (intact) {
     // The snapshot index still holds `tree` with its stat data: check out only the paths changed since begin.
+    // Scoped and relative to the project root, which may sit below the work-tree top: checkout-index resolves
+    // paths against cwd, and paths outside the root (the user's own edits) are never touched.
     git(root, ['update-index', '-q', '--refresh'], indexFile, { allowFailure: true });
-    const changed = git(root, ['diff-files', '--name-only', '-z'], indexFile);
+    const changed = git(root, ['diff-files', '--name-only', '-z', '--relative', '--', '.'], indexFile);
     if (changed) git(root, ['checkout-index', '-f', '-z', '--stdin'], indexFile, { input: changed });
   } else {
     git(root, ['read-tree', tree], indexFile);

@@ -531,9 +531,38 @@ describe('@SCN006 restore rewrites only the paths a refused batch changed', () =
 
 describe('@SCN001 detection skips test files Git ignores', () => {
   it('does not count an ignored test file but counts a tracked one', () => {
-    const root = project({ files: { ...FILES, '.gitignore': '.nmg-sdlc/\n.venv/\n' } });
+    const root = project({ files: { ...FILES, '.gitignore': '.nmg-sdlc/\n.venv/\ncoverage/\n' } });
     write(root, '.venv/lib/site/test_vendor.py', 'def test_x(): pass\n');
-    expect(item(root).detectedTypes).toEqual({ bdd: 1, unit: 3 });
+    write(root, 'coverage/test/tracked.test.js', '// tracked although ignored\n');
+    git(root, ['add', '-f', 'coverage/test/tracked.test.js']);
+    expect(item(root).detectedTypes).toEqual({ bdd: 1, unit: 4 });
+  });
+});
+
+describe('@SCN006 restore stays inside a project root below the work-tree top', () => {
+  it('restores the refused batch in the subdirectory and leaves edits outside the root untouched', () => {
+    const repo = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-test-layers-upgrade-')));
+    roots.push(repo);
+    const root = path.join(repo, 'pkg');
+    write(repo, '.gitignore', '.nmg-sdlc/\n');
+    write(repo, 'other/x.js', 'committed\n');
+    for (const [rel, text] of Object.entries(FILES)) write(root, rel, text);
+    write(root, 'steering/test-layers.json', `${JSON.stringify({ version: 1, kept: ['bdd'] }, null, 2)}\n`);
+    write(root, 'steering/test-coverage.json', COVERAGE_CONFIG);
+    git(repo, ['init', '-q']);
+    git(repo, ['add', '-A']);
+    git(repo, ['-c', 'user.email=t@example.com', '-c', 'user.name=t', 'commit', '-q', '-m', 'fixture']);
+    write(repo, 'other/x.js', 'unstaged user edit\n');
+    cli(root, 'test-layers-candidates');
+    expect(cli(root, 'test-layers-batch', 'begin', '--batch', 'batch-001').out.status).toBe('begun');
+    const before = tree(root);
+    fs.rmSync(path.join(root, 'test/cart.test.js'));
+    write(root, 'src/cart.js', 'edited\n');
+    write(repo, 'other/x.js', 'edit outside the project root during the batch\n');
+    const gate = cli(root, 'test-layers-batch', 'gate', '--batch', 'batch-001');
+    expect(gate.out).toMatchObject({ status: 'refused', reasonCode: 'test_layers_coverage_gap' });
+    expect(tree(root)).toEqual(before);
+    expect(fs.readFileSync(path.join(repo, 'other/x.js'), 'utf8')).toBe('edit outside the project root during the batch\n');
   });
 });
 
