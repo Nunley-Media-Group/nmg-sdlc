@@ -1,0 +1,90 @@
+**Issue**: #572
+**Date**: 2026-11-19
+**Status**: Approved
+**Author**: Claude Code
+**Related Spec**: specs/571-make-bdd-scenarios-the-single-acceptance-test-layer-with-a-kept-test-types-steering-setting/
+
+# File: scripts/__tests__/upgrade-test-layers.test.mjs
+# Generated from: specs/572-add-an-sdlc-upgrade-project-item-that-migrates-non-kept-test-layers-into-bdd-scenarios-under-a-coverage-guarantee/requirements.md
+Feature: Add an /sdlc-upgrade-project item that migrates non-kept test layers into BDD scenarios under a coverage guarantee
+
+  @SCN001
+  Scenario: Operator chooses kept test types
+    Given a project with bdd and unit test files
+    When /sdlc-upgrade-project runs interactively
+    Then one multi-select question lists only bdd and unit, with bdd first and recommended
+    And the approved apply with --kept bdd,unit writes {"version":1,"kept":["bdd","unit"]} to steering/test-layers.json
+
+  @SCN002
+  Scenario: Non-interactive run without a recorded choice changes nothing
+    Given no steering/test-layers.json
+    When sdlc-upgrade.mjs detect runs and apply runs with the test-layers id but no --kept
+    Then the test-layers item is listed as a proposal
+    And apply reports skipped:kept_types_unrecorded
+    And no test or steering file changes
+
+  @SCN003
+  Scenario Outline: Duplicate layers are detected only for non-kept types
+    Given steering/test-layers.json keeps <kept>
+    And a valid steering/test-coverage.json
+    When test-layers-candidates runs
+    Then <outcome>
+
+    Examples:
+      | kept           | outcome                                                                     |
+      | ["bdd"]        | the paired unit file and the coverage-subset unit test are candidates       |
+      | ["bdd","unit"] | no unit test is a candidate                                                 |
+
+  @SCN004
+  Scenario: Fully duplicated tests are deleted with evidence
+    Given a unit test whose lines, branches and outcomes are a subset of one bdd test's
+    When its batch begins, the test is deleted, and the batch is gated
+    Then the batch is accepted
+    And the evidence records the test, the covering bdd test, and the covered lines
+
+  @SCN005
+  Scenario: Uncovered behavior is converted before deletion
+    Given a paired unit test that covers an outcome no scenario covers
+    When its batch adds an Examples row to the paired feature covering that outcome and deletes the unit test
+    Then the gate accepts the batch
+
+  @SCN006
+  Scenario: Coverage gap refuses the batch
+    Given a batch that deletes a unit test whose outcome no kept-type test covers afterwards
+    When the batch is gated
+    Then it is refused with test_layers_coverage_gap listing the uncovered lines, branches and outcomes
+    And the project is byte-identical to its pre-batch state
+
+  @SCN007
+  Scenario: Red suite refuses the batch
+    Given a batch after which the suite command exits non-zero
+    When the batch is gated
+    Then it is refused with test_layers_suite_failed
+    And the project is byte-identical to its pre-batch state
+
+  @SCN008
+  Scenario Outline: Missing coverage command refuses deletion
+    Given steering/test-coverage.json is <state>
+    When apply runs with --kept bdd and test-layers-candidates runs
+    Then steering/test-layers.json and the inventory are recorded
+    And no batch is offered and the refusal is <reasonCode> naming steering/test-coverage.json
+
+    Examples:
+      | state                     | reasonCode                    |
+      | missing                   | test_coverage_command_missing |
+      | {"version":2}             | test_coverage_config_invalid  |
+
+  @SCN009
+  Scenario: Before/after report
+    Given a migration with one accepted and one refused batch
+    When test-layers-report runs
+    Then it prints before and after testCount, wallMs, lines, branches and outcomes
+    And it lists the refused batch with its gap
+    And no after-coverage count is lower than its before count
+
+  @SCN010
+  Scenario: Choice can be changed by rerunning
+    Given steering/test-layers.json keeps bdd and unit
+    When apply reruns with --kept bdd
+    Then the file keeps only bdd
+    And unit tests become migration candidates
