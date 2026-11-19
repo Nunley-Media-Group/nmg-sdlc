@@ -383,6 +383,8 @@ describe('concurrent Phase 2 validations (#580)', () => {
   providers: Object.freeze({ 'project.timed': (request) => globalThis.__nmg580Provider(request) }) });\n`;
   const timed = (id, config = {}, extra = {}) => ({ id, provider: 'project.timed', required: true, when: { kind: 'always' }, config, ...extra });
   afterEach(() => { delete globalThis.__nmg580Provider; });
+  // Each test builds git fixtures and runs the gate; under a loaded full-suite run that exceeds Jest's 5s default.
+  const FIXTURE_TIMEOUT = 30_000;
 
   async function project(validations) {
     const root = await fixture([]);
@@ -425,9 +427,9 @@ describe('concurrent Phase 2 validations (#580)', () => {
     const { a, b } = spans;
     expect(Math.max(a.start, b.start)).toBeLessThan(Math.min(a.end, b.end));
     expect(Math.max(a.end, b.end) - Math.min(a.start, b.start)).toBeLessThan(800);
-  });
+  }, FIXTURE_TIMEOUT);
 
-  it('never overlaps an unflagged validation with another, and keeps the serial path without the key (AC2)', async () => {
+  it('never overlaps an unflagged validation with another (AC2)', async () => {
     const root = await project([timed('a', { delay: 150 }, { concurrent: true }), timed('b', { delay: 100 }),
       timed('c', { delay: 150 }, { concurrent: true }), timed('d', { delay: 100 }, { concurrent: false })]);
     const spans = recorder();
@@ -437,8 +439,9 @@ describe('concurrent Phase 2 validations (#580)', () => {
       for (const other of Object.keys(spans).filter((id) => id !== unflagged)) expect(overlaps(spans[unflagged], spans[other])).toBe(false);
     }
     expect(startOrder(spans).slice(2)).toEqual(['b', 'd']);
+  }, FIXTURE_TIMEOUT);
 
-    // Without the key, and with every validation `concurrent: false`, the run is the serial run in manifest order.
+  it('keeps the serial run in manifest order without the key and with every validation `concurrent: false` (AC2)', async () => {
     const normalize = (artifact) => artifact.results.map((result) => ({ keys: Object.keys(result).sort(), id: result.id,
       effectiveStatus: result.effectiveStatus, selection: result.selection, status: result.result.status, summary: result.result.summary }));
     const serial = [];
@@ -455,7 +458,7 @@ describe('concurrent Phase 2 validations (#580)', () => {
     }
     expect(serial[0]).toEqual(serial[1]);
     expect(serial[0].map(({ id }) => id)).toEqual(['a', 'b', 'c', 'd']);
-  });
+  }, FIXTURE_TIMEOUT);
 
   it('lets every member finish and record its result when another fails fast (AC3)', async () => {
     const root = await project([timed('fast', { delay: 20, status: 'failed' }, { concurrent: true }),
@@ -467,7 +470,7 @@ describe('concurrent Phase 2 validations (#580)', () => {
       { id: 'fast', effectiveStatus: 'failed' }, { id: 'slow', effectiveStatus: 'passed' }, { id: 'after', effectiveStatus: 'passed' }]);
     expect(artifact.coverage.complete).toBe(true);
     expect(artifact.ceiling).toBe('Fail');
-  });
+  }, FIXTURE_TIMEOUT);
 
   it('records results in manifest order with the fields of a serial run, whatever order they finish in (AC4)', async () => {
     const root = await project([timed('slow', { delay: 400 }, { concurrent: true, heavy: true }), timed('fast', { delay: 20 }, { concurrent: true }),
@@ -487,7 +490,7 @@ describe('concurrent Phase 2 validations (#580)', () => {
     expect(concurrent.results.map((result) => Object.keys(result).sort())).toEqual(serial.results.map((result) => Object.keys(result).sort()));
     expect(concurrent.results.map(({ heavy, selection, effectiveStatus }) => ({ heavy, selection, effectiveStatus })))
       .toEqual(serial.results.map(({ heavy, selection, effectiveStatus }) => ({ heavy, selection, effectiveStatus })));
-  });
+  }, FIXTURE_TIMEOUT);
 
   it('makes a heavy member wait for a pool slot while the members that are not heavy start at once (AC5)', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-host-'));
@@ -505,7 +508,7 @@ describe('concurrent Phase 2 validations (#580)', () => {
     expect(artifact.results[0].heavy.waitedMs).toBeGreaterThanOrEqual(250);
     expect(Object.hasOwn(artifact.results[1], 'heavy')).toBe(false);
     expect(heavyPoolHolders({ env })).toEqual([]);
-  });
+  }, FIXTURE_TIMEOUT);
 
   it('defers flagged project providers after a required local command fails (AC6)', async () => {
     const root = await project([node('local', 'process.exit(1)'), timed('p1', {}, { concurrent: true }), timed('p2', {}, { concurrent: true }), timed('p3')]);
@@ -515,7 +518,7 @@ describe('concurrent Phase 2 validations (#580)', () => {
     for (const result of artifact.results.slice(1)) {
       expect(result).toMatchObject({ effectiveStatus: 'incomplete', result: { summary: 'deferred until required local validations pass' } });
     }
-  });
+  }, FIXTURE_TIMEOUT);
 
   it('cancels every running member, releases each held slot and records each as non-passing on abort (AC7)', async () => {
     const root = await project([timed('h', { delay: 60_000 }, { concurrent: true, heavy: true }), timed('l', { delay: 60_000 }, { concurrent: true }), timed('later')]);
@@ -529,7 +532,7 @@ describe('concurrent Phase 2 validations (#580)', () => {
     expect(artifact.results.map(({ id, effectiveStatus }) => ({ id, effectiveStatus }))).toEqual([
       { id: 'h', effectiveStatus: 'incomplete' }, { id: 'l', effectiveStatus: 'incomplete' }, { id: 'later', effectiveStatus: 'incomplete' }]);
     expect(artifact.ceiling).toBe('Incomplete');
-  });
+  }, FIXTURE_TIMEOUT);
 });
 
 describe('host-wide heavy-job pool (#551 AC7)', () => {
