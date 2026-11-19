@@ -12,6 +12,8 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.19.0] - 2026-11-19
+
 ### Added
 
 - `/sdlc-upgrade-project` test-layer migration item: it asks which detected test types to keep (`bdd` recommended) and records them in `steering/test-layers.json`, then migrates tests of the other types into BDD scenarios in batches. Each batch deletes only tests that kept-type tests still cover line for line, branch for branch and outcome for outcome, and is refused and restored on a coverage gap or a red suite. A before/after report shows test count, suite wall time and coverage. The suite and per-test coverage commands come from the new `steering/test-coverage.json` (#572).
