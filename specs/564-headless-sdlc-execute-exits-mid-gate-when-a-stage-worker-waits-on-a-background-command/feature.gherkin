@@ -1,0 +1,31 @@
+**Issue**: #564
+**Date**: 2026-11-18
+**Status**: Approved
+**Author**: Claude Code
+**Related Spec**: specs/550-stop-the-sdlc-execute-controller-busy-waiting-while-a-stage-worker-waits-on-a-background-command/
+
+# File: scripts/__tests__/sdlc-execute-supervisor.test.mjs
+# Generated from: specs/564-headless-sdlc-execute-exits-mid-gate-when-a-stage-worker-waits-on-a-background-command/requirements.md
+Feature: Headless /sdlc-execute exits mid-gate when a stage worker waits on a background command
+
+  @SCN001 @regression
+  Scenario: A headless run survives a worker waiting on a background command
+    Given /sdlc-execute #N running under claude -p
+    When a stage worker ends its turn behind its waiting marker while its background command runs
+    Then the main loop's stop is blocked with a holding wait command
+    And the session stays alive until the worker hands back and the run reaches its final result line
+
+  @SCN002 @regression
+  Scenario: A lost session does not leave an orphaned controller
+    Given a yielded headless run whose session exits before its final result
+    When the supervisor sees the session heartbeat go stale
+    Then the supervisor and controller end with supervising_session_lost
+    And the controller lease and the merge-queue entry are released
+    And a later /sdlc-execute #N resumes from branch evidence
+
+  @SCN003 @regression
+  Scenario: A gate cut off by a lost session reruns the gate
+    Given a registered gate record whose non-passing required checks are all incomplete and none failed
+    When /sdlc-execute #N resumes
+    Then it dispatches the gate again at the reviewed head instead of routing to implement
+    And it neither reverts the prepared version nor requires a new implement commit
