@@ -60,6 +60,10 @@ For each task in sequence (lowest to highest T number, follow declared Depends o
 - Run the narrow check from technical steering when obvious for the changed behavior. Report the outcome.
 - Proceed to the next task. Do not skip or reorder.
 
+### Test Layers
+
+Test work is the implementation of the active `feature.gherkin` scenarios: their step definitions, or the test that each scenario's `# File:` header names and that cites its `@SCN` tag, plus the production seams the steps need. The scenarios are the single acceptance layer, so a test that restates a scenario's AC only duplicates evidence: never add one. Add any other test only when the rendered Kept Test Layers rule allows it: it is of a kept type other than `bdd`, it covers a behavior that no scenario covers, and it is listed in the handoff's `justifiedTests` with its type and justification.
+
 If a File(s) hint is incomplete or absent, continue from Acceptance and repository evidence. If a hinted path is denied, do not mutate it; report the conflict only when Acceptance cannot be satisfied through permitted paths.
 
 ## Changelog Entry
@@ -117,8 +121,11 @@ Write `.nmg-sdlc/handoffs/N-implement.json` :
   "summary": "All tasks from tasks.md executed for #N",
   "artifacts": [ list of created/modified paths ],
   "next": "verify",
-  "reasonCode": null
+  "reasonCode": null,
+  "justifiedTests": [ { "path": "path/to/test", "type": "unit", "justification": "behavior no scenario covers" } ]
 }
+
+`justifiedTests` is optional: omit it, or leave it empty, when every test added is a scenario implementation. Each entry names one added non-scenario test by `path`, its kept `type` (never `bdd`), and a non-empty `justification`; `validate-handoff` rejects any other shape.
 
 Print exactly:
 NMG_SDLC_HANDOFF: .nmg-sdlc/handoffs/N-implement.json
@@ -127,6 +134,7 @@ Summary output:
 Implementation complete for issue #N.
 Tasks completed.
 Files: ...
+Justified tests: ... (or none)
 Next: execute verify
 
 ## Failure Modes (always produce handoff before stop)

@@ -191,10 +191,35 @@ Interactive behavior maps one to one: OMP `ask` chips are `AskUserQuestion` ques
 | `changelog.fragments.dir` (optional) | Opts the project into changelog fragments: one file per issue (`<dir>/<N>.md`), assembled into `CHANGELOG.md` when that issue's version is prepared |
 | `fullGreen.actions` (optional) | Downstream actions, such as `deploy`, that require a green full-tier record at or after the commit they act on |
 | `steering/sdlc-models.json` | Project-owned execute stage models and efforts (see [Per-project stage models](#per-project-stage-models)); not registered in `steering/manifest.json` |
+| `steering/test-layers.json` | Project-owned kept test types (see [Kept test layers](#kept-test-layers)); not registered in `steering/manifest.json` |
 
 Use steering to state supported runtimes, commands, product boundaries, review policy, and declared version mirrors. Register a command's actual program, argument array, working directory, and required environment names. Do not put secrets into steering or shell-compose verification commands. Canonical validations have no wall-clock deadline; cancellation and confirmed process loss are distinct outcomes, not passes.
 
 Every optional key is validated, and a manifest that declares none of them behaves as it did before they existed. `references/steering-schema.md` holds the exact shapes.
+
+### Kept test layers
+
+A spec's `feature.gherkin` scenarios are the single acceptance test layer: each acceptance criterion is tested once, by the implementation of its scenario. That implementation is either the scenario's step definitions or the test that the scenario's `# File:` header names and that cites the scenario's `@SCN` tag. The project-owned file `steering/test-layers.json` lists the test types the project keeps:
+
+```json
+{ "version": 1, "kept": ["bdd", "unit"] }
+```
+
+| Type | Meaning |
+|------|---------|
+| `bdd` | Scenario implementations: the acceptance layer, always kept |
+| `unit` | Isolated tests of one module or function |
+| `integration` | Tests of several modules or a real external boundary together |
+| `property` | Property-based tests over generated inputs |
+| `doc` | Documentation examples executed as tests |
+
+A missing file means BDD-only, `{ "version": 1, "kept": ["bdd"] }`. A file whose `version` is not `1`, that has an unknown key, an unknown or duplicate type, an empty `kept`, or a `kept` without `bdd` is rejected, as are invalid JSON and a symlinked or non-regular file. The rejection names `steering/test-layers.json` and the offending field (for example `kept[1]`); an invalid file never falls back to the default. `/sdlc-write-spec` shows the `test_layers_invalid` diagnostic instead of rendering, and `/sdlc-execute` exits with status 2 before any Git or GitHub call.
+
+The plugin renders one Kept Test Layers rule, naming exactly the kept types, into the `/sdlc-write-spec`, implement worker, verify worker and `/sdlc-verify-code` prompts:
+
+- **write-spec** tasks only the scenario implementations (plus the production seams their steps need), never a separate test that restates an AC. Variations of one AC are a `Scenario Outline` with `Examples` under that AC's single `@SCN` tag.
+- **implement** writes the scenario implementations. Any other test must be of a kept type, cover a behavior no scenario covers, and be listed in the handoff's `justifiedTests` with its type and justification.
+- **verify** reports, per AC, the covering scenario and its implementation status, and flags each branch test that duplicates a scenario or has a type the project does not keep. It reports no per-layer test counts, and its testability score rewards injectable seams and scenario coverage, not unit-test volume.
 
 ### Validation tiers
 
@@ -515,6 +540,7 @@ Status is read-only: current branch/spec, verification, GitHub issue/PR state, a
 - **Commands missing or controller paths unresolved:** check in `/plugin` that `nmg-sdlc` is installed and enabled (or that the session was started with `claude --plugin-dir <checkout>`); use a fresh session with the intended version, then apply project upgrades.
 - **`Run /sdlc-… in the TUI.`:** an interactive command was run under `claude -p` or the SDK; run it in a Claude Code TUI session.
 - **`steering/sdlc-models.json:` diagnostic:** `/sdlc-execute` stopped before any Git or GitHub call because the stage configuration is invalid. Fix the key and value the diagnostic names (see [Per-project stage models](#per-project-stage-models)), then rerun.
+- **`steering/test-layers.json:` diagnostic or `test_layers_invalid`:** the kept-test-types file is invalid. Fix the field the diagnostic names (see [Kept test layers](#kept-test-layers)), then rerun.
 - **`Warning: steering/sdlc-models.json is missing …`:** plugin default stage models are in use. Run `/sdlc-upgrade-project` to create the file or add its missing keys.
 - **No eligible issue / unapproved spec:** finish issue/spec publication and inspect official blockers; do not manually apply labels as a substitute for approval.
 - **Dirty tree / branch mismatch:** a dirty primary checkout is not an obstacle, because each issue runs in its own worktree. Inside an issue worktree, preserve the work and restore the correct issue context. Do not reset or stash unrelated changes automatically.

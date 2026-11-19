@@ -15,6 +15,8 @@ import {
   renderedPromptBytes,
   workflowBody,
 } from "./sdlc-workflows.mjs";
+import { testLayersRule } from "./test-layers.mjs";
+import { loadTestLayers } from "../scripts/test-layers.mjs";
 
 export const ALLOWED_SLOTS = Object.freeze(["header", "body", "extra"]);
 
@@ -287,11 +289,36 @@ export function pluginPromptFragments() {
   return CATALOG;
 }
 
+export const TEST_LAYERS_CONSUMERS = Object.freeze([
+  "sdlc-write-spec",
+  "worker:implement",
+  "worker:verify",
+  "sdlc-verify-code",
+]);
+
+/**
+ * The project's kept-test-types rule, computed per render from steering/test-layers.json
+ * (a missing file means BDD-only). An invalid file throws TestLayersError, whose
+ * `reasonCode` is `test_layers_invalid` and whose message names the file and field.
+ */
+export function testLayersFragment(projectRoot) {
+  return Object.freeze({
+    id: "project.test-layers",
+    provider: "plugin",
+    source: "builtin:project.test-layers",
+    consumers: TEST_LAYERS_CONSUMERS,
+    slot: "extra",
+    order: 300,
+    body: testLayersRule(loadTestLayers(projectRoot).config),
+  });
+}
+
 export function defaultPromptRegistry(packageRoot = defaultPackageRoot, { projectRoot, pluginOnly = false } = {}) {
   const registry = createPromptSnippetRegistry();
   for (const fragment of pluginPromptFragments()) {
     registerPromptSnippet(registry, fragment, packageRoot);
   }
+  if (projectRoot && !pluginOnly) registerPromptSnippet(registry, testLayersFragment(projectRoot), packageRoot);
   if (projectRoot && !pluginOnly && existsSync(join(projectRoot, "steering", "manifest.json"))) {
     const command = join(packageRoot, "scripts", "sdlc-steering.mjs");
     const result = spawnSync("node", [command, "prompt-fragments", "--project", projectRoot], {

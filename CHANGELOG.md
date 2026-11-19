@@ -12,6 +12,10 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+### Added
+
+- BDD scenarios are the single acceptance test layer: spec tasks implement the `feature.gherkin` scenarios instead of separate AC tests, implement workers list any other test in the handoff's `justifiedTests`, and verify reports per-AC scenario coverage and flags duplicate or non-kept-type tests. The new `steering/test-layers.json` setting lists the kept test types (`bdd`, `unit`, `integration`, `property`, `doc`), defaults to BDD-only, and is validated before any stage renders (#571).
+
 ## [4.17.0] - 2026-11-19
 
 ### Added

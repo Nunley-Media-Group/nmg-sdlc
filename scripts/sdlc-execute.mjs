@@ -15,6 +15,7 @@ import { packageRoot } from '../src/sdlc-workflows.mjs';
 import { executeGoalCondition } from '../src/host-events.mjs';
 import { ACTIVE_AGENT_STATUSES, activityRecord, STAGE_AGENTS, WORKER_PERMISSION_MODES } from '../src/execute-host.mjs';
 import { loadStageModels, STAGE_MODEL_DEFAULTS, stageModelsWarning } from './sdlc-models.mjs';
+import { loadTestLayers, TEST_LAYER_TYPES } from './test-layers.mjs';
 import { collectEvidence, parseIssueBranch } from './sdlc-status.mjs';
 import { inspectPublicationScope, publicationFileEntries } from './sdlc-safe-recoveries.mjs';
 import { inspectVerificationArtifactRepair, inspectVerificationReadiness, MAX_VERIFICATION_REPORT_BYTES } from './verification-readiness.mjs';
@@ -136,6 +137,14 @@ export function listSpecifiedIssues({ run = defaultRun, cwd = process.cwd() } = 
   }
   return eligible.sort((a, b) => a.number - b.number);
 }
+const nonEmptyString = (value) => typeof value === 'string' && value.trim().length > 0;
+/** An implement handoff's optional `justifiedTests`: each non-scenario test with its kept, non-`bdd` type and reason. */
+function validJustifiedTests(entries) {
+  return Array.isArray(entries) && entries.every((entry) => entry !== null && typeof entry === 'object'
+    && !Array.isArray(entry) && Object.keys(entry).every((key) => ['path', 'type', 'justification'].includes(key))
+    && nonEmptyString(entry.path) && nonEmptyString(entry.justification)
+    && TEST_LAYER_TYPES.includes(entry.type) && entry.type !== 'bdd');
+}
 export function validateHandoff(input) {
   let value = input;
   if (typeof input === 'string') {
@@ -147,8 +156,9 @@ export function validateHandoff(input) {
     || typeof value.intervention !== 'boolean' || typeof value.summary !== 'string'
     || !Array.isArray(value.artifacts) || !value.artifacts.every((item) => typeof item === 'string')
     || (value.next !== null && typeof value.next !== 'string')
-    || (value.reasonCode !== null && typeof value.reasonCode !== 'string')) {
-    throw new Error('handoff invalid');
+    || (value.reasonCode !== null && typeof value.reasonCode !== 'string')
+    || (Object.hasOwn(value, 'justifiedTests') && !validJustifiedTests(value.justifiedTests))) {
+    throw new Error('handoff_invalid');
   }
   return value;
 }
@@ -853,9 +863,12 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
   if (!host) return { status: 2, stdout: '', stderr: 'execute requires /sdlc-execute in a Claude Code session\n' };
   let selected;
   try { selected = parseArgs(args); } catch { return fail(usage(), 2); }
-  // The project stage configuration is validated before any Git or GitHub call or worker start.
+  // The project stage and test-layer configurations are validated before any Git or GitHub call or worker start.
   let stageModels;
-  try { stageModels = loadStageModels(cwd); } catch (error) { return { status: 2, stdout: '', stderr: `${error.message}\n` }; }
+  try {
+    stageModels = loadStageModels(cwd);
+    loadTestLayers(cwd);
+  } catch (error) { return { status: 2, stdout: '', stderr: `${error.message}\n` }; }
   const stageWarning = stageModelsWarning(stageModels);
   const warned = (result) => (stageWarning ? { ...result, stdout: `${stageWarning}\n${result.stdout}` } : result);
   if (!succeeded(run('gh', ['auth', 'status'], { cwd }))) return warned(fail('gh auth status failed'));
@@ -1459,9 +1472,12 @@ function branchGoalIssues() {
 
 async function runCli(argv = process.argv.slice(2)) {
   const [sub, ...rest] = argv;
-  // An invalid project stage configuration stops these before any Git or GitHub call or worker start.
+  // An invalid project stage or test-layer configuration stops these before any Git or GitHub call or worker start.
   if (['goal', 'list-specified', 'run', 'supervise'].includes(sub)) {
-    try { loadStageModels(process.cwd()); } catch (error) {
+    try {
+      loadStageModels(process.cwd());
+      loadTestLayers(process.cwd());
+    } catch (error) {
       process.stderr.write(`${error.message}\n`);
       process.exitCode = 2;
       return;
@@ -1505,7 +1521,10 @@ async function runCli(argv = process.argv.slice(2)) {
     } else if (sub === 'validate-handoff') {
       const index = rest.indexOf('--file');
       if (index < 0 || !rest[index + 1]) throw new Error('Usage: validate-handoff --file PATH');
-      try { validateHandoff(rest[index + 1]); } catch { process.exitCode = 1; }
+      try { validateHandoff(rest[index + 1]); } catch (error) {
+        console.error(error.message);
+        process.exitCode = 1;
+      }
     } else if (sub === 'worker-prompt') {
       const issue = Number(rest[rest.indexOf('--issue') + 1]);
       const step = rest[rest.indexOf('--step') + 1];
