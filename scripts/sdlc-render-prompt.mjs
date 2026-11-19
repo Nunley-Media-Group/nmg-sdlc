@@ -56,7 +56,8 @@ export function renderPromptCli(argv, { root = packageRoot } = {}) {
     }
     return { status: 0, stdout: withArguments(renderInteractiveWorkflow(consumer, root, projectRoot), values.args), stderr: '' };
   } catch (error) {
-    const reasonCode = /^[a-z_]+$/.test(error?.message ?? '') ? error.message : 'render_failed';
+    const reasonCode = typeof error?.reasonCode === 'string' ? error.reasonCode
+      : /^[a-z_]+$/.test(error?.message ?? '') ? error.message : 'render_failed';
     return { status: 2, stdout: '', stderr: `${JSON.stringify({ ok: false, reasonCode, message: String(error?.message ?? error) })}\n` };
   }
 }

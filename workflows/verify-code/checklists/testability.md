@@ -2,21 +2,23 @@
 
 [Back to main workflow](../WORKFLOW.md)
 
-Evaluate whether the implementation is structured for effective testing.
+Evaluate whether the implementation is structured so its `feature.gherkin` scenarios can test it. The scenarios are the single acceptance layer, so testability means scenario steps can drive and observe the behavior through injectable seams, not that a second layer of tests exists.
 
 ---
 
-## Unit Test Readiness
+## Seam Readiness
 
-- [ ] Dependencies injectable for mocking (constructor injection, DI container, provider overrides)
+These checks apply to step definitions and the production seams they drive.
+
+- [ ] Production seams take their dependencies by injection (constructor injection, DI container, provider overrides), so step definitions can substitute fakes
 - [ ] Pure functions for business logic (deterministic, no side effects)
 - [ ] No hidden side effects (global state, singletons without reset)
-- [ ] Async operations awaitable and testable
-- [ ] Time-dependent logic uses injectable clock/time source
+- [ ] Async operations awaitable from step definitions
+- [ ] Time-dependent logic uses an injectable clock/time source that step definitions control
 
 ### Mock Patterns
 
-The implementation should support easy mocking:
+Step definitions should be able to substitute dependencies:
 
 ```
 // Pseudocode — dependency injection enables mocking
@@ -24,18 +26,18 @@ The implementation should support easy mocking:
 // Production
 service = new UserService(realDatabase, realEmailClient)
 
-// Test
-service = new UserService(mockDatabase, mockEmailClient)
+// Step definition
+service = new UserService(fakeDatabase, fakeEmailClient)
 ```
 
-## Integration Test Readiness
+## Environment Readiness
 
-- [ ] Database/storage can be reset between tests
+- [ ] Database/storage can be reset between scenarios
 - [ ] External services mockable (HTTP interceptors, fake servers)
 - [ ] Test fixtures available for common data
 - [ ] Environment isolation (test config separate from production)
 
-## BDD Test Readiness
+## Scenario Readiness
 
 - [ ] Feature files exist with valid Gherkin syntax
 - [ ] Step definitions implemented for all scenarios
@@ -52,11 +54,12 @@ service = new UserService(mockDatabase, mockEmailClient)
 
 ## Anti-Patterns
 
-- [ ] No hard-coded dates/times (use injectable clock)
-- [ ] No tests that depend on execution order
-- [ ] No tests that require network access for unit tests
-- [ ] No tests with excessive mocking (testing implementation, not behavior)
-- [ ] No flaky tests (random failures, timing dependencies)
+- [ ] No hard-coded dates/times in production seams (use injectable clock)
+- [ ] No scenarios that depend on execution order
+- [ ] No scenario steps that require uncontrolled network access
+- [ ] No scenario steps with excessive mocking (testing implementation, not behavior)
+- [ ] No flaky scenarios (random failures, timing dependencies)
+- [ ] No tests that restate a scenario's acceptance criterion
 
 ---
 
@@ -65,7 +68,7 @@ service = new UserService(mockDatabase, mockEmailClient)
 | Score | Description |
 |-------|-------------|
 | 1 | Hard-coded dependencies, no tests possible |
-| 2 | Some tests, difficult to mock |
-| 3 | Testable design, partial coverage |
-| 4 | Good DI, comprehensive unit tests |
-| 5 | Full DI, high coverage, integration + BDD tests |
+| 2 | Some scenarios implemented, seams difficult to substitute |
+| 3 | Testable design, some ACs lack implemented scenarios |
+| 4 | Injectable seams, every AC's scenario implemented |
+| 5 | Injectable seams and clock, every AC's scenario implemented and passing, no duplicate tests |

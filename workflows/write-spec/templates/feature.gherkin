@@ -1,6 +1,6 @@
 # Gherkin Feature Template
 
-Generate exactly one observable scenario per requirements acceptance criterion. Give every scenario one distinct stable `@SCN...` tag. Generated file content consists only of required frontmatter, file/source comments, a Feature line, and AC-linked observable scenarios. Do not emit authoring instructions, section dividers, step-definition guidance, feasibility data, or external obligations inside the generated file.
+Generate exactly one observable scenario (or one Scenario Outline) per requirements acceptance criterion. These scenarios are the single acceptance test layer: each AC is tested once, by its scenario's implementation, so no other test restates it. Give every scenario one distinct stable `@SCN...` tag. Generated file content consists only of required frontmatter, file/source comments, a Feature line, and AC-linked observable scenarios. Do not emit authoring instructions, section dividers, step-definition guidance, feasibility data, or external obligations inside the generated file.
 
 ## Feature Variant
 
@@ -59,6 +59,8 @@ Feature: [Bug summary]
 Authoring rules:
 
 - Preserve direct one-to-one AC/scenario mapping and unique stable tags.
+- Express variations of one AC (inputs, states, error cases) as a `Scenario Outline:` with an `Examples:` table that carries that AC's single `@SCN` tag, rather than as extra scenarios or separate tests.
+- Make the `# File:` header name the scenario's implementing test: the feature file whose step definitions implement it, or the test file whose tests cite each scenario's `@SCN` tag.
 - Use concrete repository-domain examples and independent scenarios.
 - Add `Background:` only for shared software preconditions.
 - Describe observable behavior, not implementation procedure.

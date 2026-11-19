@@ -389,6 +389,52 @@ describe('per-project stage models (steering/sdlc-models.json)', () => {
   });
 });
 
+// @SCN002 (AC2): an invalid steering/test-layers.json stops execute before any Git call.
+describe('@SCN002 kept test layers (steering/test-layers.json)', () => {
+  it('stops with exit 2 and the diagnostic before any spawn, Git, or GitHub call on an invalid file', () => {
+    const f = fixture();
+    fs.mkdirSync(path.join(f.root, 'steering'), { recursive: true });
+    fs.writeFileSync(path.join(f.root, 'steering/test-layers.json'), '{"version":1,"kept":["bdd","e2e"]}\n');
+    const calls = [];
+    const response = f.execute('', {
+      run: (command, args, options) => { calls.push(command); return f.run(command, args, options); },
+      host: { spawn: () => { throw new Error('spawn_called'); } },
+    });
+    expect(response).toEqual({ status: 2, stdout: '', stderr:
+      'steering/test-layers.json: kept[1] = "e2e": unknown test type; must be one of bdd, unit, integration, property, doc\n' });
+    expect(calls).toEqual([]);
+    expect(f.state.starts).toEqual([]);
+  });
+
+  it('exits 2 from the goal CLI with the diagnostic before any Git call', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-test-layers-cli-'));
+    roots.push(root);
+    fs.mkdirSync(path.join(root, 'steering'));
+    fs.writeFileSync(path.join(root, 'steering/test-layers.json'), '{"version":2,"kept":["bdd"]}\n');
+    const cli = spawnSync(process.execPath, [path.join(packageRoot, 'scripts/sdlc-execute.mjs'), 'goal'],
+      { cwd: root, encoding: 'utf8' });
+    expect(cli.status).toBe(2);
+    expect(cli.stderr).toBe('steering/test-layers.json: version = 2: must be 1\n');
+  });
+
+  it('keeps the file and field diagnostic when the issue worktree file turns invalid mid-run', () => {
+    const f = fixture({ branch: 'main' });
+    f.setWorker((context) => {
+      if (context.step !== 'start') throw new Error(`no ${context.step} worker may start`);
+      roots.push(`${f.root}-wt`);
+      const worktree = ensureWorktree({ cwd: f.root, branch: '42-example', base: 'main' });
+      git(worktree.path, 'push', '-u', 'origin', '42-example');
+      fs.writeFileSync(path.join(worktree.path, 'steering/test-layers.json'), '{"version":1,"kept":["bdd","e2e"]}\n');
+      f.state.workdir = worktree.path;
+      return { status: 'passed', next: 'implement' };
+    });
+    const response = f.execute('#42');
+    expect(response.status).not.toBe(0);
+    expect(response.stderr).toContain('test_layers_invalid: steering/test-layers.json: kept[1] = "e2e": unknown test type');
+    expect(f.state.starts.map((start) => start.step)).toEqual(['start']);
+  });
+});
+
 // Answers the off-branch issue-side delivery reads from per-test maps; everything else uses f.run.
 function issueDeliveryRun(f, { issues = {}, prs = {} } = {}) {
   return (command, args, options) => {

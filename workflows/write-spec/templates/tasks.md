@@ -1,6 +1,8 @@
 # Tasks Template
 
-Use this template for executable feature or bug specs. Emit only issue-specific repository implementation tasks and AC-linked test tasks in dependency order. Every task belongs to the current issue and realizes or proves retained behavior. Do not add generic setup, quality, delivery, approval, release, publication, or external-operation tasks.
+Use this template for executable feature or bug specs. Emit only issue-specific repository implementation tasks and scenario-implementation tasks in dependency order. Every task belongs to the current issue and realizes or proves retained behavior. Do not add generic setup, quality, delivery, approval, release, publication, or external-operation tasks.
+
+The `feature.gherkin` scenarios are the single acceptance test layer, so each AC is tested exactly once. An AC-linked test task implements those scenarios by their `@SCN` tags: their step definitions, or the test that the scenario's `# File:` header names and that cites the tag, plus any production seams the steps need. Never task a separate test that restates an AC; a duplicate only grows the suite without adding evidence. Follow the rendered Kept Test Layers rule: any other test task must be of a kept type and cover a behavior that no scenario covers.
 
 `**File(s)**:` is optional implementation guidance, never an allowlist. When present, use repository-relative paths enclosed in backticks, separated by commas or semicolons. Bounded directories and globs are allowed. Optional parenthetical notes may follow an entry. Acceptance is authoritative.
 
@@ -28,14 +30,15 @@ When a task's acceptance requires a `CHANGELOG.md` `[Unreleased]` entry for issu
 - [Specific retained AC/FR behavior this task implements]
 - [Observable repository result]
 
-### T002: [AC-linked behavioral verification]
+### T002: Implement the `feature.gherkin` scenarios
 
-**File(s)**: `path/to/test`
+**File(s)**: `path/to/step-definitions-or-scenario-test`
 **Type**: Create | Modify
 **Depends**: T001
 **Acceptance**:
-- [AC identifier and observable behavior exercised]
-- [Exact repository test or registered validation evidence]
+- `@SCN001` (AC1): [scenario implementation and the production seams its steps need]
+- `@SCN002` (AC2): [scenario implementation]
+- [Exact command that runs the scenarios]
 
 ## Change History
 
@@ -44,7 +47,7 @@ When a task's acceptance requires a `CHANGELOG.md` `[Unreleased]` entry for issu
 | #[number] | [YYYY-MM-DD] | Initial feature tasks |
 ```
 
-Add only the number of tasks required by the retained issue behavior. Every dependency names an earlier task; independent tasks use `none`. Test tasks must map to specific ACs. Do not include unconstrained Notes.
+Add only the number of tasks required by the retained issue behavior. Every dependency names an earlier task; independent tasks use `none`. Scenario-implementation tasks must name each `@SCN` tag and its AC. Do not include unconstrained Notes.
 
 ## Defect Variant
 
@@ -70,14 +73,14 @@ Use when the GitHub issue has the `bug` label. Keep a bounded flat task list for
 - [Root cause from design.md is corrected]
 - [AC1 observable behavior is produced]
 
-### T002: Add Behavioral Regression Coverage
+### T002: Implement the Regression Scenarios
 
-**File(s)**: `path/to/test`
+**File(s)**: `path/to/step-definitions-or-scenario-test`
 **Type**: Create | Modify
 **Depends**: T001
 **Acceptance**:
-- [AC-linked scenario reproduces the original condition]
-- [Test fails without the fix and passes with it]
+- `@SCN001` (AC1): [scenario implementation reproduces the original condition]
+- [The scenario fails without the fix and passes with it]
 
 ## Change History
 

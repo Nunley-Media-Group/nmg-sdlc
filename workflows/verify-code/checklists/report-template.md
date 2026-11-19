@@ -119,19 +119,24 @@ Use this template to generate the final verification report.
 
 ## Test Coverage
 
-### BDD Scenarios
+The `feature.gherkin` scenarios are the single acceptance layer. Judge coverage per AC by its scenario's implementation, never by test counts.
 
-| Acceptance Criterion | Has Scenario | Has Steps | Passes |
-|---------------------|-------------|-----------|--------|
-| AC1 | Yes/No | Yes/No | Yes/No |
-| AC2 | Yes/No | Yes/No | Yes/No |
+### Scenario Coverage
 
-### Coverage Summary
+| AC | Scenario | Implementation | Status |
+|----|----------|----------------|--------|
+| AC1 | `@SCN001` | `path/to/step-definitions-or-scenario-test` | Implemented / Missing / Failing |
+| AC2 | `@SCN002` | `path/to/step-definitions-or-scenario-test` | Implemented / Missing / Failing |
 
-- Feature files: [count] scenarios
-- Step definitions: [Implemented / Missing]
-- Unit tests: [count] tests
-- Integration tests: [count] tests
+### Test-Layer Findings
+
+Kept test types: [from the rendered Kept Test Layers rule, or `steering/test-layers.json`; a missing file means `bdd` only]
+
+Among the test files the branch added or changed:
+
+- Duplicate: `path/to/test` restates `@SCN00N` (AC N) — [none]
+- Non-kept type: `path/to/test` is a `[type]` test, which the project does not keep — [none]
+- Justified: `path/to/test` (`[type]`): [justification from the implement handoff's `justifiedTests`] — [none]
 
 ---
 

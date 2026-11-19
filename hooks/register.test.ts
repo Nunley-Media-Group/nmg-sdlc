@@ -27,6 +27,7 @@ type World = {
   renders: string[][]
   draft: string
   renderFails: boolean
+  renderStderr?: string
   bash: { command: string; stdout: string; isError?: true; backgroundTaskId?: string; timedOutAfterMs?: number }[]
   bashInputs: Record<string, unknown>[]
   files: Record<string, string>
@@ -140,7 +141,8 @@ function engine(on: On, { interactive = true, env = {} as Record<string, string>
   on('process.run', (_, e) => {
     world.renders.push([...e.argv])
     if (world.renderFails) {
-      return { value: { exitCode: 2, stdout: '', stderr: '{"ok":false,"reasonCode":"project_runtime_invalid"}', isStdoutTruncated: false, isStderrTruncated: false } }
+      const stderr = world.renderStderr ?? '{"ok":false,"reasonCode":"project_runtime_invalid"}'
+      return { value: { exitCode: 2, stdout: '', stderr, isStdoutTruncated: false, isStderrTruncated: false } }
     }
     const published = e.argv.indexOf('--published')
     const consumer = e.argv[e.argv.indexOf('--consumer') + 1]
@@ -326,6 +328,20 @@ describe('interactive commands', () => {
     const result = await run($, world, 'sdlc-execute', '#42')
     expect(result).toEqual(expect.objectContaining({ exitCode: 1 }))
     expect(world.renders).toEqual([])
+    expect(world.prompts).toEqual([])
+  })
+
+  // @SCN002 (AC2): an invalid steering/test-layers.json reaches the user with the file and field.
+  test('@SCN002 a test-layers render failure shows its reason and the diagnostic naming the file and field', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    world.renderFails = true
+    world.renderStderr = `${JSON.stringify({ ok: false, reasonCode: 'test_layers_invalid',
+      message: 'steering/test-layers.json: kept = ["unit"]: must include bdd, the acceptance layer' })}\n`
+    const result = await run($, world, 'sdlc-write-spec')
+    expect(result).toEqual(expect.objectContaining({ text: 'NMG SDLC: /sdlc-write-spec could not render its workflow: '
+      + 'test_layers_invalid: steering/test-layers.json: kept = ["unit"]: must include bdd, the acceptance layer' }))
+    expect(world.plans).toEqual([])
     expect(world.prompts).toEqual([])
   })
 

@@ -183,7 +183,14 @@ async function render($: Engine, args: string[]): Promise<Rendered> {
     )
     if (exitCode === 0 && stdout.length > 0) return { ok: true, text: stdout }
     let message = stderr.trim() || `prompt render exited ${exitCode}`
-    try { message = JSON.parse(message).reasonCode ?? message } catch { /* plain text */ }
+    try {
+      // A diagnostic beyond the bare reason code, such as the file and field of an invalid setting, is shown too.
+      const parsed = JSON.parse(message)
+      const reasonCode = typeof parsed.reasonCode === 'string' ? parsed.reasonCode : message
+      message = typeof parsed.message === 'string' && parsed.message.length > 0 && parsed.message !== reasonCode
+        ? `${reasonCode}: ${parsed.message}`
+        : reasonCode
+    } catch { /* plain text */ }
     return { ok: false, message }
   } catch (error) {
     return { ok: false, message: errorText(error) }

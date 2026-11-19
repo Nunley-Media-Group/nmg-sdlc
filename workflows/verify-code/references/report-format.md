@@ -13,7 +13,7 @@ Use `checklists/report-template.md` as the scaffold and fill in:
 - **Issue Scope** with the active issue number, spec and manifest paths, resolver status, exact delivery AC/FR/task/scenario IDs, and exact regression AC/FR/scenario IDs.
 - A separate regression-obligations checklist. Regression evidence never counts as current delivery completion.
 - Architecture review scores (SOLID, security, performance, testability, error handling).
-- Test coverage analysis.
+- Test coverage analysis: the per-AC scenario coverage table (AC, `@SCN` scenario, implementation path, Implemented / Missing / Failing) and the test-layer findings. Flag each test the branch added or changed that restates a scenario's AC, and each that is of a type the project does not keep (the rendered Kept Test Layers rule; a missing `steering/test-layers.json` means `bdd` only). Echo the implement handoff's `justifiedTests`. Never report per-layer test counts: a count rewards duplicate tests rather than coverage.
 - Exercise test results — include when plugin changes were detected in Step 5a; cover skill exercised, method, AC evaluation, and captured output summary. Include the graceful-degradation note when exercise was skipped.
 - **Steering Doc Verification Gates** — include when gates were extracted from `tech.md` in Step 1; list each gate's name, status, and evidence. Omit entirely when no `## Verification Gates` section exists.
 - Fixes applied (what was found and how it was fixed, including the routing column).
@@ -81,8 +81,11 @@ Use this Markdown structure:
 
 ### Test Coverage
 
-- BDD scenarios: [X/Y] acceptance criteria covered
-- Step definitions: [Implemented / Missing]
+| AC | Scenario | Implementation | Status |
+|----|----------|----------------|--------|
+| AC1 | `@SCN001` | `path/to/step-definitions-or-scenario-test` | Implemented / Missing / Failing |
+
+- Test-layer findings: [duplicates, non-kept types, and justified tests, or none]
 - Test execution: [Pass / Fail / Not run]
 
 ### Steering Doc Verification Gates
