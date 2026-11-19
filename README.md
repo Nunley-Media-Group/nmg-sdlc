@@ -186,7 +186,7 @@ Interactive behavior maps one to one: OMP `ask` chips are `AskUserQuestion` ques
 | `steering/modules/{product,tech,structure,verification}.mjs` | Four plugin-managed descriptors |
 | `steering/snippets/*.md` | Project-owned guidance loaded only by registered consumers, slots, and order |
 | `steering/extensions/*.mjs` | Explicitly trusted project validation providers |
-| `validations[]` | Required/optional deterministic gates and applicability conditions, with an optional `tier`, `heavy` marker, test `selection` command and `fallbackPaths` (see [Validation tiers](#validation-tiers)) |
+| `validations[]` | Required/optional deterministic gates and applicability conditions, with an optional `tier`, `heavy` marker, `concurrent` marker, test `selection` command and `fallbackPaths` (see [Validation tiers](#validation-tiers)) |
 | `worktree` (optional) | A `setup` command run once in each new issue worktree, for example to create a virtual environment and install dependencies, and a `teardown` command run before a delivered issue worktree is removed; spec worktrees run neither |
 | `changelog.fragments.dir` (optional) | Opts the project into changelog fragments: one file per issue (`<dir>/<N>.md`), assembled into `CHANGELOG.md` when that issue's version is prepared |
 | `fullGreen.actions` (optional) | Downstream actions, such as `deploy`, that require a green full-tier record at or after the commit they act on |
@@ -205,6 +205,7 @@ By default every required validation runs before merge. A project whose full sui
 | `"tier": "change"` | Required before merge. Runs in the verify gate |
 | `"tier": "full"` | Not required before merge. Recorded as skipped by the gate, and run on demand by `/sdlc-verify-full` |
 | `"heavy": true` | The validation takes a slot from the machine-wide heavy-job pool before it runs |
+| `"concurrent": true` | Once the required `builtin.command` validations have run (always one at a time), every applicable flagged validation starts together, so the batch takes about as long as its slowest member. Unflagged validations run one at a time. A failure does not cancel the others, a heavy one still waits for a pool slot, and results stay in manifest order |
 | `"selection"` | On a `change`-tier `builtin.command` validation: a project command (`{ program, args, cwd?, env? }`) that receives the changed paths and base ref and returns the tests to run |
 | `"fallbackPaths"` | On the same kind of validation: globs that force the full command when a changed path matches one |
 

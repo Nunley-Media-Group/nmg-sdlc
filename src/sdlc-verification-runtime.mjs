@@ -434,11 +434,20 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
         if (entry.effectiveStatus !== "passed") localRequiredCommandsPassed = false;
       }
     }
-    // Phase 2: non-local-required applicable validations.
-    for (const validation of runtime.validations) {
-      if (resultById.has(validation.id)) continue;
-      const isProjectProvider = !String(validation.provider).startsWith("builtin.");
-      resultById.set(validation.id, await execute(validation, isProjectProvider && !localRequiredCommandsPassed));
+    // Phase 2: non-local-required applicable validations. Unflagged ones run one at a time in manifest order;
+    // the `concurrent: true` ones all start together at the first one's position. `execute` never rejects,
+    // so every batch member settles and records its own result.
+    const deferred = (validation) => !String(validation.provider).startsWith("builtin.") && !localRequiredCommandsPassed;
+    const pending = runtime.validations.filter((validation) => !resultById.has(validation.id));
+    const batch = pending.filter((validation) => validation.concurrent === true);
+    let batchRun = false;
+    for (const validation of pending) {
+      if (validation.concurrent !== true) {
+        resultById.set(validation.id, await execute(validation, deferred(validation)));
+      } else if (!batchRun) {
+        batchRun = true;
+        await Promise.all(batch.map((member) => execute(member, deferred(member)).then((entry) => resultById.set(member.id, entry))));
+      }
     }
     const results = runtime.validations.map((v) => resultById.get(v.id)).filter(Boolean);
     const coverage = validationResultCoverage(runtime.validations, results);

@@ -7,7 +7,7 @@ import { ALLOWED_CONSUMERS, ALLOWED_SLOTS } from "./sdlc-prompt-snippets.mjs";
 const TOP_KEYS = ["schemaVersion", "runtimeVersion", "managedFiles", "modules", "snippets", "extensions", "validations"];
 // Optional manifest keys: absent ones change nothing.
 export const OPTIONAL_TOP_KEYS = Object.freeze(["worktree", "changelog", "fullGreen"]);
-const OPTIONAL_VALIDATION_KEYS = ["timeoutMs", "tier", "heavy", "selection", "fallbackPaths"];
+const OPTIONAL_VALIDATION_KEYS = ["timeoutMs", "tier", "heavy", "concurrent", "selection", "fallbackPaths"];
 export const VALIDATION_TIERS = Object.freeze(["change", "full"]);
 const SHELL_PROGRAMS = ["sh", "bash", "zsh", "cmd", "powershell"];
 const ROLES = ["product", "tech", "structure", "verification"];
@@ -239,6 +239,7 @@ export async function loadSteeringRuntime(projectRoot, { manifestPath = "steerin
     validateConfig(record);
     if (Object.hasOwn(record, "tier") && !VALIDATION_TIERS.includes(record.tier)) fail("steering_validation_invalid", "tier");
     if (Object.hasOwn(record, "heavy") && typeof record.heavy !== "boolean") fail("steering_validation_invalid", "heavy");
+    if (Object.hasOwn(record, "concurrent") && typeof record.concurrent !== "boolean") fail("steering_validation_invalid", "concurrent");
     validateSelection(record);
     const { timeoutMs: _legacyTimeoutMs, ...validation } = record;
     validations.push(Object.freeze(validation));

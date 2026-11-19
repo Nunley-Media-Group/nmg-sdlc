@@ -12,6 +12,12 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.17.0] - 2026-11-19
+
+### Added
+
+- A steering validation can declare `concurrent: true`: in Phase 2 of the verification gate every applicable flagged validation starts together, so the gate takes about as long as its slowest member. Unflagged validations stay serial, a failure does not cancel the others, heavy validations still take a pool slot, and results stay in manifest order (#580).
+
 ## [4.16.0] - 2026-11-16
 
 ### Changed

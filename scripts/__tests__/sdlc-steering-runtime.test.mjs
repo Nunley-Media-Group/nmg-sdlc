@@ -201,6 +201,36 @@ describe('managed steering runtime', () => {
     expect(legacy.validations[0]).not.toHaveProperty('timeoutMs');
   });
 
+  it('keeps a boolean concurrent marker and rejects any other value naming concurrent (#580 AC8)', async () => {
+    const root = fixture();
+    await applySteeringPlan(root, plan(root, {
+      validations: [{
+        id: 'valid.command',
+        provider: 'builtin.command',
+        required: true,
+        when: { kind: 'always' },
+        config: { program: process.execPath, args: [], cwd: '.', env: [] },
+      }],
+    }));
+    const manifestPath = path.join(root, 'steering', 'manifest.json');
+    const setConcurrent = (value) => {
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      manifest.validations[0].concurrent = value;
+      fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    };
+    for (const value of [true, false]) {
+      setConcurrent(value);
+      expect((await loadSteeringRuntime(root)).validations[0].concurrent).toBe(value);
+    }
+    for (const value of ['yes', 1, null, {}]) {
+      setConcurrent(value);
+      await expect(loadSteeringRuntime(root)).rejects.toMatchObject({
+        reasonCode: 'steering_validation_invalid',
+        message: expect.stringContaining('concurrent'),
+      });
+    }
+  });
+
   it('rejects approved actions outside managed runtime scope', async () => {
     const root = fixture();
     const approved = plan(root);
