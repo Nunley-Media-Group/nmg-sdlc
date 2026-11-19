@@ -166,7 +166,7 @@ export function workerPrompt({ step, issue, skill, cwd, controllerRunId } = {}) 
   if (!VALID_STEPS.includes(step) || !Number.isSafeInteger(issue) || issue <= 0 || (skill && skill !== SKILLS[step])) {
     throw new Error('invalid worker step or issue');
   }
-  const { text, provenance } = renderPrompt(defaultPromptRegistry(packageRoot, { projectRoot: cwd }), {
+  const { text, provenance } = renderPrompt(defaultPromptRegistry(packageRoot, { projectRoot: cwd, consumer: `worker:${step}` }), {
     consumer: `worker:${step}`,
     vars: { issue: String(issue), step, handoffPath: `${HANDOFF_DIR}/${issue}-${step}.json`, controllerRunId: controllerRunId ?? '' },
   });
@@ -1410,7 +1410,13 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
       }
     }
     return warned({ status: 0, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: '' });
-  } catch (error) { return warned(fail(error?.reasonCode ?? error?.message ?? 'controller_failed')); }
+  } catch (error) {
+    // A diagnostic beyond the bare reason code, such as the file and field of an invalid setting, is shown too.
+    const reasonCode = error?.reasonCode;
+    const message = error?.message;
+    return warned(fail(reasonCode && message && message !== reasonCode ? `${reasonCode}: ${message}`
+      : reasonCode ?? message ?? 'controller_failed'));
+  }
   finally {
     dropLease();
   }

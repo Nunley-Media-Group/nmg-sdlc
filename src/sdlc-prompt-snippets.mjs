@@ -313,12 +313,19 @@ export function testLayersFragment(projectRoot) {
   });
 }
 
-export function defaultPromptRegistry(packageRoot = defaultPackageRoot, { projectRoot, pluginOnly = false } = {}) {
+/**
+ * `consumer`, when given, names the one prompt this registry renders: the kept-test-types
+ * fragment is then read only for its four consumers, so an invalid steering/test-layers.json
+ * blocks no other command.
+ */
+export function defaultPromptRegistry(packageRoot = defaultPackageRoot, { projectRoot, pluginOnly = false, consumer } = {}) {
   const registry = createPromptSnippetRegistry();
   for (const fragment of pluginPromptFragments()) {
     registerPromptSnippet(registry, fragment, packageRoot);
   }
-  if (projectRoot && !pluginOnly) registerPromptSnippet(registry, testLayersFragment(projectRoot), packageRoot);
+  if (projectRoot && !pluginOnly && (consumer === undefined || TEST_LAYERS_CONSUMERS.includes(consumer))) {
+    registerPromptSnippet(registry, testLayersFragment(projectRoot), packageRoot);
+  }
   if (projectRoot && !pluginOnly && existsSync(join(projectRoot, "steering", "manifest.json"))) {
     const command = join(packageRoot, "scripts", "sdlc-steering.mjs");
     const result = spawnSync("node", [command, "prompt-fragments", "--project", projectRoot], {

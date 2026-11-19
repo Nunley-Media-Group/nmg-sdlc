@@ -416,6 +416,23 @@ describe('@SCN002 kept test layers (steering/test-layers.json)', () => {
     expect(cli.status).toBe(2);
     expect(cli.stderr).toBe('steering/test-layers.json: version = 2: must be 1\n');
   });
+
+  it('keeps the file and field diagnostic when the issue worktree file turns invalid mid-run', () => {
+    const f = fixture({ branch: 'main' });
+    f.setWorker((context) => {
+      if (context.step !== 'start') throw new Error(`no ${context.step} worker may start`);
+      roots.push(`${f.root}-wt`);
+      const worktree = ensureWorktree({ cwd: f.root, branch: '42-example', base: 'main' });
+      git(worktree.path, 'push', '-u', 'origin', '42-example');
+      fs.writeFileSync(path.join(worktree.path, 'steering/test-layers.json'), '{"version":1,"kept":["bdd","e2e"]}\n');
+      f.state.workdir = worktree.path;
+      return { status: 'passed', next: 'implement' };
+    });
+    const response = f.execute('#42');
+    expect(response.status).not.toBe(0);
+    expect(response.stderr).toContain('test_layers_invalid: steering/test-layers.json: kept[1] = "e2e": unknown test type');
+    expect(f.state.starts.map((start) => start.step)).toEqual(['start']);
+  });
 });
 
 // Answers the off-branch issue-side delivery reads from per-test maps; everything else uses f.run.

@@ -122,10 +122,10 @@ Write `.nmg-sdlc/handoffs/N-implement.json` :
   "artifacts": [ list of created/modified paths ],
   "next": "verify",
   "reasonCode": null,
-  "justifiedTests": [ { "path": "path/to/test", "type": "unit", "justification": "behavior no scenario covers" } ]
+  "justifiedTests": []
 }
 
-`justifiedTests` is optional: omit it, or leave it empty, when every test added is a scenario implementation. Each entry names one added non-scenario test by `path`, its kept `type` (never `bdd`), and a non-empty `justification`; `validate-handoff` rejects any other shape.
+`justifiedTests` is optional: omit it, or leave it empty, when every test added is a scenario implementation. It is always empty in a project whose Kept Test Layers rule keeps only `bdd`. Each entry names one added non-scenario test by `path`, a `type` that the rendered Kept Test Layers rule keeps (never `bdd`), and a non-empty `justification`, for example `{ "path": "path/to/test", "type": "unit", "justification": "behavior no scenario covers" }` in a project that keeps `unit`. `validate-handoff` checks only the shape, so a type the project does not keep passes it but is flagged by verify.
 
 Print exactly:
 NMG_SDLC_HANDOFF: .nmg-sdlc/handoffs/N-implement.json

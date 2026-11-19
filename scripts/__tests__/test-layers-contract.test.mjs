@@ -102,6 +102,21 @@ describe('@SCN002 kept-test-types setting is read and validated', () => {
     expect(error.message.startsWith(message)).toBe(true);
     expect(() => defaultPromptRegistry(repoRoot, { projectRoot: root })).toThrow(message);
   });
+
+  it('blocks only the four rule consumers, never another command, on an invalid file', () => {
+    const root = project('{"version":1,"kept":["bdd","e2e"]}');
+    for (const consumer of ['sdlc-draft-issue', 'sdlc-run-retro', 'sdlc-execute']) {
+      expect(renderPromptCli(['--consumer', consumer, '--project', root], { root: repoRoot }).status).toBe(0);
+    }
+    for (const consumer of ['worker:start', 'worker:deliver']) {
+      expect(() => renderPrompt(defaultPromptRegistry(repoRoot, { projectRoot: root, consumer }),
+        { consumer, vars: WORKER_VARS })).not.toThrow();
+    }
+    for (const consumer of RULE_CONSUMERS) {
+      expect(() => defaultPromptRegistry(repoRoot, { projectRoot: root, consumer }))
+        .toThrow('steering/test-layers.json: kept[1] = "e2e": unknown test type');
+    }
+  });
 });
 
 describe('@SCN003 implement workers justify any non-scenario test', () => {
@@ -114,7 +129,9 @@ describe('@SCN003 implement workers justify any non-scenario test', () => {
     expect(workflow).toContain('Test work is the implementation of the active `feature.gherkin` scenarios');
     expect(workflow).toContain('a test that restates a scenario\'s AC only duplicates evidence: never add one');
     expect(workflow).toContain('it is of a kept type other than `bdd`, it covers a behavior that no scenario covers, and it is listed in the handoff\'s `justifiedTests` with its type and justification');
-    expect(workflow).toContain('"justifiedTests": [ { "path": "path/to/test", "type": "unit", "justification": "behavior no scenario covers" } ]');
+    expect(workflow).toContain('"justifiedTests": []');
+    expect(workflow).toContain('It is always empty in a project whose Kept Test Layers rule keeps only `bdd`.');
+    expect(workflow).toContain('a `type` that the rendered Kept Test Layers rule keeps (never `bdd`)');
   });
 
   it('accepts a handoff with no justifiedTests or a well-formed list', () => {

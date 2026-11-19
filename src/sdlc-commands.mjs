@@ -41,6 +41,7 @@ export function renderInteractiveWorkflow(command, root, provenanceRoot) {
     defaultPromptRegistry(pluginRoot, {
       projectRoot,
       pluginOnly: REPAIR_COMMANDS.has(command),
+      consumer: command,
     }),
     { consumer: command, vars: {} },
   );
