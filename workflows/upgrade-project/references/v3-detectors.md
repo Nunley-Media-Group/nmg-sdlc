@@ -155,7 +155,7 @@ v3 kept plugin runtime state under `.omp/sdlc/` and ignored it with the managed 
    - Signal: the project has at least one test file. The item reports `detectedTypes`, `recordedKept`, `pairs` and `coverageConfig`; the digest covers every inventoried test file plus `steering/test-layers.json` and `steering/test-coverage.json`.
    - Apply (order 10.82, after `sdlc-models-defaults`) fails a stale digest with `test_layers_plan_stale` before mutation. With `--kept` it writes `steering/test-layers.json` (always including `bdd`); without `--kept` it keeps a recorded set, or reports `skipped:kept_types_unrecorded` and writes nothing. It then records `.nmg-sdlc/upgrade/test-layers/inventory.json` and reports a `gap` when `steering/test-coverage.json` is missing or invalid. It never deletes a test: deletion happens only through the gated batch subcommands.
 
-Re-running detect after a successful v4 apply reports none of these items.
+Re-running detect after a successful v4 apply reports none of these items, except Test layers (item 20): it is re-emitted while the project has any test file, so a reappearing `test-layers:<digest>` item after an apply is expected, not a failed apply.
 
 ## Apply contract
 

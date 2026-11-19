@@ -109,8 +109,23 @@ export function classifyTestFile(rel, text = '', featureFileRefs = new Set()) {
   return 'unit';
 }
 
+// In a Git work tree, drops untracked paths Git ignores (.venv/, target/, coverage/, …); tracked files stay.
+function withoutIgnored(root, files) {
+  if (files.length === 0) return files;
+  const result = spawnSync('git', ['check-ignore', '--stdin', '-z'], {
+    cwd: path.resolve(root),
+    encoding: 'utf8',
+    shell: false,
+    input: `${files.join('\0')}\0`,
+    maxBuffer: 256 * 1024 * 1024,
+  });
+  if (result.error || (result.status !== 0 && result.status !== 1)) return files;
+  const ignored = new Set(result.stdout.split('\0').filter(Boolean));
+  return files.filter((rel) => !ignored.has(rel));
+}
+
 function scan(root) {
-  const all = walk(root);
+  const all = withoutIgnored(root, walk(root));
   const refs = new Set();
   for (const rel of all) {
     if (!isFeature(rel) && path.posix.basename(rel) !== 'feature.gherkin') continue;
@@ -301,9 +316,9 @@ function covers(big, small) {
 }
 
 /** Labels each non-kept test `duplicate`, `convert` or `unmatched` and groups the first two into per-file batches.
- * `priorIds` maps a file to the batch id an earlier run gave it, so ids stay stable across reruns; new files take
- * the next unused number. */
-export function computeCandidates(inventory, kept, coverage, priorIds = new Map()) {
+ * `priorIds` maps a file to the batch id an earlier run gave it, so ids stay stable across reruns; other files take
+ * the next number above every id in `priorIds` and `usedIds` (ids already spent, such as accepted batches). */
+export function computeCandidates(inventory, kept, coverage, priorIds = new Map(), usedIds = []) {
   const keptSet = new Set(kept);
   const pairs = new Map(pairWithFeatures(inventory).map((pair) => [pair.path, pair.feature]));
   const bdd = coverage.filter((test) => test.type === 'bdd');
@@ -323,7 +338,7 @@ export function computeCandidates(inventory, kept, coverage, priorIds = new Map(
     if (!byFile.has(test.file)) byFile.set(test.file, { file: test.file, type: test.type, feature, tests: [] });
     byFile.get(test.file).tests.push(entry);
   }
-  let next = Math.max(0, ...[...priorIds.values()].map((id) => Number(id.slice('batch-'.length))));
+  let next = Math.max(0, ...[...priorIds.values(), ...usedIds].map((id) => Number(id.slice('batch-'.length))));
   const batches = [...byFile.values()]
     .sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0))
     .map((batch) => ({ id: priorIds.get(batch.file) ?? `batch-${String(++next).padStart(3, '0')}`, ...batch }));
@@ -376,15 +391,16 @@ export function gateBatch(before, after, suite, batch, kept) {
   return { status: 'accepted', deleted };
 }
 
-function git(root, args, indexFile) {
+function git(root, args, indexFile, { input, allowFailure = false } = {}) {
   const result = spawnSync('git', args, {
     cwd: path.resolve(root),
     encoding: 'utf8',
     shell: false,
+    input,
     maxBuffer: 256 * 1024 * 1024,
     env: indexFile ? { ...process.env, GIT_INDEX_FILE: indexFile } : process.env,
   });
-  if (result.error || result.status !== 0) {
+  if (result.error || (result.status !== 0 && !allowFailure)) {
     const error = new Error(`git ${args[0]} failed: ${(result.stderr || result.error?.message || '').trim()}`);
     error.reasonCode = 'test_layers_snapshot_failed';
     throw error;
@@ -407,23 +423,41 @@ function requireGitWorkTree(root) {
   }
 }
 
-/** Stages every non-ignored path into a temporary index and returns its tree id; the real index is untouched. */
+/** Stages every non-ignored path into a temporary index and returns its tree id; the real index is untouched.
+ * The temporary index starts as a copy of the real one, so Git re-hashes only files whose stat data changed. */
 export function snapshot(root, batchId) {
   requireGitWorkTree(root);
   const indexFile = stateFile(root, `index-${batchId}`);
   fs.mkdirSync(path.dirname(indexFile), { recursive: true });
   fs.rmSync(indexFile, { force: true });
+  const realIndex = path.resolve(root, git(root, ['rev-parse', '--git-path', 'index']).trim());
+  if (fs.existsSync(realIndex)) {
+    fs.copyFileSync(realIndex, indexFile);
+    // assume-unchanged (lower-case tag) and skip-worktree (S) entries would hide work-tree edits: start empty.
+    const flagged = git(root, ['ls-files', '-v', '-z'], indexFile).split('\0').some((entry) => /^[a-zS]/.test(entry));
+    if (flagged) fs.rmSync(indexFile, { force: true });
+    else git(root, ['rm', '--cached', '-r', '-q', '--ignore-unmatch', '--', '.nmg-sdlc'], indexFile);
+  }
   git(root, ['add', '-A', ...worktreePathspec(root)], indexFile);
   return git(root, ['write-tree'], indexFile).trim();
 }
 
-/** Returns every non-ignored path to `tree`, deleting non-ignored paths absent from it. HEAD, refs and the real
- * index are never changed. */
+/** Returns every non-ignored path to `tree`, deleting non-ignored paths absent from it, and rewrites only the
+ * paths that differ from it. HEAD, refs and the real index are never changed. */
 export function restore(root, tree, batchId) {
   const rootAbs = path.resolve(root);
   const indexFile = stateFile(root, `index-${batchId}`);
-  git(root, ['read-tree', tree], indexFile);
-  git(root, ['checkout-index', '-a', '-f'], indexFile);
+  const intact = fs.existsSync(indexFile)
+    && git(root, ['write-tree'], indexFile, { allowFailure: true }).trim() === tree;
+  if (intact) {
+    // The snapshot index still holds `tree` with its stat data: check out only the paths changed since begin.
+    git(root, ['update-index', '-q', '--refresh'], indexFile, { allowFailure: true });
+    const changed = git(root, ['diff-files', '--name-only', '-z'], indexFile);
+    if (changed) git(root, ['checkout-index', '-f', '-z', '--stdin'], indexFile, { input: changed });
+  } else {
+    git(root, ['read-tree', tree], indexFile);
+    git(root, ['checkout-index', '-a', '-f'], indexFile);
+  }
   const extra = git(root, ['ls-files', '-z', '--others', '--exclude-standard', ...worktreePathspec(root)], indexFile)
     .split('\0').filter(Boolean);
   for (const rel of extra) {
@@ -472,18 +506,31 @@ function batchRecordNames(root) {
   return (fs.existsSync(dir) ? fs.readdirSync(dir) : []).filter((name) => name.endsWith('.json')).sort();
 }
 
-// File → batch id from the previous candidates and every begun or gated batch record.
+// File → batch id from the previous candidates and every begun or refused batch record, plus every id already
+// spent. An accepted batch's id is retired: a file it leaves with candidate tests is listed again under a new id,
+// so the accepted record is kept and the remaining tests can still be migrated.
 function priorBatchIds(root) {
   const ids = new Map();
-  const remember = (file, id) => {
-    if (typeof file === 'string' && BATCH_ID_RE.test(id ?? '') && !ids.has(file)) ids.set(file, id);
-  };
-  for (const name of batchRecordNames(root)) {
-    const record = readState(root, 'batches', name);
-    remember(record?.file ?? record?.batch?.file, typeof record?.batch === 'string' ? record.batch : record?.batch?.id);
+  const used = new Set();
+  const accepted = new Set();
+  const records = batchRecordNames(root).map((name) => readState(root, 'batches', name)).filter(Boolean);
+  for (const record of records) {
+    const id = typeof record.batch === 'string' ? record.batch : record.batch?.id;
+    if (!BATCH_ID_RE.test(id ?? '')) continue;
+    used.add(id);
+    if (record.status === 'accepted') accepted.add(id);
   }
-  for (const batch of readState(root, 'candidates.json')?.batches ?? []) remember(batch.file, batch.id);
-  return ids;
+  const remember = (file, id) => {
+    if (typeof file === 'string' && BATCH_ID_RE.test(id ?? '') && !accepted.has(id) && !ids.has(file)) ids.set(file, id);
+  };
+  for (const record of records) {
+    remember(record.file ?? record.batch?.file, typeof record.batch === 'string' ? record.batch : record.batch?.id);
+  }
+  for (const batch of readState(root, 'candidates.json')?.batches ?? []) {
+    if (BATCH_ID_RE.test(batch.id ?? '')) used.add(batch.id);
+    remember(batch.file, batch.id);
+  }
+  return { ids, used: [...used] };
 }
 
 /** Runs the suite and coverage, records the baseline on the first run only, and returns the migration batches.
@@ -494,7 +541,8 @@ export function testLayersCandidates(root) {
   const measured = measure(root, pre.config);
   if (measured.error) return { ok: false, ...measured.error };
   const inventory = inventoryTestFiles(root);
-  const { batches, unmatched } = computeCandidates(inventory, pre.kept, measured.tests, priorBatchIds(root));
+  const prior = priorBatchIds(root);
+  const { batches, unmatched } = computeCandidates(inventory, pre.kept, measured.tests, prior.ids, prior.used);
   let baseline = readState(root, 'baseline.json')?.before;
   if (!baseline) {
     baseline = { ...counts(measured.tests), wallMs: measured.suite.wallMs };

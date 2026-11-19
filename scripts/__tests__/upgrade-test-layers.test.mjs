@@ -8,7 +8,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { applyUpgrade, detectUpgrade } from '../sdlc-upgrade.mjs';
-import { TestCoverageError, validateCoverageReport, validateTestCoverageConfig } from '../test-coverage.mjs';
+import { TestCoverageError, loadTestCoverageConfig, validateCoverageReport, validateTestCoverageConfig } from '../test-coverage.mjs';
+import { TestLayersError, writeTestLayers } from '../test-layers.mjs';
 
 const upgradeScript = fileURLToPath(new URL('../sdlc-upgrade.mjs', import.meta.url));
 const noNetworkRun = () => ({ status: 1, stdout: '', stderr: 'network disabled in test' });
@@ -477,5 +478,88 @@ describe('@SCN002 the item digest covers the steering files', () => {
     write(root, rel, text);
     expect(item(root).id).not.toBe(stale);
     expect(() => applyUpgrade(root, [stale], noNetworkRun, { kept: ['bdd'] })).toThrow(expect.objectContaining({ reasonCode: 'test_layers_plan_stale' }));
+  });
+});
+
+describe('@SCN005 a file left with candidate tests after an accepted batch can be migrated again', () => {
+  it('lists the file under a new batch id, keeps the accepted record, and accepts the follow-up batch', () => {
+    const root = project({ kept: ['bdd'] });
+    cli(root, 'test-layers-candidates');
+    cli(root, 'test-layers-batch', 'begin', '--batch', 'batch-001');
+    // Delete only the duplicate; the convert test stays for a later batch.
+    write(root, 'test/cart.test.js', '// TEST cart.test.js:remove lines=src/cart.js:3 branches=src/cart.js:3:1 outcomes=removes-item\n');
+    expect(cli(root, 'test-layers-batch', 'gate', '--batch', 'batch-001').out.status).toBe('accepted');
+    const rerun = cli(root, 'test-layers-candidates').out;
+    expect(rerun.batches.map((batch) => [batch.id, batch.file])).toEqual([
+      ['batch-003', 'test/cart.test.js'],
+      ['batch-002', 'test/pricing.test.js'],
+    ]);
+    expect(cli(root, 'test-layers-batch', 'begin', '--batch', 'batch-003').out.status).toBe('begun');
+    write(root, 'features/cart.feature', `${FEATURE}      | remove |\n  # TEST cart.feature:remove lines=src/cart.js:3 branches=src/cart.js:3:1 outcomes=removes-item\n`);
+    fs.rmSync(path.join(root, 'test/cart.test.js'));
+    expect(cli(root, 'test-layers-batch', 'gate', '--batch', 'batch-003').out.status).toBe('accepted');
+    expect(cli(root, 'test-layers-candidates').out.batches.map((batch) => [batch.id, batch.file])).toEqual([['batch-002', 'test/pricing.test.js']]);
+    const report = cli(root, 'test-layers-report').out;
+    expect(report.accepted.map((record) => [record.batch, record.file, record.deleted.map((entry) => entry.id)])).toEqual([
+      ['batch-001', 'test/cart.test.js', ['cart.test.js:add']],
+      ['batch-003', 'test/cart.test.js', ['cart.test.js:remove']],
+    ]);
+    expect(report.before.testCount).toBe(5);
+  });
+});
+
+describe('@SCN006 restore rewrites only the paths a refused batch changed', () => {
+  it('leaves unchanged files untouched and restores changed, deleted and added paths byte for byte', () => {
+    const root = project({ kept: ['bdd'] });
+    write(root, 'notes.txt', 'untracked but not ignored\n');
+    cli(root, 'test-layers-candidates');
+    const old = new Date('2020-01-01T00:00:00Z');
+    fs.utimesSync(path.join(root, 'src/cart.js'), old, old);
+    fs.utimesSync(path.join(root, 'notes.txt'), old, old);
+    cli(root, 'test-layers-batch', 'begin', '--batch', 'batch-001');
+    const before = tree(root);
+    fs.rmSync(path.join(root, 'test/cart.test.js'));
+    write(root, 'test/pricing.test.js', 'changed\n');
+    write(root, 'test/new/extra.test.js', 'new\n');
+    expect(cli(root, 'test-layers-batch', 'gate', '--batch', 'batch-001').out.status).toBe('refused');
+    expect(tree(root)).toEqual(before);
+    expect(fs.existsSync(path.join(root, 'test/new'))).toBe(false);
+    expect(fs.statSync(path.join(root, 'src/cart.js')).mtimeMs).toBe(old.getTime());
+    expect(fs.statSync(path.join(root, 'notes.txt')).mtimeMs).toBe(old.getTime());
+  });
+});
+
+describe('@SCN001 detection skips test files Git ignores', () => {
+  it('does not count an ignored test file but counts a tracked one', () => {
+    const root = project({ files: { ...FILES, '.gitignore': '.nmg-sdlc/\n.venv/\n' } });
+    write(root, '.venv/lib/site/test_vendor.py', 'def test_x(): pass\n');
+    expect(item(root).detectedTypes).toEqual({ bdd: 1, unit: 3 });
+  });
+});
+
+describe('@SCN001 steering files are never written or read through a symlink', () => {
+  it('refuses a symlinked steering/test-layers.json and leaves its target unchanged', () => {
+    const root = project({ coverage: null });
+    write(root, 'elsewhere.json', 'original\n');
+    fs.mkdirSync(path.join(root, 'steering'), { recursive: true });
+    fs.symlinkSync(path.join(root, 'elsewhere.json'), path.join(root, 'steering/test-layers.json'));
+    expect(() => writeTestLayers(root, ['bdd'])).toThrow(TestLayersError);
+    expect(fs.readFileSync(path.join(root, 'elsewhere.json'), 'utf8')).toBe('original\n');
+  });
+
+  it('returns the re-read file contents after writing', () => {
+    const root = project({ coverage: null });
+    expect(writeTestLayers(root, ['unit', 'doc'])).toEqual({ version: 1, kept: readJson(root, 'steering/test-layers.json').kept });
+    expect(readJson(root, 'steering/test-layers.json').kept).toEqual(expect.arrayContaining(['bdd', 'unit', 'doc']));
+  });
+
+  it.each([
+    ['a symlink', (root, target) => { write(root, 'real.json', COVERAGE_CONFIG); fs.symlinkSync(path.join(root, 'real.json'), target); }],
+    ['a directory', (_root, target) => fs.mkdirSync(target)],
+  ])('rejects steering/test-coverage.json that is %s', (_kind, make) => {
+    const root = project({ coverage: null });
+    fs.mkdirSync(path.join(root, 'steering'), { recursive: true });
+    make(root, path.join(root, 'steering/test-coverage.json'));
+    expect(() => loadTestCoverageConfig(root)).toThrow(/must be a regular file/);
   });
 });
