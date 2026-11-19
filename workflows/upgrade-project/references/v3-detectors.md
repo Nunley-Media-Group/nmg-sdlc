@@ -29,10 +29,15 @@ CLI:
 
 ```
 node "<plugin-root>/scripts/sdlc-upgrade.mjs" detect [--root <dir>]
-node "<plugin-root>/scripts/sdlc-upgrade.mjs" apply --approve <id1,id2,...> [--root <dir>]
+node "<plugin-root>/scripts/sdlc-upgrade.mjs" apply --approve <id1,id2,...> [--kept <type,type,...>] [--root <dir>]
 node "<plugin-root>/scripts/sdlc-upgrade.mjs" detect-publication --root <dir> --spec specs/N-slug
 node "<plugin-root>/scripts/sdlc-upgrade.mjs" apply-publication --root <dir> --spec specs/N-slug --approve publication-files:<digest>
+node "<plugin-root>/scripts/sdlc-upgrade.mjs" test-layers-candidates --root <dir>
+node "<plugin-root>/scripts/sdlc-upgrade.mjs" test-layers-batch <begin|gate> --root <dir> --batch batch-NNN
+node "<plugin-root>/scripts/sdlc-upgrade.mjs" test-layers-report --root <dir>
 ```
+
+`--kept` is a value option that applies only with an approved `test-layers:<digest>` id. The `test-layers-*` subcommands print one JSON object and exit 0 on `ok:true`, 1 on a refusal and 2 on bad arguments; references/test-layer-migration.md gives the batch loop.
 
 `applyUpgrade` is safe to call on temporary fixtures for tests (never mutates the nmg-sdlc specs/ tree directly).
 
@@ -146,6 +151,9 @@ v3 kept plugin runtime state under `.omp/sdlc/` and ignored it with the managed 
 19. **Stage model defaults** (`id: sdlc-models-defaults`, `kind: sdlc-models-defaults`)
    - Signal: `steering/sdlc-models.json` is a regular, valid file with an entry whose model and effort equal an earlier plugin default from `SUPERSEDED_STAGE_MODEL_DEFAULTS` (`action: refresh`, `entries`).
    - Apply (order 10.81, after `sdlc-models`) calls `refreshStageModelDefaults` after a live re-check and changes only those entries. A project-chosen value is never offered or changed.
+20. **Test layers** (`id: test-layers:<sha256>`, `kind: test-layers`)
+   - Signal: the project has at least one test file. The item reports `detectedTypes`, `recordedKept`, `pairs` and `coverageConfig`; the digest covers every inventoried test file plus `steering/test-layers.json` and `steering/test-coverage.json`.
+   - Apply (order 10.82, after `sdlc-models-defaults`) fails a stale digest with `test_layers_plan_stale` before mutation. With `--kept` it writes `steering/test-layers.json` (always including `bdd`); without `--kept` it keeps a recorded set, or reports `skipped:kept_types_unrecorded` and writes nothing. It then records `.nmg-sdlc/upgrade/test-layers/inventory.json` and reports a `gap` when `steering/test-coverage.json` is missing or invalid. It never deletes a test: deletion happens only through the gated batch subcommands.
 
 Re-running detect after a successful v4 apply reports none of these items.
 

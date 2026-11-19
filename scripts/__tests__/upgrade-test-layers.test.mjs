@@ -373,3 +373,109 @@ describe('@SCN010 choice can be changed by rerunning', () => {
     expect(cli(root, 'test-layers-report', '--bogus').status).toBe(2);
   });
 });
+
+describe('@SCN009 reruns keep the baseline and earlier batch evidence', () => {
+  it('keeps the original baseline and each file batch id when candidates rerun mid-migration', () => {
+    const root = project({ kept: ['bdd'] });
+    cli(root, 'test-layers-candidates');
+    cli(root, 'test-layers-batch', 'begin', '--batch', 'batch-001');
+    write(root, 'features/cart.feature', `${FEATURE}      | remove |\n  # TEST cart.feature:remove lines=src/cart.js:3 branches=src/cart.js:3:1 outcomes=removes-item\n`);
+    fs.rmSync(path.join(root, 'test/cart.test.js'));
+    expect(cli(root, 'test-layers-batch', 'gate', '--batch', 'batch-001').out.status).toBe('accepted');
+    const rerun = cli(root, 'test-layers-candidates');
+    expect(rerun.out.batches.map((batch) => [batch.id, batch.file])).toEqual([['batch-002', 'test/pricing.test.js']]);
+    expect(rerun.out.baseline.testCount).toBe(5);
+    cli(root, 'test-layers-batch', 'begin', '--batch', 'batch-002');
+    fs.rmSync(path.join(root, 'test/pricing.test.js'));
+    cli(root, 'test-layers-batch', 'gate', '--batch', 'batch-002');
+    const report = cli(root, 'test-layers-report').out;
+    expect(report.before.testCount).toBe(5);
+    expect(report.accepted.map((record) => [record.batch, record.file])).toEqual([
+      ['batch-001', 'test/cart.test.js'],
+      ['batch-002', 'test/pricing.test.js'],
+    ]);
+    expect(report.accepted[0].deleted.map((entry) => entry.id)).toEqual(['cart.test.js:add', 'cart.test.js:remove']);
+  });
+
+  it('reports test_layers_coverage_regressed when coverage falls below the baseline outside the gate', () => {
+    const root = project({ kept: ['bdd'] });
+    cli(root, 'test-layers-candidates');
+    fs.rmSync(path.join(root, 'test/misc.test.js'));
+    const { status, out } = cli(root, 'test-layers-report');
+    expect(status).toBe(1);
+    expect(out).toMatchObject({ ok: false, reasonCode: 'test_layers_coverage_regressed' });
+    expect(out.regressed).toEqual(['lines', 'outcomes']);
+  });
+});
+
+describe('@SCN006 a begun batch is restored on every refusal', () => {
+  it.each([
+    ['invalid', (root) => write(root, 'steering/test-coverage.json', '{"version":2}'), 'test_coverage_config_invalid'],
+    ['missing', (root) => fs.rmSync(path.join(root, 'steering/test-coverage.json')), 'test_coverage_command_missing'],
+  ])('restores the pre-batch tree when the coverage config becomes %s before the gate', (_state, breakConfig, reasonCode) => {
+    const root = project({ kept: ['bdd'] });
+    cli(root, 'test-layers-candidates');
+    cli(root, 'test-layers-batch', 'begin', '--batch', 'batch-001');
+    const before = tree(root);
+    fs.rmSync(path.join(root, 'test/cart.test.js'));
+    breakConfig(root);
+    const gate = cli(root, 'test-layers-batch', 'gate', '--batch', 'batch-001');
+    expect(gate.status).toBe(1);
+    expect(gate.out).toMatchObject({ ok: false, status: 'refused', reasonCode, path: 'steering/test-coverage.json' });
+    expect(tree(root)).toEqual(before);
+  });
+
+  it('refuses a second begin of an ungated batch, so the refusal restores the first snapshot', () => {
+    const root = project({ kept: ['bdd'] });
+    cli(root, 'test-layers-candidates');
+    cli(root, 'test-layers-batch', 'begin', '--batch', 'batch-001');
+    const before = tree(root);
+    write(root, 'test/stray.js', 'stray\n');
+    const again = cli(root, 'test-layers-batch', 'begin', '--batch', 'batch-001');
+    expect(again).toMatchObject({ status: 1, out: { ok: false, reasonCode: 'test_layers_batch_already_begun' } });
+    fs.rmSync(path.join(root, 'test/cart.test.js'));
+    expect(cli(root, 'test-layers-batch', 'gate', '--batch', 'batch-001').out.reasonCode).toBe('test_layers_coverage_gap');
+    expect(tree(root)).toEqual(before);
+    expect(cli(root, 'test-layers-batch', 'begin', '--batch', 'batch-001').out.status).toBe('begun');
+  });
+
+  it('refuses with test_layers_coverage_failed and restores when the coverage command fails', () => {
+    const root = project({ kept: ['bdd'] });
+    cli(root, 'test-layers-candidates');
+    cli(root, 'test-layers-batch', 'begin', '--batch', 'batch-002');
+    const before = tree(root);
+    fs.rmSync(path.join(root, 'test/pricing.test.js'));
+    write(root, 'tools/coverage.mjs', 'process.exit(3);\n');
+    const gate = cli(root, 'test-layers-batch', 'gate', '--batch', 'batch-002');
+    expect(gate).toMatchObject({ status: 1, out: { ok: false, status: 'refused', reasonCode: 'test_layers_coverage_failed' } });
+    expect(tree(root)).toEqual(before);
+  });
+
+  it('refuses to begin a batch outside a Git work tree with test_layers_git_required', () => {
+    const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-test-layers-nogit-')));
+    roots.push(root);
+    for (const [rel, text] of Object.entries(FILES)) write(root, rel, text);
+    write(root, 'steering/test-layers.json', `${JSON.stringify({ version: 1, kept: ['bdd'] })}\n`);
+    write(root, 'steering/test-coverage.json', COVERAGE_CONFIG);
+    const env = { ...process.env, GIT_CEILING_DIRECTORIES: path.dirname(root) };
+    const run = (...args) => {
+      const result = spawnSync(process.execPath, [upgradeScript, ...args, '--root', root], { cwd: root, encoding: 'utf8', env });
+      return { status: result.status, out: JSON.parse(result.stdout) };
+    };
+    expect(run('test-layers-candidates').status).toBe(0);
+    expect(run('test-layers-batch', 'begin', '--batch', 'batch-001')).toMatchObject({ status: 1, out: { reasonCode: 'test_layers_git_required' } });
+  });
+});
+
+describe('@SCN002 the item digest covers the steering files', () => {
+  it.each([
+    ['steering/test-coverage.json', '{"version":1}'],
+    ['steering/test-layers.json', '{"version":1,"kept":["bdd"]}\n'],
+  ])('changes the digest and fails a stale apply when %s changes', (rel, text) => {
+    const root = project();
+    const stale = item(root).id;
+    write(root, rel, text);
+    expect(item(root).id).not.toBe(stale);
+    expect(() => applyUpgrade(root, [stale], noNetworkRun, { kept: ['bdd'] })).toThrow(expect.objectContaining({ reasonCode: 'test_layers_plan_stale' }));
+  });
+});

@@ -300,8 +300,10 @@ function covers(big, small) {
   return KINDS.every((kind) => isSubset(small[kind], big[kind]));
 }
 
-/** Labels each non-kept test `duplicate`, `convert` or `unmatched` and groups the first two into per-file batches. */
-export function computeCandidates(inventory, kept, coverage) {
+/** Labels each non-kept test `duplicate`, `convert` or `unmatched` and groups the first two into per-file batches.
+ * `priorIds` maps a file to the batch id an earlier run gave it, so ids stay stable across reruns; new files take
+ * the next unused number. */
+export function computeCandidates(inventory, kept, coverage, priorIds = new Map()) {
   const keptSet = new Set(kept);
   const pairs = new Map(pairWithFeatures(inventory).map((pair) => [pair.path, pair.feature]));
   const bdd = coverage.filter((test) => test.type === 'bdd');
@@ -321,9 +323,10 @@ export function computeCandidates(inventory, kept, coverage) {
     if (!byFile.has(test.file)) byFile.set(test.file, { file: test.file, type: test.type, feature, tests: [] });
     byFile.get(test.file).tests.push(entry);
   }
+  let next = Math.max(0, ...[...priorIds.values()].map((id) => Number(id.slice('batch-'.length))));
   const batches = [...byFile.values()]
     .sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0))
-    .map((batch, index) => ({ id: `batch-${String(index + 1).padStart(3, '0')}`, ...batch }));
+    .map((batch) => ({ id: priorIds.get(batch.file) ?? `batch-${String(++next).padStart(3, '0')}`, ...batch }));
   return { batches, unmatched };
 }
 
@@ -464,16 +467,39 @@ function measure(root, config) {
   return { suite, ...coverage };
 }
 
-/** Runs the suite and coverage, records the baseline, and returns the migration batches. */
+function batchRecordNames(root) {
+  const dir = stateFile(root, 'batches');
+  return (fs.existsSync(dir) ? fs.readdirSync(dir) : []).filter((name) => name.endsWith('.json')).sort();
+}
+
+// File → batch id from the previous candidates and every begun or gated batch record.
+function priorBatchIds(root) {
+  const ids = new Map();
+  const remember = (file, id) => {
+    if (typeof file === 'string' && BATCH_ID_RE.test(id ?? '') && !ids.has(file)) ids.set(file, id);
+  };
+  for (const name of batchRecordNames(root)) {
+    const record = readState(root, 'batches', name);
+    remember(record?.file ?? record?.batch?.file, typeof record?.batch === 'string' ? record.batch : record?.batch?.id);
+  }
+  for (const batch of readState(root, 'candidates.json')?.batches ?? []) remember(batch.file, batch.id);
+  return ids;
+}
+
+/** Runs the suite and coverage, records the baseline on the first run only, and returns the migration batches.
+ * Reruns keep the original baseline and each file's batch id, so earlier batch records are never overwritten. */
 export function testLayersCandidates(root) {
   const pre = preconditions(root);
   if (pre.refusal) return { ok: true, batches: [], unmatched: [], refused: [pre.refusal] };
   const measured = measure(root, pre.config);
   if (measured.error) return { ok: false, ...measured.error };
   const inventory = inventoryTestFiles(root);
-  const { batches, unmatched } = computeCandidates(inventory, pre.kept, measured.tests);
-  const baseline = { ...counts(measured.tests), wallMs: measured.suite.wallMs };
-  writeState(root, ['baseline.json'], { version: 1, kept: pre.kept, before: baseline });
+  const { batches, unmatched } = computeCandidates(inventory, pre.kept, measured.tests, priorBatchIds(root));
+  let baseline = readState(root, 'baseline.json')?.before;
+  if (!baseline) {
+    baseline = { ...counts(measured.tests), wallMs: measured.suite.wallMs };
+    writeState(root, ['baseline.json'], { version: 1, kept: pre.kept, before: baseline });
+  }
   writeState(root, ['candidates.json'], { version: 1, kept: pre.kept, batches, unmatched });
   return { ok: true, kept: pre.kept, batches, unmatched, baseline };
 }
@@ -483,12 +509,19 @@ function loadBatch(root, batchId) {
   return candidates?.batches?.find((batch) => batch.id === batchId) ?? null;
 }
 
-/** Snapshots the pre-batch tree and records the pre-batch coverage. */
+/** Snapshots the pre-batch tree and records the pre-batch coverage. A batch that is begun and not yet gated, or
+ * already accepted, is refused so its recorded pre-batch snapshot is never replaced by an edited tree. */
 export function beginTestLayersBatch(root, batchId) {
   const pre = preconditions(root);
   if (pre.refusal) return { ok: false, batch: batchId, ...pre.refusal };
   const batch = loadBatch(root, batchId);
   if (!batch) return { ok: false, batch: batchId, reasonCode: 'test_layers_batch_unknown' };
+  if (readState(root, 'batches', `${batchId}.begin.json`)) {
+    return { ok: false, batch: batchId, reasonCode: 'test_layers_batch_already_begun' };
+  }
+  if (readState(root, 'batches', `${batchId}.json`)?.status === 'accepted') {
+    return { ok: false, batch: batchId, reasonCode: 'test_layers_batch_already_accepted' };
+  }
   let tree;
   try {
     tree = snapshot(root, batchId);
@@ -501,19 +534,25 @@ export function beginTestLayersBatch(root, batchId) {
   return { ok: true, batch: batchId, status: 'begun', file: batch.file, tests: batch.tests };
 }
 
-/** Runs the suite and coverage after the batch's edits, gates them, and restores the snapshot on refusal. */
+/** Runs the suite and coverage after the batch's edits, gates them, and restores the snapshot on any refusal,
+ * including a steering precondition that no longer holds. Gating ends the batch: its begin record is removed. */
 export function gateTestLayersBatch(root, batchId) {
-  const pre = preconditions(root);
-  if (pre.refusal) return { ok: false, batch: batchId, ...pre.refusal };
   const begun = readState(root, 'batches', `${batchId}.begin.json`);
   if (!begun) return { ok: false, batch: batchId, reasonCode: 'test_layers_batch_not_begun' };
-  const suite = runCommand(root, pre.config.suite);
-  const after = suite.status === 0 ? collectCoverage(root, pre.config) : { tests: [] };
-  const decision = gateBatch({ tests: begun.tests }, after, suite, begun.batch, pre.kept);
+  const pre = preconditions(root);
+  let decision;
+  if (pre.refusal) {
+    decision = { status: 'refused', ...pre.refusal };
+  } else {
+    const suite = runCommand(root, pre.config.suite);
+    const after = suite.status === 0 ? collectCoverage(root, pre.config) : { tests: [] };
+    decision = gateBatch({ tests: begun.tests }, after, suite, begun.batch, pre.kept);
+  }
   if (decision.status === 'refused') restore(root, begun.tree, batchId);
   const record = { batch: batchId, file: begun.batch.file, ...decision };
   writeState(root, ['batches', `${batchId}.json`], { version: 1, ...record });
   fs.rmSync(stateFile(root, `index-${batchId}`), { force: true });
+  fs.rmSync(stateFile(root, 'batches', `${batchId}.begin.json`), { force: true });
   return { ok: decision.status === 'accepted', ...record };
 }
 
@@ -526,10 +565,8 @@ export function testLayersReport(root) {
   const measured = measure(root, pre.config);
   if (measured.error) return { ok: false, ...measured.error };
   const after = { ...counts(measured.tests), wallMs: measured.suite.wallMs };
-  const dir = stateFile(root, 'batches');
-  const records = (fs.existsSync(dir) ? fs.readdirSync(dir) : [])
-    .filter((name) => name.endsWith('.json') && !name.endsWith('.begin.json'))
-    .sort()
+  const records = batchRecordNames(root)
+    .filter((name) => !name.endsWith('.begin.json'))
     .map((name) => readState(root, 'batches', name))
     .filter(Boolean);
   const accepted = records.filter((record) => record.status === 'accepted')

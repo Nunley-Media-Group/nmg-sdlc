@@ -166,6 +166,8 @@ The migration then runs in batches, one non-kept test file per batch, using the 
 3. `test-layers-batch gate --root . --batch batch-NNN` runs the suite and coverage. It accepts the batch with per-test evidence (the deleted test, the covering `bdd` tests and the covered lines), or refuses it and restores the pre-batch tree byte for byte, without touching HEAD, refs or the index: `test_layers_suite_failed`, `test_layers_coverage_failed`, `test_layers_removal_out_of_batch`, or `test_layers_coverage_gap` with the uncovered lines, branches and outcomes.
 4. `test-layers-report --root .` prints before/after collected-test count, suite wall time, and line, branch and outcome coverage counts, the accepted evidence and every refused batch with its gap. A coverage count below its baseline reports `test_layers_coverage_regressed`.
 
+Begin refuses a batch that is already begun and not yet gated (`test_layers_batch_already_begun`) or already accepted (`test_layers_batch_already_accepted`), and a gate restores the tree on every refusal, including a steering file broken after begin. Rerunning `test-layers-candidates` keeps the original baseline and each file's batch id, so earlier evidence survives; delete `.nmg-sdlc/upgrade/test-layers/` to start over.
+
 Without a valid `steering/test-coverage.json`, the kept set and the test inventory are still recorded, but no batch is offered and every deletion is refused with `test_coverage_command_missing` or `test_coverage_config_invalid` naming the file and field.
 
 The file declares the suite and per-test coverage commands as argument arrays, run with no shell:

@@ -29,4 +29,6 @@
 
 17. Stage model defaults: when `steering/sdlc-models.json` is a regular, valid file and an entry still holds an earlier plugin default (`implement` `haiku`/`xhigh`), emit actionable `id: sdlc-models-defaults`, `kind: sdlc-models-defaults`, `action: refresh`, with `entries` naming those stages. An entry with any other value is never offered.
 
+18. Test layers: when the project has any test file, emit actionable `id: test-layers:<sha256>`, `kind: test-layers` with `detectedTypes` (file counts per `bdd`, `unit`, `integration`, `property` and `doc` type), `recordedKept` (from `steering/test-layers.json`, or `null`), `pairs` (non-`bdd` files whose normalized stem matches a `.feature` file) and `coverageConfig` (`present`, `missing` or `invalid` for `steering/test-coverage.json`). The digest covers every inventoried test file and both steering files, so any change after approval fails apply with `test_layers_plan_stale`. See references/test-layer-migration.md for the batch loop.
+
 All detectors are read-only until plan approval and helper apply. Dependency apply re-reads the graph digest before the first POST and preserves issue body text.
