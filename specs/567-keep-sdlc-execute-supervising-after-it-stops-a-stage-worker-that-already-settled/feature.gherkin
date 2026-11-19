@@ -1,0 +1,22 @@
+**Issue**: #567
+**Date**: 2026-11-18
+**Status**: Approved
+**Author**: Claude Code
+**Related Spec**: specs/491-make-the-sdlc-execute-session-an-opus-supervisor-that-inspects-and-steers-every-worker-stage/
+
+# File: hooks/register.test.ts
+# Generated from: specs/567-keep-sdlc-execute-supervising-after-it-stops-a-stage-worker-that-already-settled/requirements.md
+Feature: Keep /sdlc-execute supervising after it stops a stage worker that already settled
+
+  @SCN001 @regression
+  Scenario: Stopping a settled worker does not crash the controller
+    Given a stage subagent that has written its handoff and settled
+    When the controller stops it
+    Then the stop is confirmed and the controller continues routing without worker_stop_failed
+
+  @SCN002 @regression
+  Scenario: A resumed controller is supervised in the same session
+    Given a controller that exited in a Claude Code session
+    When the supervisor runs supervise again in that session and the Bash call is backgrounded
+    Then the new controller session receives hooks-module heartbeats and its spawn requests are answered
+    And it does not exit supervising_session_lost
