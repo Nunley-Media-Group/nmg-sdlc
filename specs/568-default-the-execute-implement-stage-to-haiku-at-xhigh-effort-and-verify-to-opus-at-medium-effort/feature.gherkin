@@ -1,0 +1,44 @@
+**Issue**: #568
+**Date**: 2026-11-18
+**Status**: Approved
+**Author**: Claude Code
+**Related Spec**: specs/561-default-the-execute-implement-stage-to-opus-at-medium-effort-and-offer-the-new-defaults-on-upgrade/
+
+# File: scripts/__tests__/sdlc-models.test.mjs
+# Generated from: specs/568-default-the-execute-implement-stage-to-haiku-at-xhigh-effort-and-verify-to-opus-at-medium-effort/requirements.md
+Feature: Default the execute implement stage to Haiku at xhigh effort and verify to Opus at medium effort
+
+  @SCN001
+  Scenario: New defaults apply when the file is absent
+    Given a project without steering/sdlc-models.json
+    When sdlc-models.mjs ensure creates it, or execute resolves stage models with the plugin defaults
+    Then implement is haiku/xhigh and verify is opus/medium
+    And start is haiku/default, deliver is haiku/xhigh, and repair is opus/default
+
+  @SCN002
+  Scenario: Missing keys are completed with the new defaults
+    Given a valid steering/sdlc-models.json that lacks the implement or verify entry
+    When upgrade completes the file
+    Then the added entries are implement haiku/xhigh and verify opus/medium
+    And every existing value is unchanged
+
+  @SCN003
+  Scenario: Upgrade offers to move entries holding an earlier default
+    Given a valid steering/sdlc-models.json whose implement is opus/medium or whose verify is opus/high
+    When /sdlc-upgrade-project runs detection
+    Then it emits the sdlc-models-defaults refresh finding naming those stages
+    And on approval the refresh writes implement haiku/xhigh and verify opus/medium, keeping every other value and the key order
+
+  @SCN004
+  Scenario: The current defaults and project-chosen values are never offered
+    Given a valid steering/sdlc-models.json holding the current defaults or values that are not earlier plugin defaults
+    When /sdlc-upgrade-project runs detection or the refresh runs
+    Then no sdlc-models-defaults finding is emitted for those entries
+    And the refresh reports already-current without writing
+
+  @SCN005
+  Scenario: Repository configuration and documentation state the new defaults
+    Given the nmg-sdlc repository
+    When steering/sdlc-models.json, README.md, workflows/onboard-project/WORKFLOW.md, and workflows/upgrade-project/references/detection.md are read
+    Then they state implement haiku/xhigh and verify opus/medium as the defaults
+    And the earlier-default examples name implement opus/medium and verify opus/high
