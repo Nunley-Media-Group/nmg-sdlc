@@ -24,7 +24,7 @@ The manifest has exactly `schemaVersion`, `runtimeVersion`, `managedFiles`, `mod
 - `modules[]`: `{ id, role, path }` for exactly `product`, `tech`, `structure`, and `verification`.
 - `snippets[]`: `{ id, path, consumers, slot, order }`. Consumers and slots must be allowed by the prompt registry. Provenance, ordering, placeholders, hashes, provider identity, source confinement, and non-empty bodies use the shared renderer. Prompt composition has no byte ceiling. `byteBound` is not part of the manifest or fragment schema and fails as an unknown key; there is no legacy compatibility or enforcement path. Initialize and migration writers validate the exact input key set and canonicalize accepted records before returning any plan actions or manifest output.
 - `extensions[]`: `{ id, path, providers }`. The module exports one frozen `extension` descriptor whose id and provider keys exactly match.
-- `validations[]`: `{ id, provider, required, when, config }`, plus the optional `tier`, `heavy`, `selection`, and `fallbackPaths` keys described under Validation Tiers. A legacy `timeoutMs` key is accepted and ignored for compatibility; omission is canonical and means no deadline. Provider ids resolve exactly once.
+- `validations[]`: `{ id, provider, required, when, config }`, plus the optional `tier`, `heavy`, `concurrent`, `selection`, and `fallbackPaths` keys described under Validation Tiers. A legacy `timeoutMs` key is accepted and ignored for compatibility; omission is canonical and means no deadline. Provider ids resolve exactly once.
 
 ## Optional Settings
 
@@ -42,6 +42,11 @@ An invalid value for one of these keys fails with `steering_validation_invalid`.
 
 - `tier`: `"change"` or `"full"`. A `change` validation is required before merge. A `full` validation is not: the pre-merge gate records it as skipped, and `/sdlc-verify-full [REF]` runs it on demand and records the result per commit. In a project where no validation declares a tier, every required validation runs before merge.
 - `heavy`: a boolean. `true` makes the validation take a slot from the host-wide heavy-job pool before it runs. The pool is shared by every project and session on the machine; its size is `heavyJobSlots` in `~/.nmg-sdlc/config.json` (default 1), and its locks are `~/.nmg-sdlc/heavy-jobs/slot-<k>.lock`. `NMG_SDLC_HOST_STATE_DIR` relocates that host directory. The result records `heavy: { slot, waitedMs }`. A slot whose holder process is dead is reclaimed.
+- `concurrent`: a boolean. The verification gate runs in two phases: Phase 1 runs the required `builtin.command` validations one at a time, and Phase 2 runs the rest. In Phase 2, every applicable `concurrent: true` validation starts together at the position of the first one, so the batch takes about as long as its slowest member instead of the sum of all of them. The gate waits for the whole batch before it continues.
+  - A validation without `concurrent: true` never overlaps another validation, and Phase 1 validations always run one at a time whatever they declare. A manifest without the key runs exactly as before.
+  - A failure in the batch does not cancel the other members: each runs to completion and records its own result.
+  - Each member keeps its own selection, its heavy-job slot when it is also `heavy: true` (it waits for a slot before its provider starts; the members that are not heavy do not wait), the Phase 1 deferral of project providers, and cancellation by the gate's abort signal.
+  - Results are recorded in manifest order whatever order the members finish in, with the same fields as a serial run.
 - `selection`: only on a `change`-tier `builtin.command` validation. A project command `{ program, args, cwd?, env? }`:
   - It receives `{ "schemaVersion": 1, "validationId", "baseRef", "changedPaths" }` on stdin and prints `{ "schemaVersion": 1, "mode": "selected" | "all", "tests": [...], "dataStatus": "fresh" | "stale" | "missing", "dataAgeSeconds": number | null }`. The plugin implements no language-specific selection.
   - The selected tests are appended to the validation's `args` (reason `selected`).

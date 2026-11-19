@@ -377,6 +377,161 @@ describe('registered gate with tiers (#551)', () => {
   });
 });
 
+describe('concurrent Phase 2 validations (#580)', () => {
+  // A project provider that hands each request to the test's recorder, so a test controls its timing and outcome.
+  const EXTENSION = `export const extension = Object.freeze({ schemaVersion: 1, id: 'test.concurrent',
+  providers: Object.freeze({ 'project.timed': (request) => globalThis.__nmg580Provider(request) }) });\n`;
+  const timed = (id, config = {}, extra = {}) => ({ id, provider: 'project.timed', required: true, when: { kind: 'always' }, config, ...extra });
+  afterEach(() => { delete globalThis.__nmg580Provider; });
+
+  async function project(validations) {
+    const root = await fixture([]);
+    fs.mkdirSync(path.join(root, 'steering/extensions'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'steering/extensions/timed.mjs'), EXTENSION);
+    editManifest(root, (manifest) => {
+      manifest.extensions.push({ id: 'test.concurrent', path: 'steering/extensions/timed.mjs', providers: ['project.timed'] });
+      manifest.validations = validations;
+    });
+    git(root, 'add', '.');
+    git(root, 'commit', '-m', 'concurrent validations');
+    return root;
+  }
+  /** Installs the provider; returns each validation's `{ start, end, cancelled }` span. */
+  function recorder({ onStart = () => {} } = {}) {
+    const spans = {};
+    globalThis.__nmg580Provider = async (request) => {
+      const { delay = 0, status = 'passed' } = request.config;
+      const span = { start: performance.now(), end: null, cancelled: false };
+      spans[request.validationId] = span;
+      onStart(request.validationId, spans);
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, delay);
+        request.signal?.addEventListener('abort', () => { span.cancelled = true; clearTimeout(timer); resolve(); }, { once: true });
+      });
+      span.end = performance.now();
+      return { schemaVersion: 1, status, summary: `${request.validationId} ${status}`, identity: request.identity,
+        evidence: [{ kind: 'extension', summary: request.validationId, artifact: null }] };
+    };
+    return spans;
+  }
+  const overlaps = (x, y) => x.start < y.end && y.start < x.end;
+  const startOrder = (spans) => Object.entries(spans).sort(([, x], [, y]) => x.start - y.start).map(([id]) => id);
+
+  it('starts every flagged validation together, so the batch takes about as long as its slowest member (AC1)', async () => {
+    const root = await project([timed('a', { delay: 400 }, { concurrent: true }), timed('b', { delay: 500 }, { concurrent: true })]);
+    const spans = recorder();
+    const artifact = await verify(root);
+    expect(artifact.ceiling).toBeNull();
+    const { a, b } = spans;
+    expect(Math.max(a.start, b.start)).toBeLessThan(Math.min(a.end, b.end));
+    expect(Math.max(a.end, b.end) - Math.min(a.start, b.start)).toBeLessThan(800);
+  });
+
+  it('never overlaps an unflagged validation with another, and keeps the serial path without the key (AC2)', async () => {
+    const root = await project([timed('a', { delay: 150 }, { concurrent: true }), timed('b', { delay: 100 }),
+      timed('c', { delay: 150 }, { concurrent: true }), timed('d', { delay: 100 }, { concurrent: false })]);
+    const spans = recorder();
+    expect((await verify(root)).ceiling).toBeNull();
+    expect(overlaps(spans.a, spans.c)).toBe(true);
+    for (const unflagged of ['b', 'd']) {
+      for (const other of Object.keys(spans).filter((id) => id !== unflagged)) expect(overlaps(spans[unflagged], spans[other])).toBe(false);
+    }
+    expect(startOrder(spans).slice(2)).toEqual(['b', 'd']);
+
+    // Without the key, and with every validation `concurrent: false`, the run is the serial run in manifest order.
+    const normalize = (artifact) => artifact.results.map((result) => ({ keys: Object.keys(result).sort(), id: result.id,
+      effectiveStatus: result.effectiveStatus, selection: result.selection, status: result.result.status, summary: result.result.summary }));
+    const serial = [];
+    for (const flag of [undefined, false]) {
+      const extra = flag === undefined ? {} : { concurrent: flag };
+      const plain = await project(['a', 'b', 'c', 'd'].map((id) => timed(id, { delay: 50 }, extra)));
+      const plainSpans = recorder();
+      const artifact = await verify(plain);
+      expect(startOrder(plainSpans)).toEqual(['a', 'b', 'c', 'd']);
+      for (const [id, span] of Object.entries(plainSpans)) {
+        for (const [other, next] of Object.entries(plainSpans)) if (other !== id) expect(overlaps(span, next)).toBe(false);
+      }
+      serial.push(normalize(artifact));
+    }
+    expect(serial[0]).toEqual(serial[1]);
+    expect(serial[0].map(({ id }) => id)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('lets every member finish and record its result when another fails fast (AC3)', async () => {
+    const root = await project([timed('fast', { delay: 20, status: 'failed' }, { concurrent: true }),
+      timed('slow', { delay: 300 }, { concurrent: true }), timed('after')]);
+    const spans = recorder();
+    const artifact = await verify(root);
+    expect(spans.slow.end).toBeGreaterThan(spans.fast.end);
+    expect(artifact.results.map(({ id, effectiveStatus }) => ({ id, effectiveStatus }))).toEqual([
+      { id: 'fast', effectiveStatus: 'failed' }, { id: 'slow', effectiveStatus: 'passed' }, { id: 'after', effectiveStatus: 'passed' }]);
+    expect(artifact.coverage.complete).toBe(true);
+    expect(artifact.ceiling).toBe('Fail');
+  });
+
+  it('records results in manifest order with the fields of a serial run, whatever order they finish in (AC4)', async () => {
+    const root = await project([timed('slow', { delay: 400 }, { concurrent: true, heavy: true }), timed('fast', { delay: 20 }, { concurrent: true }),
+      selecting({ required: false, concurrent: true })]);
+    answer(root, { schemaVersion: 1, mode: 'selected', tests: ['one.test.js'], dataStatus: 'fresh', dataAgeSeconds: 5 });
+    const acquireSlot = async () => ({ slot: 1, waitedMs: 0, release() {} });
+    const spans = recorder();
+    const concurrent = await verify(root, { acquireSlot });
+    expect(spans.fast.end).toBeLessThan(spans.slow.end);
+    expect(concurrent.results.map(({ id }) => id)).toEqual(['slow', 'fast', 'unit.tests']);
+    expect(concurrent.results[0].heavy).toEqual({ slot: 1, waitedMs: 0 });
+    expect(concurrent.results[2].selection).toMatchObject({ reason: 'selected', selectedCount: 1, dataAgeSeconds: 5 });
+
+    editManifest(root, (manifest) => { for (const validation of manifest.validations) delete validation.concurrent; });
+    recorder();
+    const serial = await verify(root, { acquireSlot });
+    expect(concurrent.results.map((result) => Object.keys(result).sort())).toEqual(serial.results.map((result) => Object.keys(result).sort()));
+    expect(concurrent.results.map(({ heavy, selection, effectiveStatus }) => ({ heavy, selection, effectiveStatus })))
+      .toEqual(serial.results.map(({ heavy, selection, effectiveStatus }) => ({ heavy, selection, effectiveStatus })));
+  });
+
+  it('makes a heavy member wait for a pool slot while the members that are not heavy start at once (AC5)', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-host-'));
+    roots.push(dir);
+    const env = { [HOST_STATE_ENV]: dir };
+    const root = await project([timed('heavy', { delay: 50 }, { concurrent: true, heavy: true }), timed('light', { delay: 50 }, { concurrent: true })]);
+    const held = await acquireHeavySlot({ label: 'held', env });
+    // The held slot frees 300ms after the member that is not heavy starts.
+    let grantedAt = Infinity;
+    const spans = recorder({ onStart: (id) => { if (id === 'light') setTimeout(() => { grantedAt = performance.now(); held.release(); }, 300); } });
+    const artifact = await verify(root, { acquireSlot: (options) => acquireHeavySlot({ ...options, env, pollMs: 20 }) });
+    expect(spans.light.start).toBeLessThan(grantedAt);
+    expect(spans.heavy.start).toBeGreaterThanOrEqual(grantedAt);
+    expect(artifact.results[0].heavy.slot).toBe(1);
+    expect(artifact.results[0].heavy.waitedMs).toBeGreaterThanOrEqual(250);
+    expect(Object.hasOwn(artifact.results[1], 'heavy')).toBe(false);
+    expect(heavyPoolHolders({ env })).toEqual([]);
+  });
+
+  it('defers flagged project providers after a required local command fails (AC6)', async () => {
+    const root = await project([node('local', 'process.exit(1)'), timed('p1', {}, { concurrent: true }), timed('p2', {}, { concurrent: true }), timed('p3')]);
+    const spans = recorder();
+    const artifact = await verify(root);
+    expect(spans).toEqual({});
+    for (const result of artifact.results.slice(1)) {
+      expect(result).toMatchObject({ effectiveStatus: 'incomplete', result: { summary: 'deferred until required local validations pass' } });
+    }
+  });
+
+  it('cancels every running member, releases each held slot and records each as non-passing on abort (AC7)', async () => {
+    const root = await project([timed('h', { delay: 60_000 }, { concurrent: true, heavy: true }), timed('l', { delay: 60_000 }, { concurrent: true }), timed('later')]);
+    const controller = new AbortController();
+    let released = 0;
+    const acquireSlot = async () => ({ slot: 1, waitedMs: 0, release() { released += 1; } });
+    const spans = recorder({ onStart: (_id, all) => { if (all.h && all.l) setTimeout(() => controller.abort(), 20); } });
+    const artifact = await verify(root, { acquireSlot, signal: controller.signal });
+    expect(spans.h.cancelled && spans.l.cancelled).toBe(true);
+    expect(released).toBe(1);
+    expect(artifact.results.map(({ id, effectiveStatus }) => ({ id, effectiveStatus }))).toEqual([
+      { id: 'h', effectiveStatus: 'incomplete' }, { id: 'l', effectiveStatus: 'incomplete' }, { id: 'later', effectiveStatus: 'incomplete' }]);
+    expect(artifact.ceiling).toBe('Incomplete');
+  });
+});
+
 describe('host-wide heavy-job pool (#551 AC7)', () => {
   const host = (slots = 1) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-host-'));
