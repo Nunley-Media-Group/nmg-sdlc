@@ -8,57 +8,58 @@
 
 ## Root Cause
 
-- The hooks module (`hooks/register.ts`) adds an entry to a worker's `background` list when a Bash result has a `backgroundTaskId` (`recordBackgroundStart`, `src/execute-host.mjs`).
-- It removes entries only in `recordStepStart`, the first model step of a worker whose status was settled. Nothing else observes a command ending.
-- A command that exits while the worker is still in its turn is therefore never removed. This happens when the worker waits for it, or reads its completion notification within the turn.
-- `settleCommits` (`scripts/sdlc-execute.mjs`) holds the stage report while `background` is non-empty. For a settled worker, it waits only for a new turn (`until: 'started'`).
-- A worker that has finished takes no new turn, so the controller waits until something messages the worker.
+The hooks module's `tool.call` hook adds each backgrounded worker `Bash` call to the worker's activity record through `recordBackgroundStart` (`src/execute-host.mjs`). The only path that removes those entries is `recordStepStart`, called from the `turn.step` hook. It clears `background` only when a settled worker begins another model step.
+
+`settleCommits` in `scripts/sdlc-execute.mjs` holds the stage report while `record.background` is non-empty. For a settled worker it waits with `pause({ until: 'started', ... })`, that is, for a new turn. A worker that has written its handoff and settled takes no further turn. Its entries therefore persist after the commands exit, and the wait never ends until something prompts the worker again.
 
 ## Affected Code
 
 | File | Symbol / Area | Role |
 |------|---------------|------|
-| `hooks/register.ts` | `tool.call` background tracking; new `classic.SubagentStop` / `classic.Stop` hooks | Records and reconciles tracked commands |
-| `src/execute-host.mjs` | `recordBackgroundStart`, new `reconcileBackground` | Pure record transforms |
-| `scripts/sdlc-execute.mjs` | `settleCommits` | Controller wait on background work and the git index lock |
+| `src/execute-host.mjs` | `recordBackgroundStart`, `clearBackground`, `recordStepStart` | Background entries are cleared only on a new step |
+| `hooks/register.ts` | `turn.step` and `tool.call` worker hooks; `workers`, `queueAgent`, `updateAgent` | Only a new worker step triggers clearing |
+| `scripts/sdlc-execute.mjs` | `settleCommits` | Holds the stage report while `background` is non-empty |
 
 ## Fix Strategy
 
-**`src/execute-host.mjs`**
-- `recordBackgroundStart` accepts `endsWithFinalResponse` and stores it on the entry, as `true` or absent.
-- `reconcileBackground(record, { inFlight, ownStop, at })`:
-  - `inFlight` is the set of task ids that `background_tasks` lists with a status other than `completed`, `failed` or `killed`.
-  - It keeps an entry only when its `taskId` is in `inFlight`.
-  - When `ownStop` is true, it also drops entries with `endsWithFinalResponse`.
-  - It updates `updatedAt` only when the list changes, and returns the record unchanged when nothing is dropped.
+1. Add the Node-free helper `reconcileBackground(record, inFlight, at)` to `src/execute-host.mjs`:
+   - When `inFlight` is an array, keep only the `record.background` entries whose `taskId` equals the `id` of an `inFlight` entry.
+   - Set `updatedAt` to `at` only when an entry was dropped.
+   - When `inFlight` is not an array, or nothing was dropped, return the record unchanged.
+2. In `hooks/register.ts`, register `classic.SubagentStop` and `classic.Stop` handlers that read `e.background_tasks`:
+   - `classic.SubagentStop` reconciles the worker whose id equals `e.agent_id`, when it is a tracked stage worker.
+   - `classic.Stop` (the supervising main loop, whose turns end at every check-in report) reconciles every tracked stage worker.
+   - Each update goes through the existing `queueAgent`/`updateAgent` path.
+   - Each handler returns `next(e)` unchanged, so the stop outcome is never altered. A reconciliation failure is swallowed, as the other activity updates' failures are.
+3. `settleCommits` needs no logic change. Each `CHECK_IN_SLICE_MS` pause re-reads the activity record, so it returns once the reconciled record lists no background command and the git index is unlocked. Update its comment to say that a settled worker's entries also clear when the host reports them no longer in flight.
 
-**`hooks/register.ts`**
-- In the `tool.call` background branch, it passes `result.backgroundEndsWithFinalResponse === true` to `recordBackgroundStart`.
-- `on('classic.SubagentStop')` and `on('classic.Stop')` call `next(e)` first, then reconcile when `Array.isArray(e.background_tasks)`.
-  - They build `inFlight` from those tasks.
-  - Each tracked worker's record is updated through the existing per-agent queue (`queueAgent`, `updateAgent`) with `reconcileBackground`.
-  - `ownStop` is `e.agent_id === agentId` for `SubagentStop`.
-- The hooks never change the event's answer.
+## Changes
 
-**`scripts/sdlc-execute.mjs` `settleCommits`**
-- For a settled worker, the pause passes a `changed` predicate. It returns true when the worker's activity record has no background entries and the index lock is gone. The wait therefore ends at the next host poll after reconciliation.
-- An active worker is still waited on until it settles, and a stopped worker is not waited on.
+| File | Change | Behavioral reason |
+|------|--------|-------------------|
+| `src/execute-host.mjs` | Add and export `reconcileBackground` | FR1, FR2 |
+| `hooks/register.ts` | Import `reconcileBackground`; add `classic.SubagentStop` and `classic.Stop` reconciliation handlers that pass through `next(e)` | FR1, FR4, AC1 |
+| `scripts/sdlc-execute.mjs` | Comment on `settleCommits` describing the new clearing path | FR3 |
+| `scripts/__tests__/execute-host.test.mjs` | Unit tests for `reconcileBackground`; source-contract test for the two handlers | FR1, FR2, FR4 |
+| `scripts/__tests__/sdlc-execute.test.mjs` | Controller tests for the settled-worker settle wait | AC1, AC2, FR3 |
 
 ## Blast Radius
 
-- Only how background entries are dropped changes. A command the engine still lists as in flight keeps the stage waiting (AC2).
-- Clearing on a new turn and the index-lock wait are unchanged.
+- Only stage-worker activity records change, and only their `background` list and `updatedAt`.
+- The `checkIn` stall heuristic and `activityRecord` read `background`. Both see an exited command removed sooner, which is the intended state.
+- Stop events for sessions with no tracked workers do nothing.
+- The existing step-start clearing remains.
 
 ## Alternatives Considered
 
 | Option | Decision | Reason |
 |--------|----------|--------|
-| Treat a settled worker's handoff as final and ignore its background entries | Rejected | Breaks AC2: a still-running command could make commits after the stage report |
-| Read the task's output file to detect exit | Rejected | The output path is internal to the engine and not stable |
-| Reconcile against the engine's `background_tasks` on stop events | Selected | Engine-authoritative, with no new host API |
+| Treat a settled worker's fresh handoff as final and ignore `background` | Rejected | It would release a stage while a command that may still commit is running, which violates AC2 |
+| Have the controller send the settled worker an extra prompt | Rejected | It is the manual workaround the issue reports and spends a model turn |
+| Reconcile against the host's reported in-flight background tasks at stop events | Selected | It uses the host's own task list, drops only exited commands, and needs no worker turn |
 
 ## Change History
 
 | Issue | Date | Summary |
 |-------|------|---------|
-| #574 | 2026-11-19 | Initial defect report |
+| #574 | 2026-11-19 | Initial defect design |

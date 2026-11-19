@@ -4,21 +4,19 @@
 **Author**: Claude Code
 **Related Spec**: specs/546-sdlc-execute-stop-losing-time-to-idle-workers-restarts-and-truncated-gate-evidence/
 
-# File: hooks/register.test.ts
+# File: scripts/__tests__/sdlc-execute.test.mjs
 # Generated from: specs/574-controller-stalls-waiting-on-a-finished-worker-s-background-commands/requirements.md
 Feature: Controller stalls waiting on a finished worker's background commands
 
   @SCN001 @regression
   Scenario: A finished worker's exited background commands do not block routing
-    Given a stage worker that backgrounded a Bash command which then exited
-    And the worker has written its handoff and settled
-    When the engine reports the worker's stop with no in-flight background tasks
-    Then the worker's tracked background list is empty
-    And the controller routes the next step without the worker taking another turn
+    Given a stage worker that has written its handoff and settled
+    And its tracked background commands have all exited
+    When the controller waits for that stage
+    Then it routes the next step without the worker being prompted again
 
   @SCN002 @regression
   Scenario: A still-running background command still blocks
-    Given a settled stage worker whose backgrounded Bash command the engine still lists as running
-    When the controller waits for that stage
-    Then it keeps waiting
-    And it routes the next step only after a later stop event no longer lists the command
+    Given a worker whose background command is still running
+    When the controller waits
+    Then it keeps waiting until that command exits

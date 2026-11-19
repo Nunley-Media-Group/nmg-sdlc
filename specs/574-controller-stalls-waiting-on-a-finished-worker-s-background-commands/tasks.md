@@ -8,63 +8,34 @@
 
 ## Implementation Tasks
 
-### T001: Add background reconciliation to the activity record
+### T001: Reconcile tracked background commands against the host's in-flight tasks
 
-**File(s)**: `src/execute-host.mjs`, `src/execute-host.d.mts`
+**File(s)**: `src/execute-host.mjs`, `hooks/register.ts`, `scripts/sdlc-execute.mjs`
 **Type**: Modify
 **Depends**: none
 **Acceptance**:
-- FR1: `recordBackgroundStart` stores `endsWithFinalResponse: true` when it is given and omits the field otherwise.
-- FR2: `reconcileBackground` keeps only entries whose task id is in `inFlight`. With `ownStop`, it also drops `endsWithFinalResponse` entries. It returns the same record when nothing changes.
+- `src/execute-host.mjs` exports `reconcileBackground(record, inFlight, at)`. Given an array, it drops exactly the `background` entries whose `taskId` matches no `inFlight[].id` and sets `updatedAt` to `at` when it drops any. Given a non-array, or when nothing is dropped, it returns the record unchanged.
+- `hooks/register.ts` registers `classic.SubagentStop` and `classic.Stop` handlers:
+  - The `classic.SubagentStop` handler reconciles the tracked worker named by `e.agent_id`.
+  - The `classic.Stop` handler reconciles every tracked stage worker.
+  - Both use `e.background_tasks` through `queueAgent`/`updateAgent` and return `next(e)` unchanged.
+- The `settleCommits` comment in `scripts/sdlc-execute.mjs` names the new clearing path, and its wait logic is unchanged.
+- `hooks/register.ts` still imports no Node built-ins.
 
-### T002: Reconcile tracked commands on stop events in the hooks module
+### T002: Add behavioral regression coverage
 
-**File(s)**: `hooks/register.ts`
+**File(s)**: `scripts/__tests__/execute-host.test.mjs`, `scripts/__tests__/sdlc-execute.test.mjs`
 **Type**: Modify
 **Depends**: T001
 **Acceptance**:
-- FR1: a backgrounded Bash result with `backgroundEndsWithFinalResponse: true` is recorded with that flag.
-- FR2:
-  - `classic.SubagentStop` and `classic.Stop` with a `background_tasks` array reconcile every tracked worker's record through the per-agent queue.
-  - An event without `background_tasks` changes no record.
-  - The hooks pass the event through unchanged.
-- FR4: clearing on a settled worker's new step still happens.
-
-### T003: End the controller's settle wait when background work clears
-
-**File(s)**: `scripts/sdlc-execute.mjs`
-**Type**: Modify
-**Depends**: T001
-**Acceptance**:
-- FR3/AC1: `settleCommits` returns for a settled worker once its record has no background entries and `index.lock` is absent, with no new turn and before the check-in slice elapses.
-- AC2: while a background entry remains, it keeps waiting.
-
-### T004: Add behavioral regression coverage
-
-**File(s)**: `hooks/register.test.ts`, `scripts/__tests__/sdlc-execute.test.mjs`
-**Type**: Modify
-**Depends**: T001, T002, T003
-**Acceptance**:
-- Each test cites its `@SCN` tag:
-  - `@SCN001` (AC1):
-    - In `register.test.ts`, a worker records a backgrounded Bash call, then settles. A `classic.SubagentStop` for it with `background_tasks: []` empties its `background` list, with no new step.
-    - In `sdlc-execute.test.mjs`, `awaitWorkerHandoff` with a fake host returns the stage once the record's background clears, with no further worker turn.
-  - `@SCN002` (AC2):
-    - The same flow with `background_tasks` listing the task as `running` keeps the entry.
-    - The controller wait does not return until a later reconciliation, or a new step, clears it.
-- The tests also cover an `endsWithFinalResponse` entry dropped at its own worker's stop, and an event without `background_tasks` that changes nothing.
-- `cd scripts && npm test` exits 0, and the `hooks/register.test.ts` suite passes under the repository's test command.
-
-### T005: Add the CHANGELOG entry
-
-**File(s)**: `CHANGELOG.md`
-**Type**: Modify
-**Depends**: T004
-**Acceptance**:
-- `[Unreleased]` has a bullet under `### Fixed` describing that `/sdlc-execute` no longer stalls on a finished worker's exited background commands, ending with `(#574)`.
+- `execute-host.test.mjs` covers `reconcileBackground` in three cases: exited entries dropped, listed entries kept, and a missing list leaving the record unchanged.
+- A source-contract test asserts that `hooks/register.ts` registers both stop handlers, calls `reconcileBackground`, and returns `next(e)`.
+- `sdlc-execute.test.mjs` covers the settled worker that has a fresh handoff and a tracked `background` entry (AC1). A fake host whose activity record drops that entry without starting a new turn makes `awaitWorkerHandoff` return and the stage route, with no `append` call.
+- `sdlc-execute.test.mjs` covers AC2: while the entry stays listed, the settle wait keeps pausing, and it returns only after the entry is removed.
+- The AC1 test fails against the pre-fix behavior, where clearing needs a new turn, and passes with the fix. `cd scripts && npm test` exits 0.
 
 ## Change History
 
 | Issue | Date | Summary |
 |-------|------|---------|
-| #574 | 2026-11-19 | Initial defect report |
+| #574 | 2026-11-19 | Initial defect tasks |
