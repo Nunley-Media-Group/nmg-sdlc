@@ -1,0 +1,21 @@
+**Issue**: #575
+**Date**: 2026-11-19
+**Status**: Approved
+**Author**: Claude Code
+**Related Spec**: specs/573-accept-a-merge-of-origin-main-as-a-valid-implement-result-in-publication-proof/
+
+# File: scripts/__tests__/sdlc-safe-recoveries.test.mjs, scripts/__tests__/sdlc-execute.test.mjs
+# Generated from: specs/575-commit-resolved-queue-head-merges-and-retry-transient-github-reads-in-sdlc-execute/requirements.md
+Feature: Commit resolved queue-head merges and retry transient GitHub reads in /sdlc-execute
+
+  @SCN001 @regression
+  Scenario: A resolved merge can be committed
+    Given an implement worker that has resolved conflicts from merging origin/main
+    When it finishes the resolution
+    Then a supported helper commits the merge and the worker hands back
+
+  @SCN002 @regression
+  Scenario: Transient GitHub reads are retried
+    Given a GitHub read that fails once with a network or 5xx error
+    When the controller reads issue evidence
+    Then it retries, and on success continues without exiting or losing the pending decision
