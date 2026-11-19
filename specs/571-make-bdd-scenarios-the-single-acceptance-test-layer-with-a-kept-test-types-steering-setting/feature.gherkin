@@ -1,0 +1,59 @@
+**Issue**: #571
+**Date**: 2026-11-19
+**Status**: Approved
+**Author**: Claude Code
+**Related Spec**: specs/535-make-sdlc-execute-stage-models-and-efforts-configurable-per-project-via-steering-sdlc-models-json/
+
+# File: scripts/__tests__/test-layers-contract.test.mjs
+# Generated from: specs/571-make-bdd-scenarios-the-single-acceptance-test-layer-with-a-kept-test-types-steering-setting/requirements.md
+Feature: Make BDD scenarios the single acceptance test layer with a kept-test-types steering setting
+
+  @SCN001
+  Scenario: New specs task only scenarios and step definitions under the default
+    Given a project with no steering/test-layers.json
+    When /sdlc-write-spec generates tasks.md for an issue
+    Then every AC-linked test task implements the feature.gherkin scenarios
+    And no task asks for a separate test that restates an AC
+    And variations of one AC are a Scenario Outline with Examples under that AC's @SCN tag
+
+  @SCN002
+  Scenario Outline: Kept-test-types setting is read and validated
+    Given steering/test-layers.json is <state>
+    When write-spec, the implement worker, or the verify worker renders its prompt
+    Then <outcome>
+
+    Examples:
+      | state                                   | outcome                                                           |
+      | missing                                 | the rendered rule names only bdd                                  |
+      | {"version":1,"kept":["bdd","unit"]}     | the rendered rule names exactly bdd and unit                      |
+      | {"version":2,"kept":["bdd"]}            | the render fails naming steering/test-layers.json and version     |
+      | {"version":1,"kept":["bdd","e2e"]}      | the render fails naming steering/test-layers.json and kept[1]     |
+      | {"version":1,"kept":["unit"]}           | the render fails naming steering/test-layers.json and kept        |
+
+  @SCN003
+  Scenario: Implement workers justify any non-scenario test
+    Given an implement worker working an issue
+    When it adds a test that is not a scenario's implementation
+    Then the test is of a kept type and covers no scenario's behavior
+    And the handoff lists it in justifiedTests with its type and justification
+
+  @SCN004
+  Scenario: Verify judges scenario coverage and flags duplicates
+    Given an implementation under verify
+    When the verify report is produced
+    Then the Test Coverage section shows each AC's scenario and its implementation status
+    And it flags branch tests that duplicate a scenario or have a non-kept type
+    And it has no per-layer test count
+
+  @SCN005
+  Scenario: Testability checklist no longer rewards a second layer
+    Given the verify testability checklist
+    When an implementation is scored
+    Then the injectable-clock and dependency-injection checks apply to step definitions and production seams
+    And no score level rewards comprehensive unit tests or unit-test counts
+
+  @SCN006
+  Scenario: Setting is documented
+    Given the README
+    When a user reads the steering documentation
+    Then it describes steering/test-layers.json, the type vocabulary, the BDD-only default, and how stages honor it
