@@ -131,6 +131,19 @@ function fileShaped(test) {
 export function normalizeTestId(test) {
   return fileShaped(test) ? `${testIdPath(test)}${splitTestId(test)[1]}` : test;
 }
+/**
+ * A test id as a command running from `cwd` (project-relative) reads it: a path-shaped id, which names a path from
+ * the project root, is rebased onto `cwd`, keeping a leading `./` and any `::` suffix; any other id is unchanged.
+ */
+export function rebaseTestId(test, cwd = ".") {
+  const base = posix.normalize(String(cwd || ".").split("\\").join("/")).replace(/\/+$/, "") || ".";
+  if (base === "." || testIdPath(test) === null) return test;
+  const [target, suffix] = splitTestId(test);
+  const trailing = /(^|\/)\.\.\.$/.test(target) ? "/..." : target.endsWith("/") ? "/" : "";
+  const relative = posix.relative(base, testIdPath(test)) || ".";
+  const lead = target.startsWith("./") && !relative.startsWith("..") ? "./" : "";
+  return `${lead}${relative}${trailing}${suffix}`;
+}
 /** The project-relative paths the selected path-shaped ids name. */
 export function selectedTestPaths(tests) {
   return [...new Set(tests.map(testIdPath).filter((target) => target !== null))];
@@ -184,13 +197,10 @@ export function testInventory(projectRoot, runtime) {
  * The changed paths no check accounts for. A path is accounted for when the change deletes it (nothing of it is
  * left to cover), when it has a line record in the coverage report, when it is a selected test's path or the `file`
  * of a test in the coverage report, when it matches `docPaths`, or when it matches the sources of a selected surface.
- * A path under `coveragePaths` is code the selected tests must reach: only a selected surface that binds a
- * validation (`boundSurfaceSources`) accounts for it, never one that runs nothing.
  */
-export function unaccountedPaths({ paths, reportPaths = new Set(), testPaths = [], surfaceSources = [], boundSurfaceSources = [], docPaths = [],
-  coveragePaths = [], exists }) {
+export function unaccountedPaths({ paths, reportPaths = new Set(), testPaths = [], surfaceSources = [], docPaths = [], exists }) {
   return paths.filter((path) => exists(path) && !reportPaths.has(path) && !testPaths.includes(path) && !matches(path, docPaths)
-    && !matches(path, matches(path, coveragePaths) ? boundSurfaceSources : surfaceSources));
+    && !matches(path, surfaceSources));
 }
 
 /** The redispatch guidance stored for this head, or null. */
@@ -206,9 +216,13 @@ export function writeGuidance(projectRoot, issue, headSha, text) {
   writeJson(guidancePath(projectRoot, issue), { schemaVersion: 1, issue: Number(issue), headSha, text: String(text) });
 }
 
-/** Every surface whose sources match a changed path. */
-export function requiredSurfaces(surfaces, paths) {
-  return surfaces.filter((surface) => paths.some((path) => matches(path, surface.sources))).map((surface) => surface.id);
+/**
+ * Every surface whose sources match a changed path outside `docPaths`. A doc path is documentation by declaration
+ * (delivery's version commit changes only doc paths), so it requires no surface even when a surface's sources match it.
+ */
+export function requiredSurfaces(surfaces, paths, docPaths = []) {
+  const code = paths.filter((path) => !matches(path, docPaths));
+  return surfaces.filter((surface) => code.some((path) => matches(path, surface.sources))).map((surface) => surface.id);
 }
 
 /** The bundled `gate:selection` prompt plus the project snippets routed to it. */
@@ -294,6 +308,8 @@ export function validateAnswer(answer, declaredIds) {
   // A test is appended to a command's arguments: never an option, an absolute path or a path leaving the project.
   if (tests.some((test) => test.startsWith("-") || test.startsWith("/") || test.startsWith("\\") || /^[A-Za-z]:/.test(test)
     || test.split(/[\\/]/).includes("..") || /[\0\r\n]/.test(test))) throw new Error("unsafe test entry");
+  // A path-shaped id naming the project root selects everything: that is an `all` answer, not a selection.
+  if (tests.some((test) => testIdPath(test) === ".")) throw new Error("a test id names the project root");
   const surfaces = [...new Set(answer.surfaces)];
   if (surfaces.some((id) => !declaredIds.includes(id))) throw new Error("undeclared surface");
   // One spelling per test file, so a selected test compares with report ids and changed paths.
@@ -324,8 +340,8 @@ export async function resolveChangeSelection({ projectRoot, issue, baseRef, path
   const surfaces = runtime.surfaces ?? [];
   const declaredIds = surfaces.map((surface) => surface.id);
   const { model, effort } = selectionModel(models);
-  // Delivery's version preparation is not part of the change: it never forces a full run, needs no surface or account.
-  const required = requiredSurfaces(surfaces, paths);
+  // A doc path requires no surface, so delivery's version commit (doc paths only) adds no required surface.
+  const required = requiredSurfaces(surfaces, paths, runtime.selection?.docPaths ?? []);
   const head = headSha ?? git(root, ["rev-parse", "HEAD"]).trim();
   const all = (reason, extra = {}) => ({ mode: "all", reason, fallbackPath: null, tests: [], surfaces: [...declaredIds], requiredSurfaces: required,
     model, effort, prompt: null, guidanceSupplied: false, reused: false, detail: null, ...extra });

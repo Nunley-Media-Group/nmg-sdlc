@@ -3568,6 +3568,7 @@ if (isCliEntry(import.meta.url) && TEST_LAYERS_COMMANDS.has(process.argv[2])) {
 export {
   applyPublicationUpgrade,
   applyUpgrade,
+  applyVerificationScopeItem,
   detectPublicationUpgrade,
   detectUpgrade,
 };

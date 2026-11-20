@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { applySteeringPlan, createInitializePlan } from '../sdlc-steering.mjs';
 import { loadSteeringRuntime } from '../../src/sdlc-steering-runtime.mjs';
-import { ANSWER_SCHEMA, resolveChangeSelection, selectionPath } from '../../src/sdlc-test-selection.mjs';
+import { ANSWER_SCHEMA, rebaseTestId, resolveChangeSelection, selectionPath } from '../../src/sdlc-test-selection.mjs';
 
 const roots = [];
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
@@ -162,6 +162,9 @@ describe('@SCN002 selection model and effort (#584 AC2)', () => {
     fs.rmSync(selectionPath(root, 42));
     await resolve(root, runtime, run, { models: { selection: { model: 'opus', effort: 'default' } } });
     expect(calls[1].args.slice(0, 4)).toEqual(['-p', '--model', 'opus', '--output-format']);
+    fs.rmSync(selectionPath(root, 42));
+    expect(await resolve(root, runtime, run, { models: {} })).toMatchObject({ model: 'haiku', effort: 'xhigh' });
+    expect(calls[2].args.slice(0, 5)).toEqual(['-p', '--model', 'haiku', '--effort', 'xhigh']);
   });
 });
 
@@ -276,6 +279,14 @@ describe('@SCN001 the selected tests are read in the runner\'s own form (#584 AC
       tests: ['tests/app.test.js', 'tests/app.test.js::adds', './pkg/...', 'tests/', 'crate::tests::adds'] });
   });
 
+  it('rebases a path-shaped id onto a command directory, keeping its ./ prefix, package wildcard and node suffix', () => {
+    expect(rebaseTestId('scripts/__tests__/a.test.mjs', 'scripts')).toBe('__tests__/a.test.mjs');
+    expect(rebaseTestId('./backend/pkg/...', 'backend')).toBe('./pkg/...');
+    expect(rebaseTestId('backend/tests/test_a.py::test_x', 'backend/')).toBe('tests/test_a.py::test_x');
+    expect(rebaseTestId('tests/a.test.js', '.')).toBe('tests/a.test.js');
+    expect(rebaseTestId('crate::tests::adds', 'backend')).toBe('crate::tests::adds');
+  });
+
   it('lists only files named like tests in the prompt', async () => {
     const { root, runtime } = await project({ baselineFiles: { 'pkg/app_test.go': 'package app\n', 'lib/test_util.py': 'x = 1\n', 'src/AppTest.java': 'class AppTest {}\n',
       '__tests__/helper.js': 'x\n', 'scripts/publish-approved-spec.mjs': 'x\n', 'src/sdlc-test-selection.mjs': 'x\n', 'steering/test-coverage.json': '{}\n',
@@ -296,6 +307,17 @@ describe('@SCN010 a path-shaped test that names nothing from the project root ru
     const { root, runtime } = await project({ cwd: 'tests', baselineFiles: { 'tests/dir.test.js/a.test.js': '// a\n', 'tests/sub/a.test.js': '// a\n' } });
     const { run } = recorder({ mode: 'selected', tests: ['tests/app.test.js', test], surfaces: ['app'] });
     expect(await resolve(root, runtime, run)).toMatchObject({ mode: 'all', reason: 'selection_failed' });
+  });
+});
+
+describe('@SCN010 a malformed answer runs everything (#584 AC9)', () => {
+  it('fails an id naming the project root and tests holding more than 1 MiB together as selection_failed', async () => {
+    const { root, runtime } = await project();
+    for (const tests of [['./'], Array.from({ length: 1100 }, (_, index) => `${'t'.repeat(990)}${index}`)]) {
+      fs.rmSync(selectionPath(root, 42), { force: true });
+      const { run } = recorder({ mode: 'selected', tests, surfaces: ['app'] });
+      expect(await resolve(root, runtime, run)).toMatchObject({ mode: 'all', reason: 'selection_failed' });
+    }
   });
 });
 

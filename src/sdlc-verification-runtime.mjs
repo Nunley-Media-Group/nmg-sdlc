@@ -5,7 +5,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { canonicalJson, loadSteeringRuntime, SteeringError, validationTier } from "./sdlc-steering-runtime.mjs";
 import { acquireHeavySlot } from "./heavy-pool.mjs";
 import { globRegex, matches } from "./sdlc-glob.mjs";
-import { rejectionOf, rejectionSummary, resolveChangeSelection, selectedTestPaths, unaccountedPaths } from "./sdlc-test-selection.mjs";
+import { rebaseTestId, rejectionOf, rejectionSummary, resolveChangeSelection, selectedTestPaths, unaccountedPaths } from "./sdlc-test-selection.mjs";
 import { loadStageModels, StageModelsError } from "../scripts/sdlc-models.mjs";
 import { loadTestCoverageConfig, validateCoverageReport } from "../scripts/test-coverage.mjs";
 import { terminateOwnedProcessGroup, terminateOwnedProcessGroupAfterLeaderLoss } from "./process-supervision.mjs";
@@ -550,7 +550,7 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
       projectRoot: root,
       logDir: `.nmg-sdlc/verification/${key}`,
       config: structuredClone(validation.config),
-      ...(optedIn(validation) && selection.mode === "selected" && selection.tests.length ? { command: { args: validation.config.args.concat(selection.tests) } } : {}),
+      ...(optedIn(validation) && selection.mode === "selected" && selection.tests.length ? { command: { args: validation.config.args.concat(selection.tests.map((test) => rebaseTestId(test, validation.config.cwd))) } } : {}),
       ...(selection ? { changedPaths: [...paths], selection: { mode: selection.mode, reason: docsOnly ? "selection_empty" : selection.reason, surfaces: [...selectedSurfaces] } } : {}),
       identity: identity(root, specDir, runtime, validation),
       verification: verificationRunId && !whole ? {
@@ -650,8 +650,7 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
         const chosen = runtime.surfaces.filter((surface) => selection.surfaces.includes(surface.id));
         const unaccounted = unaccountedPaths({ paths, reportPaths, testPaths: [...selectedTestPaths(selection.tests), ...reportTestFiles],
           surfaceSources: chosen.flatMap((surface) => surface.sources),
-          boundSurfaceSources: chosen.filter((surface) => surface.validations.length > 0).flatMap((surface) => surface.sources),
-          docPaths: runtime.selection.docPaths ?? [], coveragePaths: runtime.selection.coveragePaths ?? [],
+          docPaths: runtime.selection.docPaths ?? [],
           exists: (path) => existsSync(resolve(root, path)) });
         if (unaccounted.length) rejection = rejectionOf("selection_unaccounted", { unaccounted });
       }

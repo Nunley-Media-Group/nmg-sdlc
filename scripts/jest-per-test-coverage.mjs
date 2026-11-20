@@ -22,7 +22,8 @@
  * - `outcomes`: `<test file>::<full test name>:<status>` from Jest's --json results; a suite that fails to run reports
  *   `<test file>::(suite):failed`.
  *
- * Exit status: 2 for a usage error (no arguments or a path that is not repository-relative); 1 when Jest produced no
+ * Arguments are the selected test ids: each is read as a path with any `::` suffix, a leading `./`, `.` segments and a
+ * trailing `/` removed. Exit status: 2 for a usage error (no arguments or a path that is not repository-relative); 1 when Jest produced no
  * results or coverage for a file, or when any test failed (the report is still printed when it can be built); 0
  * otherwise. */
 import { spawnSync } from 'node:child_process';
@@ -164,11 +165,24 @@ export function collect(file, results, coverage, executable, root = repoRoot) {
   };
 }
 
-export function main(files) {
-  if (files.length === 0) usage('jest-per-test-coverage: no test files given');
-  for (const file of files) {
-    if (!isRepoRelative(file.replace(/\/+$/, ''))) usage(`jest-per-test-coverage: not a repository-relative path: ${JSON.stringify(file)}`);
-  }
+/**
+ * The repository-relative path a selected test id names, in the form the gate compares: without a `::` node suffix
+ * (Jest runs whole files), a leading `./`, `.` segments or a trailing `/`. Null when it is no repository-relative path.
+ */
+export function testFileArgument(id) {
+  const target = String(id).split('::')[0];
+  if (target.includes('\\') || path.posix.isAbsolute(target)) return null;
+  const normalized = path.posix.normalize(target).replace(/^\.\//, '').replace(/\/+$/, '');
+  return isRepoRelative(normalized) ? normalized : null;
+}
+
+export function main(ids) {
+  if (ids.length === 0) usage('jest-per-test-coverage: no test files given');
+  const files = ids.map((id) => {
+    const file = testFileArgument(id);
+    if (file === null) usage(`jest-per-test-coverage: not a repository-relative path: ${JSON.stringify(id)}`);
+    return file;
+  });
   const unique = [...new Set(expandTestPaths(files))];
   if (unique.length === 0) {
     process.stderr.write('jest-per-test-coverage: the given directories hold no test files\n');

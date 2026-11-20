@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { applySteeringPlan, createInitializePlan } from '../sdlc-steering.mjs';
-import { applyUpgrade, detectUpgrade } from '../sdlc-upgrade.mjs';
+import { applyUpgrade, applyVerificationScopeItem, detectUpgrade } from '../sdlc-upgrade.mjs';
 import { loadSteeringRuntime } from '../../src/sdlc-steering-runtime.mjs';
 import { applyVerificationScope, detectVerificationScope } from '../verification-scope.mjs';
 
@@ -165,6 +165,26 @@ describe('@SCN012 applyVerificationScope', () => {
     expect(detectVerificationScope(root)).toBeNull();
   });
 
+  it('restores the original manifest and removes the new coverage config when the written result does not load', async () => {
+    const root = await project({ plugin: true });
+    const before = bytes(root, 'steering/manifest.json');
+    const invalid = proposal(root, { surfaces: [{ id: 'commands', sources: ['commands/**'], validations: ['nope'] }] });
+    const result = await applyVerificationScope(root, detectVerificationScope(root), invalid);
+    expect(result).toMatchObject({ ok: false, reasonCode: 'verification_scope_apply_invalid', restored: ['steering/manifest.json', 'steering/test-coverage.json'] });
+    expect(bytes(root, 'steering/manifest.json').equals(before)).toBe(true);
+    expect(fs.existsSync(path.join(root, 'steering/test-coverage.json'))).toBe(false);
+  });
+
+  it('refuses a proposal that opts in an unknown validation before any write', async () => {
+    const root = await project({ plugin: true });
+    const before = bytes(root, 'steering/manifest.json');
+    const result = await applyVerificationScope(root, detectVerificationScope(root), proposal(root, { optIn: ['unit.tests', 'missing.tests'] }));
+    expect(result).toMatchObject({ ok: false, reasonCode: 'verification_scope_proposal_invalid' });
+    expect(result.message).toContain('missing.tests');
+    expect(bytes(root, 'steering/manifest.json').equals(before)).toBe(true);
+    expect(fs.existsSync(path.join(root, 'steering/test-coverage.json'))).toBe(false);
+  });
+
   (process.platform === 'win32' ? it.skip : it)('never writes the approved proposal through a symlinked coverage config', async () => {
     const root = await project({ plugin: true });
     const outside = path.join(root, 'outside.json');
@@ -194,6 +214,9 @@ describe('@SCN012 verification-scope CLI', () => {
     expect(cli('detect', '--root', root)).toEqual({ status: 0, out: { ok: true, item: null } });
     expect(cli('apply', '--root', root, '--approve', detected.out.item.id, '--proposal', proposal(root)))
       .toMatchObject({ status: 1, out: { ok: false, reasonCode: 'verification_scope_plan_stale' } });
+    for (const bad of [['scan', '--root', root], ['detect', '--approve', 'verification-scope:x'], ['apply', '--root', root, '--proposal', 'p.json']]) {
+      expect(cli(...bad)).toMatchObject({ status: 2, out: { ok: false, reasonCode: 'verification_scope_cli_invalid' } });
+    }
   });
 
 });
@@ -210,6 +233,14 @@ describe('@SCN012 sdlc-upgrade wiring', () => {
     const report = applyUpgrade(root, [live.id], noNetworkRun, { scopeProposal: proposal(root) });
     expect(report.results.find((result) => result.id === live.id)).toMatchObject({ status: 'applied' });
     expect(detectUpgrade(root, { run: noNetworkRun }).items.some((item) => item.kind === 'verification-scope')).toBe(false);
+  });
+
+  it('reports already-current without running the apply when detection finds nothing left to configure', async () => {
+    const root = await project({ plugin: true });
+    await applyVerificationScope(root, detectVerificationScope(root), proposal(root));
+    const before = bytes(root, 'steering/manifest.json');
+    expect(applyVerificationScopeItem(root, { id: 'verification-scope:stale' }, proposal(root))).toEqual({ id: 'verification-scope:stale', status: 'already-current' });
+    expect(bytes(root, 'steering/manifest.json').equals(before)).toBe(true);
   });
 
   it('applies the approved proposal after an earlier approved item of the same run moved a tracked file', async () => {

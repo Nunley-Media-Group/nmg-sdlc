@@ -132,7 +132,7 @@ describe('steering manifest tiers, heavy marker and optional settings (#551 FR15
     await expect(loadSteeringRuntime(root)).rejects.toMatchObject({ reasonCode: 'steering_validation_invalid' });
   });
 
-  it('rejects selection: true in a manifest without the top-level selection', async () => {
+  it('@SCN003 rejects selection: true in a manifest without the top-level selection (#584 FR1)', async () => {
     const root = await fixture([node('unit.tests', 'process.exit(0)', { tier: 'change', selection: true })]);
     await expect(loadSteeringRuntime(root)).resolves.toMatchObject({ selection: SELECTION });
     editManifest(root, (manifest) => { delete manifest.selection; });
@@ -147,7 +147,7 @@ describe('steering manifest tiers, heavy marker and optional settings (#551 FR15
     ['a surface with an invalid id', { surfaces: [{ id: 'App', sources: ['src/**'] }] }],
     ['duplicate surface ids', { surfaces: [{ id: 'app', sources: ['src/**'] }, { id: 'app', sources: ['lib/**'] }] }],
     ['a surface naming an unknown validation', { surfaces: [{ id: 'app', sources: ['src/**'], validations: ['nope'] }] }],
-  ])('rejects %s with steering_manifest_invalid', async (_name, manifest) => {
+  ])('@SCN003 rejects %s with steering_manifest_invalid (#584 FR1)', async (_name, manifest) => {
     const root = await fixture([node('unit.tests', 'process.exit(0)')], { manifest });
     await expect(loadSteeringRuntime(root)).rejects.toMatchObject({ reasonCode: 'steering_manifest_invalid' });
   });

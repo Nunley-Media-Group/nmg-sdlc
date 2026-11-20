@@ -6,9 +6,10 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { loadSteeringRuntime } from '../../src/sdlc-steering-runtime.mjs';
 import { matches } from '../../src/sdlc-glob.mjs';
+import { requiredSurfaces } from '../../src/sdlc-test-selection.mjs';
 import { loadTestCoverageConfig, validateCoverageReport } from '../test-coverage.mjs';
 import { detectVerificationScope } from '../verification-scope.mjs';
-import { expandTestPaths } from '../jest-per-test-coverage.mjs';
+import { expandTestPaths, testFileArgument } from '../jest-per-test-coverage.mjs';
 import os from 'node:os';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -34,7 +35,11 @@ describe('@SCN013 This repository adopts scoped verification', () => {
     const runtime = await loadSteeringRuntime(repoRoot, { metadataOnly: true });
     expect(runtime.validations.find((validation) => validation.id === 'repository.tests')).toMatchObject({ tier: 'change', selection: true });
     expect(runtime.selection.docPaths).toEqual(expect.arrayContaining(['README.md', 'CHANGELOG.md', 'specs/**']));
-    expect(runtime.selection.fallbackPaths).toEqual(expect.arrayContaining(['hooks/**', '.claude-plugin/**', 'steering/manifest.json']));
+    expect(runtime.selection.fallbackPaths).toEqual(['hooks/**', 'tsconfig.json', '.gitignore', 'scripts/package.json', 'scripts/package-lock.json',
+      'steering/manifest.json', 'steering/extensions/**', 'src/*.d.mts']);
+    // Delivery's version commit changes only doc paths, so it forces no full run and requires no surface.
+    expect(runtime.selection.docPaths).toEqual(expect.arrayContaining(['VERSION', 'CHANGELOG.md', 'package.json', '.claude-plugin/plugin.json']));
+    expect(requiredSurfaces(runtime.surfaces, ['VERSION', 'CHANGELOG.md', 'package.json', '.claude-plugin/plugin.json'], runtime.selection.docPaths)).toEqual([]);
     expect(runtime.selection.coveragePaths).toEqual(expect.arrayContaining(['src/**/*.mjs', 'scripts/*.mjs']));
     expect(runtime.surfaces.filter((surface) => surface.validations.includes('repository.nmg-sdlc-smoke')).map(({ id }) => id))
       .toEqual(['draft-issue', 'write-spec', 'onboard-project', 'upgrade-project', 'steering', 'run-retro', 'execute']);
@@ -58,6 +63,12 @@ describe('@SCN013 This repository adopts scoped verification: the Jest per-test 
     expect(loadTestCoverageConfig(repoRoot)).toEqual({ config: { version: 1,
       suite: { program: 'npm', args: ['--prefix', 'scripts', 'test', '--', '--runInBand'] },
       coverage: { program: 'node', args: ['scripts/jest-per-test-coverage.mjs'] } } });
+  });
+
+  it('reads each selected test id as the repository path the gate compares, refusing one outside the repository', () => {
+    expect(['./scripts/__tests__/', 'scripts/__tests__/./', 'scripts//__tests__', 'scripts/__tests__/a.test.mjs::adds'].map(testFileArgument))
+      .toEqual(['scripts/__tests__', 'scripts/__tests__', 'scripts/__tests__', 'scripts/__tests__/a.test.mjs']);
+    expect(['./', '../x', '/abs/a.test.mjs', 'a/../../x', 'a\\b.test.mjs'].map(testFileArgument)).toEqual([null, null, null, null, null]);
   });
 
   it('runs a selected directory as the Jest test files under it', () => {

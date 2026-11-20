@@ -168,3 +168,22 @@ describe('repo steering contract (v4)', () => {
   });
 
 });
+
+describe('@SCN011 the smoke snippet scopes the live exercise to the selected surfaces (#584 AC10, T019)', () => {
+  test('directs --mode select, head-bound surface records and provisioning only for execute, draft-issue or write-spec', () => {
+    const snippet = read('steering/snippets/project-smoke.md');
+    for (const required of [
+      'scripts/sdlc-verify-steering.mjs --project . --issue N --spec specs/N-SLUG --base main --mode select',
+      'When no smoke surface is selected, do nothing more here: the gate records `surface_not_selected`.',
+      'Provision (steps 2–5) only when `execute`, `draft-issue` or `write-spec` is selected.',
+      'When `draft-issue` or `write-spec` is selected, provision a fresh smoke issue',
+      '.nmg-sdlc/smoke/surfaces/<surface>.json',
+      'Surface records are bound to `<head>`.',
+    ]) {
+      expect(snippet).toContain(required);
+    }
+    for (const heading of ['Select', 'Exercise surfaces']) {
+      expect(snippet).toMatch(new RegExp(`^## \\d\\. ${heading}$`, 'm'));
+    }
+  });
+});
