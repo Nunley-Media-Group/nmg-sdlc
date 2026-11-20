@@ -6,8 +6,9 @@ import { canonicalJson, loadSteeringRuntime, SteeringError, validationTier } fro
 import { acquireHeavySlot } from "./heavy-pool.mjs";
 import { globRegex, matches } from "./sdlc-glob.mjs";
 import { rebaseTestId, rejectionOf, rejectionSummary, resolveChangeSelection, selectedTestPaths, unaccountedPaths } from "./sdlc-test-selection.mjs";
-import { loadStageModels, StageModelsError } from "../scripts/sdlc-models.mjs";
-import { loadTestCoverageConfig, validateCoverageReport } from "../scripts/test-coverage.mjs";
+import { StageModelsError } from "./stage-models.mjs";
+import { loadStageModels } from "./stage-models-file.mjs";
+import { loadTestCoverageConfig, validateCoverageReport } from "./test-coverage.mjs";
 import { terminateOwnedProcessGroup, terminateOwnedProcessGroupAfterLeaderLoss } from "./process-supervision.mjs";
 
 const SAFE_ENV = ["HOME", "PATH", "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL", "CI"];
@@ -291,6 +292,11 @@ export function validationResultCoverage(validations, results) {
   };
 }
 
+const CEILING_RANK = Object.freeze({ Fail: 1, Incomplete: 2 });
+/** The worse of two ceilings: `Incomplete` over `Fail` over null, as `verificationCeiling` orders them. */
+function worseCeiling(first, second) {
+  return (CEILING_RANK[second] ?? 0) > (CEILING_RANK[first] ?? 0) ? second : first;
+}
 export function verificationCeiling(results, coverage = { complete: true }) {
   if (!coverage.complete) return "Incomplete";
   const required = results.filter((result) => result.required && result.applicable);
@@ -365,8 +371,9 @@ function parseChangedLines(diff) {
 function changedLines(projectRoot, baseRef) {
   const mergeBase = git(projectRoot, ["merge-base", baseRef, "HEAD"]).stdout.trim();
   // Fixed prefixes and hunk context override any diff.mnemonicPrefix, diff.noprefix, prefix or diff.interHunkContext configuration.
+  // Renames are detected, so a moved file's changed lines are only the lines the move edited, not every line it holds.
   const lines = parseChangedLines(git(projectRoot, ["-c", "core.quotepath=off", "diff", "-U0", "--no-color", "--no-ext-diff",
-    "--no-renames", "--inter-hunk-context=0", "--src-prefix=a/", "--dst-prefix=b/", mergeBase]).stdout);
+    "--find-renames", "--inter-hunk-context=0", "--src-prefix=a/", "--dst-prefix=b/", mergeBase]).stdout);
   const status = git(projectRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]).stdout;
   for (const entry of status.split("\0")) {
     if (!entry.startsWith("?? ")) continue;
@@ -457,6 +464,11 @@ async function coverageCheck({ projectRoot, issue, baseRef, paths, tests, envKey
   let held = null;
   try {
     held = await acquireSlot({ label: `coverage (#${issue})`, projectRoot, issue: Number(issue), signal });
+  } catch (error) {
+    if (signal?.aborted) return { status: "incomplete", summary: "coverage cancelled" };
+    return { status: "failed", summary: `coverage_failed: no heavy-job slot for the coverage command: ${String(error.message).slice(0, 300)}` };
+  }
+  try {
     const response = await runCoverage(config.coverage.program, config.coverage.args.concat(tests),
       { cwd: projectRoot, env, timeout: timeoutMs, maxOutput: maxOutputBytes, signal });
     if (response?.cancelled || signal?.aborted) return { status: "incomplete", summary: "coverage cancelled" };
@@ -532,8 +544,11 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
         const missingSurfaces = selection.requiredSurfaces.filter((id) => !selection.surfaces.includes(id));
         if (missingSurfaces.length) rejection = rejectionOf("selection_surface_missing", { missingSurfaces });
         else if (!selection.tests.length && !selection.surfaces.length) {
-          docsOnly = Boolean(runtime.selection.docPaths) && paths.every(isDoc);
-          if (!docsOnly) rejection = rejectionOf("selection_empty_code_change", { unaccounted: paths.filter((path) => !isDoc(path)) });
+          // A path the change deletes leaves nothing to cover (and its surface was checked above), so only the
+          // remaining paths outside docPaths need a selection. Without docPaths, every remaining path does.
+          const code = paths.filter((path) => !isDoc(path) && existsSync(resolve(root, path)));
+          docsOnly = !code.length;
+          if (!docsOnly) rejection = rejectionOf("selection_empty_code_change", { unaccounted: code });
         }
       }
     }
@@ -605,6 +620,9 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
     // Phase 1: run required local builtin.command validations, and those opted into the selection, first.
     // Whether every required local result passed: the required commands, and then the selection checks of them.
     let requiredLocalPassed = true;
+    // The ceiling the selection itself sets: a rejection fails the gate even when it fails no applicable validation,
+    // and a selection whose checks could not run (an opted-in result that did not pass) never passes it.
+    let selectionCeiling = null;
     for (const validation of runtime.validations) {
       if (!applies(validation)) {
         resultById.set(validation.id, { ...base(validation), applicable: false, effectiveStatus: "skipped", result: null });
@@ -665,6 +683,9 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
           entry.result = resultEnvelope("failed", summary, entry.request.identity, [...(entry.result?.evidence ?? []), { kind: "selection", summary, headSha: entry.request.identity.headSha }]);
         }
       }
+      if (!rejection) for (const entry of ran) {
+        if (entry.effectiveStatus !== "passed") selectionCeiling = worseCeiling(selectionCeiling, entry.effectiveStatus === "incomplete" ? "Incomplete" : "Fail");
+      }
       // A required result the checks failed defers the project providers, as a failed local command does.
       if (runtime.validations.some((validation) => validation.required && resultById.get(validation.id)?.applicable
         && resultById.get(validation.id).effectiveStatus !== "passed")) requiredLocalPassed = false;
@@ -688,7 +709,8 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
     const results = runtime.validations.map((v) => resultById.get(v.id)).filter(Boolean)
       .map((entry) => (entry.request && Object.hasOwn(entry.request, "changedPaths") ? { ...entry, request: withoutChangedPaths(entry.request) } : entry));
     const coverage = validationResultCoverage(runtime.validations, results);
-    const artifact = { schemaVersion: 1, issue: whole ? null : Number(issue), generatedAt: new Date().toISOString(), identity: setupIdentity(root, specDir, runtime), baseRef: whole ? null : baseRef, ...(runtime.tiered || whole ? { tier: recordedTier } : {}), ceiling: verificationCeiling(results, coverage), changedPaths: paths, coverage,
+    if (rejection) selectionCeiling = worseCeiling(selectionCeiling, "Fail");
+    const artifact = { schemaVersion: 1, issue: whole ? null : Number(issue), generatedAt: new Date().toISOString(), identity: setupIdentity(root, specDir, runtime), baseRef: whole ? null : baseRef, ...(runtime.tiered || whole ? { tier: recordedTier } : {}), ceiling: worseCeiling(verificationCeiling(results, coverage), selectionCeiling), changedPaths: paths, coverage,
       ...(selection ? { selection: { prompt: selection.prompt, model: selection.model, effort: selection.effort, mode: selection.mode,
         reason: docsOnly ? "selection_empty" : selection.reason, fallbackPath: selection.fallbackPath, tests: selection.tests, surfaces: selectedSurfaces,
         requiredSurfaces: selection.requiredSurfaces, guidanceSupplied: selection.guidanceSupplied, reused: selection.reused, detail: selection.detail, rejection } } : {}),

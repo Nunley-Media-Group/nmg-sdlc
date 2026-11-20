@@ -16,6 +16,7 @@ import {
 import { packageRoot as defaultPackageRoot } from "./sdlc-workflows.mjs";
 import { matches } from "./sdlc-glob.mjs";
 import { selectionModel } from "./stage-models.mjs";
+import { terminateOwnedProcessGroup, terminateOwnedProcessGroupAfterLeaderLoss } from "./process-supervision.mjs";
 
 export const SELECTION_CONSUMER = "gate:selection";
 export const SELECTION_TIMEOUT_MS = 300_000;
@@ -102,9 +103,13 @@ export function changeDiffWithDigest(projectRoot, baseRef) {
 /** The change's diff as the prompt receives it, capped with a truncation marker. */
 export function changeDiff(projectRoot, baseRef) { return changeDiffWithDigest(projectRoot, baseRef).text; }
 
-/** The manifest-level and validation-level fallback globs. */
+/**
+ * The manifest-level fallback globs plus the validation-level ones of each validation opted into the selection: a
+ * validation that does not opt in runs its full command anyway, so its fallback globs never force everything else.
+ */
 export function fallbackPathsOf(runtime) {
-  return [...(runtime.selection?.fallbackPaths ?? []), ...runtime.validations.flatMap((validation) => validation.fallbackPaths ?? [])];
+  return [...(runtime.selection?.fallbackPaths ?? []),
+    ...runtime.validations.filter((validation) => validation.selection === true).flatMap((validation) => validation.fallbackPaths ?? [])];
 }
 
 /** A test id split at its first `::` node suffix: `[target, suffix]`. */
@@ -141,22 +146,30 @@ export function rebaseTestId(test, cwd = ".") {
   const [target, suffix] = splitTestId(test);
   const trailing = /(^|\/)\.\.\.$/.test(target) ? "/..." : target.endsWith("/") ? "/" : "";
   const relative = posix.relative(base, testIdPath(test)) || ".";
-  const lead = target.startsWith("./") && !relative.startsWith("..") ? "./" : "";
+  // A rebased id is never option-shaped: one that would start with `-` keeps a leading `./`.
+  const lead = (target.startsWith("./") && !relative.startsWith("..")) || relative.startsWith("-") ? "./" : "";
   return `${lead}${relative}${trailing}${suffix}`;
 }
 /** The project-relative paths the selected path-shaped ids name. */
 export function selectedTestPaths(tests) {
   return [...new Set(tests.map(testIdPath).filter((target) => target !== null))];
 }
-/** Whether `relative` names an entry under `base` spelled exactly as each directory lists it, and of the wanted kind. */
+/**
+ * Whether `relative` names an entry under `base` spelled exactly as each directory lists it, and of the wanted kind.
+ * Every directory on the way must be a real directory, never a symlink, so a selected test never leads outside `base`.
+ */
 function entryExactly(base, relative, listings, wanted) {
   let directory = base;
-  if (relative !== ".") for (const segment of relative.split("/")) {
+  const segments = relative === "." ? [] : relative.split("/");
+  for (const [index, segment] of segments.entries()) {
     if (!listings.has(directory)) {
       try { listings.set(directory, new Set(readdirSync(directory))); } catch { listings.set(directory, new Set()); }
     }
     if (!listings.get(directory).has(segment)) return false;
     directory = join(directory, segment);
+    if (index < segments.length - 1) {
+      try { if (!lstatSync(directory).isDirectory()) return false; } catch { return false; }
+    }
   }
   try {
     const stat = lstatSync(directory);
@@ -258,26 +271,54 @@ export function claudeSelectionCommand({ model, effort }) {
   };
 }
 
-/** Runs the Claude call without blocking the event loop; resolves `{ status, signal, stdout, stderr, error }`. */
+/**
+ * Runs the Claude call off the event loop in its own process group, and stops the whole group on abort, timeout or
+ * an oversized answer, settling at once: a descendant that keeps stdout open never holds the gate past the timeout.
+ * Resolves `{ status, signal, stdout, stderr, error? }`.
+ */
 function defaultRunSelection({ program, args, input, cwd, timeout, maxOutput = MAX_SELECTION_OUTPUT, signal }) {
   return new Promise((resolvePromise) => {
+    if (signal?.aborted) { resolvePromise({ status: null, signal: null, stdout: "", stderr: "", error: new Error("selection cancelled") }); return; }
     let child;
-    try { child = spawn(program, args, { cwd, shell: false, stdio: ["pipe", "pipe", "pipe"], timeout, killSignal: "SIGKILL", signal }); }
+    try { child = spawn(program, args, { cwd, shell: false, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"] }); }
     catch (error) { resolvePromise({ status: null, signal: null, stdout: "", stderr: "", error }); return; }
     const out = [];
     const err = [];
     let size = 0;
+    let errSize = 0;
     let settled = false;
-    let overflow = false;
-    const finish = (value) => { if (!settled) { settled = true; resolvePromise(overflow ? { ...value, error: new Error(`claude output exceeded ${maxOutput} bytes`) } : value); } };
+    let stopped = null;
+    let timer = null;
+    let leaderExited = false;
+    const text = (parts) => Buffer.concat(parts).toString("utf8");
+    const onAbort = () => { void stop("selection cancelled"); };
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      resolvePromise({ stdout: text(out), stderr: text(err), ...value, ...(stopped ? { error: new Error(stopped) } : {}) });
+    };
+    const stop = async (reason) => {
+      if (stopped || settled) return;
+      stopped = reason;
+      const cleanup = (leaderExited ? terminateOwnedProcessGroupAfterLeaderLoss : terminateOwnedProcessGroup)(child);
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      await cleanup;
+      finish({ status: null, signal: null });
+    };
+    child.once("exit", () => { leaderExited = true; });
     child.stdout.on("data", (chunk) => {
       size += chunk.length;
       if (size <= maxOutput) out.push(chunk);
-      else if (!overflow) { overflow = true; child.kill("SIGKILL"); }
+      else void stop(`claude output exceeded ${maxOutput} bytes`);
     });
-    child.stderr.on("data", (chunk) => { if (err.reduce((total, part) => total + part.length, 0) < 65536) err.push(chunk); });
-    child.on("error", (error) => finish({ status: null, signal: null, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8"), error }));
-    child.on("close", (status, closeSignal) => finish({ status, signal: closeSignal, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8") }));
+    child.stderr.on("data", (chunk) => { if (errSize < 65536) { errSize += chunk.length; err.push(chunk); } });
+    child.on("error", (error) => finish({ status: null, signal: null, error }));
+    child.on("close", (status, closeSignal) => finish({ status, signal: closeSignal }));
+    if (timeout) timer = setTimeout(() => { void stop(`claude timed out after ${timeout} ms`); }, timeout);
+    signal?.addEventListener("abort", onAbort, { once: true });
     child.stdin.on("error", () => {});
     child.stdin.end(input);
   });
@@ -305,9 +346,11 @@ export function validateAnswer(answer, declaredIds) {
   const tests = [...new Set(answer.tests)];
   if (tests.length > MAX_SELECTED_TESTS || tests.some((test) => test.length > MAX_TEST_LENGTH)
     || tests.reduce((total, test) => total + Buffer.byteLength(test, "utf8"), 0) > MAX_SELECTED_TEST_BYTES) throw new Error("tests bound");
-  // A test is appended to a command's arguments: never an option, an absolute path or a path leaving the project.
-  if (tests.some((test) => test.startsWith("-") || test.startsWith("/") || test.startsWith("\\") || /^[A-Za-z]:/.test(test)
-    || test.split(/[\\/]/).includes("..") || /[\0\r\n]/.test(test))) throw new Error("unsafe test entry");
+  // A test is appended to a command's arguments: never an option, an absolute path or a path leaving the project,
+  // neither as given nor once normalized (normalizing drops a leading `./`, so `./--x.json` would become `--x.json`).
+  const unsafe = (test) => test.startsWith("-") || test.startsWith("/") || test.startsWith("\\") || /^[A-Za-z]:/.test(test)
+    || test.split(/[\\/]/).includes("..") || /[\0\r\n]/.test(test);
+  if (tests.some((test) => unsafe(test) || unsafe(normalizeTestId(test)))) throw new Error("unsafe test entry");
   // A path-shaped id naming the project root selects everything: that is an `all` answer, not a selection.
   if (tests.some((test) => testIdPath(test) === ".")) throw new Error("a test id names the project root");
   const surfaces = [...new Set(answer.surfaces)];

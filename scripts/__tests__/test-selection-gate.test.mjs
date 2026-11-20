@@ -210,6 +210,22 @@ describe('@SCN004 changed lines must be covered by the selected tests (#584 AC4)
     expect(byId(artifact).lint.effectiveStatus).toBe('incomplete');
   }, TIMEOUT);
 
+  it('fails the gate when a selected test of an opted-in validation that is not required fails, as the selection went unchecked', async () => {
+    const root = await project();
+    const file = path.join(root, 'steering/manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
+    manifest.validations[0].required = false;
+    fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+    change(root, 'lib/util.js');
+    fs.writeFileSync(path.join(root, 'fail-tests'), '');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: [] };
+    const artifact = await verify(root);
+    expect(fs.existsSync(path.join(root, 'coverage-args.json'))).toBe(false);
+    expect(byId(artifact)['unit.tests']).toMatchObject({ required: false, effectiveStatus: 'failed' });
+    expect(artifact.selection.rejection).toBeNull();
+    expect(artifact.ceiling).toBe('Fail');
+  }, TIMEOUT);
+
   it('fails a coverage command that exits non-zero as coverage_failed, never as an unaccounted path', async () => {
     const root = await project();
     change(root, 'lib/util.js');
@@ -261,7 +277,7 @@ describe('@SCN004 changed lines must be covered by the selected tests (#584 AC4)
     expect(artifact.ceiling).toBeNull();
   }, TIMEOUT);
 
-  it('counts every line of a file a commit renames and edits as changed', async () => {
+  it('counts only the lines a commit edits in a file it renames as changed', async () => {
     const body = (first) => `${first}\n${Array.from({ length: 9 }, (_, index) => `line${index + 2}();`).join('\n')}\n`;
     const root = await project({ baseline: { 'src/old.js': body('line1();') } });
     git(root, 'mv', 'src/old.js', 'src/new.js');
@@ -270,7 +286,9 @@ describe('@SCN004 changed lines must be covered by the selected tests (#584 AC4)
     report(root, testReport(['src/new.js:1'], { executableLines: ['src/new.js:1', 'src/new.js:2'] }));
     const artifact = await verify(root);
     expect(artifact.changedPaths).toEqual(['src/new.js', 'src/old.js']);
-    expect(artifact.selection.rejection).toEqual({ ...NONE, reasonCode: 'selection_uncovered', uncovered: ['src/new.js:2'] });
+    // The move keeps line 2, which no selected test hits: it is not a change the selection must cover.
+    expect(byId(artifact)['unit.tests'].coverage).toMatchObject({ changedLines: ['src/new.js:1'], uncovered: [] });
+    expect(artifact.selection.rejection).toBeNull();
   }, TIMEOUT);
 
   (process.platform === 'win32' ? it.skip : it)('never reads an untracked symlink into its target\'s lines', async () => {
@@ -362,6 +380,20 @@ describe('@SCN004 changed lines must be covered by the selected tests (#584 AC4)
     expect(artifact.ceiling).toBeNull();
   }, TIMEOUT);
 
+  it('never rebases a selected test into an option-shaped argument', async () => {
+    const root = await project({ selection: { docPaths: ['docs/**', 'steering/**'] }, baseline: { 'tests/-x.test.js': '// x\n' } });
+    const file = path.join(root, 'steering/manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
+    manifest.validations[0].config.cwd = 'tests';
+    fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+    change(root, 'src/app.js', 'a();\n');
+    answer = { mode: 'selected', tests: ['tests/-x.test.js'], surfaces: ['app'] };
+    report(root, { version: 1, tests: [{ id: 'tests/-x.test.js', file: 'tests/-x.test.js', lines: ['src/app.js:1'], branches: [], outcomes: [] }] });
+    const artifact = await verify(root);
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'tests/ran.json'), 'utf8'))).toEqual(['./-x.test.js']);
+    expect(artifact.ceiling).toBeNull();
+  }, TIMEOUT);
+
   /** A coverage command whose leader starts a descendant that holds its stdout, records the pid and exits at once. */
   const LEADER_EXITS = "const { spawn } = require('node:child_process'); const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: ['ignore', 'inherit', 'ignore'] }); require('node:fs').writeFileSync('grandchild.pid', String(child.pid)); process.exit(0);";
   const coverageCommand = (root, code) => {
@@ -445,6 +477,20 @@ describe('@SCN005 changed surfaces must be selected (#584 AC5)', () => {
     expect(artifact.selection.rejection).toEqual({ ...NONE, reasonCode: 'selection_surface_missing', missingSurfaces: ['site'] });
   }, TIMEOUT);
 
+  it('fails the gate on a missing surface even when the rejection fails no applicable validation', async () => {
+    const root = await project({ surfaces: [{ id: 'app', sources: ['src/**'] }, { id: 'other', sources: ['other/**'] }] });
+    const file = path.join(root, 'steering/manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
+    manifest.validations[0].when = { kind: 'path_exists', path: 'nothing-here' };
+    fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+    change(root, 'other/a.js');
+    answer = { mode: 'selected', tests: [], surfaces: ['app'] };
+    const artifact = await verify(root);
+    expect(artifact.selection.rejection).toMatchObject({ reasonCode: 'selection_surface_missing', missingSurfaces: ['other'] });
+    expect(artifact.results.filter((result) => result.effectiveStatus === 'failed')).toEqual([]);
+    expect(artifact.ceiling).toBe('Fail');
+  }, TIMEOUT);
+
   it('accepts the matched surface plus an extra one', async () => {
     const root = await project();
     change(root, 'site/index.html');
@@ -472,6 +518,24 @@ describe('@SCN006 @SCN001 surface-bound validations run only for selected surfac
     expect(artifact.changedPaths).toEqual(['src/app.js']);
     expect(results.lint.request).toMatchObject({ validationId: 'lint', selection: { surfaces: ['app'] } });
     expect(Object.hasOwn(results.lint.request, 'changedPaths')).toBe(false);
+    expect(artifact.ceiling).toBeNull();
+  }, TIMEOUT);
+
+  it('passes bound builtin.command and builtin.artifact validations as surface_not_selected without running them', async () => {
+    const command = { id: 'cmd.smoke', provider: 'builtin.command', required: true, when: { kind: 'always' },
+      config: { program: process.execPath, args: ['-e', "require('node:fs').writeFileSync('cmd-ran', '');process.exit(1)"], cwd: '.', env: [] } };
+    const artifactCheck = { id: 'artifact.check', provider: 'builtin.artifact', required: true, when: { kind: 'always' }, config: { path: 'missing.json', checks: ['json'] } };
+    const root = await project({ validations: [command, artifactCheck], surfaces: [{ id: 'app', sources: ['src/**'] },
+      { id: 'site', sources: ['site/**'], validations: ['site.smoke', 'cmd.smoke', 'artifact.check'] }] });
+    change(root, 'src/app.js');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
+    report(root, testReport(['src/app.js:1', 'src/app.js:2']));
+    const artifact = await verify(root);
+    const results = byId(artifact);
+    for (const id of ['cmd.smoke', 'artifact.check', 'site.smoke']) {
+      expect(results[id]).toMatchObject({ effectiveStatus: 'passed', selection: { reason: 'surface_not_selected' } });
+    }
+    expect(fs.existsSync(path.join(root, 'cmd-ran'))).toBe(false);
     expect(artifact.ceiling).toBeNull();
   }, TIMEOUT);
 
@@ -648,6 +712,17 @@ describe('@SCN009 only a docs-only change may select nothing (#584 AC8)', () => 
     expect((await verify(root)).selection.rejection).toMatchObject({ reasonCode: 'selection_surface_missing', missingSurfaces: ['host'] });
   }, TIMEOUT);
 
+  it('lets a change that only deletes code select nothing, since nothing of it is left to cover', async () => {
+    const root = await project({ baseline: { 'lib/old.js': 'gone();\n' } });
+    fs.rmSync(path.join(root, 'lib/old.js'));
+    git(root, 'commit', '-am', 'delete lib/old.js');
+    answer = { mode: 'selected', tests: [], surfaces: [] };
+    const artifact = await verify(root);
+    expect(artifact.changedPaths).toEqual(['lib/old.js']);
+    expect(artifact.selection).toMatchObject({ reason: 'selection_empty', rejection: null });
+    expect(artifact.ceiling).toBeNull();
+  }, TIMEOUT);
+
   it('rejects an empty selection for a change with a code path as selection_empty_code_change', async () => {
     const root = await project();
     change(root, 'docs/guide.md');
@@ -675,6 +750,31 @@ describe('@SCN010 full-run fallbacks give providers every surface (#584 AC9)', (
     expect(calls).toHaveLength(0);
     expect(artifact.selection).toMatchObject({ mode: 'all', reason: 'fallback_path', fallbackPath: 'package.json', surfaces: ['app', 'site', 'other'] });
     expect(providerRequests.map((request) => request.selection.surfaces)).toEqual([['app', 'site', 'other'], ['app', 'site', 'other']]);
+    expect(ranWith(root)).toEqual([]);
+  }, TIMEOUT);
+});
+
+describe('@SCN010 an unsafe answer runs everything (#584 AC9)', () => {
+  it('fails an id that becomes an option once normalized as selection_failed, never appending it', async () => {
+    const root = await project();
+    change(root, 'src/app.js');
+    answer = { mode: 'selected', tests: ['./--config=evil.json'], surfaces: ['app'] };
+    const artifact = await verify(root);
+    expect(artifact.selection).toMatchObject({ mode: 'all', reason: 'selection_failed', detail: 'unsafe test entry' });
+    expect(ranWith(root)).toEqual([]);
+  }, TIMEOUT);
+
+  (process.platform === 'win32' ? it.skip : it)('fails a test reached through a symlinked directory as selection_failed', async () => {
+    const root = await project();
+    const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-584-outside-')));
+    roots.push(outside);
+    fs.writeFileSync(path.join(outside, 'evil.test.js'), '// outside\n');
+    fs.symlinkSync(outside, path.join(root, 'link'));
+    change(root, 'src/app.js');
+    answer = { mode: 'selected', tests: ['link/evil.test.js'], surfaces: ['app'] };
+    const artifact = await verify(root);
+    expect(artifact.selection).toMatchObject({ mode: 'all', reason: 'selection_failed' });
+    expect(artifact.selection.detail).toContain('link/evil.test.js');
     expect(ranWith(root)).toEqual([]);
   }, TIMEOUT);
 });

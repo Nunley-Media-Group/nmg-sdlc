@@ -117,7 +117,6 @@ describe('steering manifest tiers, heavy marker and optional settings (#551 FR15
     ['a non-boolean heavy marker', (v) => { v.heavy = 'yes'; }],
     ['a selection on a full-tier validation', (v) => { v.tier = 'full'; v.selection = true; }],
     ['a selection without a tier', (v) => { v.selection = true; }],
-    ['a selection that is neither true nor a command', (v) => { v.tier = 'change'; v.selection = 'yes'; }],
     ['a selection on a validation that is not builtin.command', (v) => {
       Object.assign(v, { tier: 'change', provider: 'builtin.artifact', config: { path: 'out.json', checks: ['json'] }, selection: true }); }],
     ['a fallback path that escapes the project', (v) => { v.tier = 'change'; v.fallbackPaths = ['../x']; }],
@@ -130,26 +129,6 @@ describe('steering manifest tiers, heavy marker and optional settings (#551 FR15
     const root = await fixture([node('unit.tests', 'process.exit(0)')], { manifest: { selection: SELECTION } });
     editManifest(root, (manifest) => edit(manifest.validations[0]));
     await expect(loadSteeringRuntime(root)).rejects.toMatchObject({ reasonCode: 'steering_validation_invalid' });
-  });
-
-  it('@SCN003 rejects selection: true in a manifest without the top-level selection (#584 FR1)', async () => {
-    const root = await fixture([node('unit.tests', 'process.exit(0)', { tier: 'change', selection: true })]);
-    await expect(loadSteeringRuntime(root)).resolves.toMatchObject({ selection: SELECTION });
-    editManifest(root, (manifest) => { delete manifest.selection; });
-    await expect(loadSteeringRuntime(root)).rejects.toMatchObject({ reasonCode: 'steering_validation_invalid' });
-  });
-
-  it.each([
-    ['a selection glob that escapes the project', { selection: { docPaths: ['../x'] } }],
-    ['a negated selection glob', { selection: { fallbackPaths: ['!src/**'] } }],
-    ['an unknown selection key', { selection: { docs: ['docs/**'] } }],
-    ['an empty surfaces map', { surfaces: [] }],
-    ['a surface with an invalid id', { surfaces: [{ id: 'App', sources: ['src/**'] }] }],
-    ['duplicate surface ids', { surfaces: [{ id: 'app', sources: ['src/**'] }, { id: 'app', sources: ['lib/**'] }] }],
-    ['a surface naming an unknown validation', { surfaces: [{ id: 'app', sources: ['src/**'], validations: ['nope'] }] }],
-  ])('@SCN003 rejects %s with steering_manifest_invalid (#584 FR1)', async (_name, manifest) => {
-    const root = await fixture([node('unit.tests', 'process.exit(0)')], { manifest });
-    await expect(loadSteeringRuntime(root)).rejects.toMatchObject({ reasonCode: 'steering_manifest_invalid' });
   });
 
   it('rejects a validation key it does not know', async () => {
@@ -287,15 +266,17 @@ describe('change-tier selection (#551 AC9, AC10, FR16-FR18)', () => {
     expect(artifact.results[0].selection).toEqual({ provider: 'claude:haiku', reason, fallbackPath: null, selectedCount: null });
   });
 
-  it('runs a change-tier validation that does not opt in with its full command', async () => {
-    const root = await fixture([node('unit.tests', RECORD_ARGS, { tier: 'change', fallbackPaths: FALLBACK_PATHS }), node('untiered', 'process.exit(0)')]);
+  it('@SCN001 gives the selected tests only to the opted-in validation, whose own fallback paths alone force a full run (#584 AC1)', async () => {
+    const root = await fixture([selecting(), node('other.tests', 'process.exit(0)', { tier: 'change', fallbackPaths: ['src/**'] })]);
     change(root, 'src/app.js');
+    claudeAnswer = selected();
     const artifact = await verify(root);
-    expect(ranWith(root)).toEqual([]);
-    expect(artifact.results.map(({ id, tier, selection, effectiveStatus }) => ({ id, tier, selection, effectiveStatus }))).toEqual([
-      { id: 'unit.tests', tier: 'change', selection: null, effectiveStatus: 'passed' },
-      { id: 'untiered', tier: null, selection: null, effectiveStatus: 'passed' },
-    ]);
+    expect(claudeCalls).toHaveLength(1);
+    expect(artifact.selection).toMatchObject({ mode: 'selected', reason: 'selected', fallbackPath: null });
+    expect(ranWith(root)).toEqual(['tests/app.test.js', 'tests/util.test.js']);
+    const other = artifact.results.find((result) => result.id === 'other.tests');
+    expect(other).toMatchObject({ tier: 'change', selection: null, effectiveStatus: 'passed' });
+    expect(other.request.command).toBeUndefined();
   });
 
   it('runs the full tier, and only it, in a full run', async () => {

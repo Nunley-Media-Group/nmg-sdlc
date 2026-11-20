@@ -1081,6 +1081,14 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
       // A supervisor re-dispatch: the stage to repeat where routing allows, and its guidance.
       let forced = null;
       let guidance = null;
+      // Redispatch guidance for a selection escalation, kept until an implement stage changes the source.
+      let selectionGuidance = null;
+      // Stores the selection guidance bound to `head`; a write failure is reported, never fatal to the run.
+      const bindGuidance = (at, head) => {
+        try { writeGuidance(at, issue, head, selectionGuidance); } catch (error) {
+          output.push(`#${issue}: selection guidance not stored for ${head}: ${error.message}`);
+        }
+      };
       const implementedHeads = new Set();
       try {
       for (;;) {
@@ -1240,6 +1248,10 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           }
         }
         if (step === 'implement') inspectPublicationScope({ cwd: at, issue, spec: evidence.spec.path, step, run });
+        if (step === 'implement') selectionGuidance = null;
+        // Queue-head integration and version preparation move the head after a redispatch, so the guidance is bound
+        // again to the head this verify runs at, and the rerun gate's selection still receives it.
+        if (step === 'verify' && selectionGuidance !== null) bindGuidance(at, current.head);
         inFlight(phase ? `${step}:${phase}` : step, branchIssue ? current.branch : '');
         const path = join(at, HANDOFF_DIR, `${issue}-${step}.json`);
         const prior = handoffSnapshot(at, path);
@@ -1254,7 +1266,9 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           ...(failure ? [
             `Previous attempted approach (${failure.step}) at HEAD ${failure.head}, tree ${failure.tree}, worktree ${JSON.stringify(failure.worktree)}: ${failure.reasonCode}: ${failure.summary}.\nArtifacts: ${failure.artifacts.join(', ') || '(none)'}.`,
             `Recent failure evidence:\n${history.slice(-8).map((item) => `- ${item.step} ${item.head}/${item.tree}: ${item.reasonCode}: ${item.summary}`).join('\n')}`,
-            'Diagnose the cause and choose a different testable repair. Do not repeat unchanged smoke inputs.',
+            failure.reasonCode === SELECTION_ESCALATION
+              ? 'A selection escalation is not a code defect: rerun the gate so the selection receives the supervisor guidance, and never edit source or steering to pass it.'
+              : 'Diagnose the cause and choose a different testable repair. Do not repeat unchanged smoke inputs.',
           ] : []),
           ...(guidance ? [`Supervisor guidance: ${guidance}`] : []),
           ...(failure?.reasonCode === 'pr_evidence_pending' ? (
@@ -1299,7 +1313,8 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           guidance = decision.text;
           // Selection guidance is bound to this head and appended to the rerun gate's selection prompt.
           if (step === 'verify' && handoff?.reasonCode === SELECTION_ESCALATION) {
-            writeGuidance(at, issue, checkout(at, run).head, decision.text);
+            selectionGuidance = decision.text;
+            bindGuidance(at, checkout(at, run).head);
           }
           // Only an implement re-dispatch implements; a verify re-dispatch skips the implement repair.
           needsImplement = step === 'implement';

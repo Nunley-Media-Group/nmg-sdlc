@@ -2426,6 +2426,39 @@ describe('@SCN008 a rejected selection escalates to the orchestrator (#584 AC7, 
     expect(f.state.starts.map((entry) => entry.model)).toEqual(['opus', 'opus', 'haiku']);
   });
 
+  it('binds the guidance again to the head the rerun verify runs at after the queue head integrates the default branch', () => {
+    const f = fixture();
+    let gates = 0;
+    let rerun = null;
+    let escalatedHead = null;
+    f.setWorker((context) => {
+      const phase = context.step !== 'verify' ? null : context.prompt.includes('Verify phase: gate.') ? 'gate' : 'review';
+      if (phase === 'review') { context.passReview(); return { status: 'passed', next: 'verify', phase: 'review' }; }
+      if (phase === 'gate') {
+        if (gates++ === 0) { escalatedHead = git(context.root, 'rev-parse', 'HEAD'); return escalate; }
+        const file = path.join(context.root, '.nmg-sdlc/verification/selection-guidance-42.json');
+        rerun = { guidance: JSON.parse(fs.readFileSync(file, 'utf8')), head: git(context.root, 'rev-parse', 'HEAD'), prompt: context.prompt };
+        context.passGate();
+        return { status: 'passed', next: 'deliver' };
+      }
+      context.state.merged = true;
+      context.state.closed = true;
+      return { status: 'passed', next: null };
+    });
+    const supervise = (report) => {
+      if (!report.escalation) return { action: 'accept' };
+      // The default branch moves while the supervisor decides, so the rerun gate runs at a new, integrated head.
+      advanceOrigin(f.root);
+      return { action: 'redispatch', text: 'check hooks tests' };
+    };
+    expect(f.execute('#42', { supervise })).toMatchObject({ status: 0 });
+    expect(rerun.head).not.toBe(escalatedHead);
+    expect(rerun.guidance).toMatchObject({ issue: 42, headSha: rerun.head, text: 'check hooks tests' });
+    // The rerun is told not to repair code for a selection escalation.
+    expect(rerun.prompt).toContain('A selection escalation is not a code defect');
+    expect(rerun.prompt).not.toContain('Diagnose the cause and choose a different testable repair');
+  });
+
   it('carries the redispatch guidance into the rerun selection prompt and records guidanceSupplied', async () => {
     const f = fixture();
     let verifications = 0;

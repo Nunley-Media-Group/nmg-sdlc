@@ -92,7 +92,11 @@ describe('@SCN012 detectVerificationScope', () => {
     expect(item).toMatchObject({ kind: 'verification-scope', actionable: true, pluginProject: true, rel: 'steering/manifest.json' });
     expect(item.id).toBe(`verification-scope:${item.digest}`);
     expect(item.id).toMatch(/^verification-scope:[0-9a-f]{64}$/);
-    expect(item.findings).toEqual(['selection_missing', 'selection_command_legacy', 'test_coverage_missing', 'surfaces_missing']);
+    expect(item.findings).toEqual(['selection_missing', 'selection_command_legacy', 'test_coverage_missing', 'surfaces_missing', 'unaccounted_paths']);
+    // A first run lists every path the proposal must account for, though nothing is configured yet.
+    expect(item.unaccountedPaths).toEqual(['.claude-plugin/plugin.json', '.gitignore', 'README.md', 'agents/helper.md', 'commands/hello.md',
+      'hooks/hooks.json', 'steering/manifest.json', 'steering/modules/product.mjs', 'steering/modules/structure.mjs', 'steering/modules/tech.mjs',
+      'steering/modules/verification.mjs']);
     expect(item.legacySelections).toEqual(['unit.tests']);
     expect(item.commandValidations).toEqual(['unit.tests']);
   });
@@ -117,7 +121,7 @@ describe('@SCN012 detectVerificationScope', () => {
 
     const artifactOnly = await project({ validations: [] });
     const item = detectVerificationScope(artifactOnly);
-    expect(item.findings).toEqual(['selection_missing', 'surfaces_missing']);
+    expect(item.findings).toEqual(['selection_missing', 'surfaces_missing', 'unaccounted_paths']);
   });
 
   it('binds the digest to the manifest, the coverage config and the tracked paths', async () => {
@@ -175,6 +179,40 @@ describe('@SCN012 applyVerificationScope', () => {
     expect(fs.existsSync(path.join(root, 'steering/test-coverage.json'))).toBe(false);
   });
 
+  it.each([
+    ['a selection glob that escapes the project', { selection: { docPaths: ['../x'] } }],
+    ['a negated selection glob', { selection: { docPaths: ['README.md'], fallbackPaths: ['!src/**'] } }],
+    ['an unknown selection key', { selection: { docs: ['docs/**'] } }],
+    ['an empty surfaces map', { surfaces: [] }],
+    ['a surface with an invalid id', { surfaces: [{ id: 'Commands', sources: ['commands/**'] }] }],
+    ['duplicate surface ids', { surfaces: [{ id: 'commands', sources: ['commands/**'] }, { id: 'commands', sources: ['agents/**'] }] }],
+    ['opt-ins without a top-level selection', { selection: undefined }],
+  ])('restores the original files when the steering runtime rejects a proposal with %s', async (_name, overrides) => {
+    const root = await project({ plugin: true });
+    const before = bytes(root, 'steering/manifest.json');
+    const result = await applyVerificationScope(root, detectVerificationScope(root), proposal(root, overrides));
+    expect(result).toMatchObject({ ok: false, reasonCode: 'verification_scope_apply_invalid' });
+    expect(bytes(root, 'steering/manifest.json').equals(before)).toBe(true);
+    expect(fs.existsSync(path.join(root, 'steering/test-coverage.json'))).toBe(false);
+  });
+
+  it('restores the original files when the proposal leaves a finding, so a repeat detect proposes the same item', async () => {
+    const root = await project({ plugin: true });
+    legacySelection(root);
+    const item = detectVerificationScope(root);
+    const before = bytes(root, 'steering/manifest.json');
+    const result = await applyVerificationScope(root, item, proposal(root, { surfaces: [{ id: 'commands', sources: ['commands/**'] }] }));
+    expect(result).toMatchObject({ ok: false, reasonCode: 'verification_scope_proposal_incomplete', remainingFindings: ['unaccounted_paths'],
+      unaccountedPaths: ['.claude-plugin/plugin.json', 'agents/helper.md', 'hooks/hooks.json'] });
+    expect(bytes(root, 'steering/manifest.json').equals(before)).toBe(true);
+    expect(fs.existsSync(path.join(root, 'steering/test-coverage.json'))).toBe(false);
+    expect(detectVerificationScope(root).id).toBe(item.id);
+    // A legacy command selection left out of optIn is never applied: the steering runtime rejects it.
+    const legacyKept = await applyVerificationScope(root, item, proposal(root, { optIn: [] }));
+    expect(legacyKept).toMatchObject({ ok: false, reasonCode: 'verification_scope_apply_invalid' });
+    expect(bytes(root, 'steering/manifest.json').equals(before)).toBe(true);
+  });
+
   it('refuses a proposal that opts in an unknown validation before any write', async () => {
     const root = await project({ plugin: true });
     const before = bytes(root, 'steering/manifest.json');
@@ -221,6 +259,16 @@ describe('@SCN012 verification-scope CLI', () => {
 
 });
 
+describe('@SCN012 onboard and upgrade run the detection and the approved apply', () => {
+  const read = (rel) => fs.readFileSync(fileURLToPath(new URL(`../../${rel}`, import.meta.url)), 'utf8');
+  it.each(['workflows/onboard-project/WORKFLOW.md', 'workflows/upgrade-project/WORKFLOW.md'])('%s runs verification-scope detect and apply', (rel) => {
+    const text = read(rel);
+    expect(text).toContain('scripts/verification-scope.mjs" detect --root .');
+    expect(text).toMatch(/verification-scope\.mjs"?,?\s*"?apply"?/);
+    expect(text).toContain('.nmg-sdlc/plans/verification-scope.json');
+  });
+});
+
 describe('@SCN012 sdlc-upgrade wiring', () => {
   it('detectUpgrade lists the item and applyUpgrade applies it from --scope-proposal', async () => {
     const root = await project({ plugin: true });
@@ -249,7 +297,8 @@ describe('@SCN012 sdlc-upgrade wiring', () => {
     const approved = detectUpgrade(root, { run: noNetworkRun }).items
       .filter((item) => ['agents-to-claude-md', 'verification-scope'].includes(item.kind)).map((item) => item.id);
     expect(approved).toHaveLength(2);
-    const report = applyUpgrade(root, approved, noNetworkRun, { scopeProposal: proposal(root) });
+    const report = applyUpgrade(root, approved, noNetworkRun, { scopeProposal: proposal(root, {
+      selection: { docPaths: ['README.md', 'CLAUDE.md', 'AGENTS.md'], fallbackPaths: ['.gitignore', 'steering/**'], coveragePaths: ['src/**'] } }) });
     expect(approved.map((id) => report.results.find((result) => result.id === id)?.status)).toEqual(['applied', 'applied']);
     expect(manifestOf(root).validations[0].selection).toBe(true);
   });

@@ -1837,6 +1837,62 @@ describe('@SCN011 this repository\'s smoke runs only the selected surfaces (#584
     }
   });
 
+  it('directs the verify worker to select, exercise only the selected surfaces and provision only for execute, draft-issue or write-spec', () => {
+    const snippet = fs.readFileSync(fileURLToPath(new URL('../../steering/snippets/project-smoke.md', import.meta.url)), 'utf8');
+    for (const required of [
+      'scripts/sdlc-verify-steering.mjs --project . --issue N --spec specs/N-SLUG --base main --mode select',
+      'When no smoke surface is selected, do nothing more here: the gate records `surface_not_selected`.',
+      'Provision (steps 2–5) only when `execute`, `draft-issue` or `write-spec` is selected.',
+      'When `draft-issue` or `write-spec` is selected, provision a fresh smoke issue',
+      '.nmg-sdlc/smoke/surfaces/<surface>.json',
+      'Surface records are bound to `<head>`.',
+    ]) {
+      expect(snippet).toContain(required);
+    }
+    for (const heading of ['Select', 'Exercise surfaces']) {
+      expect(snippet).toMatch(new RegExp(`^## \\d\\. ${heading}$`, 'm'));
+    }
+  });
+
+  (process.platform === 'win32' ? it.skip : it)('fails a transcript reached through a symlinked directory inside the record directory', async () => {
+    const { provider, request, root } = scoped(['steering'], { records: { steering: { transcript: '.nmg-sdlc/smoke/surfaces/sub/steering.log' } } });
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-smoke-outside-'));
+    commandFixtures.push({ root: outside, marker: path.join(outside, 'absent-marker') });
+    fs.writeFileSync(path.join(outside, 'steering.log'), 'outside transcript\n');
+    fs.symlinkSync(outside, path.join(root, '.nmg-sdlc', 'smoke', 'surfaces', 'sub'));
+
+    const outcome = await provider(request);
+
+    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke surface not exercised: steering' });
+    expect(outcome.evidence.map((item) => item.summary)).toEqual(['steering: transcript outside record directory']);
+  });
+
+  it('fails a record whose transcript is the record itself', async () => {
+    const { provider, request } = scoped(['steering'], { records: { steering: { transcript: '.nmg-sdlc/smoke/surfaces/steering.json' } } });
+
+    const outcome = await provider(request);
+
+    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke surface not exercised: steering' });
+    expect(outcome.evidence.map((item) => item.summary)).toEqual(['steering: transcript names the record']);
+  });
+
+  it('requires every interactive record and runs one delivery in all mode, where every surface is selected', async () => {
+    const interactive = ['draft-issue', 'write-spec', 'onboard-project', 'upgrade-project', 'steering', 'run-retro'];
+    const all = [...interactive, 'execute', 'status', 'plugin-host'];
+    const complete = scoped(all, { mode: 'all', records: Object.fromEntries(interactive.map((surface) => [surface, {}])) });
+
+    const outcome = await complete.provider(complete.request);
+
+    expect(outcome.status).toBe('passed');
+    expect(outcome.summary).toBe(`nmg-sdlc-smoke exercised ${[...interactive, 'execute'].join(', ')}; nmg-sdlc-smoke delivered #7, #9`);
+    expect(deliveries(complete.calls)).toHaveLength(1);
+
+    const partial = scoped(all, { mode: 'all', records: Object.fromEntries(interactive.slice(1).map((surface) => [surface, {}])) });
+    const missing = await partial.provider(partial.request);
+    expect(missing).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke surface not exercised: draft-issue' });
+    expect(deliveries(partial.calls)).toHaveLength(0);
+  });
+
   it('keeps one full delivery when the request carries no selection', async () => {
     for (const selection of [undefined, null]) {
       const { provider, request, calls } = harness();

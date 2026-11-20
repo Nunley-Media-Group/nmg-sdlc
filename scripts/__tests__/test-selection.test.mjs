@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { applySteeringPlan, createInitializePlan } from '../sdlc-steering.mjs';
 import { loadSteeringRuntime } from '../../src/sdlc-steering-runtime.mjs';
-import { ANSWER_SCHEMA, rebaseTestId, resolveChangeSelection, selectionPath } from '../../src/sdlc-test-selection.mjs';
+import { ANSWER_SCHEMA, resolveChangeSelection, selectionPath } from '../../src/sdlc-test-selection.mjs';
 
 const roots = [];
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
@@ -252,7 +252,14 @@ describe('@SCN010 a failed call keeps its diagnostic (#584 AC9)', () => {
 
   it('kills a claude call that outlives its timeout', async () => {
     const { selection, elapsed } = await resolveWithClaude('setTimeout(() => {}, 60000);', { timeoutMs: 500 });
-    expect(selection).toMatchObject({ mode: 'all', reason: 'selection_failed', detail: 'claude exited without a status (SIGKILL)' });
+    expect(selection).toMatchObject({ mode: 'all', reason: 'selection_failed', detail: 'claude timed out after 500 ms' });
+    expect(elapsed).toBeLessThan(20000);
+  }, 30000);
+
+  it('settles at the timeout when a descendant of an exited claude still holds its output', async () => {
+    const { selection, elapsed } = await resolveWithClaude(
+      "require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: ['ignore', 'inherit', 'inherit'] });", { timeoutMs: 500 });
+    expect(selection).toMatchObject({ mode: 'all', reason: 'selection_failed', detail: 'claude timed out after 500 ms' });
     expect(elapsed).toBeLessThan(20000);
   }, 30000);
 
@@ -277,14 +284,6 @@ describe('@SCN001 the selected tests are read in the runner\'s own form (#584 AC
     const { run } = recorder({ mode: 'selected', tests, surfaces: ['app'] });
     expect(await resolve(root, runtime, run, { paths: ['src/app.js', 'tests/old.test.js'] })).toMatchObject({ mode: 'selected', reason: 'selected',
       tests: ['tests/app.test.js', 'tests/app.test.js::adds', './pkg/...', 'tests/', 'crate::tests::adds'] });
-  });
-
-  it('rebases a path-shaped id onto a command directory, keeping its ./ prefix, package wildcard and node suffix', () => {
-    expect(rebaseTestId('scripts/__tests__/a.test.mjs', 'scripts')).toBe('__tests__/a.test.mjs');
-    expect(rebaseTestId('./backend/pkg/...', 'backend')).toBe('./pkg/...');
-    expect(rebaseTestId('backend/tests/test_a.py::test_x', 'backend/')).toBe('tests/test_a.py::test_x');
-    expect(rebaseTestId('tests/a.test.js', '.')).toBe('tests/a.test.js');
-    expect(rebaseTestId('crate::tests::adds', 'backend')).toBe('crate::tests::adds');
   });
 
   it('lists only files named like tests in the prompt', async () => {

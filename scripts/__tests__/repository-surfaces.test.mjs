@@ -45,6 +45,11 @@ describe('@SCN013 This repository adopts scoped verification', () => {
       .toEqual(['draft-issue', 'write-spec', 'onboard-project', 'upgrade-project', 'steering', 'run-retro', 'execute']);
   });
 
+  it.each(['references/steering-schema.md', 'README.md', 'steering/snippets/project-tech.md'])('documents the selection, its escalation and surface skips in %s', (rel) => {
+    const text = fs.readFileSync(path.join(repoRoot, rel), 'utf8');
+    for (const term of ['gate:selection', 'selection_escalation', 'surface_not_selected']) expect(text).toContain(term);
+  });
+
   it('leaves nothing for verification-scope detection to propose', () => {
     expect(detectVerificationScope(repoRoot)).toBeNull();
   });
@@ -65,13 +70,11 @@ describe('@SCN013 This repository adopts scoped verification: the Jest per-test 
       coverage: { program: 'node', args: ['scripts/jest-per-test-coverage.mjs'] } } });
   });
 
-  it('reads each selected test id as the repository path the gate compares, refusing one outside the repository', () => {
-    expect(['./scripts/__tests__/', 'scripts/__tests__/./', 'scripts//__tests__', 'scripts/__tests__/a.test.mjs::adds'].map(testFileArgument))
-      .toEqual(['scripts/__tests__', 'scripts/__tests__', 'scripts/__tests__', 'scripts/__tests__/a.test.mjs']);
+  it('prints a valid per-test report with repository-relative src/ coverage and executable lines for the ids the gate appends', () => {
+    // The gate appends selected ids as the selection call wrote them: a `./` prefix, a `::` suffix or a directory.
+    expect(['./scripts/__tests__/', 'scripts/__tests__/./', 'scripts//__tests__', `${subjectTest}::adds`].map(testFileArgument))
+      .toEqual(['scripts/__tests__', 'scripts/__tests__', 'scripts/__tests__', subjectTest]);
     expect(['./', '../x', '/abs/a.test.mjs', 'a/../../x', 'a\\b.test.mjs'].map(testFileArgument)).toEqual([null, null, null, null, null]);
-  });
-
-  it('runs a selected directory as the Jest test files under it', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-584-expand-'));
     try {
       for (const file of ['t/__tests__/a.test.mjs', 't/__tests__/helper.mjs', 't/b.spec.mjs', 't/c.mjs', 't/__tests__/notes.md',
@@ -83,10 +86,7 @@ describe('@SCN013 This repository adopts scoped verification: the Jest per-test 
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
-  });
-
-  it('prints a valid per-test report with repository-relative src/ coverage and executable lines', () => {
-    const run = runCoverage([subjectTest]);
+    const run = runCoverage([`./${subjectTest}`]);
     expect(run.status).toBe(0);
     const report = validateCoverageReport(JSON.parse(run.stdout));
     expect(report.tests).toHaveLength(1);

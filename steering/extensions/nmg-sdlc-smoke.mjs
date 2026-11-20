@@ -794,6 +794,7 @@ function readSurfaceRecord(readFile, projectRoot, surface, headSha) {
   }
   if (typeof record.transcript !== "string" || !record.transcript) return { reason: "transcript missing" };
   const transcriptPath = resolve(projectRoot, record.transcript);
+  if (transcriptPath === recordPath) return { reason: "transcript names the record" };
   try {
     if (!insideDirectory(directory, transcriptPath)) return { reason: "transcript outside record directory" };
     const stat = lstatSync(transcriptPath);

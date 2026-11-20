@@ -115,17 +115,15 @@ export function detectVerificationScope(root) {
   const coverageConfig = coverageState(root);
   if (commandValidations.length && coverageConfig !== 'present') findings.push(`test_coverage_${coverageConfig}`);
   if (!surfaces) findings.push('surfaces_missing');
-  let unaccountedPaths = [];
-  if (selection && surfaces) {
-    const globs = [
-      ...globsOf(selection.coveragePaths),
-      ...surfaces.flatMap((surface) => globsOf(surface?.sources)),
-      ...globsOf(selection.docPaths),
-      ...globsOf(selection.fallbackPaths),
-    ];
-    unaccountedPaths = tracked.filter((rel) => !matches(rel, globs));
-    if (unaccountedPaths.length) findings.push('unaccounted_paths');
-  }
+  // Listed whatever else is missing, so a first proposal sees every path it must account for.
+  const globs = [
+    ...globsOf(selection?.coveragePaths),
+    ...(surfaces ?? []).flatMap((surface) => globsOf(surface?.sources)),
+    ...globsOf(selection?.docPaths),
+    ...globsOf(selection?.fallbackPaths),
+  ];
+  const unaccountedPaths = tracked.filter((rel) => !matches(rel, globs));
+  if (unaccountedPaths.length) findings.push('unaccounted_paths');
   if (!findings.length) return null;
 
   const digest = digestOf(manifestBytes, coverageBytes, tracked);
@@ -215,7 +213,8 @@ function restore(root, rel, bytes) {
 /**
  * Applies an approved proposal. Returns `{ ok: true, id, status: 'applied', updated }` or
  * `{ ok: false, reasonCode, message }`; a stale digest (`verification_scope_plan_stale`) and an invalid proposal fail
- * before any write, and a result the steering runtime or the test-coverage loader rejects restores the original bytes.
+ * before any write, and a result the steering runtime or the test-coverage loader rejects, or one that detection
+ * would still report (`verification_scope_proposal_incomplete`), restores the original bytes.
  */
 export async function applyVerificationScope(root, item, proposalPath) {
   const id = typeof item === 'string' ? item : item?.id;
@@ -266,14 +265,17 @@ export async function applyVerificationScope(root, item, proposalPath) {
       restored: updated,
     });
   }
+  // An applied proposal leaves nothing to propose, so a repeat detection returns no item.
   const remaining = detectVerificationScope(root);
-  return {
-    ok: true,
-    id,
-    status: 'applied',
-    updated,
-    remainingFindings: remaining?.findings ?? [],
-  };
+  if (remaining) {
+    for (const rel of updated) restore(root, rel, rel === MANIFEST_PATH ? manifestBytes : coverageBytes);
+    return failure('verification_scope_proposal_incomplete', `the proposal leaves findings: ${remaining.findings.join(', ')}`, {
+      remainingFindings: remaining.findings,
+      unaccountedPaths: remaining.unaccountedPaths,
+      restored: updated,
+    });
+  }
+  return { ok: true, id, status: 'applied', updated, remainingFindings: [] };
 }
 
 function cliError(message) {
