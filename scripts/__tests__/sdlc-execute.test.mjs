@@ -224,6 +224,7 @@ function fixture({ branch = '42-example', dirty = false, existingImplementation 
       next: outcome.next ?? null, reasonCode: outcome.reasonCode ?? null,
       ...(outcome.phase ? { phase: outcome.phase } : {}),
       ...(outcome.findings ? { findings: outcome.findings } : {}),
+      ...(outcome.escalation ? { escalation: outcome.escalation } : {}),
       ...(step === 'start' ? { branch: '42-example', head: git(at(), 'rev-parse', 'HEAD'),
         ...(at() === root ? {} : { worktree: at() }) } : {}) }));
   };
@@ -2382,5 +2383,53 @@ describe('parallel delivery: worktrees, review-first verify and the merge queue 
     expect(response.stdout).toContain('#42: overlaps in-flight #7 (7-other) on helper.py\n');
     expect(response.stdout).not.toContain('#8');
     expect(reports[0].overlaps).toEqual([{ issue: 7, branch: '7-other', files: ['helper.py'] }]);
+  });
+});
+
+describe('selection escalation (#584 AC7, FR7)', () => {
+  const steps = (f) => f.state.starts.map((entry) => entry.step);
+  const escalation = { kind: 'selection', reasonCode: 'selection_unaccounted', uncovered: [], missingSurfaces: [], unaccounted: ['hooks/register.ts'] };
+  const escalate = { status: 'failed', next: 'verify', reasonCode: 'selection_escalation', escalation,
+    summary: 'Selection for #42 was rejected as selection_unaccounted: hooks/register.ts', artifacts: [] };
+
+  it('offers only redispatch and halt, then reruns verify (not implement) with head-bound guidance', () => {
+    const f = fixture();
+    let verifications = 0;
+    let guidance = null;
+    f.setWorker((context) => {
+      if (context.step === 'verify') {
+        if (verifications++ === 0) return escalate;
+        const file = path.join(context.root, '.nmg-sdlc/verification/selection-guidance-42.json');
+        guidance = fs.existsSync(file) ? { ...JSON.parse(fs.readFileSync(file, 'utf8')), head: git(context.root, 'rev-parse', 'HEAD') } : null;
+        context.passGate();
+        return { status: 'passed', next: 'deliver' };
+      }
+      context.state.merged = true;
+      context.state.closed = true;
+      return { status: 'passed', next: null };
+    });
+    const reports = [];
+    const supervise = (report) => {
+      reports.push(report);
+      if (reports.length === 1) return { action: 'redispatch', text: 'check hooks tests' };
+      return { action: 'accept' };
+    };
+    expect(f.execute('#42', { supervise })).toMatchObject({ status: 0 });
+    expect(steps(f)).toEqual(['verify', 'verify', 'deliver']);
+    expect(reports[0]).toMatchObject({ kind: 'stage', stage: 'verify', decisions: ['redispatch', 'halt'], escalation });
+    expect(guidance).toMatchObject({ schemaVersion: 1, issue: 42, text: 'check hooks tests' });
+    expect(guidance.headSha).toBe(guidance.head);
+    expect(f.state.prompts[1].prompt).toContain('Supervisor guidance: check hooks tests');
+    // The rerun keeps the verify stage entry: a selection escalation is not a repair.
+    expect(f.state.starts.map((entry) => entry.model)).toEqual(['opus', 'opus', 'haiku']);
+  });
+
+  it('stops an unsupervised run with selection_escalation', () => {
+    const f = fixture();
+    f.setWorker((context) => (context.step === 'verify' ? escalate : { status: 'passed', next: null }));
+    const result = f.execute('#42');
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('selection_escalation: Selection for #42 was rejected as selection_unaccounted');
+    expect(steps(f)).toEqual(['verify']);
   });
 });

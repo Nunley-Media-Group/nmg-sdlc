@@ -8,7 +8,7 @@ import path from 'node:path';
 export const TEST_COVERAGE_PATH = 'steering/test-coverage.json';
 const TOP_LEVEL_KEYS = Object.freeze(['version', 'suite', 'coverage']);
 const COMMAND_KEYS = Object.freeze(['program', 'args']);
-const REPORT_KEYS = Object.freeze(['version', 'tests']);
+const REPORT_KEYS = Object.freeze(['version', 'tests', 'executableLines']);
 const REPORT_TEST_KEYS = Object.freeze(['id', 'file', 'lines', 'branches', 'outcomes']);
 const LINE_RE = /^[^:\s][^:]*:[1-9]\d*$/;
 const BRANCH_RE = /^[^:\s][^:]*:[1-9]\d*:\d+$/;
@@ -84,17 +84,20 @@ function validateEntries(test, field, index, pattern, shape) {
   const fail = (key, actual, reason) => {
     throw new TestCoverageError(key, actual, reason, { source: 'coverage output', reasonCode: 'test_layers_coverage_failed' });
   };
+  // `index` null names a top-level field.
+  const name = index === null ? field : `tests[${index}].${field}`;
   const entries = test[field];
-  if (!Array.isArray(entries)) fail(`tests[${index}].${field}`, entries, 'must be an array of strings');
+  if (!Array.isArray(entries)) fail(name, entries, 'must be an array of strings');
   entries.forEach((entry, position) => {
     if (typeof entry !== 'string' || (pattern && !pattern.test(entry))) {
-      fail(`tests[${index}].${field}[${position}]`, entry, pattern ? `must match ${shape}` : 'must be a string');
+      fail(`${name}[${position}]`, entry, pattern ? `must match ${shape}` : 'must be a string');
     }
   });
   return [...new Set(entries)].sort();
 }
 
-/** Validates the coverage command's JSON output: `{ version: 1, tests: [{ id, file, lines, branches, outcomes }] }`. */
+/** Validates the coverage command's JSON output: `{ version: 1, tests: [{ id, file, lines, branches, outcomes }] }`,
+ * plus an optional top-level `executableLines: ["path:N"]` naming the lines that hold code. */
 export function validateCoverageReport(value) {
   const fail = (key, actual, reason) => {
     throw new TestCoverageError(key, actual, reason, { source: 'coverage output', reasonCode: 'test_layers_coverage_failed' });
@@ -123,7 +126,9 @@ export function validateCoverageReport(value) {
       outcomes: validateEntries(test, 'outcomes', index, null),
     };
   });
-  return { version: 1, tests };
+  if (!Object.hasOwn(value, 'executableLines')) return { version: 1, tests };
+  const executableLines = validateEntries(value, 'executableLines', null, LINE_RE, 'path:N');
+  return { version: 1, tests, executableLines };
 }
 
 /** Runs `{ program, args }` in `root` with no shell; `wallMs` is measured around the call. */

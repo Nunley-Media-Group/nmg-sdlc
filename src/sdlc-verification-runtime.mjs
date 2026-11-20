@@ -4,6 +4,10 @@ import { dirname, join, relative, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { canonicalJson, loadSteeringRuntime, SteeringError, validationTier } from "./sdlc-steering-runtime.mjs";
 import { acquireHeavySlot } from "./heavy-pool.mjs";
+import { globRegex, matches } from "./sdlc-glob.mjs";
+import { resolveChangeSelection } from "./sdlc-test-selection.mjs";
+import { loadStageModels, StageModelsError } from "../scripts/sdlc-models.mjs";
+import { loadTestCoverageConfig, validateCoverageReport } from "../scripts/test-coverage.mjs";
 import { terminateOwnedProcessGroup, terminateOwnedProcessGroupAfterLeaderLoss } from "./process-supervision.mjs";
 
 const SAFE_ENV = ["HOME", "PATH", "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL", "CI"];
@@ -38,18 +42,6 @@ function writeCommandLog(request, stdout, stderr) {
   } catch { return null; }
 }
 function fail(reasonCode, detail = "") { throw new SteeringError(reasonCode, detail); }
-function globRegex(glob) {
-  let source = "^";
-  for (let i = 0; i < glob.length; i += 1) {
-    const char = glob[i];
-    if (char === "*" && glob[i + 1] === "*") { source += ".*"; i += 1; }
-    else if (char === "*") source += "[^/]*";
-    else if (char === "?") source += "[^/]";
-    else source += char.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
-  }
-  return new RegExp(`${source}$`);
-}
-function matches(path, patterns) { return patterns.some((pattern) => globRegex(pattern).test(path)); }
 function git(projectRoot, args, allowFailure = false) {
   // Dirty identity hashes full binary diffs; the default 1 MiB buffer rejects ordinary large changes.
   const result = spawnSync("git", args, { cwd: projectRoot, encoding: "utf8", shell: false, maxBuffer: 1024 * 1024 * 1024 });
@@ -321,44 +313,93 @@ function setupIdentity(root, specDir, runtime) {
 export function runsInTier(tiered, validation, tier) {
   return !tiered || validationTier(validation) === tier;
 }
-const MAX_SELECTED_TESTS = 5000;
+/** The selection checks' rejection: `{ reasonCode, uncovered, missingSurfaces, unaccounted }`. */
+function rejectionOf(reasonCode, { uncovered = [], missingSurfaces = [], unaccounted = [] } = {}) {
+  return { reasonCode, uncovered, missingSurfaces, unaccounted };
+}
+function rejectionSummary(rejection) {
+  const named = [...rejection.missingSurfaces, ...rejection.uncovered, ...rejection.unaccounted];
+  return named.length ? `${rejection.reasonCode}: ${named.slice(0, 50).join(", ")}${named.length > 50 ? `, and ${named.length - 50} more` : ""}` : rejection.reasonCode;
+}
+/** New-side line numbers per path of `git diff -U0` output. */
+export function parseChangedLines(diff) {
+  const lines = new Map();
+  let current = null;
+  for (const line of String(diff).split("\n")) {
+    if (line.startsWith("+++ ")) {
+      const target = line.slice(4);
+      current = target === "/dev/null" ? null : target.replace(/^b\//, "");
+      if (current && !lines.has(current)) lines.set(current, new Set());
+      continue;
+    }
+    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
+    if (hunk && current) {
+      const startLine = Number(hunk[1]);
+      const count = hunk[2] === undefined ? 1 : Number(hunk[2]);
+      for (let n = startLine; n < startLine + count; n += 1) lines.get(current).add(n);
+    }
+  }
+  return lines;
+}
+/** Changed working-tree lines per path since the merge base with `baseRef`; an untracked file changes every line. */
+function changedLines(projectRoot, baseRef) {
+  const mergeBase = git(projectRoot, ["merge-base", baseRef, "HEAD"]).stdout.trim();
+  const lines = parseChangedLines(git(projectRoot, ["-c", "core.quotepath=off", "diff", "-U0", "--no-color", "--no-ext-diff", mergeBase]).stdout);
+  const status = git(projectRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]).stdout;
+  for (const entry of status.split("\0")) {
+    if (!entry.startsWith("?? ")) continue;
+    const path = entry.slice(3);
+    try {
+      const count = readFileSync(resolve(projectRoot, path), "utf8").split("\n").length;
+      lines.set(path, new Set(Array.from({ length: count }, (_, index) => index + 1)));
+    } catch {}
+  }
+  return lines;
+}
 /**
- * Decides what a change-tier validation with a selection command runs. Returns null without one, otherwise
- * `{ run: "selected" | "full", provider, reason, fallbackPath, tests, selectedCount, dataAgeSeconds }`. The full
- * command runs when a changed path matches a fallback path, the selection command fails or asks for everything, or
- * its data is missing or stale.
+ * The coverage check: runs the project's per-test coverage command for the selected tests and returns
+ * `{ status: "skipped" | "failed" | "checked", summary?, report?, coverage? }`. Without a valid
+ * steering/test-coverage.json nothing is coverage-accounted and nothing fails.
  */
-export function resolveSelection(validation, { projectRoot, paths, baseRef, runSync = spawnSync } = {}) {
-  const command = validation.selection;
-  if (!command) return null;
-  const provider = [command.program, ...command.args].join(" ");
-  const full = (reason, extra = {}) => ({ run: "full", provider, reason, fallbackPath: null, tests: [], selectedCount: null, dataAgeSeconds: null, ...extra });
-  const fallbackPath = paths.find((path) => matches(path, validation.fallbackPaths ?? []));
-  if (fallbackPath !== undefined) return full("fallback_path", { fallbackPath });
-  const env = Object.fromEntries(SAFE_ENV.filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
-  for (const key of command.env ?? []) if (process.env[key] !== undefined) env[key] = process.env[key];
-  let response;
+function coverageCheck({ projectRoot, baseRef, paths, tests, runSync }) {
+  let config;
+  try { config = loadTestCoverageConfig(projectRoot).config; } catch { config = null; }
+  if (!config || !tests.length) return { status: "skipped" };
+  let report;
   try {
-    response = runSync(command.program, command.args, {
-      cwd: resolve(projectRoot, command.cwd || "."), env, shell: false, encoding: "utf8",
-      input: `${JSON.stringify({ schemaVersion: 1, validationId: validation.id, baseRef, changedPaths: paths })}\n`, maxBuffer: 64 * 1024 * 1024,
-    });
-  } catch { return full("selection_failed"); }
-  if (!response || response.error || response.status !== 0) return full("selection_failed");
-  let output;
-  try { output = JSON.parse(String(response.stdout ?? "")); } catch { return full("selection_failed"); }
-  if (!output || typeof output !== "object" || Array.isArray(output) || output.schemaVersion !== 1 || !["selected", "all"].includes(output.mode)
-    || !["fresh", "stale", "missing"].includes(output.dataStatus)
-    || !(output.dataAgeSeconds === null || (Number.isFinite(output.dataAgeSeconds) && output.dataAgeSeconds >= 0))) return full("selection_failed");
-  const dataAgeSeconds = output.dataAgeSeconds === null ? null : Math.round(output.dataAgeSeconds);
-  if (output.dataStatus !== "fresh") return full(`selection_data_${output.dataStatus}`, { dataAgeSeconds });
-  if (output.mode === "all") return full("selection_all", { dataAgeSeconds });
-  if (!Array.isArray(output.tests) || output.tests.length > MAX_SELECTED_TESTS || !output.tests.every((test) => typeof test === "string" && test)) return full("selection_failed");
-  const tests = [...new Set(output.tests)];
-  return { run: "selected", provider, reason: tests.length ? "selected" : "selection_empty", fallbackPath: null, tests, selectedCount: tests.length, dataAgeSeconds };
+    const response = runSync(config.coverage.program, config.coverage.args.concat(tests), { cwd: projectRoot, encoding: "utf8", shell: false, maxBuffer: 1024 * 1024 * 1024 });
+    if (!response || response.error || response.status !== 0) return { status: "failed", summary: `coverage command failed: ${response?.error?.message ?? `exited ${response?.status}`}` };
+    report = validateCoverageReport(JSON.parse(String(response.stdout ?? "")));
+  } catch (error) {
+    return { status: "failed", summary: `coverage report invalid: ${String(error.message).slice(0, 300)}` };
+  }
+  const lineOf = (entry) => { const at = entry.lastIndexOf(":"); return [entry.slice(0, at), Number(entry.slice(at + 1))]; };
+  const reported = new Set([...report.tests.flatMap((test) => test.lines), ...(report.executableLines ?? [])].map((entry) => lineOf(entry)[0]));
+  const executable = report.executableLines ? new Set(report.executableLines) : null;
+  const hit = new Set(report.tests.flatMap((test) => test.lines));
+  const changed = changedLines(projectRoot, baseRef);
+  const changedList = [];
+  for (const path of paths.filter((candidate) => reported.has(candidate))) {
+    let text = null;
+    try { text = readFileSync(resolve(projectRoot, path), "utf8").split("\n"); } catch {}
+    for (const line of [...(changed.get(path) ?? [])].sort((a, b) => a - b)) {
+      const entry = `${path}:${line}`;
+      if (executable ? executable.has(entry) : (text && text[line - 1] !== undefined && text[line - 1].trim() !== "")) changedList.push(entry);
+    }
+  }
+  const hitLines = changedList.filter((entry) => hit.has(entry));
+  const uncovered = changedList.filter((entry) => !hit.has(entry));
+  return { status: "checked", report, reported, coverage: { changedLines: changedList, hitLines, uncovered } };
+}
+/** Loads the selection model configuration, failing as `stage_models_invalid`. */
+function selectionModels(projectRoot) {
+  try { return loadStageModels(projectRoot).config; } catch (error) {
+    if (error instanceof StageModelsError) fail("stage_models_invalid", error.message);
+    throw error;
+  }
 }
 export async function runSteeringValidations({ projectRoot, issue, specDir, baseRef = "main", verificationRunId = null, signal, spawnCommand,
-  tier: requestedTier = "pre-merge", acquireSlot = acquireHeavySlot, runSync = spawnSync } = {}) {
+  tier: requestedTier = "pre-merge", acquireSlot = acquireHeavySlot, runSync = spawnSync, runSelection, models, selectOnly = false } = {}) {
   const root = resolve(projectRoot);
   // `pre-merge` runs the untiered and `change` validations; `full` runs only the `full` ones.
   const tier = requestedTier === "full" ? "full" : "change";
@@ -375,13 +416,37 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
     const resultById = new Map();
     const base = (validation) => ({ id: validation.id, provider: validation.provider, required: validation.required,
       tier: validation.tier ?? null, selection: null });
-    const requestFor = (validation, selection) => providerRequest({
+    // Change selection: one Claude call before any validation runs, so a concurrent batch never waits on it.
+    let selection = null;
+    let rejection = null;
+    let docsOnly = false;
+    if (tier === "change" && !whole && runtime.selection) {
+      selection = resolveChangeSelection({ projectRoot: root, issue, baseRef, paths, runtime,
+        models: models ?? selectionModels(root), ...(runSelection ? { runSelection } : {}) });
+      if (selection.mode === "selected") {
+        const missingSurfaces = selection.requiredSurfaces.filter((id) => !selection.surfaces.includes(id));
+        if (missingSurfaces.length) rejection = rejectionOf("selection_surface_missing", { missingSurfaces });
+        else if (!selection.tests.length && !selection.surfaces.length) {
+          docsOnly = Boolean(runtime.selection.docPaths) && paths.every((path) => matches(path, runtime.selection.docPaths));
+          if (!docsOnly) rejection = rejectionOf("selection_empty_code_change", { unaccounted: paths.filter((path) => !matches(path, runtime.selection.docPaths ?? [])) });
+        }
+      }
+    }
+    if (selectOnly) return { selection };
+    const selectedSurfaces = !selection ? null : selection.mode === "all" ? runtime.surfaces.map((surface) => surface.id) : docsOnly ? [] : selection.surfaces;
+    const boundSurfaces = (validation) => runtime.surfaces.filter((surface) => surface.validations.includes(validation.id)).map((surface) => surface.id);
+    const optedIn = (validation) => Boolean(selection) && validation.selection === true;
+    const surfaceBound = (validation) => Boolean(selection) && boundSurfaces(validation).length > 0;
+    const affected = (validation) => optedIn(validation) || (surfaceBound(validation) && rejection?.reasonCode !== "selection_uncovered");
+    const resultSelection = (reason) => ({ provider: `claude:${selection.model}`, reason, fallbackPath: selection.fallbackPath, selectedCount: selection.mode === "selected" ? selection.tests.length : null });
+    const requestFor = (validation) => providerRequest({
       schemaVersion: 1,
       validationId: validation.id,
       projectRoot: root,
       logDir: `.nmg-sdlc/verification/${key}`,
       config: structuredClone(validation.config),
-      ...(selection?.run === "selected" ? { command: { args: validation.config.args.concat(selection.tests) } } : {}),
+      ...(optedIn(validation) && selection.mode === "selected" && selection.tests.length ? { command: { args: validation.config.args.concat(selection.tests) } } : {}),
+      ...(selection ? { changedPaths: [...paths], selection: { mode: selection.mode, reason: docsOnly ? "selection_empty" : selection.reason, surfaces: [...selectedSurfaces] } } : {}),
       identity: identity(root, specDir, runtime, validation),
       verification: verificationRunId && !whole ? {
         runId: verificationRunId,
@@ -391,10 +456,21 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
     }, signal, spawnCommand);
     // Runs one applicable validation: its selection, its heavy-job slot, then the provider.
     const execute = async (validation, deferred = false) => {
-      const selection = deferred ? null : resolveSelection(validation, { projectRoot: root, paths, baseRef, runSync });
-      const request = requestFor(validation, selection);
-      const recorded = selection ? { selection: { provider: selection.provider, reason: selection.reason, fallbackPath: selection.fallbackPath,
-        selectedCount: selection.selectedCount, dataAgeSeconds: selection.dataAgeSeconds } } : {};
+      const request = requestFor(validation);
+      const reason = !optedIn(validation) ? null : selection.mode === "all" ? selection.reason
+        : docsOnly || !selection.tests.length ? "selection_empty" : selection.reason;
+      const recorded = optedIn(validation) ? { selection: resultSelection(reason) } : {};
+      const unselected = surfaceBound(validation) && !boundSurfaces(validation).some((id) => selectedSurfaces.includes(id));
+      if (rejection && affected(validation)) {
+        const summary = rejectionSummary(rejection);
+        return { ...base(validation), applicable: true, effectiveStatus: "failed", ...(optedIn(validation) ? recorded : { selection: resultSelection(rejection.reasonCode) }), request,
+          result: resultEnvelope("failed", summary, request.identity, [{ kind: "selection", summary, headSha: request.identity.headSha }]) };
+      }
+      if (unselected) {
+        return { ...base(validation), applicable: true, effectiveStatus: "passed", selection: resultSelection("surface_not_selected"), request,
+          result: resultEnvelope("passed", "no bound surface is selected for this change", request.identity,
+            [{ kind: "selection", summary: "surface_not_selected: no bound surface selected", headSha: request.identity.headSha }]) };
+      }
       if (deferred) {
         const defer = resultEnvelope("incomplete", "deferred until required local validations pass", request.identity);
         return { ...base(validation), applicable: true, effectiveStatus: "incomplete", request, result: defer };
@@ -403,8 +479,8 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
       let pool = null;
       let held = null;
       try {
-        if (selection?.reason === "selection_empty") {
-          result = resultEnvelope("passed", "the selection command selected no tests for this change", request.identity,
+        if (reason === "selection_empty") {
+          result = resultEnvelope("passed", "the selection selected no tests for this change", request.identity,
             [{ kind: "selection", summary: "selection_empty: 0 tests selected", headSha: request.identity.headSha }]);
         } else {
           if (validation.heavy === true) {
@@ -421,17 +497,53 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
       }
       return { ...base(validation), applicable: true, effectiveStatus: result.status, ...recorded, ...(pool ? { heavy: pool } : {}), request, result };
     };
-    // Phase 1: run required local builtin.command validations first.
+    // Phase 1: run required local builtin.command validations, and those opted into the selection, first.
     let localRequiredCommandsPassed = true;
     for (const validation of runtime.validations) {
       if (!applies(validation)) {
         resultById.set(validation.id, { ...base(validation), applicable: false, effectiveStatus: "skipped", result: null });
         continue;
       }
-      if (validation.provider === "builtin.command" && validation.required) {
+      if (validation.provider === "builtin.command" && (validation.required || optedIn(validation))) {
         const entry = await execute(validation);
         resultById.set(validation.id, entry);
-        if (entry.effectiveStatus !== "passed") localRequiredCommandsPassed = false;
+        if (validation.required && entry.effectiveStatus !== "passed") localRequiredCommandsPassed = false;
+      }
+    }
+    // The selection checks: changed lines covered by the selected tests, then every changed path accounted for.
+    if (selection?.mode === "selected" && !rejection && !docsOnly) {
+      const optedResults = runtime.validations.filter((validation) => optedIn(validation) && resultById.get(validation.id)?.applicable).map((validation) => resultById.get(validation.id));
+      const ran = optedResults.filter((entry) => entry.selection?.reason === "selected");
+      let reportPaths = new Set();
+      let testFiles = new Set();
+      if (ran.length && ran.every((entry) => entry.effectiveStatus === "passed")) {
+        const checked = coverageCheck({ projectRoot: root, baseRef, paths, tests: selection.tests, runSync });
+        if (checked.status === "failed") {
+          for (const entry of ran) {
+            entry.effectiveStatus = "failed";
+            entry.selection = { ...entry.selection, reason: "coverage_failed" };
+            entry.result = resultEnvelope("failed", checked.summary, entry.request.identity, [{ kind: "selection", summary: checked.summary, headSha: entry.request.identity.headSha }]);
+          }
+        } else if (checked.status === "checked") {
+          reportPaths = checked.reported;
+          testFiles = new Set(checked.report.tests.map((test) => test.file));
+          for (const entry of ran) entry.coverage = checked.coverage;
+          if (checked.coverage.uncovered.length) rejection = rejectionOf("selection_uncovered", { uncovered: checked.coverage.uncovered });
+        }
+      }
+      if (!rejection) {
+        const surfaceSources = runtime.surfaces.filter((surface) => selection.surfaces.includes(surface.id)).flatMap((surface) => surface.sources);
+        const fallbackPaths = [...(runtime.selection.fallbackPaths ?? []), ...runtime.validations.flatMap((validation) => validation.fallbackPaths ?? [])];
+        const unaccounted = paths.filter((path) => !reportPaths.has(path) && !testFiles.has(path) && !matches(path, surfaceSources)
+          && !matches(path, runtime.selection.docPaths ?? []) && !matches(path, fallbackPaths));
+        if (unaccounted.length) rejection = rejectionOf("selection_unaccounted", { unaccounted });
+      }
+      if (rejection) {
+        const summary = rejectionSummary(rejection);
+        for (const entry of optedResults) {
+          entry.effectiveStatus = "failed";
+          entry.result = resultEnvelope("failed", summary, entry.request.identity, [...(entry.result?.evidence ?? []), { kind: "selection", summary, headSha: entry.request.identity.headSha }]);
+        }
       }
     }
     // Phase 2: non-local-required applicable validations. Unflagged ones run one at a time in manifest order;
@@ -451,10 +563,15 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
     }
     const results = runtime.validations.map((v) => resultById.get(v.id)).filter(Boolean);
     const coverage = validationResultCoverage(runtime.validations, results);
-    const artifact = { schemaVersion: 1, issue: whole ? null : Number(issue), generatedAt: new Date().toISOString(), identity: setupIdentity(root, specDir, runtime), baseRef: whole ? null : baseRef, ...(runtime.tiered || whole ? { tier: recordedTier } : {}), ceiling: verificationCeiling(results, coverage), changedPaths: paths, coverage, results };
+    const artifact = { schemaVersion: 1, issue: whole ? null : Number(issue), generatedAt: new Date().toISOString(), identity: setupIdentity(root, specDir, runtime), baseRef: whole ? null : baseRef, ...(runtime.tiered || whole ? { tier: recordedTier } : {}), ceiling: verificationCeiling(results, coverage), changedPaths: paths, coverage,
+      ...(selection ? { selection: { prompt: selection.prompt, model: selection.model, effort: selection.effort, mode: selection.mode,
+        reason: docsOnly ? "selection_empty" : selection.reason, fallbackPath: selection.fallbackPath, tests: selection.tests, surfaces: selectedSurfaces,
+        requiredSurfaces: selection.requiredSurfaces, guidanceSupplied: selection.guidanceSupplied, reused: selection.reused, detail: selection.detail, rejection } } : {}),
+      results };
     writeVerificationArtifact(root, key, artifact);
     return artifact;
   } catch (error) {
+    if (selectOnly) throw error;
     const artifact = {
       schemaVersion: 1,
       issue: whole ? null : Number(issue),

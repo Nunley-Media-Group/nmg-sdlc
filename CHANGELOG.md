@@ -12,6 +12,18 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+### Added
+
+- Scoped pre-merge verification: a top-level manifest `selection` (`docPaths`, `fallbackPaths`, `coveragePaths`) and `surfaces` map make the gate ask headless Claude once, through the bundled `gate:selection` prompt plus project snippets, which tests and surfaces a change needs; validations with `selection: true` run only the selected tests, surface-bound validations run only for selected surfaces (`surface_not_selected` otherwise), and providers receive the changed paths and selected surfaces (#584)
+- The selection is checked: changed surfaces must be selected, only docs-only changes may select nothing, the `steering/test-coverage.json` per-test coverage of the selected tests must hit every changed executable line (reports may list `executableLines`), and every changed path must be accounted for; a rejection is a `selection_escalation` that `/sdlc-execute` presents to its supervising session for `redispatch` guidance or `halt` (#584)
+- `steering/sdlc-models.json` accepts an optional `selection: { model, effort }` entry for the selection call, defaulting to `haiku` at `xhigh`, and `sdlc-verify-steering.mjs --mode select` stores the selection ahead of the gate (#584)
+- `/sdlc-onboard-project` and `/sdlc-upgrade-project` detect missing, legacy or incomplete scoped-verification configuration and propose one digest-bound fix with a stack-appropriate coverage command and a structure-derived surface map (`scripts/verification-scope.mjs`) (#584)
+- This repository scopes its own tests and live smoke to the change: `repository.tests` opts into selection with a Jest per-test coverage command, and smoke exercises only the selected interactive command surfaces and runs a full delivery only when the `execute` surface is selected (#584)
+
+### Changed (BREAKING)
+
+- The command form of a validation's `selection` (`{ program, args }`) is removed and now fails with `steering_validation_invalid` ("selection takes a prompt"); declare the top-level `selection` and set `selection: true`, or run `/sdlc-upgrade-project` to convert it (#584)
+
 ## [4.19.0] - 2026-11-19
 
 ### Added

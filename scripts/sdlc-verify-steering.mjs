@@ -19,10 +19,12 @@ function parse(argv) {
   }
   if (!options.project || !/^\d+$/.test(options.issue ?? "") || !options.spec) throw new Error("invalid_arguments");
   if (options.tier !== undefined && !["pre-merge", "full"].includes(options.tier)) throw new Error("invalid_arguments");
+  // `--mode select` resolves and stores the change selection without running any validation.
+  if (options.mode !== undefined && (options.mode !== "select" || options.tier === "full")) throw new Error("invalid_arguments");
   return options;
 }
 
-export async function main(argv = process.argv.slice(2), { signal } = {}) {
+export async function main(argv = process.argv.slice(2), { signal, runSelection, models } = {}) {
   const options = parse(argv);
   const projectRoot = realpathSync(resolve(options.project));
   const issue = Number(options.issue);
@@ -52,7 +54,14 @@ export async function main(argv = process.argv.slice(2), { signal } = {}) {
       verificationRunId,
       tier: options.tier ?? "pre-merge",
       signal,
+      runSelection,
+      models,
+      selectOnly: options.mode === "select",
     });
+    if (options.mode === "select") {
+      process.stdout.write(`${JSON.stringify({ ok: true, selection: artifact.selection }, null, 2)}\n`);
+      return;
+    }
     process.stdout.write(`${JSON.stringify({ ok: artifact.ceiling === null, ceiling: artifact.ceiling, issue: artifact.issue, coverage: artifact.coverage ?? null }, null, 2)}\n`);
     if (artifact.ceiling) process.exitCode = 1;
   } finally {

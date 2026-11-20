@@ -9,6 +9,8 @@ import {
   isValidStageModel,
   loadStageModels,
   refreshStageModelDefaults,
+  SELECTION_MODEL_DEFAULT,
+  selectionModel,
   staleStageDefaults,
   StageModelsError,
   SUPERSEDED_STAGE_MODEL_DEFAULTS,
@@ -355,5 +357,42 @@ describe('stageModelsWarning', () => {
     expect(stageModelsWarning({ missing: false, missingKeys: [], warning: null })).toBeNull();
     expect(stageModelsWarning({ missing: false, missingKeys: ['repair'] })).toContain('missing repair; using plugin defaults for them');
     expect(stageModelsWarning({ missing: true, missingKeys: [] })).toBe(ABSENT_WARNING);
+  });
+});
+
+describe('selection model entry (#584 AC2, FR3)', () => {
+  const valid = () => JSON.parse(JSON.stringify(STAGE_MODEL_DEFAULTS));
+
+  it('accepts an optional selection entry and never reports it missing', () => {
+    expect(validateStageModels(valid())).toEqual({ missing: [] });
+    expect(validateStageModels({ ...valid(), selection: { model: 'sonnet', effort: 'high' } })).toEqual({ missing: [] });
+  });
+
+  it('returns the configured entry, or haiku at xhigh', () => {
+    expect(SELECTION_MODEL_DEFAULT).toEqual({ model: 'haiku', effort: 'xhigh' });
+    expect(selectionModel({ selection: { model: 'sonnet', effort: 'high' } })).toEqual({ model: 'sonnet', effort: 'high' });
+    expect(selectionModel({})).toEqual({ model: 'haiku', effort: 'xhigh' });
+    expect(selectionModel(undefined)).toEqual({ model: 'haiku', effort: 'xhigh' });
+  });
+
+  it.each([
+    [{ model: 'sonnet', effort: 'huge' }, 'steering/sdlc-models.json: selection.effort = "huge": must be one of'],
+    [{ model: 'gpt 4', effort: 'high' }, 'steering/sdlc-models.json: selection.model = "gpt 4": must be'],
+    [{ model: 'sonnet', effort: 'high', extra: 1 }, 'steering/sdlc-models.json: selection.extra = 1: unknown key'],
+  ])('fails %j with the existing diagnostic', (selection, message) => {
+    expect(() => validateStageModels({ ...valid(), selection })).toThrow(StageModelsError);
+    expect(() => validateStageModels({ ...valid(), selection })).toThrow(message);
+  });
+
+  it('loads the entry into the config, and completion neither adds nor removes it', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-584-models-'));
+    try {
+      fs.mkdirSync(path.join(root, 'steering'));
+      fs.writeFileSync(path.join(root, STAGE_MODELS_PATH), JSON.stringify(valid()));
+      expect(completeStageModels(root)).toMatchObject({ status: 'already-current' });
+      expect(loadStageModels(root).config.selection).toBeUndefined();
+      fs.writeFileSync(path.join(root, STAGE_MODELS_PATH), JSON.stringify({ ...valid(), selection: { model: 'sonnet', effort: 'low' } }));
+      expect(loadStageModels(root)).toMatchObject({ missingKeys: [], config: { selection: { model: 'sonnet', effort: 'low' } } });
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });
 });

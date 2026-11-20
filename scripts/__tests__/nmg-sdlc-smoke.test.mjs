@@ -1557,3 +1557,220 @@ describe('nmg-sdlc smoke candidate tree (#476)', () => {
       }
     });
 });
+
+describe('nmg-sdlc smoke scoped to the selected surfaces (#584)', () => {
+  const HEAD = 'a'.repeat(40);
+  const SMOKE_PROGRAMS = new Set(['git', 'gh', 'claude']);
+  const SPEC_ISSUE = 41;
+
+  function surfaceProject(records = {}) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-smoke-surfaces-'));
+    commandFixtures.push({ root, marker: path.join(root, 'absent-marker') });
+    const directory = path.join(root, '.nmg-sdlc', 'smoke', 'surfaces');
+    fs.mkdirSync(directory, { recursive: true });
+    for (const [surface, overrides] of Object.entries(records)) {
+      const transcript = `.nmg-sdlc/smoke/surfaces/${surface}.log`;
+      fs.writeFileSync(path.join(root, transcript), `pane transcript for ${surface}\n`);
+      const command = {
+        'draft-issue': '/sdlc-draft-issue add a thing',
+        'write-spec': `/sdlc-write-spec #${SPEC_ISSUE}`,
+        'onboard-project': '/sdlc-onboard-project',
+        'upgrade-project': '/sdlc-upgrade-project',
+        steering: '/sdlc-steering',
+        'run-retro': '/sdlc-run-retro',
+      }[surface];
+      fs.writeFileSync(path.join(directory, `${surface}.json`), JSON.stringify({
+        schemaVersion: 1,
+        repo: 'Nunley-Media-Group/nmg-sdlc-smoke',
+        surface,
+        headSha: HEAD,
+        status: 'passed',
+        command,
+        transcript,
+        ...(['draft-issue', 'write-spec'].includes(surface) ? { issue: SPEC_ISSUE } : {}),
+        ...overrides,
+      }));
+    }
+    return root;
+  }
+
+  // Surface records are read from disk; delivery receipts keep the harness's synthetic proof.
+  const readSurfaceOrReceipt = (file, { deliveryHead }) => {
+    if (String(file).includes(`${path.sep}smoke${path.sep}surfaces${path.sep}`)) return fs.readFileSync(file, 'utf8');
+    const issue = Number(String(file).match(/\/smoke-deliveries\/(\d+)\.json$/)?.[1]);
+    return JSON.stringify({
+      schemaVersion: 1, invocationId: TEST_SCOPE.recoveryKey, issue, pullRequest: issue,
+      headSha: deliveryHead(issue), recordedBeforeMerge: true,
+    });
+  };
+
+  // The published-spec check for a write-spec record.
+  const publishedSpecGh = (program, args) => {
+    if (program !== 'gh') return undefined;
+    if (args[0] === 'api' && args[1] === 'user') return result(0, 'smoke-bot\n');
+    if (args[0] === 'issue' && args[1] === 'view') {
+      return result(0, JSON.stringify({
+        state: 'OPEN', author: { login: 'smoke-bot' }, labels: [{ name: 'spec-created' }],
+        url: `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/issues/${args[2]}`,
+      }));
+    }
+    if (args[0] === 'pr' && args[1] === 'list') {
+      return result(0, JSON.stringify([{
+        number: 5, title: `docs: approve spec for #${SPEC_ISSUE}`,
+        url: 'https://github.com/Nunley-Media-Group/nmg-sdlc-smoke/pull/5',
+      }]));
+    }
+    return undefined;
+  };
+
+  function scoped(surfaces, { records, projectRoot, override, mode = 'selected' } = {}) {
+    const fixture = harness({ readFile: readSurfaceOrReceipt, override: override ?? publishedSpecGh });
+    const root = projectRoot ?? surfaceProject(records ?? {});
+    const request = {
+      ...fixture.request,
+      projectRoot: root,
+      changedPaths: ['workflows/draft-issue/WORKFLOW.md'],
+      selection: { mode, reason: 'test selection', surfaces },
+    };
+    return { ...fixture, request, root };
+  }
+
+  const onlySmokePrograms = (calls) => expect(calls.every(({ program }) => SMOKE_PROGRAMS.has(program))).toBe(true);
+  const deliveries = (calls) => calls.filter(isDelivery);
+
+  it('passes selected interactive surfaces with head-bound passed records and lists their evidence, running no delivery', async () => {
+    const surfaces = ['draft-issue', 'write-spec', 'onboard-project', 'upgrade-project', 'steering', 'run-retro'];
+    const { provider, request, calls, root } = scoped(surfaces, {
+      records: Object.fromEntries(surfaces.map((surface) => [surface, {}])),
+    });
+
+    const outcome = await provider(request);
+
+    expect(outcome.status).toBe('passed');
+    expect(outcome.summary).toBe(`nmg-sdlc-smoke exercised ${surfaces.join(', ')}`);
+    for (const surface of surfaces) {
+      const entry = outcome.evidence.find((item) => item.kind === 'surface' && item.summary.startsWith(`${surface} exercised`));
+      expect(entry).toBeDefined();
+      expect(entry.summary).toContain(HEAD);
+      expect(entry.artifact).toBe(path.join(root, '.nmg-sdlc', 'smoke', 'surfaces', `${surface}.log`));
+      expect(entry.summary).toContain(path.join(root, '.nmg-sdlc', 'smoke', 'surfaces', `${surface}.json`));
+    }
+    expect(deliveries(calls)).toHaveLength(0);
+    expect(calls.some(({ program }) => program === 'claude')).toBe(false);
+    expect(calls.some(({ program, args }) => program === 'git' && args[0] === 'clone')).toBe(false);
+    expect(calls.some(({ program, args }) => program === 'gh' && args[0] === 'auth')).toBe(false);
+    // Only the write-spec published-spec check reaches GitHub.
+    expect(calls.map(({ program, args }) => `${program} ${args[0]} ${args[1]}`)).toEqual([
+      'gh api user', 'gh issue view', 'gh pr list',
+    ]);
+    onlySmokePrograms(calls);
+  });
+
+  it('fails a missing and a stale record with nmg-sdlc-smoke surface not exercised', async () => {
+    const { provider, request, calls } = scoped(['steering', 'run-retro', 'onboard-project'], {
+      records: { steering: {}, 'run-retro': { headSha: 'b'.repeat(40) } },
+    });
+
+    const outcome = await provider(request);
+
+    expect(outcome.status).toBe('failed');
+    expect(outcome.summary).toBe('nmg-sdlc-smoke surface not exercised: onboard-project, run-retro');
+    expect(outcome.evidence.map((item) => item.summary)).toEqual(expect.arrayContaining([
+      'onboard-project: record missing',
+      'run-retro: record stale',
+      expect.stringMatching(/^steering exercised by \/sdlc-steering/),
+    ]));
+    expect(calls).toHaveLength(0);
+  });
+
+  it('fails a failed, malformed, issue-less or transcript-less record', async () => {
+    const { provider, request, root } = scoped(['steering', 'run-retro', 'draft-issue', 'upgrade-project'], {
+      records: {
+        steering: { status: 'failed' },
+        'run-retro': { transcript: '../outside.log' },
+        'draft-issue': { issue: undefined },
+        'upgrade-project': {},
+      },
+    });
+    fs.writeFileSync(path.join(root, '.nmg-sdlc', 'smoke', 'surfaces', 'upgrade-project.log'), '');
+
+    const outcome = await provider(request);
+
+    expect(outcome.status).toBe('failed');
+    expect(outcome.summary).toBe('nmg-sdlc-smoke surface not exercised: draft-issue, upgrade-project, steering, run-retro');
+  });
+
+  it('fails a write-spec record whose spec is not published', async () => {
+    const { provider, request } = scoped(['write-spec'], {
+      records: { 'write-spec': {} },
+      override: (program, args) => (program === 'gh' && args[0] === 'pr' ? result(0, '[]') : publishedSpecGh(program, args)),
+    });
+
+    const outcome = await provider(request);
+
+    expect(outcome.status).toBe('failed');
+    expect(outcome.summary).toBe('nmg-sdlc-smoke surface not exercised: write-spec');
+    expect(outcome.evidence.map((item) => item.summary)).toContain(`write-spec: #${SPEC_ISSUE} no merged spec PR`);
+  });
+
+  it('runs exactly one full provisioned delivery when execute alone is selected', async () => {
+    const { provider, request, calls } = scoped(['execute', 'status', 'plugin-host']);
+
+    const outcome = await provider(request);
+
+    expect(outcome.status).toBe('passed');
+    expect(outcome.summary).toBe('nmg-sdlc-smoke exercised execute; nmg-sdlc-smoke delivered #7, #9');
+    expect(deliveries(calls)).toHaveLength(1);
+    expect(deliveries(calls)[0].args).toEqual(deliveryArgs([7, 9]));
+    expect(outcome.evidence.some((item) => item.kind === 'github' && item.summary.includes('MERGED'))).toBe(true);
+    onlySmokePrograms(calls);
+  });
+
+  it('checks interactive records and runs one delivery when both kinds are selected', async () => {
+    const { provider, request, calls } = scoped(['run-retro', 'execute'], { records: { 'run-retro': {} } });
+
+    const outcome = await provider(request);
+
+    expect(outcome.status).toBe('passed');
+    expect(outcome.summary).toBe('nmg-sdlc-smoke exercised run-retro, execute; nmg-sdlc-smoke delivered #7, #9');
+    expect(outcome.evidence[0].summary).toMatch(/^run-retro exercised by \/sdlc-run-retro/);
+    expect(deliveries(calls)).toHaveLength(1);
+    onlySmokePrograms(calls);
+  });
+
+  it('runs no delivery when a selected interactive record fails alongside execute', async () => {
+    const { provider, request, calls } = scoped(['steering', 'execute']);
+
+    const outcome = await provider(request);
+
+    expect(outcome.status).toBe('failed');
+    expect(outcome.summary).toBe('nmg-sdlc-smoke surface not exercised: steering');
+    expect(deliveries(calls)).toHaveLength(0);
+  });
+
+  it('passes as surface_not_selected without running anything when no smoke surface is selected', async () => {
+    for (const surfaces of [[], ['status', 'plugin-host']]) {
+      const { provider, request, calls } = scoped(surfaces);
+      const outcome = await provider(request);
+      expect(outcome).toEqual({
+        schemaVersion: 1,
+        status: 'passed',
+        summary: 'surface_not_selected: no surface selected',
+        identity: request.identity,
+        evidence: [{ kind: 'selection', summary: 'surface_not_selected: no surface selected', artifact: null }],
+      });
+      expect(calls).toHaveLength(0);
+    }
+  });
+
+  it('keeps one full delivery when the request carries no selection', async () => {
+    for (const selection of [undefined, null]) {
+      const { provider, request, calls } = harness();
+      const outcome = await provider({ ...request, changedPaths: [], ...(selection === null ? { selection } : {}) });
+      expect(outcome.status).toBe('passed');
+      expect(outcome.summary).toBe('nmg-sdlc-smoke delivered #7, #9');
+      expect(deliveries(calls)).toHaveLength(1);
+      onlySmokePrograms(calls);
+    }
+  });
+});

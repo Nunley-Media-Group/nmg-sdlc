@@ -18,12 +18,14 @@ import {
 } from '../src/stage-models.mjs';
 
 export {
+  SELECTION_MODEL_DEFAULT,
   STAGE_MODEL_DEFAULTS,
   STAGE_MODELS_PATH,
   STAGE_NAMES,
   StageModelsError,
   SUPERSEDED_STAGE_MODEL_DEFAULTS,
   isValidStageModel,
+  selectionModel,
   stageModelsWarning,
   validateStageModels,
 } from '../src/stage-models.mjs';
@@ -42,6 +44,7 @@ function configFromValid(parsed) {
       effort: Object.hasOwn(entry, 'effort') ? entry.effort : STAGE_MODEL_DEFAULTS[name].effort,
     };
   }
+  if (Object.hasOwn(parsed, 'selection')) config.selection = { ...parsed.selection };
   return config;
 }
 

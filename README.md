@@ -213,7 +213,7 @@ Interactive behavior maps one to one: OMP `ask` chips are `AskUserQuestion` ques
 | `steering/modules/{product,tech,structure,verification}.mjs` | Four plugin-managed descriptors |
 | `steering/snippets/*.md` | Project-owned guidance loaded only by registered consumers, slots, and order |
 | `steering/extensions/*.mjs` | Explicitly trusted project validation providers |
-| `validations[]` | Required/optional deterministic gates and applicability conditions, with an optional `tier`, `heavy` marker, `concurrent` marker, test `selection` command and `fallbackPaths` (see [Validation tiers](#validation-tiers)) |
+| `validations[]` | Required/optional deterministic gates and applicability conditions, with an optional `tier`, `heavy` marker, `concurrent` marker, `selection: true` opt-in and `fallbackPaths` (see [Validation tiers](#validation-tiers)); the top-level `selection` and `surfaces` keys turn on [scoped selection](#scoped-selection) |
 | `worktree` (optional) | A `setup` command run once in each new issue worktree, for example to create a virtual environment and install dependencies, and a `teardown` command run before a delivered issue worktree is removed; spec worktrees run neither |
 | `changelog.fragments.dir` (optional) | Opts the project into changelog fragments: one file per issue (`<dir>/<N>.md`), assembled into `CHANGELOG.md` when that issue's version is prepared |
 | `fullGreen.actions` (optional) | Downstream actions, such as `deploy`, that require a green full-tier record at or after the commit they act on |
@@ -259,7 +259,7 @@ By default every required validation runs before merge. A project whose full sui
 | `"tier": "full"` | Not required before merge. Recorded as skipped by the gate, and run on demand by `/sdlc-verify-full` |
 | `"heavy": true` | The validation takes a slot from the machine-wide heavy-job pool before it runs |
 | `"concurrent": true` | Once the required `builtin.command` validations have run (always one at a time), every applicable flagged validation starts together, so the batch takes about as long as its slowest member. Unflagged validations run one at a time. A failure does not cancel the others, a heavy one still waits for a pool slot, and results stay in manifest order |
-| `"selection"` | On a `change`-tier `builtin.command` validation: a project command (`{ program, args, cwd?, env? }`) that receives the changed paths and base ref and returns the tests to run |
+| `"selection": true` | On a `change`-tier `builtin.command` validation, in a manifest with a top-level `selection`: run only the tests Claude selects for the change (see [Scoped selection](#scoped-selection)) |
 | `"fallbackPaths"` | On the same kind of validation: globs that force the full command when a changed path matches one |
 
 ```json
@@ -267,12 +267,40 @@ By default every required validation runs before merge. A project whose full sui
   "id": "repository.tests", "provider": "builtin.command", "required": true, "tier": "change", "heavy": true,
   "when": { "kind": "always" },
   "config": { "program": "pytest", "args": [], "cwd": ".", "env": [] },
-  "selection": { "program": "python", "args": ["tools/select_tests.py"] },
-  "fallbackPaths": ["pyproject.toml", "conftest.py", "tools/**"]
+  "selection": true
 }
 ```
 
-The selection command is yours: the plugin implements no language-specific selection. It reads `{ "schemaVersion": 1, "validationId", "baseRef", "changedPaths" }` on stdin and prints `{ "schemaVersion": 1, "mode": "selected" | "all", "tests": [...], "dataStatus": "fresh" | "stale" | "missing", "dataAgeSeconds": <number or null> }`. The selected tests are appended to the validation's `args`. The validation runs its full command when the change touches a fallback path (`fallback_path`), when the command answers `all` (`selection_all`), fails or prints something malformed (`selection_failed`), or reports its data stale or missing (`selection_data_stale`, `selection_data_missing`); an empty selection passes without running anything (`selection_empty`). Each result in `.nmg-sdlc/verification/<N>.json` records `tier`, `selection` (`{ provider, reason, fallbackPath, selectedCount, dataAgeSeconds }`) and, for a heavy validation, `heavy` (`{ slot, waitedMs }`).
+Each result in `.nmg-sdlc/verification/<N>.json` records `tier`, `selection` (`{ provider, reason, fallbackPath, selectedCount }`) and, for a heavy validation, `heavy` (`{ slot, waitedMs }`).
+
+#### Scoped selection
+
+A project scopes each pre-merge gate to its change with two top-level manifest keys, which `/sdlc-onboard-project` and `/sdlc-upgrade-project` detect and propose from the project's structure:
+
+```json
+{
+  "selection": { "docPaths": ["README.md", "docs/**"], "fallbackPaths": ["pyproject.toml", "conftest.py"], "coveragePaths": ["src/**/*.py", "tests/**"] },
+  "surfaces": [
+    { "id": "api", "sources": ["src/api/**"], "validations": ["repository.e2e"] },
+    { "id": "cli", "sources": ["src/cli/**"] }
+  ]
+}
+```
+
+Before any validation runs, the gate makes one headless Claude call. The prompt is the bundled `gate:selection` prompt plus any project snippet routed to `gate:selection`, followed by the base ref, the changed paths, the diff and the surfaces. The model is the optional `selection: { model, effort }` entry in `steering/sdlc-models.json`, by default `haiku` at `xhigh`. Claude answers `{ mode, tests, surfaces }`:
+
+- Validations with `selection: true` run only the selected tests. A validation named in a surface's `validations` runs only when one of its surfaces is selected, and otherwise passes as `surface_not_selected`.
+- Project providers receive `changedPaths` and `selection: { mode, reason, surfaces }`.
+- A changed `fallbackPaths` path, a failed or malformed call, or an `all` answer runs everything.
+
+The answer is then checked deterministically:
+
+- **Surfaces:** every surface whose `sources` match a changed path must be selected (`selection_surface_missing`).
+- **Empty answers:** only a change entirely inside `docPaths` may select nothing (`selection_empty`; otherwise `selection_empty_code_change`).
+- **Coverage:** after the selected tests pass, the per-test `coverage` command in `steering/test-coverage.json` runs for them. Every changed executable line of a reported path must be hit (`selection_uncovered`). The report may list `executableLines`; without it, non-blank lines count.
+- **Accounting:** every changed path must be covered by the report, a selected surface, `docPaths` or `fallbackPaths` (`selection_unaccounted`).
+
+A rejected selection is not a code defect. The verify handoff reports it as `selection_escalation`, and `/sdlc-execute` presents it to its supervising session, which may only `redispatch` with guidance or `halt`. The guidance is appended to the rerun's selection prompt. `sdlc-verify-steering.mjs --mode select` resolves and stores the selection ahead of the gate, which reuses it while nothing has changed.
 
 The heavy-job pool is shared by every project and session on the machine. Its size is `heavyJobSlots` in `~/.nmg-sdlc/config.json` (default 1); there is no environment variable for it. A slot whose holder process is dead is reclaimed, including when its process id now belongs to a later, unrelated process. Workers put their own heavy commands through the same pool with `node scripts/sdlc-heavy-pool.mjs run --label <label> -- <program> [args...]`, and `node scripts/sdlc-heavy-pool.mjs list` prints the holders.
 
@@ -536,6 +564,12 @@ This repository registers the required `repository.nmg-sdlc-smoke` provider agai
 
 1. Identify the nmg-sdlc behavior being proved and the observable success/failure conditions.
 2. Run normal nmg-sdlc verification; no operator setup or selection is needed. Without an explicit queue, the **verify worker** provisions the smoke issue before it runs the registered gates, as this repository's `project.smoke` steering snippet (`steering/snippets/project-smoke.md`, routed only to `worker:verify`) directs. It reuses the issue recorded in `.nmg-sdlc/smoke/provisioned.json` while that issue is open and undelivered. Otherwise it clones the smoke repository, starts an interactive `claude --plugin-dir <checkout>` session in a detached tmux session, runs the real `/sdlc-draft-issue` with the manifest's `config.provision.need` and then `/sdlc-write-spec #N`, and answers each question and plan dialog itself by reading the pane. Once N has `spec-created` and a merged `docs: approve spec for #N` PR, it ends the tmux session, removes the clone, and writes the record. The provider itself never drafts an issue or writes a spec: it delivers the recorded issue, and a missing, invalid or stale record fails with `nmg-sdlc-smoke smoke issue not provisioned`. It records linked-PR baselines and runs `/sdlc-execute` for that issue in a headless `claude -p --session-id <uuid> --plugin-dir <candidate>` session, reading the controller status from that session's result record. `tmux` is required only on machines that verify nmg-sdlc itself.
+
+   Smoke is scoped to the change's selected surfaces. `repository.nmg-sdlc-smoke` is bound to the `draft-issue`, `write-spec`, `onboard-project`, `upgrade-project`, `steering`, `run-retro` and `execute` surfaces of this repository's manifest:
+   - The verify worker first runs `sdlc-verify-steering.mjs --mode select`.
+   - It drives each selected interactive command live, in tmux, against a fresh smoke clone, and records `.nmg-sdlc/smoke/surfaces/<surface>.json` with its transcript. The provider accepts a selected interactive surface only with a passed record bound to the current head.
+   - A selected `execute` surface, which covers the execute workflow, the stage agents and the controller scripts, runs the one full provisioned delivery described above. A fresh issue is provisioned when `draft-issue` or `write-spec` is selected, and provisioning runs only when `execute`, `draft-issue` or `write-spec` is.
+   - With no smoke surface selected, smoke passes as `surface_not_selected`.
 3. To prove specific issues instead, set `NMG_SDLC_SMOKE_ISSUES` to fresh explicit numbers with approved specs in the environment of the **nmg-sdlc controller/verification process** before launch (for example `export NMG_SDLC_SMOKE_ISSUES="65,66"`). A session that is already running does not gain environment changes retroactively. Only the enclosing provider sets its nested-execution ownership marker; do not set `NMG_SDLC_SMOKE_OWNED` to bypass verification.
 4. Accept success only with this invocation's pre-merge delivery proof, an exact matching PR that was not already merged at baseline, and closed issue evidence for each queued issue. An open PR left by an earlier receipt-less attempt may be resumed. When execute stops after delivering a leading part of the queue, rerunning the same verification resumes only the undelivered remainder in the retained clone under the same invocation; delivered issues keep their original receipts and are never dispatched again. Status output is not smoke proof.
 

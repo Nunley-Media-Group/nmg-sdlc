@@ -152,7 +152,7 @@ describe('repo steering contract (v4)', () => {
     ]) {
       expect(snippet).toContain(required);
     }
-    for (const heading of ['Reuse', 'Clone', 'Draft', 'Specify', 'Clean up', 'Classify failures', 'Bound the work']) {
+    for (const heading of ['Select', 'Reuse', 'Clone', 'Draft', 'Specify', 'Exercise surfaces', 'Clean up', 'Classify failures', 'Bound the work']) {
       expect(snippet).toMatch(new RegExp(`^## \\d\\. ${heading}$`, 'm'));
     }
     expect(snippet).not.toContain('NMG_SDLC_AUTOPILOT');
@@ -165,6 +165,34 @@ describe('repo steering contract (v4)', () => {
     expect(rendered('verify')).toContain(marker);
     expect(rendered('implement')).not.toContain(marker);
     expect(rendered('deliver')).not.toContain(marker);
+  });
+
+  test('directs the verify worker to select, record and conditionally provision smoke surfaces (#584)', () => {
+    const snippet = read('steering/snippets/project-smoke.md');
+
+    // Selection runs ahead of the gate with the verify-steering CLI in select mode.
+    expect(snippet).toMatch(/node <plugin-root>\/scripts\/sdlc-verify-steering\.mjs --project \. --issue N --spec \S+ [^\n]*--mode select/);
+    expect(snippet).toContain('{ ok: true, selection }');
+    expect(snippet).toContain('selection.surfaces');
+
+    // Each selected interactive surface is driven live through its real command and recorded.
+    for (const command of ['/sdlc-draft-issue', '/sdlc-write-spec #N', '/sdlc-onboard-project', '/sdlc-upgrade-project', '/sdlc-steering', '/sdlc-run-retro']) {
+      expect(snippet).toContain(command);
+    }
+    expect(snippet).toContain('claude --plugin-dir <project root>');
+    expect(snippet).toContain('fresh clone of `Nunley-Media-Group/nmg-sdlc-smoke`');
+    expect(snippet).toContain('.nmg-sdlc/smoke/surfaces/<surface>.json');
+    expect(snippet).toContain('.nmg-sdlc/smoke/surfaces/<surface>.log');
+    for (const field of ['"schemaVersion": 1', '"repo": "Nunley-Media-Group/nmg-sdlc-smoke"', '"surface"', '"headSha": "<head>"', '"status": "passed"', '"command"', '"transcript"', '"issue"']) {
+      expect(snippet).toContain(field);
+    }
+    expect(snippet).toContain('nmg-sdlc-smoke surface not exercised: <surface>');
+
+    // Provisioning is conditional on the selected surfaces.
+    expect(snippet).toContain('Provision (steps 2–5) only when `execute`, `draft-issue` or `write-spec` is selected.');
+    expect(snippet).toContain('When `draft-issue` or `write-spec` is selected, provision a fresh smoke issue');
+    expect(snippet).toContain('When only `execute` is selected, the recorded issue may be reused');
+    expect(snippet).toContain('When no smoke surface is selected, do nothing more here: the gate records `surface_not_selected`.');
   });
 
 });

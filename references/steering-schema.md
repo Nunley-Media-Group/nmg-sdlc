@@ -18,7 +18,7 @@ Unknown files are preserved and are not loaded implicitly.
 
 ## Manifest v1
 
-The manifest has exactly `schemaVersion`, `runtimeVersion`, `managedFiles`, `modules`, `snippets`, `extensions`, and `validations`, plus the optional `worktree`, `changelog`, and `fullGreen` keys described under Optional Settings. Unknown keys fail. All registered paths are POSIX project-relative regular files under their allowed `steering/` subtree; traversal, absolute paths, and symlink escape fail.
+The manifest has exactly `schemaVersion`, `runtimeVersion`, `managedFiles`, `modules`, `snippets`, `extensions`, and `validations`, plus the optional `worktree`, `changelog`, `fullGreen`, `selection`, and `surfaces` keys described under Optional Settings and Scoped Selection. Unknown keys fail. All registered paths are POSIX project-relative regular files under their allowed `steering/` subtree; traversal, absolute paths, and symlink escape fail.
 
 - `managedFiles[]`: `{ path, template, sha256 }` for exactly the four module copies.
 - `modules[]`: `{ id, role, path }` for exactly `product`, `tech`, `structure`, and `verification`.
@@ -47,14 +47,52 @@ An invalid value for one of these keys fails with `steering_validation_invalid`.
   - A failure in the batch does not cancel the other members: each runs to completion and records its own result.
   - Each member keeps its own selection, its heavy-job slot when it is also `heavy: true` (it waits for a slot before its provider starts; the members that are not heavy do not wait), the Phase 1 deferral of project providers, and cancellation by the gate's abort signal.
   - Results are recorded in manifest order whatever order the members finish in, with the same fields as a serial run.
-- `selection`: only on a `change`-tier `builtin.command` validation. A project command `{ program, args, cwd?, env? }`:
-  - It receives `{ "schemaVersion": 1, "validationId", "baseRef", "changedPaths" }` on stdin and prints `{ "schemaVersion": 1, "mode": "selected" | "all", "tests": [...], "dataStatus": "fresh" | "stale" | "missing", "dataAgeSeconds": number | null }`. The plugin implements no language-specific selection.
-  - The selected tests are appended to the validation's `args` (reason `selected`).
-  - The full command runs when the command answers `all` (`selection_all`), exits non-zero or prints something malformed (`selection_failed`), or reports its data stale or missing (`selection_data_stale`, `selection_data_missing`).
-  - An empty selection passes without running anything (`selection_empty`).
-- `fallbackPaths`: only on a `change`-tier `builtin.command` validation. An array of project-relative globs on the validation itself. When a change touches one, the validation runs its full command (`fallback_path`) and the selection command is not asked.
+- `selection`: `true`, only on a `change`-tier `builtin.command` validation in a manifest that declares the top-level `selection` (see Scoped Selection). The validation runs only the selected tests. Any other value fails; the retired command form (`{ program, args }`) fails with `selection takes a prompt`.
+- `fallbackPaths`: only on a `change`-tier `builtin.command` validation. An array of project-relative globs that add to the top-level `selection.fallbackPaths`.
 
-  Each result records `tier` (or null) and `selection` (or null): `{ provider, reason, fallbackPath, selectedCount, dataAgeSeconds }`.
+  Each result records `tier` (or null) and `selection` (or null): `{ provider, reason, fallbackPath, selectedCount }`, where `provider` is `claude:<model>`.
+
+## Scoped Selection
+
+A manifest turns on scoped pre-merge verification with two optional top-level keys. `/sdlc-onboard-project` and `/sdlc-upgrade-project` detect and propose them (`verification-scope.md`). Full-tier runs, and manifests without `selection`, skip everything in this section.
+
+- `selection`: `{ docPaths?, fallbackPaths?, coveragePaths? }`, each an array of project-relative globs without a leading `!`. An unknown key fails with `steering_manifest_invalid` (`selection`). A command object (`program` or `args`) fails with `steering_validation_invalid`: selection takes a prompt.
+  - `docPaths`: a change whose every path matches one is docs-only and may select nothing. Without `docPaths`, no change is docs-only.
+  - `fallbackPaths`: a changed path matching one runs everything (`fallback_path`), and Claude is not asked.
+  - `coveragePaths`: the source and test globs the coverage report accounts for. Only onboarding and upgrade read it, to find tracked files nothing accounts for.
+- `surfaces`: a non-empty array of `{ id, sources, validations? }`. `id` matches `^[a-z0-9][a-z0-9.-]*$` and is unique, `sources` is a non-empty array of globs, and `validations` names declared validation ids. Violations fail with `steering_manifest_invalid` (`surfaces`).
+
+**The selection call.** Before any validation runs, the change-tier gate makes one headless Claude call: `claude -p --model <m> [--effort <e>] --output-format json --json-schema <schema> --tools "" --no-session-persistence`, with a 300 000 ms timeout.
+- The prompt is the bundled `gate:selection` fragment plus every project snippet routed to the `gate:selection` consumer. It is followed by the base ref, the changed paths, the diff (capped at 200 000 bytes), the surfaces and any supervisor guidance.
+- The model and effort come from the optional `selection: { model, effort }` entry of `steering/sdlc-models.json`, default `haiku` at `xhigh`. An invalid entry fails the gate with `stage_models_invalid`.
+- The answer is `{ mode: "selected" | "all", tests, surfaces }`: at most 5000 unique test names, and only declared surface ids.
+- A non-zero exit, a timeout, malformed output or an undeclared surface runs everything (`selection_failed`), and an `all` answer does too (`selection_all`).
+- `sdlc-verify-steering.mjs --mode select` resolves the selection without running validations. The selection is stored in `.nmg-sdlc/verification/selection-<N>.json`, and the gate reuses it while the head, changed paths, diff, steering, prompt, guidance and model are unchanged.
+
+**What the selection drives.**
+- Opted-in validations (`selection: true`) run the selected tests. They pass as `selection_empty` without running when no test is selected, and run in full in `all` mode.
+- A validation named in a surface's `validations` (any provider) runs only when one of its surfaces is selected. Otherwise it passes as `surface_not_selected` with evidence `surface_not_selected: no bound surface selected`. In `all` mode every surface is selected. Unbound validations run as before.
+- Every provider request gains `changedPaths` and `selection: { mode, reason, surfaces }`. `surfaces` holds every declared id in `all` mode, and is `[]` for a docs-only change.
+
+**The checks** run in selected mode only:
+1. `selection_surface_missing`: a surface whose `sources` match a changed path is not selected. Extra surfaces are allowed. This is checked before anything runs.
+2. `selection_empty_code_change`: no tests and no surfaces are selected, and a changed path is outside `docPaths`. This is also checked before anything runs.
+3. `selection_uncovered`: after the opted-in validations pass, the `coverage` command of `steering/test-coverage.json` runs with the selected tests appended. Its report is `{ version: 1, tests: [{ id, file, lines, branches, outcomes }], executableLines? }`, where the optional `executableLines` are `path:N` entries naming the lines that hold code.
+   - For each changed path the report covers, the changed lines (from `git diff -U0` against the merge base, plus untracked files) that are executable must be hit by a selected test. Without `executableLines`, the non-blank changed lines must be hit.
+   - Each opted-in result records `coverage: { changedLines, hitLines, uncovered }`.
+   - A missing or invalid coverage config accounts for no path. A failing coverage command fails the opted-in results as `coverage_failed`, which is an ordinary failure.
+4. `selection_unaccounted`: a changed path matches none of these: a report line record, a selected test's `file`, a selected surface's `sources`, `docPaths`, `fallbackPaths`.
+
+A rejection makes the affected validations `failed`, naming the surfaces, lines or paths. For `selection_uncovered` the affected validations are the opted-in ones; otherwise they are the opted-in and surface-bound ones. The artifact's top-level `selection` records:
+- `prompt: { consumer, fragments: [{ id, hash }] }`, `model` and `effort`;
+- `mode`, `reason`, `fallbackPath`, `tests`, `surfaces` and `requiredSurfaces`;
+- `guidanceSupplied`;
+- `rejection: null | { reasonCode, uncovered, missingSurfaces, unaccounted }`.
+
+**Escalation.** The verify finalizer turns a rejection into a failed handoff with `reasonCode: "selection_escalation"`, `intervention: false`, `next: "verify"` and `escalation: { kind: "selection", reasonCode, uncovered, missingSurfaces, unaccounted }`.
+- `/sdlc-execute` presents it to its supervising session with only `redispatch` and `halt`, and never routes the branch to implement.
+- A `redispatch --text` stores the guidance in `.nmg-sdlc/verification/selection-guidance-<N>.json` for the current head. The rerun gate appends it to the selection prompt and records `guidanceSupplied: true`.
+- An unsupervised run stops with `selection_escalation`.
 
 ## Deterministic Validations
 

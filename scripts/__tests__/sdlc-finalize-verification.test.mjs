@@ -368,3 +368,28 @@ describe('resolver-produced issue-scope marker (#491)', () => {
     expect(issueScopeMarker(null)).toBeNull();
   });
 });
+
+describe('selection escalation (#584 AC7, FR7)', () => {
+  const ARTIFACT = '.nmg-sdlc/verification/42.json';
+  const rejection = { reasonCode: 'selection_unaccounted', uncovered: [], missingSurfaces: [], unaccounted: ['tools/build.sh'] };
+  function rejectedFixture() {
+    const root = makeRoot();
+    writeSteering(root);
+    writeSpec(root);
+    const head = gitInit(root);
+    writeReport(root, 'Fail', head);
+    writeArtifact(root, head, 'Fail', 'failed');
+    const file = path.join(root, ARTIFACT);
+    const artifact = JSON.parse(fs.readFileSync(file, 'utf8'));
+    fs.writeFileSync(file, JSON.stringify({ ...artifact, selection: { mode: 'selected', reason: 'selected', rejection } }));
+    return root;
+  }
+
+  it.each([true, false])('finalizes a rejected selection as selection_escalation back to verify (queueGate %s)', (queueGate) => {
+    const root = rejectedFixture();
+    const out = finalizeVerification({ issue: 42, spec: SPEC, cwd: root, queueGate });
+    expect(out.handoff).toMatchObject({ status: 'failed', reasonCode: 'selection_escalation', intervention: false, next: 'verify',
+      artifacts: [REPORT, ARTIFACT], escalation: { kind: 'selection', ...rejection } });
+    expect(out.handoff.summary).toContain('selection_unaccounted: tools/build.sh');
+  });
+});

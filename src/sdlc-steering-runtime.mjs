@@ -6,7 +6,10 @@ import { ALLOWED_CONSUMERS, ALLOWED_SLOTS } from "./sdlc-prompt-snippets.mjs";
 
 const TOP_KEYS = ["schemaVersion", "runtimeVersion", "managedFiles", "modules", "snippets", "extensions", "validations"];
 // Optional manifest keys: absent ones change nothing.
-export const OPTIONAL_TOP_KEYS = Object.freeze(["worktree", "changelog", "fullGreen"]);
+export const OPTIONAL_TOP_KEYS = Object.freeze(["worktree", "changelog", "fullGreen", "selection", "surfaces"]);
+const SELECTION_KEYS = Object.freeze(["docPaths", "fallbackPaths", "coveragePaths"]);
+const SURFACE_ID_RE = /^[a-z0-9][a-z0-9.-]*$/;
+export const SELECTION_TAKES_A_PROMPT = "selection takes a prompt: declare the top-level selection object and set selection: true on change-tier builtin.command validations";
 const OPTIONAL_VALIDATION_KEYS = ["timeoutMs", "tier", "heavy", "concurrent", "selection", "fallbackPaths"];
 export const VALIDATION_TIERS = Object.freeze(["change", "full"]);
 const SHELL_PROGRAMS = ["sh", "bash", "zsh", "cmd", "powershell"];
@@ -80,10 +83,22 @@ function validCommand(value) {
     && (value.env === undefined || (Array.isArray(value.env) && value.env.every((x) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(x)) && new Set(value.env).size === value.env.length));
 }
 
-/** `selection` is a command that picks the tests of a change-tier builtin.command validation; `fallbackPaths` are the globs that always run the full command. */
-function validateSelection(validation) {
+/** Whether `value` is the retired `{ program, args }` selection command. */
+function commandForm(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value) && (Object.hasOwn(value, "program") || Object.hasOwn(value, "args"));
+}
+function safeGlobs(value) {
+  return Array.isArray(value) && value.every((x) => safeRelativePath(x) && !x.startsWith("!"));
+}
+
+/** `selection: true` opts a change-tier builtin.command validation into the prompt-driven test selection the top-level
+ * `selection` object enables; `fallbackPaths` are the globs that always run the full command. */
+function validateSelection(validation, manifestSelection) {
   const scoped = validation.tier === "change" && validation.provider === "builtin.command";
-  if (Object.hasOwn(validation, "selection") && (!scoped || !validCommand(validation.selection))) fail("steering_validation_invalid", "selection requires a change-tier builtin.command validation and a command");
+  if (Object.hasOwn(validation, "selection")) {
+    if (commandForm(validation.selection)) fail("steering_validation_invalid", SELECTION_TAKES_A_PROMPT);
+    if (validation.selection !== true || !scoped || !manifestSelection) fail("steering_validation_invalid", "selection");
+  }
   if (Object.hasOwn(validation, "fallbackPaths")) {
     const paths = validation.fallbackPaths;
     if (!scoped || !Array.isArray(paths) || !paths.every((x) => safeRelativePath(x) && !x.startsWith("!"))) fail("steering_validation_invalid", "fallbackPaths");
@@ -115,7 +130,27 @@ function optionalManifest(manifest) {
       || !Array.isArray(value) || !value.every((x) => typeof x === "string" && ID_RE.test(x)) || new Set(value).size !== value.length) fail("steering_manifest_invalid", "fullGreen");
     fullGreenActions = [...value];
   }
-  return { worktree, changelogFragments, fullGreenActions: Object.freeze(fullGreenActions) };
+  let selection = null;
+  if (Object.hasOwn(manifest, "selection")) {
+    const value = manifest.selection;
+    if (commandForm(value)) fail("steering_validation_invalid", SELECTION_TAKES_A_PROMPT);
+    if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some((key) => !SELECTION_KEYS.includes(key))
+      || SELECTION_KEYS.some((key) => Object.hasOwn(value, key) && !safeGlobs(value[key]))) fail("steering_manifest_invalid", "selection");
+    selection = Object.freeze(Object.fromEntries(SELECTION_KEYS.map((key) => [key, Object.hasOwn(value, key) ? Object.freeze([...value[key]]) : null])));
+  }
+  let surfaces = [];
+  if (Object.hasOwn(manifest, "surfaces")) {
+    const value = manifest.surfaces;
+    const seen = new Set();
+    const valid = (surface) => surface && typeof surface === "object" && !Array.isArray(surface)
+      && Object.keys(surface).every((key) => ["id", "sources", "validations"].includes(key))
+      && typeof surface.id === "string" && SURFACE_ID_RE.test(surface.id) && !seen.has(surface.id) && seen.add(surface.id)
+      && safeGlobs(surface.sources) && surface.sources.length > 0
+      && (!Object.hasOwn(surface, "validations") || (Array.isArray(surface.validations) && surface.validations.every((id) => typeof id === "string" && ID_RE.test(id))));
+    if (!Array.isArray(value) || value.length === 0 || !value.every(valid)) fail("steering_manifest_invalid", "surfaces");
+    surfaces = value.map((surface) => Object.freeze({ id: surface.id, sources: Object.freeze([...surface.sources]), validations: Object.freeze([...(surface.validations ?? [])]) }));
+  }
+  return { worktree, changelogFragments, fullGreenActions: Object.freeze(fullGreenActions), selection, surfaces: Object.freeze(surfaces) };
 }
 
 function validateWhen(when) {
@@ -240,10 +275,13 @@ export async function loadSteeringRuntime(projectRoot, { manifestPath = "steerin
     if (Object.hasOwn(record, "tier") && !VALIDATION_TIERS.includes(record.tier)) fail("steering_validation_invalid", "tier");
     if (Object.hasOwn(record, "heavy") && typeof record.heavy !== "boolean") fail("steering_validation_invalid", "heavy");
     if (Object.hasOwn(record, "concurrent") && typeof record.concurrent !== "boolean") fail("steering_validation_invalid", "concurrent");
-    validateSelection(record);
+    validateSelection(record, optional.selection);
     const { timeoutMs: _legacyTimeoutMs, ...validation } = record;
     validations.push(Object.freeze(validation));
   }
+
+  const validationIds = new Set(validations.map((validation) => validation.id));
+  if (optional.surfaces.some((surface) => surface.validations.some((id) => !validationIds.has(id)))) fail("steering_manifest_invalid", "surfaces");
 
   const steeringFiles = [absoluteManifest, ...manifest.modules.map((x) => resolve(root, x.path)), ...manifest.snippets.map((x) => resolve(root, x.path)), ...manifest.extensions.map((x) => resolve(root, x.path))];
   const steeringHash = hash(steeringFiles.map((file) => `${relative(root, file)}\0${readFileSync(file)}`).join("\0"));
@@ -261,7 +299,7 @@ export function validationTier(validation) {
 /** Reads only the optional manifest settings (worktree commands, changelog fragments, full-green actions), validated. */
 export function readManifestOptions(projectRoot) {
   const path = resolve(projectRoot, "steering/manifest.json");
-  if (!existsSync(path)) return { worktree: null, changelogFragments: null, fullGreenActions: Object.freeze([]) };
+  if (!existsSync(path)) return { worktree: null, changelogFragments: null, fullGreenActions: Object.freeze([]), selection: null, surfaces: Object.freeze([]) };
   let manifest;
   try { manifest = JSON.parse(readFileSync(path, "utf8")); } catch { fail("steering_manifest_invalid"); }
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) fail("steering_manifest_invalid");

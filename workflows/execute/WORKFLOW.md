@@ -119,6 +119,17 @@ Keep the session id. Answer every report before doing anything else, because the
 
 `prompt` adds guidance to the running subagent's conversation. `redispatch` and `halt` stop the subagent first.
 
+### Selection escalations
+
+A verify stage report whose handoff has `reasonCode: "selection_escalation"` carries an `escalation` object: `{ kind: "selection", reasonCode, uncovered, missingSurfaces, unaccounted }`. The pre-merge gate rejected the change selection that headless Claude made for the change. The `reasonCode` is one of:
+
+- `selection_uncovered`: changed lines the selected tests do not hit;
+- `selection_surface_missing`: a changed surface that was not selected;
+- `selection_unaccounted`: changed paths that coverage, a selected surface, `docPaths` and `fallbackPaths` all miss;
+- `selection_empty_code_change`: an empty selection for a change outside `docPaths`.
+
+This is a selection gap, not a code defect, so only `redispatch` and `halt` are offered: there is no `accept` that would send the branch to implement. Read the named lines, surfaces or paths and the diff. Then `redispatch --text "<guidance>"` naming the tests or surfaces the change needs, for example `redispatch --text "check hooks tests"`. The controller stores that guidance for the current head and reruns verify, not implement. The rerun gate appends the guidance to its selection prompt and records `guidanceSupplied: true`. `halt` when the gap needs a steering change (a missing surface map entry, coverage command or `docPaths` glob) that only the person can approve. An unsupervised run stops with `selection_escalation`.
+
 4. Read the next output and repeat until the controller finishes.
 
 ### Safe actions

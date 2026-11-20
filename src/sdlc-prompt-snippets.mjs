@@ -41,9 +41,13 @@ export const WORKER_CONSUMERS = Object.freeze([
   "worker:deliver",
 ]);
 
+/** Prompts the pre-merge gate itself sends to headless Claude, outside any command or worker. */
+export const GATE_CONSUMERS = Object.freeze(["gate:selection"]);
+
 export const ALLOWED_CONSUMERS = Object.freeze([
   ...COMMAND_CONSUMERS,
   ...WORKER_CONSUMERS,
+  ...GATE_CONSUMERS,
 ]);
 
 const FRAGMENT_KEYS = new Set([
@@ -226,6 +230,7 @@ const CATALOG = [
   ["plugin.workflow.write-code", "workflows/write-code/WORKFLOW.md", ["worker:implement"], "body", 100],
   ["plugin.workflow.simplify", "workflows/simplify/WORKFLOW.md", ["worker:implement"], "extra", 200],
   ["plugin.execute.selection", "workflows/execute/references/selection.md", ["sdlc-execute"], "extra", 200],
+  ["plugin.gate.selection", "workflows/verify-code/references/selection-prompt.md", ["gate:selection"], "body", 100],
 ].map(([id, source, consumers, slot, order]) => Object.freeze({
   id,
   provider: "plugin",
@@ -265,7 +270,8 @@ export function pluginPathsNote(workflows) {
   return lines.join("\n");
 }
 
-for (const consumer of ALLOWED_CONSUMERS) {
+// The gate's prompts read no packaged files, so they carry no plugin path note.
+for (const consumer of [...COMMAND_CONSUMERS, ...WORKER_CONSUMERS]) {
   const workflows = [...new Set(CATALOG
     .filter((fragment) => fragment.consumers.includes(consumer))
     .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id, "en"))
