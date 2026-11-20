@@ -6,7 +6,7 @@
  *
  * Exports:
  *   detectUpgrade(root)
- *   applyUpgrade(root, approvedItemIds)
+ *   applyUpgrade(root, approvedItemIds, run, { kept })
  *   detectPublicationUpgrade(root, { specDirs })
  *   applyPublicationUpgrade(root, approvedItemId, { specDirs })
  *
@@ -38,6 +38,8 @@ import {
   publicationFileEntries,
   visitVisiblePublicationMarkdownLines,
 } from './sdlc-safe-recoveries.mjs';
+import { TEST_LAYER_TYPES } from './test-layers.mjs';
+import { applyTestLayers, detectTestLayers, runTestLayersCli, TEST_LAYERS_COMMANDS } from './upgrade-test-layers.mjs';
 
 const LEGACY_DIR_PREFIX_RE = /^(feature|bug|epic)-/;
 const NUM_SLUG_RE = /^(\d+)-(.*)$/;
@@ -2898,6 +2900,8 @@ function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRu
   if (sdlcModels) items.push(sdlcModels);
   const sdlcModelsDefaults = detectSdlcModelsDefaults(rootAbs);
   if (sdlcModelsDefaults) items.push(sdlcModelsDefaults);
+  const testLayers = detectTestLayers(rootAbs);
+  if (testLayers) items.push(testLayers);
 
   if (dependencyItem) {
     items.push(dependencyItem);
@@ -3160,6 +3164,7 @@ function applyAgentsSpikeLanguage(root, item) {
 
 function applyUpgrade(root, approvedItemIds = [], run, {
   includeIssueDependencies = run === defaultRun,
+  kept = null,
 } = {}) {
   const rootAbs = path.resolve(root);
   const report = detectUpgrade(rootAbs, { run, includeIssueDependencies });
@@ -3171,6 +3176,12 @@ function applyUpgrade(root, approvedItemIds = [], run, {
   if (approvedPublicationId && livePublicationItem?.id !== approvedPublicationId) {
     const error = new Error('Publication File(s) changed after plan approval');
     error.reasonCode = 'publication_files_plan_stale';
+    throw error;
+  }
+  const approvedTestLayersId = [...approvedSet].find((id) => id.startsWith('test-layers:'));
+  if (approvedTestLayersId && report.items.find((item) => item.kind === 'test-layers')?.id !== approvedTestLayersId) {
+    const error = new Error('Test files or test-layer steering changed after plan approval');
+    error.reasonCode = 'test_layers_plan_stale';
     throw error;
   }
   const liveDependencyItem = report.items.find((item) => item.kind === 'issue-dependencies');
@@ -3198,7 +3209,7 @@ function applyUpgrade(root, approvedItemIds = [], run, {
 
   // Split cumulative packages before renaming their shared legacy source.
   const order = (a, b) => {
-    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'steering-runtime': 2, 'publication-files': 3, 'cumulative-split': 4, 'directory-rename': 5, 'epic-flatten': 6, 'spike-flatten': 7, 'spike-remove': 7, 'spike-issue-form': 7, 'agents-spike-language': 7, 'agents-host-language': 7.5, 'agents-to-claude-md': 7.75, 'frontmatter-fix': 8, 'v2-cleanup': 9, 'runtime-state-v4': 9.5, 'nmg-sdlc-ignore': 10, 'steering-v4-host-language': 10.5, 'contributing-v4-host-language': 10.5, 'changelog-create': 10.75, 'sdlc-models': 10.8, 'sdlc-models-defaults': 10.81, 'issue-dependencies': 11, 'already-current': 99 }[k] ?? 50);
+    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'steering-runtime': 2, 'publication-files': 3, 'cumulative-split': 4, 'directory-rename': 5, 'epic-flatten': 6, 'spike-flatten': 7, 'spike-remove': 7, 'spike-issue-form': 7, 'agents-spike-language': 7, 'agents-host-language': 7.5, 'agents-to-claude-md': 7.75, 'frontmatter-fix': 8, 'v2-cleanup': 9, 'runtime-state-v4': 9.5, 'nmg-sdlc-ignore': 10, 'steering-v4-host-language': 10.5, 'contributing-v4-host-language': 10.5, 'changelog-create': 10.75, 'sdlc-models': 10.8, 'sdlc-models-defaults': 10.81, 'test-layers': 10.82, 'issue-dependencies': 11, 'already-current': 99 }[k] ?? 50);
     return pri(a.kind) - pri(b.kind);
   };
   const toApply = [...report.items].filter((it) => approvedSet.has(it.id));
@@ -3252,6 +3263,8 @@ function applyUpgrade(root, approvedItemIds = [], run, {
       res = applySdlcModels(rootAbs, item);
     } else if (item.kind === 'sdlc-models-defaults') {
       res = applySdlcModelsDefaults(rootAbs, item);
+    } else if (item.kind === 'test-layers') {
+      res = applyTestLayers(rootAbs, item, kept);
     } else if (item.kind === 'issue-dependencies') {
       res = applyIssueDependencyUpgrade(item, { cwd: rootAbs, run });
     } else if (item.kind === 'packaging' || item.kind === 'legacy-layout' || item.kind === 'already-current') {
@@ -3298,7 +3311,7 @@ function applyUpgrade(root, approvedItemIds = [], run, {
 const UPGRADE_COMMANDS = new Set(['detect', 'apply', 'detect-publication', 'apply-publication']);
 const PUBLICATION_COMMANDS = new Set(['detect-publication', 'apply-publication']);
 const LEGACY_UPGRADE_COMMANDS = new Set(['detect', 'apply']);
-const CLI_VALUE_OPTIONS = new Set(['--root', '-r', '--approve', '-a', '--spec', '-s']);
+const CLI_VALUE_OPTIONS = new Set(['--root', '-r', '--approve', '-a', '--spec', '-s', '--kept', '--batch']);
 
 function resolveUpgradeCommand(argv) {
   const tokens = argv.slice(2);
@@ -3413,6 +3426,7 @@ function parseArgv(argv) {
     approveOptionCount: 0,
     approveMalformed: false,
     specDirs: [],
+    kept: null,
   };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
@@ -3434,18 +3448,40 @@ function parseArgv(argv) {
       args.specDirs.push(argv[++i] ?? '');
     } else if (a.startsWith('--spec=')) {
       args.specDirs.push(a.slice('--spec='.length));
+    } else if (a === '--kept' || a.startsWith('--kept=')) {
+      const value = a === '--kept' ? (argv[++i] ?? '') : a.slice('--kept='.length);
+      args.kept = value.split(',').map((entry) => entry.trim());
     }
   }
   return args;
 }
 
-if (isCliEntry(import.meta.url)) {
+function parseKept(kept) {
+  if (kept === null) return null;
+  if (kept.some((type) => !TEST_LAYER_TYPES.includes(type)) || new Set(kept).size !== kept.length) {
+    console.error('ERROR', JSON.stringify({
+      reasonCode: 'test_layers_cli_invalid',
+      message: `--kept must be a comma list of distinct test types: ${TEST_LAYER_TYPES.join(', ')}`,
+    }));
+    process.exit(2);
+  }
+  return kept;
+}
+
+if (isCliEntry(import.meta.url) && TEST_LAYERS_COMMANDS.has(process.argv[2])) {
+  const { exitCode, output } = runTestLayersCli(process.argv.slice(2));
+  console.log(JSON.stringify(output, null, 2));
+  process.exit(exitCode);
+} else if (isCliEntry(import.meta.url)) {
   try {
     const args = parseArgv(process.argv);
     validatePublicationCli(process.argv, args.cmd);
     if (!args.cmd) {
       console.error([
-        'Usage: node scripts/sdlc-upgrade.mjs <detect|apply> [--root <dir>] [--approve id1,id2]',
+        'Usage: node scripts/sdlc-upgrade.mjs <detect|apply> [--root <dir>] [--approve id1,id2] [--kept bdd,unit]',
+        'Usage: node scripts/sdlc-upgrade.mjs test-layers-candidates --root <dir>',
+        'Usage: node scripts/sdlc-upgrade.mjs test-layers-batch <begin|gate> --root <dir> --batch batch-NNN',
+        'Usage: node scripts/sdlc-upgrade.mjs test-layers-report --root <dir>',
         'Usage: node scripts/sdlc-upgrade.mjs detect-publication --root <dir> --spec specs/N-slug',
         'Usage: node scripts/sdlc-upgrade.mjs apply-publication --root <dir> --spec specs/N-slug --approve publication-files:<digest>',
       ].join('\n'));
@@ -3455,7 +3491,7 @@ if (isCliEntry(import.meta.url)) {
       const out = detectUpgrade(args.root, { run: defaultRun });
       console.log(JSON.stringify(out, null, 2));
     } else if (args.cmd === 'apply') {
-      const out = applyUpgrade(args.root, args.approve, defaultRun);
+      const out = applyUpgrade(args.root, args.approve, defaultRun, { kept: parseKept(args.kept) });
       console.log(JSON.stringify(out, null, 2));
     } else if (args.cmd === 'detect-publication') {
       const out = detectPublicationUpgrade(args.root, { specDirs: args.specDirs });

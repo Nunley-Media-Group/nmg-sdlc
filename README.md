@@ -155,6 +155,33 @@ Onboarding/upgrade manage:
 
 Do not replace user-authored assets or delete `.nmg-sdlc/` just to bypass a failed preflight.
 
+#### Test-layer migration
+
+When a project has test files, upgrade offers a `test-layers:<digest>` item. It classifies every test file as `bdd`, `unit`, `integration`, `property` or `doc`, pairs non-`bdd` files with `.feature` files by name, and asks one multi-select question: which detected types to keep, with `bdd (Recommended)` first. The approved plan writes the answer, always including `bdd`, to [`steering/test-layers.json`](#kept-test-layers) with `apply --approve test-layers:<digest> --kept bdd,unit`. Without a recorded or supplied kept set the item stays a proposal and nothing changes (`skipped:kept_types_unrecorded`). A test file or steering change after approval fails with `test_layers_plan_stale` before any write. Rerun the item to choose a different set; only types outside the new set become candidates.
+
+The migration then runs in batches, one non-kept test file per batch, using the commands declared in `steering/test-coverage.json`:
+
+1. `sdlc-upgrade.mjs test-layers-candidates --root .` records a baseline and lists the batches. A test is `duplicate` when one `bdd` test covers all of its lines, branches and asserted outcomes, and `convert` when its file pairs with a feature that does not yet cover it. Other non-kept tests are reported as `unmatched` and left alone. Kept types are never candidates.
+2. `test-layers-batch begin --root . --batch batch-NNN` snapshots the tree into a temporary Git index. The agent converts each `convert` test into a scenario or a Scenario Outline Examples row in the paired feature, reusing step definitions, and deletes the batch's duplicated and converted tests.
+3. `test-layers-batch gate --root . --batch batch-NNN` runs the suite and coverage. It accepts the batch with per-test evidence (the deleted test, the covering `bdd` tests and the covered lines), or refuses it and restores the pre-batch tree byte for byte, without touching HEAD, refs or the index: `test_layers_suite_failed`, `test_layers_coverage_failed`, `test_layers_removal_out_of_batch`, or `test_layers_coverage_gap` with the uncovered lines, branches and outcomes.
+4. `test-layers-report --root .` prints before/after collected-test count, suite wall time, and line, branch and outcome coverage counts, the accepted evidence and every refused batch with its gap. A coverage count below its baseline reports `test_layers_coverage_regressed`.
+
+Begin refuses a batch that is already begun and not yet gated (`test_layers_batch_already_begun`) or already accepted (`test_layers_batch_already_accepted`), and a gate restores the tree on every refusal, including a steering file broken after begin. Rerunning `test-layers-candidates` keeps the original baseline and each file's batch id, so earlier evidence survives; a file an accepted batch left with candidate tests is listed again under a new id. Other refusals: `test_layers_batch_unknown`, `test_layers_batch_not_begun`, `test_layers_git_required`, `test_layers_snapshot_failed`, `test_layers_baseline_missing`, and the steering codes `kept_types_unrecorded`, `test_layers_invalid`, `test_coverage_command_missing` and `test_coverage_config_invalid` from candidates, begin, gate and report. Delete `.nmg-sdlc/upgrade/test-layers/` to start over.
+
+Without a valid `steering/test-coverage.json`, the kept set and the test inventory are still recorded, but no batch is offered and every deletion is refused with `test_coverage_command_missing` or `test_coverage_config_invalid` naming the file and field.
+
+The file declares the suite and per-test coverage commands as argument arrays, run with no shell:
+
+```json
+{
+  "version": 1,
+  "suite": { "program": "npm", "args": ["test"] },
+  "coverage": { "program": "node", "args": ["tools/per-test-coverage.mjs"] }
+}
+```
+
+Unknown keys, a `version` other than `1`, an empty `program`, or non-string `args` are rejected. The coverage command prints one JSON object to stdout: `{ "version": 1, "tests": [{ "id": "…", "file": "test/cart.test.js", "lines": ["src/cart.js:12"], "branches": ["src/cart.js:12:0"], "outcomes": ["adds item"] }] }`. Test ids are unique and stable across edits (the gate detects removal by id, so do not embed line numbers), `file` is repository-relative, lines are `path:N`, branches are `path:N:K`, and two outcomes are equivalent when their strings are equal. Building that per-test report for your stack is project work; upgrade does not detect coverage runners.
+
 ### Upgrading from 3.x
 
 nmg-sdlc 4.0 replaces the Oh My Pi extension with a Claude Code plugin. Projects and specs carry over unchanged; the host and runtime-state location change.
@@ -192,6 +219,7 @@ Interactive behavior maps one to one: OMP `ask` chips are `AskUserQuestion` ques
 | `fullGreen.actions` (optional) | Downstream actions, such as `deploy`, that require a green full-tier record at or after the commit they act on |
 | `steering/sdlc-models.json` | Project-owned execute stage models and efforts (see [Per-project stage models](#per-project-stage-models)); not registered in `steering/manifest.json` |
 | `steering/test-layers.json` | Project-owned kept test types (see [Kept test layers](#kept-test-layers)); not registered in `steering/manifest.json` |
+| `steering/test-coverage.json` | Project-owned suite and per-test coverage commands, `{ "version": 1, "suite": { "program", "args" }, "coverage": { "program", "args" } }`; the coverage command prints `{ "version": 1, "tests": [{ "id", "file", "lines", "branches", "outcomes" }] }` (see [Test-layer migration](#test-layer-migration)); not registered in `steering/manifest.json` |
 
 Use steering to state supported runtimes, commands, product boundaries, review policy, and declared version mirrors. Register a command's actual program, argument array, working directory, and required environment names. Do not put secrets into steering or shell-compose verification commands. Canonical validations have no wall-clock deadline; cancellation and confirmed process loss are distinct outcomes, not passes.
 
