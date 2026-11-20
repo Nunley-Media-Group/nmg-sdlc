@@ -12,6 +12,8 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.20.0] - 2026-11-20
+
 ### Added
 
 - Scoped pre-merge verification: a top-level manifest `selection` (`docPaths`, `fallbackPaths`, `coveragePaths`) and `surfaces` map make the gate ask headless Claude once, through the bundled `gate:selection` prompt plus project snippets, which tests and surfaces a change needs; validations with `selection: true` run only the selected tests, surface-bound validations run only for selected surfaces (`surface_not_selected` otherwise), and providers receive the changed paths and selected surfaces (#584)
