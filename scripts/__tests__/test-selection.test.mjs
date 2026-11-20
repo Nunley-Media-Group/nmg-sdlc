@@ -209,50 +209,131 @@ describe('@SCN010 a failed call keeps its diagnostic (#584 AC9)', () => {
     expect(await resolve(root, runtime, run)).toMatchObject({ reason: 'selection_failed', detail: 'claude exited 2: authentication expired' });
   });
 
-  it('names a selected test that is not a file, and asks again instead of reusing a stored test that was removed', async () => {
+  it('names a selected test file that does not exist, spelled exactly, and asks again instead of reusing a stored one that does not', async () => {
     const { root, runtime } = await project();
-    const missing = recorder({ mode: 'selected', tests: ['tests/glob.test.js'], surfaces: ['app'] });
-    expect(await resolve(root, runtime, missing.run)).toMatchObject({ mode: 'all', reason: 'selection_failed',
-      detail: 'selected test is not a file in the project: tests/glob.test.js' });
+    for (const missing of ['tests/glob.test.js', 'Tests/App.test.js']) {
+      fs.rmSync(selectionPath(root, 42), { force: true });
+      const { run } = recorder({ mode: 'selected', tests: [missing], surfaces: ['app'] });
+      expect(await resolve(root, runtime, run)).toMatchObject({ mode: 'all', reason: 'selection_failed',
+        detail: `selected test is no file in the project: ${missing}` });
+    }
     const { calls, run } = recorder({ mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] });
     await resolve(root, runtime, run);
     expect(calls).toHaveLength(1);
-    // A stored selection is checked again on reuse: an entry that breaks the answer contract is never reused.
+    // A stored selection is checked again on reuse: a stored test file that does not exist is never reused.
     const stored = JSON.parse(fs.readFileSync(selectionPath(root, 42), 'utf8'));
-    fs.writeFileSync(selectionPath(root, 42), JSON.stringify({ ...stored, selection: { ...stored.selection, tests: ['--passWithNoTests'] } }));
+    fs.writeFileSync(selectionPath(root, 42), JSON.stringify({ ...stored, selection: { ...stored.selection, tests: ['tests/gone.test.js'] } }));
     expect(await resolve(root, runtime, run)).toMatchObject({ reason: 'selected', tests: ['tests/app.test.js'], reused: false });
     expect(calls).toHaveLength(2);
+    // Nor is a stored reason that its lists contradict.
+    fs.writeFileSync(selectionPath(root, 42), JSON.stringify({ ...stored, selection: { ...stored.selection, reason: 'selection_empty' } }));
+    expect((await resolve(root, runtime, run)).reused).toBe(false);
+    expect(calls).toHaveLength(3);
   });
 });
 
-describe('@SCN010 a version bump is not a fallback change (#584 AC9)', () => {
-  const manifestJson = (version, extra = {}) => `${JSON.stringify({ name: 'demo', version, ...extra }, null, 2)}\n`;
+(process.platform === 'win32' ? describe.skip : describe)('@SCN010 a failed or timed-out claude process runs everything (#584 AC9)', () => {
+  /** Runs the resolver in a child process whose PATH finds a fake claude running `body`, with the given limits. */
+  async function resolveWithClaude(body, limits) {
+    const { root } = await project();
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-584-claude-'));
+    roots.push(bin);
+    fs.writeFileSync(path.join(bin, 'claude'), `#!${process.execPath}\n${body}\n`, { mode: 0o755 });
+    const modules = ['../../src/sdlc-steering-runtime.mjs', '../../src/sdlc-test-selection.mjs'].map((file) => new URL(file, import.meta.url).href);
+    const started = Date.now();
+    const child = spawnSync(process.execPath, ['--input-type=module', '-e', `
+      const { loadSteeringRuntime } = await import(${JSON.stringify(modules[0])});
+      const { resolveChangeSelection } = await import(${JSON.stringify(modules[1])});
+      const runtime = await loadSteeringRuntime(${JSON.stringify(root)});
+      const selection = await resolveChangeSelection({ projectRoot: ${JSON.stringify(root)}, issue: 42, baseRef: 'main', paths: ['src/app.js'], runtime, models: {},
+        limits: ${JSON.stringify(limits)} });
+      process.stdout.write(JSON.stringify(selection));`], { encoding: 'utf8', env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` } });
+    return { selection: JSON.parse(child.stdout), elapsed: Date.now() - started };
+  }
 
-  it('asks Claude, requires no surface and records the path when package.json changes only its version', async () => {
-    const { root, runtime } = await project({ baselineFiles: { 'package.json': manifestJson('1.0.0') } });
+  it('kills a claude call that outlives its timeout', async () => {
+    const { selection, elapsed } = await resolveWithClaude('setTimeout(() => {}, 60000);', { timeoutMs: 500 });
+    expect(selection).toMatchObject({ mode: 'all', reason: 'selection_failed', detail: 'claude exited without a status (SIGKILL)' });
+    expect(elapsed).toBeLessThan(20000);
+  }, 30000);
+
+  it('fails an answer larger than the output cap', async () => {
+    const { selection } = await resolveWithClaude("process.stdout.write('x'.repeat(4096)); setTimeout(() => {}, 60000);", { maxOutputBytes: 1024 });
+    expect(selection).toMatchObject({ mode: 'all', reason: 'selection_failed', detail: 'claude output exceeded 1024 bytes' });
+  }, 30000);
+
+  it('keeps the exit status and stderr of a failing claude', async () => {
+    const { selection } = await resolveWithClaude("process.stderr.write('quota exhausted'); process.exitCode = 3;", {});
+    expect(selection).toMatchObject({ mode: 'all', reason: 'selection_failed', detail: 'claude exited 3: quota exhausted' });
+  }, 30000);
+});
+
+describe('@SCN001 the selected tests are read in the runner\'s own form (#584 AC1)', () => {
+  it('normalizes a test file path, passes other id forms through, and drops a test file the change deletes', async () => {
+    const { root, runtime } = await project({ baselineFiles: { 'tests/old.test.js': '// old\n' } });
+    fs.rmSync(path.join(root, 'tests/old.test.js'));
+    const tests = ['./tests//app.test.js', 'tests/./app.test.js::adds', './pkg/...', 'crate::tests::adds', 'tests/old.test.js'];
+    const { calls, run } = recorder({ mode: 'selected', tests, surfaces: ['app'] });
+    expect(await resolve(root, runtime, run, { paths: ['src/app.js', 'tests/old.test.js'] })).toMatchObject({ mode: 'selected', reason: 'selected',
+      tests: ['tests/app.test.js', 'tests/app.test.js::adds', './pkg/...', 'crate::tests::adds'] });
+    expect(calls[0].input).toContain('Test files (project-relative files named like tests):\n- tests/app.test.js');
+  });
+});
+
+describe('@SCN001 delivery\'s version bump is not part of the change Claude receives (#584 AC1)', () => {
+  const manifestJson = (version, extra = {}) => `${JSON.stringify({ name: 'demo', version, ...extra }, null, 2)}\n`;
+  const bumped = { 'VERSION': '1.0.0\n', 'package.json': manifestJson('1.0.0') };
+
+  it('asks Claude with the change\'s paths when VERSION and package.json only move to the new version', async () => {
+    const { root, runtime } = await project({ baselineFiles: bumped });
+    fs.writeFileSync(path.join(root, 'VERSION'), '1.1.0\n');
     fs.writeFileSync(path.join(root, 'package.json'), manifestJson('1.1.0'));
     const { calls, run } = recorder({ mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] });
-    expect(await resolve(root, runtime, run, { paths: ['package.json', 'src/app.js'] })).toMatchObject({ mode: 'selected', reason: 'selected',
-      versionOnly: ['package.json'], requiredSurfaces: ['app'] });
+    expect(await resolve(root, runtime, run, { paths: ['VERSION', 'package.json', 'src/app.js'] })).toMatchObject({ mode: 'selected', reason: 'selected',
+      versionOnly: ['VERSION', 'package.json'], requiredSurfaces: ['app'] });
     expect(calls).toHaveLength(1);
+    expect(calls[0].input).toContain('Changed paths:\n- src/app.js\n\n');
   });
 
-  it('exempts only the version files technical steering declares', async () => {
+  it('gives Claude a declared TOML mirror only when it changed beyond the bump, and VERSION when it holds no version', async () => {
+    const tech = '# Tech\n\n## Versioning\n\n| File | Path |\n|------|------|\n| `VERSION` | file text |\n| `Cargo.toml` | `package.version` |\n';
+    const cargo = (version, extra = '') => `[package]\nname = "demo"\nversion = "${version}"\n${extra}`;
+    const { root } = await project({ baselineFiles: { 'VERSION': '1.0.0\n', 'Cargo.toml': cargo('1.0.0'), 'steering/snippets/tech.md': tech } });
+    const runtime = await loadSteeringRuntime(root);
+    fs.writeFileSync(path.join(root, 'VERSION'), '1.1.0\n');
+    fs.writeFileSync(path.join(root, 'Cargo.toml'), cargo('1.1.0'));
+    const { calls, run } = recorder({ mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] });
+    const paths = ['Cargo.toml', 'VERSION', 'src/app.js'];
+    expect((await resolve(root, runtime, run, { paths })).versionOnly).toEqual(['VERSION', 'Cargo.toml']);
+    fs.writeFileSync(path.join(root, 'Cargo.toml'), cargo('1.1.0', 'edition = "2021"\n'));
+    expect((await resolve(root, runtime, run, { paths })).versionOnly).toEqual(['VERSION']);
+    expect(calls[1].input).toContain('Changed paths:\n- Cargo.toml\n- src/app.js\n\n');
+    fs.writeFileSync(path.join(root, 'VERSION'), 'next\n');
+    expect((await resolve(root, runtime, run, { paths })).versionOnly).toEqual([]);
+    expect(calls[2].input).toContain('Changed paths:\n- Cargo.toml\n- VERSION\n- src/app.js\n\n');
+  });
+});
+
+describe('@SCN010 a fallback path changed beyond the version bump runs everything (#584 AC9)', () => {
+  const manifestJson = (version, extra = {}) => `${JSON.stringify({ name: 'demo', version, ...extra }, null, 2)}\n`;
+
+  it('runs in full for an undeclared fallback file, even when it only changes a version field', async () => {
     const { root, runtime } = await project({ fallbackPaths: ['config/**'], baselineFiles: { 'VERSION': '1.0.0\n', 'config/models.json': manifestJson('1.0.0') } });
     fs.writeFileSync(path.join(root, 'VERSION'), '1.1.0\n');
-    fs.writeFileSync(path.join(root, 'config/models.json'), manifestJson('2.0.0'));
+    fs.writeFileSync(path.join(root, 'config/models.json'), manifestJson('1.1.0'));
     const { calls, run } = recorder({ mode: 'selected', tests: [], surfaces: [] });
     expect(await resolve(root, runtime, run, { paths: ['VERSION', 'config/models.json'] })).toMatchObject({ mode: 'all', reason: 'fallback_path',
-      fallbackPath: 'config/models.json', versionOnly: ['VERSION'] });
+      fallbackPath: 'config/models.json' });
     expect(calls).toHaveLength(0);
   });
 
-  it('still runs in full when package.json changes anything besides its version', async () => {
-    const { root, runtime } = await project({ baselineFiles: { 'package.json': manifestJson('1.0.0') } });
+  it('runs in full when package.json changes anything besides its version', async () => {
+    const { root, runtime } = await project({ baselineFiles: { 'VERSION': '1.0.0\n', 'package.json': manifestJson('1.0.0') } });
+    fs.writeFileSync(path.join(root, 'VERSION'), '1.1.0\n');
     fs.writeFileSync(path.join(root, 'package.json'), manifestJson('1.1.0', { type: 'module' }));
     const { calls, run } = recorder({ mode: 'selected', tests: [], surfaces: [] });
-    expect(await resolve(root, runtime, run, { paths: ['package.json', 'src/app.js'] })).toMatchObject({ mode: 'all', reason: 'fallback_path',
-      fallbackPath: 'package.json', versionOnly: [] });
+    expect(await resolve(root, runtime, run, { paths: ['VERSION', 'package.json', 'src/app.js'] })).toMatchObject({ mode: 'all', reason: 'fallback_path',
+      fallbackPath: 'package.json' });
     expect(calls).toHaveLength(0);
   });
 });

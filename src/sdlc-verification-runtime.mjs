@@ -5,7 +5,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { canonicalJson, loadSteeringRuntime, SteeringError, validationTier } from "./sdlc-steering-runtime.mjs";
 import { acquireHeavySlot } from "./heavy-pool.mjs";
 import { globRegex, matches } from "./sdlc-glob.mjs";
-import { rejectionOf, rejectionSummary, resolveChangeSelection, unaccountedPaths } from "./sdlc-test-selection.mjs";
+import { optedInCwds, rejectionOf, rejectionSummary, resolveChangeSelection, selectedTestPaths, testIdPath, unaccountedPaths } from "./sdlc-test-selection.mjs";
 import { loadStageModels, StageModelsError } from "../scripts/sdlc-models.mjs";
 import { loadTestCoverageConfig, validateCoverageReport } from "../scripts/test-coverage.mjs";
 import { terminateOwnedProcessGroup, terminateOwnedProcessGroupAfterLeaderLoss } from "./process-supervision.mjs";
@@ -386,7 +386,7 @@ const MAX_COVERAGE_OUTPUT = 256 * 1024 * 1024;
  * the whole group on abort, timeout or an oversized report. Resolves `{ status, signal, stdout, stderr, error?,
  * cancelled?, timedOut?, overflow? }`.
  */
-function runCoverageCommand(program, args, { cwd, env, timeout, signal }) {
+function runCoverageCommand(program, args, { cwd, env, timeout, maxOutput = MAX_COVERAGE_OUTPUT, signal }) {
   return new Promise((resolvePromise) => {
     if (signal?.aborted) { resolvePromise({ status: null, signal: null, stdout: "", stderr: "", cancelled: true }); return; }
     let child;
@@ -408,18 +408,21 @@ function runCoverageCommand(program, args, { cwd, env, timeout, signal }) {
       signal?.removeEventListener("abort", onAbort);
       resolvePromise({ stdout: text(out), stderr: text(err), ...value, ...(stopped ? { [stopped]: true } : {}) });
     };
+    let leaderExited = false;
+    // Signals the whole group, even after the leader exited while a descendant holds its pipes, then settles at once:
+    // a descendant that keeps stdout open never holds the gate or its heavy-job slot.
     const stop = async (reason) => {
       if (stopped || settled) return;
       stopped = reason;
-      const cleanup = await terminateOwnedProcessGroup(child);
-      if (!cleanup.ok) {
-        child.stdout?.destroy();
-        child.stderr?.destroy();
-        child.unref?.();
-        finish({ status: null, signal: null, error: cleanup.error });
-      }
+      const cleanup = (leaderExited ? terminateOwnedProcessGroupAfterLeaderLoss : terminateOwnedProcessGroup)(child);
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      child.unref?.();
+      const result = await cleanup;
+      finish({ status: null, signal: null, ...(result.ok ? {} : { error: result.error }) });
     };
-    child.stdout.on("data", (chunk) => { size += chunk.length; if (size <= MAX_COVERAGE_OUTPUT) out.push(chunk); else void stop("overflow"); });
+    child.once("exit", () => { leaderExited = true; });
+    child.stdout.on("data", (chunk) => { size += chunk.length; if (size <= maxOutput) out.push(chunk); else void stop("overflow"); });
     child.stderr.on("data", (chunk) => { if (errSize < 65536) { errSize += chunk.length; err.push(chunk); } });
     child.on("error", (error) => finish({ status: null, signal: null, error }));
     child.on("close", (status, closeSignal) => finish({ status, signal: closeSignal }));
@@ -433,7 +436,8 @@ function runCoverageCommand(program, args, { cwd, env, timeout, signal }) {
  * Without a valid steering/test-coverage.json nothing is coverage-accounted and nothing fails; the skipped summary
  * names the file's state. Only the selected tests' lines count as hit.
  */
-async function coverageCheck({ projectRoot, issue, baseRef, paths, tests, envKeys, runCoverage, acquireSlot, signal }) {
+async function coverageCheck({ projectRoot, issue, baseRef, paths, tests, envKeys, runCoverage, acquireSlot, signal, limits = {} }) {
+  const { timeoutMs = COVERAGE_TIMEOUT_MS, maxOutputBytes = MAX_COVERAGE_OUTPUT } = limits;
   let config;
   try {
     const loaded = loadTestCoverageConfig(projectRoot);
@@ -449,10 +453,10 @@ async function coverageCheck({ projectRoot, issue, baseRef, paths, tests, envKey
   try {
     held = await acquireSlot({ label: `coverage (#${issue})`, projectRoot, issue: Number(issue), signal });
     const response = await runCoverage(config.coverage.program, config.coverage.args.concat(tests),
-      { cwd: projectRoot, env, timeout: COVERAGE_TIMEOUT_MS, signal });
+      { cwd: projectRoot, env, timeout: timeoutMs, maxOutput: maxOutputBytes, signal });
     if (response?.cancelled || signal?.aborted) return { status: "incomplete", summary: "coverage cancelled" };
-    if (response?.timedOut) return { status: "failed", summary: `coverage_failed: coverage command timed out after ${COVERAGE_TIMEOUT_MS / 1000} s` };
-    if (response?.overflow) return { status: "failed", summary: `coverage_failed: coverage report exceeded ${MAX_COVERAGE_OUTPUT} bytes` };
+    if (response?.timedOut) return { status: "failed", summary: `coverage_failed: coverage command timed out after ${timeoutMs / 1000} s` };
+    if (response?.overflow) return { status: "failed", summary: `coverage_failed: coverage report exceeded ${maxOutputBytes} bytes` };
     if (!response || response.error || response.status !== 0) {
       return { status: "failed", summary: `coverage_failed: coverage command failed: ${response?.error?.message ?? `exited ${response?.status ?? response?.signal}`}` };
     }
@@ -466,8 +470,10 @@ async function coverageCheck({ projectRoot, issue, baseRef, paths, tests, envKey
   const lineOf = (entry) => { const at = entry.lastIndexOf(":"); return [entry.slice(0, at), Number(entry.slice(at + 1))]; };
   const reported = new Set([...report.tests.flatMap((test) => test.lines), ...(report.executableLines ?? [])].map((entry) => lineOf(entry)[0]));
   const executable = report.executableLines ? new Set(report.executableLines) : null;
-  const wanted = new Set(tests);
-  const hit = new Set(report.tests.filter((test) => wanted.has(test.id) || wanted.has(test.file)).flatMap((test) => test.lines));
+  // A report test is selected when its id or file equals a selected id, compared in normalized form.
+  const key = (id) => testIdPath(id) ?? id;
+  const wanted = new Set(tests.map(key));
+  const hit = new Set(report.tests.filter((test) => wanted.has(key(test.id)) || wanted.has(key(test.file))).flatMap((test) => test.lines));
   const changed = changedLines(projectRoot, baseRef);
   const changedList = [];
   for (const path of paths.filter((candidate) => reported.has(candidate))) {
@@ -493,7 +499,8 @@ function selectionModels(projectRoot) {
   }
 }
 export async function runSteeringValidations({ projectRoot, issue, specDir, baseRef = "main", verificationRunId = null, signal, spawnCommand,
-  tier: requestedTier = "pre-merge", acquireSlot = acquireHeavySlot, runCoverage = runCoverageCommand, runSelection, models, selectOnly = false } = {}) {
+  tier: requestedTier = "pre-merge", acquireSlot = acquireHeavySlot, runCoverage = runCoverageCommand, runSelection, models, selectOnly = false,
+  limits = {} } = {}) {
   const root = resolve(projectRoot);
   // `pre-merge` runs the untiered and `change` validations; `full` runs only the `full` ones.
   const tier = requestedTier === "full" ? "full" : "change";
@@ -514,17 +521,19 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
     let selection = null;
     let rejection = null;
     let docsOnly = false;
+    let scopedPaths = paths;
     if (tier === "change" && !whole && runtime.selection) {
-      selection = await resolveChangeSelection({ projectRoot: root, issue, baseRef, paths, runtime, signal,
+      selection = await resolveChangeSelection({ projectRoot: root, issue, baseRef, paths, runtime, signal, limits: limits.selection,
         models: models ?? selectionModels(root), ...(runSelection ? { runSelection } : {}) });
+      // Delivery's version preparation is not part of the change the checks scope.
+      scopedPaths = paths.filter((path) => !selection.versionOnly.includes(path));
       if (selection.mode === "selected") {
-        // A version-only change (delivery's version bump) counts as documentation.
-        const isDoc = (path) => selection.versionOnly.includes(path) || matches(path, runtime.selection.docPaths ?? []);
+        const isDoc = (path) => matches(path, runtime.selection.docPaths ?? []);
         const missingSurfaces = selection.requiredSurfaces.filter((id) => !selection.surfaces.includes(id));
         if (missingSurfaces.length) rejection = rejectionOf("selection_surface_missing", { missingSurfaces });
         else if (!selection.tests.length && !selection.surfaces.length) {
-          docsOnly = Boolean(runtime.selection.docPaths) && paths.every(isDoc);
-          if (!docsOnly) rejection = rejectionOf("selection_empty_code_change", { unaccounted: paths.filter((path) => !isDoc(path)) });
+          docsOnly = Boolean(runtime.selection.docPaths) && scopedPaths.every(isDoc);
+          if (!docsOnly) rejection = rejectionOf("selection_empty_code_change", { unaccounted: scopedPaths.filter((path) => !isDoc(path)) });
         }
       }
     }
@@ -594,7 +603,8 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
       return { ...base(validation), applicable: true, effectiveStatus: result.status, ...recorded, ...(pool ? { heavy: pool } : {}), request, result };
     };
     // Phase 1: run required local builtin.command validations, and those opted into the selection, first.
-    let localRequiredCommandsPassed = true;
+    // Whether every required local result passed: the required commands, and then the selection checks of them.
+    let requiredLocalPassed = true;
     for (const validation of runtime.validations) {
       if (!applies(validation)) {
         resultById.set(validation.id, { ...base(validation), applicable: false, effectiveStatus: "skipped", result: null });
@@ -603,7 +613,7 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
       if (validation.provider === "builtin.command" && (validation.required || optedIn(validation))) {
         const entry = await execute(validation);
         resultById.set(validation.id, entry);
-        if (validation.required && entry.effectiveStatus !== "passed") localRequiredCommandsPassed = false;
+        if (validation.required && entry.effectiveStatus !== "passed") requiredLocalPassed = false;
       }
     }
     // The selection checks: changed lines covered by the selected tests, then every changed path accounted for.
@@ -613,11 +623,12 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
     if (selection?.mode === "selected" && !rejection && !docsOnly) {
       const opted = runtime.validations.filter((validation) => optedIn(validation) && resultById.get(validation.id)?.applicable);
       const ran = opted.map((validation) => resultById.get(validation.id)).filter((entry) => entry.selection?.reason === "selected");
-      let checks = localRequiredCommandsPassed && ran.every((entry) => entry.effectiveStatus === "passed");
+      let checks = requiredLocalPassed && ran.every((entry) => entry.effectiveStatus === "passed");
       let reportPaths = new Set();
       if (checks && ran.length) {
         const envKeys = [...new Set(opted.flatMap((validation) => validation.config?.env ?? []))];
-        const checked = await coverageCheck({ projectRoot: root, issue, baseRef, paths, tests: selection.tests, envKeys, runCoverage, acquireSlot, signal });
+        const checked = await coverageCheck({ projectRoot: root, issue, baseRef, paths: scopedPaths, tests: selection.tests, envKeys, runCoverage, acquireSlot, signal,
+          limits: limits.coverage });
         if (checked.status === "failed" || checked.status === "incomplete") {
           checks = false;
           for (const entry of ran) {
@@ -634,9 +645,9 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
         }
       }
       if (checks && !rejection) {
-        const unaccounted = unaccountedPaths({ paths, reportPaths, tests: selection.tests,
+        const unaccounted = unaccountedPaths({ paths: scopedPaths, reportPaths, testPaths: selectedTestPaths(selection.tests, optedInCwds(runtime)),
           surfaceSources: runtime.surfaces.filter((surface) => selection.surfaces.includes(surface.id)).flatMap((surface) => surface.sources),
-          docPaths: runtime.selection.docPaths ?? [], versionOnly: selection.versionOnly, coveragePaths: runtime.selection.coveragePaths ?? [],
+          docPaths: runtime.selection.docPaths ?? [], coveragePaths: runtime.selection.coveragePaths ?? [],
           exists: (path) => existsSync(resolve(root, path)) });
         if (unaccounted.length) rejection = rejectionOf("selection_unaccounted", { unaccounted });
       }
@@ -653,12 +664,12 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
       }
       // A required result the checks failed defers the project providers, as a failed local command does.
       if (runtime.validations.some((validation) => validation.required && resultById.get(validation.id)?.applicable
-        && resultById.get(validation.id).effectiveStatus !== "passed")) localRequiredCommandsPassed = false;
+        && resultById.get(validation.id).effectiveStatus !== "passed")) requiredLocalPassed = false;
     }
     // Phase 2: non-local-required applicable validations. Unflagged ones run one at a time in manifest order;
     // the `concurrent: true` ones all start together at the first one's position. `execute` never rejects,
     // so every batch member settles and records its own result.
-    const deferred = (validation) => !String(validation.provider).startsWith("builtin.") && !localRequiredCommandsPassed;
+    const deferred = (validation) => !String(validation.provider).startsWith("builtin.") && !requiredLocalPassed;
     const pending = runtime.validations.filter((validation) => !resultById.has(validation.id));
     const batch = pending.filter((validation) => validation.concurrent === true);
     let batchRun = false;

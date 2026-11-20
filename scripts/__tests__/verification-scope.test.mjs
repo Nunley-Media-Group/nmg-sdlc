@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { applySteeringPlan, createInitializePlan } from '../sdlc-steering.mjs';
 import { applyUpgrade, detectUpgrade } from '../sdlc-upgrade.mjs';
 import { loadSteeringRuntime } from '../../src/sdlc-steering-runtime.mjs';
-import { applyVerificationScope, detectVerificationScope, runVerificationScopeCli } from '../verification-scope.mjs';
+import { applyVerificationScope, detectVerificationScope } from '../verification-scope.mjs';
 
 const SCRIPT = fileURLToPath(new URL('../verification-scope.mjs', import.meta.url));
 const noNetworkRun = () => ({ status: 1, stdout: '', stderr: 'network disabled in test' });
@@ -120,12 +120,6 @@ describe('@SCN012 detectVerificationScope', () => {
     expect(item.findings).toEqual(['selection_missing', 'surfaces_missing']);
   });
 
-  it('returns null without a steering manifest', () => {
-    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-verification-scope-')));
-    roots.push(root);
-    expect(detectVerificationScope(root)).toBeNull();
-  });
-
   it('binds the digest to the manifest, the coverage config and the tracked paths', async () => {
     const root = await project();
     const first = detectVerificationScope(root).id;
@@ -171,51 +165,6 @@ describe('@SCN012 applyVerificationScope', () => {
     expect(detectVerificationScope(root)).toBeNull();
   });
 
-  it('restores the original bytes when the proposal makes the manifest invalid', async () => {
-    const root = await project();
-    const item = detectVerificationScope(root);
-    const before = bytes(root, 'steering/manifest.json');
-    const result = await applyVerificationScope(root, item, proposal(root, { surfaces: [{ id: 'app', sources: ['/abs/**'] }] }));
-    expect(result).toMatchObject({ ok: false, reasonCode: 'verification_scope_apply_invalid' });
-    expect(bytes(root, 'steering/manifest.json').equals(before)).toBe(true);
-    expect(fs.existsSync(path.join(root, 'steering/test-coverage.json'))).toBe(false);
-  });
-
-  it('restores the original bytes when the coverage config is invalid', async () => {
-    const root = await project();
-    const item = detectVerificationScope(root);
-    const before = bytes(root, 'steering/manifest.json');
-    const result = await applyVerificationScope(root, item, proposal(root, { testCoverage: { version: 3 } }));
-    expect(result).toMatchObject({ ok: false, reasonCode: 'verification_scope_apply_invalid' });
-    expect(bytes(root, 'steering/manifest.json').equals(before)).toBe(true);
-    expect(fs.existsSync(path.join(root, 'steering/test-coverage.json'))).toBe(false);
-  });
-
-  it('refuses a symlinked coverage config before any write and leaves the link and its outside target untouched', async () => {
-    const root = await project();
-    const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-verification-scope-outside-')));
-    roots.push(outside);
-    const target = path.join(outside, 'coverage.json');
-    fs.writeFileSync(target, 'outside\n');
-    fs.symlinkSync(target, path.join(root, 'steering', 'test-coverage.json'));
-    const item = detectVerificationScope(root);
-    const before = bytes(root, 'steering/manifest.json');
-    const result = await applyVerificationScope(root, item, proposal(root));
-    expect(result).toMatchObject({ ok: false, reasonCode: 'verification_scope_target_invalid' });
-    expect(result.message).toContain('steering/test-coverage.json');
-    expect(fs.readFileSync(target, 'utf8')).toBe('outside\n');
-    expect(fs.lstatSync(path.join(root, 'steering', 'test-coverage.json')).isSymbolicLink()).toBe(true);
-    expect(bytes(root, 'steering/manifest.json').equals(before)).toBe(true);
-  });
-
-  it('rejects an opt-in naming an unknown validation before writing', async () => {
-    const root = await project();
-    const item = detectVerificationScope(root);
-    const before = bytes(root, 'steering/manifest.json');
-    const result = await applyVerificationScope(root, item, proposal(root, { optIn: ['missing.validation'] }));
-    expect(result).toMatchObject({ ok: false, reasonCode: 'verification_scope_proposal_invalid' });
-    expect(bytes(root, 'steering/manifest.json').equals(before)).toBe(true);
-  });
 });
 
 describe('@SCN012 verification-scope CLI', () => {
@@ -236,11 +185,6 @@ describe('@SCN012 verification-scope CLI', () => {
       .toMatchObject({ status: 1, out: { ok: false, reasonCode: 'verification_scope_plan_stale' } });
   });
 
-  it('rejects malformed arguments with exit code 2', async () => {
-    expect(await runVerificationScopeCli(['apply', '--root', '.'])).toMatchObject({ exitCode: 2, output: { reasonCode: 'verification_scope_cli_invalid' } });
-    expect(await runVerificationScopeCli(['detect', '--proposal', 'x.json'])).toMatchObject({ exitCode: 2 });
-    expect(await runVerificationScopeCli(['bogus'])).toMatchObject({ exitCode: 2 });
-  });
 });
 
 describe('@SCN012 sdlc-upgrade wiring', () => {

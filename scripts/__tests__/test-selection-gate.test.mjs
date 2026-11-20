@@ -311,6 +311,71 @@ describe('@SCN004 changed lines must be covered by the selected tests (#584 AC4)
     }
     expect(alive).toBe(false);
   }, TIMEOUT);
+  it('compares a selected test in normalized form with the report and passes it normalized to the coverage command', async () => {
+    const root = await project();
+    change(root, 'src/app.js', 'a();\n');
+    answer = { mode: 'selected', tests: ['./tests//app.test.js'], surfaces: ['app'] };
+    report(root, testReport(['src/app.js:1']));
+    const artifact = await verify(root);
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'coverage-args.json'), 'utf8'))).toEqual(['tests/app.test.js']);
+    expect(ranWith(root)).toEqual(['tests/app.test.js']);
+    expect(artifact.selection.rejection).toBeNull();
+    expect(artifact.ceiling).toBeNull();
+  }, TIMEOUT);
+
+  /** A coverage command whose leader starts a descendant that holds its stdout, records the pid and exits at once. */
+  const LEADER_EXITS = "const { spawn } = require('node:child_process'); const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: ['ignore', 'inherit', 'ignore'] }); require('node:fs').writeFileSync('grandchild.pid', String(child.pid)); process.exit(0);";
+  const coverageCommand = (root, code) => {
+    fs.writeFileSync(path.join(root, 'steering/test-coverage.json'), `${JSON.stringify({ version: 1, suite: { program: process.execPath, args: ['-e', '0'] },
+      coverage: { program: process.execPath, args: ['-e', code] } }, null, 2)}\n`);
+    fs.appendFileSync(path.join(root, '.gitignore'), 'grandchild.pid\n');
+    change(root, 'src/app.js', 'a();\n');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
+  };
+  const dead = async (root) => {
+    const pid = Number(fs.readFileSync(path.join(root, 'grandchild.pid'), 'utf8'));
+    for (let tries = 0; tries < 100; tries += 1) {
+      try { process.kill(pid, 0); } catch { return true; }
+      await new Promise((done) => setTimeout(done, 50));
+    }
+    return false;
+  };
+
+  (process.platform === 'win32' ? it.skip : it)('settles an abort at once when the leader exited and a descendant holds its output, and stops the descendant', async () => {
+    const root = await project();
+    coverageCommand(root, LEADER_EXITS);
+    const controller = new AbortController();
+    const running = verify(root, { signal: controller.signal });
+    const pidFile = path.join(root, 'grandchild.pid');
+    for (let tries = 0; !fs.existsSync(pidFile) && tries < 200; tries += 1) await new Promise((done) => setTimeout(done, 50));
+    await new Promise((done) => setTimeout(done, 300));
+    const aborted = Date.now();
+    controller.abort();
+    const artifact = await running;
+    expect(Date.now() - aborted).toBeLessThan(5000);
+    expect(byId(artifact)['unit.tests']).toMatchObject({ effectiveStatus: 'incomplete', selection: { reason: 'coverage_cancelled' }, result: { summary: 'coverage cancelled' } });
+    expect(await dead(root)).toBe(true);
+  }, TIMEOUT);
+
+  (process.platform === 'win32' ? it.skip : it)('fails a coverage run that outlives its timeout as coverage_failed, stopping a descendant that holds its output', async () => {
+    const root = await project();
+    coverageCommand(root, LEADER_EXITS);
+    const started = Date.now();
+    const artifact = await verify(root, { limits: { coverage: { timeoutMs: 1500 } } });
+    expect(Date.now() - started).toBeLessThan(15000);
+    expect(byId(artifact)['unit.tests']).toMatchObject({ effectiveStatus: 'failed', selection: { reason: 'coverage_failed' },
+      result: { summary: 'coverage_failed: coverage command timed out after 1.5 s' } });
+    expect(artifact.selection.rejection).toBeNull();
+    expect(await dead(root)).toBe(true);
+  }, TIMEOUT);
+
+  it('fails a coverage report larger than its cap as coverage_failed', async () => {
+    const root = await project();
+    coverageCommand(root, "process.stdout.write('x'.repeat(8192)); setTimeout(() => {}, 60000);");
+    const artifact = await verify(root, { limits: { coverage: { maxOutputBytes: 1024 } } });
+    expect(byId(artifact)['unit.tests']).toMatchObject({ effectiveStatus: 'failed', selection: { reason: 'coverage_failed' },
+      result: { summary: 'coverage_failed: coverage report exceeded 1024 bytes' } });
+  }, TIMEOUT);
 });
 
 describe('@SCN005 changed surfaces must be selected (#584 AC5)', () => {
@@ -428,19 +493,9 @@ describe('@SCN007 every changed path must be accounted for (#584 AC6)', () => {
     expect(artifact.ceiling).toBeNull();
   }, TIMEOUT);
 
-  it('accounts for a declared version file that only bumps its version outside fallbackPaths', async () => {
-    const root = await project({ selection: { docPaths: ['docs/**'] }, baseline: { 'package.json': '{\n  "name": "demo",\n  "version": "1.0.0"\n}\n' } });
-    change(root, 'src/app.js', 'a();\n');
-    change(root, 'package.json', '{\n  "name": "demo",\n  "version": "1.1.0"\n}\n');
-    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
-    report(root, testReport(['src/app.js:1']));
-    const artifact = await verify(root);
-    expect(artifact.selection.rejection).toBeNull();
-    expect(artifact.ceiling).toBeNull();
-  }, TIMEOUT);
-
   it('accounts for a changed selected test without a coverage config, naming the config state in the evidence', async () => {
-    const root = await project({ coverage: false });
+    // The config file itself is documentation here, so writing an invalid one leaves every changed path accounted for.
+    const root = await project({ coverage: false, selection: { docPaths: ['docs/**', 'steering/test-coverage.json'], fallbackPaths: ['package.json'] } });
     change(root, 'src/app.js', 'a();\n');
     change(root, 'tests/app.test.js', 'test();\n');
     answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
@@ -451,6 +506,9 @@ describe('@SCN007 every changed path must be accounted for (#584 AC6)', () => {
     const invalid = await verify(root);
     expect(byId(invalid)['unit.tests'].result.evidence.map((item) => item.summary))
       .toContainEqual(expect.stringMatching(/^coverage_skipped: steering\/test-coverage\.json is invalid: /));
+    expect(byId(invalid)['unit.tests'].effectiveStatus).toBe('passed');
+    expect(invalid.selection.rejection).toBeNull();
+    expect(invalid.ceiling).toBeNull();
   }, TIMEOUT);
 
   it('reports a failing required command as an ordinary failure instead of checking the paths', async () => {
@@ -527,15 +585,19 @@ describe('@SCN010 full-run fallbacks give providers every surface (#584 AC9)', (
     expect(providerRequests.map((request) => request.selection.surfaces)).toEqual([['app', 'site', 'other'], ['app', 'site', 'other']]);
     expect(ranWith(root)).toEqual([]);
   }, TIMEOUT);
+});
 
-  it('scopes a change whose package.json only bumps its version, as delivery prepares it before the queue-head gate', async () => {
-    const root = await project({ baseline: { 'package.json': '{\n  "name": "demo",\n  "version": "1.0.0"\n}\n' } });
+describe('@SCN001 the change Claude receives leaves out delivery\'s version bump (#584 AC1)', () => {
+  it('asks Claude for the change\'s own paths and checks only them when VERSION and package.json only move to the new version', async () => {
+    const root = await project({ baseline: { 'VERSION': '1.0.0\n', 'package.json': '{\n  "name": "demo",\n  "version": "1.0.0"\n}\n' } });
     change(root, 'src/app.js', 'a();\n');
+    change(root, 'VERSION', '1.1.0\n');
     change(root, 'package.json', '{\n  "name": "demo",\n  "version": "1.1.0"\n}\n');
     answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
     report(root, testReport(['src/app.js:1']));
     const artifact = await verify(root);
     expect(calls).toHaveLength(1);
+    expect(calls[0].input).toContain('Changed paths:\n- src/app.js\n\n');
     expect(artifact.selection).toMatchObject({ mode: 'selected', reason: 'selected', requiredSurfaces: ['app'], rejection: null });
     expect(artifact.ceiling).toBeNull();
   }, TIMEOUT);

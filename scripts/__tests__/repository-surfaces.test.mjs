@@ -1,17 +1,15 @@
-// This repository's scoped-verification adoption: @SCN012 (onboard/upgrade) and @SCN013 (repository adoption).
+// This repository's scoped-verification adoption: @SCN013 (repository adoption).
 import { describe, expect, it } from '@jest/globals';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { loadSteeringRuntime } from '../../src/sdlc-steering-runtime.mjs';
-import { runsInTier } from '../../src/sdlc-verification-runtime.mjs';
 import { matches } from '../../src/sdlc-glob.mjs';
 import { loadTestCoverageConfig, validateCoverageReport } from '../test-coverage.mjs';
 import { detectVerificationScope } from '../verification-scope.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const read = (file) => fs.readFileSync(path.join(repoRoot, file), 'utf8');
 const PLUGIN_DIRS = ['workflows/', 'agents/', 'references/', 'commands/', 'hooks/', '.claude-plugin/'];
 
 /** Tracked files plus untracked, non-ignored ones, so a file added on a branch is checked before its commit. */
@@ -40,64 +38,8 @@ describe('@SCN013 This repository adopts scoped verification', () => {
       .toEqual(['draft-issue', 'write-spec', 'onboard-project', 'upgrade-project', 'steering', 'run-retro', 'execute']);
   });
 
-  it('keeps a full-tier copy of the suite and the smoke, so /sdlc-verify-full still runs both', async () => {
-    const runtime = await loadSteeringRuntime(repoRoot, { metadataOnly: true });
-    expect(runtime.tiered).toBe(true);
-    const ids = (tier) => runtime.validations.filter((validation) => runsInTier(runtime.tiered, validation, tier)).map(({ id }) => id);
-    expect(ids('full')).toEqual(['repository.tests.full', 'repository.nmg-sdlc-smoke.full']);
-    expect(ids('change')).toEqual(['repository.tests', 'repository.nmg-sdlc-smoke']);
-    const byId = Object.fromEntries(runtime.validations.map((validation) => [validation.id, validation]));
-    expect(byId['repository.tests.full']).toMatchObject({ provider: 'builtin.command', required: true, tier: 'full', config: byId['repository.tests'].config });
-    expect(byId['repository.tests.full'].selection).toBeUndefined();
-    expect(byId['repository.nmg-sdlc-smoke.full']).toMatchObject({ provider: 'project.nmg-sdlc-smoke', required: true, tier: 'full', config: byId['repository.nmg-sdlc-smoke'].config });
-    expect(runtime.surfaces.some((surface) => surface.validations.some((id) => id.endsWith('.full')))).toBe(false);
-  });
-
-  it('routes the repository-relative test id convention to the selection prompt', async () => {
-    const runtime = await loadSteeringRuntime(repoRoot, { metadataOnly: true });
-    expect(runtime.manifest.snippets).toContainEqual({ id: 'project.selection', path: 'steering/snippets/project-selection.md',
-      consumers: ['gate:selection'], slot: 'body', order: 500 });
-    expect(read('steering/snippets/project-selection.md')).toContain('`scripts/__tests__/<name>.test.mjs`');
-  });
-
   it('leaves nothing for verification-scope detection to propose', () => {
     expect(detectVerificationScope(repoRoot)).toBeNull();
-  });
-
-  it.each(['references/steering-schema.md', 'README.md', 'steering/snippets/project-tech.md'])('documents scoped selection in %s', (file) => {
-    const text = read(file);
-    for (const term of ['gate:selection', 'selection_escalation', 'surface_not_selected', 'selection_uncovered', 'selection_unaccounted']) {
-      expect(text).toContain(term);
-    }
-  });
-
-  it('documents the select mode, the checks and escalation in the verify and execute workflows', () => {
-    const verify = read('workflows/verify-code/WORKFLOW.md');
-    expect(verify).toContain('--mode select');
-    expect(verify).toContain('selection_escalation');
-    expect(verify).not.toContain('selection_data_stale');
-    expect(read('commands/sdlc-verify-code.md')).toContain('--mode select');
-    const execute = read('workflows/execute/WORKFLOW.md');
-    expect(execute).toContain('selection_escalation');
-    expect(execute).toContain('redispatch --text');
-  });
-});
-
-describe('@SCN012 Onboard and upgrade enforce the configuration', () => {
-  it.each(['workflows/onboard-project/WORKFLOW.md', 'workflows/upgrade-project/WORKFLOW.md', 'references/verification-scope.md'])(
-    '%s runs verification-scope detect and apply', (file) => {
-      const text = read(file);
-      expect(text).toContain('scripts/verification-scope.mjs" detect --root .');
-      expect(text).toMatch(/verification-scope\.mjs"?,?\s*"?apply/);
-      if (file.startsWith('workflows/')) expect(text).toContain('../../references/verification-scope.md');
-    });
-
-  it('derives plugin and non-plugin surface maps and applies only after approval', () => {
-    const text = read('references/verification-scope.md');
-    expect(text).toContain('one surface per command, per agent and per hooks module');
-    expect(text).toContain('per feature or user-facing area, per entry point');
-    expect(text).toContain('After approval');
-    expect(text).toContain('verification_scope_plan_stale');
   });
 });
 

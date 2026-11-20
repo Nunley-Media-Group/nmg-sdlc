@@ -100,11 +100,9 @@ describe('steering manifest tiers, heavy marker and optional settings (#551 FR15
     expect(runtime.tiered).toBe(true);
     expect(runtime.validations.map(validationTier)).toEqual(['change', 'change', 'full', 'change']);
     expect(runtime.validations[0]).toMatchObject({ tier: 'change', heavy: true, fallbackPaths: FALLBACK_PATHS, selection: true });
-    expect(runtime.selection).toEqual({ docPaths: ['docs/**'], fallbackPaths: ['package.json'], coveragePaths: null });
     expect(runtime.validations[2]).toMatchObject({ tier: 'full', heavy: false });
     expect(Object.hasOwn(runtime.validations[3], 'tier')).toBe(false);
     expect(runtime).toMatchObject({ worktree: null, changelogFragments: null, fullGreenActions: [] });
-    expect(runtime.surfaces.map(({ id }) => id)).toEqual(['app', 'steering-files']);
   });
 
   it('keeps a manifest without tiers untiered, with every validation in the change tier', async () => {
@@ -230,7 +228,7 @@ describe('change-tier selection (#551 AC9, AC10, FR16-FR18)', () => {
     expect(written.results[0]).toMatchObject({ tier: 'change', selection: unit.selection });
   });
 
-  it('counts each selected test once', async () => {
+  it('@SCN001 runs each selected test once (#584 AC1)', async () => {
     const root = await fixture(tiered());
     change(root, 'src/app.js');
     claudeAnswer = selected({ tests: ['a.test.js', 'a.test.js', 'b.test.js'] });
