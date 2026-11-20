@@ -183,10 +183,33 @@ function readProposal(proposalPath) {
   return { ok: true, proposal: { ...proposal, optIn } };
 }
 
-function restore(root, rel, bytes) {
+/** Whether `rel` is absent or a regular file; a symlink or any other entry is never written through. */
+function writableTarget(root, rel) {
+  try {
+    const stat = fs.lstatSync(abs(root, rel));
+    return stat.isFile() && !stat.isSymbolicLink();
+  } catch (error) {
+    return error?.code === 'ENOENT';
+  }
+}
+
+/** Writes through a temporary sibling and a rename, so the target entry itself is replaced, never followed. */
+function writeAtomic(root, rel, data) {
   const target = abs(root, rel);
-  if (bytes === null) fs.rmSync(target, { force: true });
-  else fs.writeFileSync(target, bytes);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const temporary = `${target}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(temporary, data, { flag: 'wx' });
+    fs.renameSync(temporary, target);
+  } catch (error) {
+    fs.rmSync(temporary, { force: true });
+    throw error;
+  }
+}
+
+function restore(root, rel, bytes) {
+  if (bytes === null) fs.rmSync(abs(root, rel), { force: true });
+  else writeAtomic(root, rel, bytes);
 }
 
 /**
@@ -206,6 +229,11 @@ export async function applyVerificationScope(root, item, proposalPath) {
   const read = readProposal(proposalPath);
   if (!read.ok) return read;
   const { proposal } = read;
+  const targets = [MANIFEST_PATH, ...(Object.hasOwn(proposal, 'testCoverage') ? [TEST_COVERAGE_PATH] : [])];
+  const unsafe = targets.filter((rel) => !writableTarget(root, rel));
+  if (unsafe.length) {
+    return failure('verification_scope_target_invalid', `not a regular file: ${unsafe.join(', ')}`);
+  }
   const manifestBytes = readBytes(root, MANIFEST_PATH);
   const coverageBytes = readBytes(root, TEST_COVERAGE_PATH);
   const manifest = JSON.parse(manifestBytes.toString('utf8'));
@@ -224,20 +252,18 @@ export async function applyVerificationScope(root, item, proposalPath) {
   if (Object.hasOwn(proposal, 'surfaces')) manifest.surfaces = proposal.surfaces;
   const updated = [MANIFEST_PATH];
   try {
-    fs.writeFileSync(abs(root, MANIFEST_PATH), `${JSON.stringify(manifest, null, 2)}\n`);
+    writeAtomic(root, MANIFEST_PATH, `${JSON.stringify(manifest, null, 2)}\n`);
     if (Object.hasOwn(proposal, 'testCoverage')) {
-      fs.mkdirSync(path.dirname(abs(root, TEST_COVERAGE_PATH)), { recursive: true });
-      fs.writeFileSync(abs(root, TEST_COVERAGE_PATH), `${JSON.stringify(proposal.testCoverage, null, 2)}\n`);
+      writeAtomic(root, TEST_COVERAGE_PATH, `${JSON.stringify(proposal.testCoverage, null, 2)}\n`);
       updated.push(TEST_COVERAGE_PATH);
     }
     await loadSteeringRuntime(root);
     if (Object.hasOwn(proposal, 'testCoverage')) loadTestCoverageConfig(root);
   } catch (error) {
-    restore(root, MANIFEST_PATH, manifestBytes);
-    restore(root, TEST_COVERAGE_PATH, coverageBytes);
+    for (const rel of updated) restore(root, rel, rel === MANIFEST_PATH ? manifestBytes : coverageBytes);
     return failure('verification_scope_apply_invalid', String(error?.message ?? error), {
       cause: error?.reasonCode ?? error?.code ?? null,
-      restored: [MANIFEST_PATH, TEST_COVERAGE_PATH],
+      restored: updated,
     });
   }
   const remaining = detectVerificationScope(root);

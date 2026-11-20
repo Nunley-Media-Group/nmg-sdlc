@@ -11,6 +11,7 @@ import { packageRoot } from '../../src/sdlc-workflows.mjs';
 import { STAGE_MODEL_DEFAULTS, STAGE_MODELS_PATH } from '../sdlc-models.mjs';
 import { inspectIssueSpecScope, specStatusOnRef } from '../issue-spec-scope.mjs';
 import { canonicalJson } from '../../src/sdlc-steering-runtime.mjs';
+import { resolveChangeSelection } from '../../src/sdlc-test-selection.mjs';
 import { enterMergeQueue, leaveMergeQueue, listMergeQueue, recordInFlight } from '../sdlc-shared-state.mjs';
 import { ensureWorktree, listWorktrees } from '../sdlc-worktree.mjs';
 
@@ -2386,7 +2387,7 @@ describe('parallel delivery: worktrees, review-first verify and the merge queue 
   });
 });
 
-describe('selection escalation (#584 AC7, FR7)', () => {
+describe('@SCN008 a rejected selection escalates to the orchestrator (#584 AC7, FR7)', () => {
   const steps = (f) => f.state.starts.map((entry) => entry.step);
   const escalation = { kind: 'selection', reasonCode: 'selection_unaccounted', uncovered: [], missingSurfaces: [], unaccounted: ['hooks/register.ts'] };
   const escalate = { status: 'failed', next: 'verify', reasonCode: 'selection_escalation', escalation,
@@ -2421,7 +2422,57 @@ describe('selection escalation (#584 AC7, FR7)', () => {
     expect(guidance.headSha).toBe(guidance.head);
     expect(f.state.prompts[1].prompt).toContain('Supervisor guidance: check hooks tests');
     // The rerun keeps the verify stage entry: a selection escalation is not a repair.
+    expect(f.state.starts.map((entry) => entry.entry)).toEqual(['verify', 'verify', 'deliver']);
     expect(f.state.starts.map((entry) => entry.model)).toEqual(['opus', 'opus', 'haiku']);
+  });
+
+  it('carries the redispatch guidance into the rerun selection prompt and records guidanceSupplied', async () => {
+    const f = fixture();
+    let verifications = 0;
+    let rerun = null;
+    f.setWorker((context) => {
+      if (context.step === 'verify') {
+        if (verifications++ === 0) return escalate;
+        rerun = { root: context.root, head: git(context.root, 'rev-parse', 'HEAD') };
+        context.passGate();
+        return { status: 'passed', next: 'deliver' };
+      }
+      context.state.merged = true;
+      context.state.closed = true;
+      return { status: 'passed', next: null };
+    });
+    let reported = 0;
+    const supervise = () => (reported++ === 0 ? { action: 'redispatch', text: 'select scripts/__tests__/hooks.test.mjs' } : { action: 'accept' });
+    expect(f.execute('#42', { supervise })).toMatchObject({ status: 0 });
+    // The verify rerun's selection, at the head the controller bound the guidance to, sends that guidance to Claude.
+    let input = null;
+    const runtime = { surfaces: [], validations: [], selection: { docPaths: [] }, steeringHash: 'sha256:test', snippets: [] };
+    const selection = await resolveChangeSelection({ projectRoot: rerun.root, issue: 42, baseRef: 'HEAD', paths: ['hooks/register.ts'],
+      runtime, models: {}, headSha: rerun.head,
+      runSelection: (request) => { input = request.input; return { status: 0, stdout: JSON.stringify({ structured_output: { mode: 'all', tests: [], surfaces: [] } }) }; } });
+    expect(input).toContain('Supervisor guidance:\nselect scripts/__tests__/hooks.test.mjs');
+    expect(selection.guidanceSupplied).toBe(true);
+  });
+
+  it('reports a rejected selection in the current gate as selection_escalation and never routes it to implement', () => {
+    const f = fixture();
+    f.passGate();
+    const file = path.join(f.root, '.nmg-sdlc/verification/42.json');
+    const artifact = JSON.parse(fs.readFileSync(file, 'utf8'));
+    fs.writeFileSync(file, JSON.stringify({ ...artifact, ceiling: 'Fail',
+      results: artifact.results.map((item) => ({ ...item, effectiveStatus: 'failed', result: { ...item.result, status: 'failed' } })),
+      selection: { mode: 'selected', reason: 'selected', rejection: escalation } }));
+    f.setWorker((context) => {
+      if (context.step === 'verify') { context.passGate(); return { status: 'passed', next: 'deliver' }; }
+      if (context.step === 'implement') return { status: 'failed', next: null, reasonCode: 'implementation_failed', summary: 'routed to implement', artifacts: [] };
+      context.state.merged = true;
+      context.state.closed = true;
+      return { status: 'passed', next: null };
+    });
+    expect(f.execute('#42', { supervise: () => ({ action: 'accept' }) })).toMatchObject({ status: 0 });
+    expect(steps(f)).not.toContain('implement');
+    expect(steps(f)[0]).toBe('verify');
+    expect(f.state.starts[0].entry).toBe('verify');
   });
 
   it('stops an unsupervised run with selection_escalation', () => {

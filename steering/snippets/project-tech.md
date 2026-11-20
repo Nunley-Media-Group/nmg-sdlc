@@ -317,6 +317,15 @@ Exercise live proof uses `claude -p --plugin-dir <checkout>` loading this reposi
 
 `steering/manifest.json` declares the top-level `selection` (`docPaths`, `fallbackPaths`, `coveragePaths`) and a `surfaces` map covering every tracked file under `workflows/`, `agents/`, `references/`, `commands/`, `hooks/` and `.claude-plugin/`. The verify worker runs `sdlc-verify-steering.mjs --mode select` first, so the selected interactive smoke surfaces can be driven live before the gate; the gate reuses that stored selection. The gate checks it: a changed surface must be selected (`selection_surface_missing`), only a docs-only change may select nothing (`selection_empty_code_change`), the selected tests must cover every changed executable line (`selection_uncovered`), and every changed path must be accounted for (`selection_unaccounted`). A rejection is a `selection_escalation`, not a code defect: report it, never edit source or steering to pass it, and let the supervising session redispatch with guidance. A new tracked plugin file needs a surface, or `scripts/__tests__/repository-surfaces.test.mjs` fails.
 
+`steering/snippets/project-selection.md` is routed to `gate:selection`: it tells the selection call that test ids are repository-relative `scripts/__tests__/<name>.test.mjs` files.
+
+Two globs extend the lists in the #584 design, because detection must account for every tracked path:
+
+- `fallbackPaths` adds `src/*.d.mts`. The type declarations feed only `tsc` checks of `hooks/register.ts`, which no Jest test exercises, so a change to one runs the full suite.
+- `coveragePaths` adds `scripts/__tests__/**`. Test files are executable code the coverage report never records as covered lines; in a gate run a changed test file is accounted for only when it is selected.
+
+`repository.tests` is a `change`-tier validation, which makes the manifest tiered. `repository.tests.full` and `repository.nmg-sdlc-smoke.full` are the `full`-tier copies that `/sdlc-verify-full` runs, so a full run still runs the whole suite and a full smoke delivery without any selection.
+
 ### Condition Evaluation
 
 - Evaluate changed-file conditions against the actual scoped diff.

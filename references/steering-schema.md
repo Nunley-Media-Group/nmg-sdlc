@@ -65,8 +65,9 @@ A manifest turns on scoped pre-merge verification with two optional top-level ke
 **The selection call.** Before any validation runs, the change-tier gate makes one headless Claude call: `claude -p --model <m> [--effort <e>] --output-format json --json-schema <schema> --tools "" --no-session-persistence`, with a 300 000 ms timeout.
 - The prompt is the bundled `gate:selection` fragment plus every project snippet routed to the `gate:selection` consumer. It is followed by the base ref, the changed paths, the diff (capped at 200 000 bytes), the surfaces and any supervisor guidance.
 - The model and effort come from the optional `selection: { model, effort }` entry of `steering/sdlc-models.json`, default `haiku` at `xhigh`. An invalid entry fails the gate with `stage_models_invalid`.
-- The answer is `{ mode: "selected" | "all", tests, surfaces }`: at most 5000 unique test names, and only declared surface ids.
-- A non-zero exit, a timeout, malformed output or an undeclared surface runs everything (`selection_failed`), and an `all` answer does too (`selection_all`).
+- The answer is `{ mode: "selected" | "all", tests, surfaces }`: at most 5000 unique test names, none an option (leading `-`), absolute or containing `..`, and only declared surface ids.
+- A non-zero exit, a timeout, an `is_error` result, malformed output, an unsafe test name or an undeclared surface runs everything (`selection_failed`, with the exit status and Claude's stderr in `detail`), and an `all` answer does too (`selection_all`).
+- A changed path whose only change since the merge base is its version (a JSON file differing only in top-level `version`, or a `VERSION` file holding one version on both sides) is recorded in `versionOnly`. It never matches `fallbackPaths`, requires no surface and counts as documentation, because delivery prepares the version bump before the queue-head gate.
 - `sdlc-verify-steering.mjs --mode select` resolves the selection without running validations. The selection is stored in `.nmg-sdlc/verification/selection-<N>.json`, and the gate reuses it while the head, changed paths, diff, steering, prompt, guidance and model are unchanged.
 
 **What the selection drives.**
@@ -77,19 +78,23 @@ A manifest turns on scoped pre-merge verification with two optional top-level ke
 **The checks** run in selected mode only:
 1. `selection_surface_missing`: a surface whose `sources` match a changed path is not selected. Extra surfaces are allowed. This is checked before anything runs.
 2. `selection_empty_code_change`: no tests and no surfaces are selected, and a changed path is outside `docPaths`. This is also checked before anything runs.
-3. `selection_uncovered`: after the opted-in validations pass, the `coverage` command of `steering/test-coverage.json` runs with the selected tests appended. Its report is `{ version: 1, tests: [{ id, file, lines, branches, outcomes }], executableLines? }`, where the optional `executableLines` are `path:N` entries naming the lines that hold code.
+3. `selection_uncovered`: only after the opted-in validations pass, the `coverage` command of `steering/test-coverage.json` runs with the selected tests appended. Its report is `{ version: 1, tests: [{ id, file, lines, branches, outcomes }], executableLines? }`, where the optional `executableLines` are `path:N` entries naming the lines that hold code.
    - For each changed path the report covers, the changed lines (from `git diff -U0` against the merge base, plus untracked files) that are executable must be hit by a selected test. Without `executableLines`, the non-blank changed lines must be hit.
-   - Each opted-in result records `coverage: { changedLines, hitLines, uncovered }`.
+   - Only the lines of the report's tests whose `id` or `file` is a selected test count as hit.
+   - The command runs in a heavy-job slot with a one-hour timeout and the gate's abort signal.
+   - Each opted-in result records `coverage: { changedLines, hitLines, uncovered, counts }`; each list keeps at most 200 entries and `counts` holds the full lengths.
    - A missing or invalid coverage config accounts for no path. A failing coverage command fails the opted-in results as `coverage_failed`, which is an ordinary failure.
-4. `selection_unaccounted`: a changed path matches none of these: a report line record, a selected test's `file`, a selected surface's `sources`, `docPaths`, `fallbackPaths`.
+4. `selection_unaccounted`: a changed path matches none of these: a report line record, a selected test's `file`, a selected surface's `sources`, `docPaths`, `fallbackPaths`, `versionOnly`, or a deleted file under `coveragePaths`.
+
+Failing selected tests, or a failing coverage command, are ordinary failures for implement to repair: neither check 3 nor check 4 runs after them, so they never escalate. A required result the checks fail defers the project providers, as a failed local command does.
 
 A rejection makes the affected validations `failed`, naming the surfaces, lines or paths. For `selection_uncovered` the affected validations are the opted-in ones; otherwise they are the opted-in and surface-bound ones. The artifact's top-level `selection` records:
 - `prompt: { consumer, fragments: [{ id, hash }] }`, `model` and `effort`;
 - `mode`, `reason`, `fallbackPath`, `tests`, `surfaces` and `requiredSurfaces`;
 - `guidanceSupplied`;
-- `rejection: null | { reasonCode, uncovered, missingSurfaces, unaccounted }`.
+- `rejection: null | { reasonCode, uncovered, missingSurfaces, unaccounted, truncated }`, each list capped at 200 entries and `truncated` counting the rest.
 
-**Escalation.** The verify finalizer turns a rejection into a failed handoff with `reasonCode: "selection_escalation"`, `intervention: false`, `next: "verify"` and `escalation: { kind: "selection", reasonCode, uncovered, missingSurfaces, unaccounted }`.
+**Escalation.** The verify finalizer turns a rejection into a failed handoff with `reasonCode: "selection_escalation"`, `intervention: false`, `next: "verify"` and `escalation: { kind: "selection", reasonCode, uncovered, missingSurfaces, unaccounted, truncated }`, bounded the same way.
 - `/sdlc-execute` presents it to its supervising session with only `redispatch` and `halt`, and never routes the branch to implement.
 - A `redispatch --text` stores the guidance in `.nmg-sdlc/verification/selection-guidance-<N>.json` for the current head. The rerun gate appends it to the selection prompt and records `guidanceSupplied: true`.
 - An unsupervised run stops with `selection_escalation`.

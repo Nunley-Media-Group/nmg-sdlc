@@ -146,7 +146,7 @@ describe('steering manifest tiers, heavy marker and optional settings (#551 FR15
     ['on a validation', (manifest) => { manifest.selection = SELECTION; Object.assign(manifest.validations[0], { tier: 'change', selection: { program: 'node', args: ['select.js'] } }); }],
     ['at the top level', (manifest) => { manifest.selection = { program: 'node', args: ['select.js'] }; }],
     ['at the top level without args', (manifest) => { manifest.selection = { program: 'node' }; }],
-  ])('rejects the command form of selection %s, saying selection takes a prompt (#584 AC3)', async (_name, edit) => {
+  ])('@SCN003 rejects the command form of selection %s, saying selection takes a prompt (#584 AC3)', async (_name, edit) => {
     const root = await fixture([node('unit.tests', 'process.exit(0)')]);
     editManifest(root, edit);
     const error = await loadSteeringRuntime(root).catch((caught) => caught);
@@ -225,7 +225,7 @@ describe('steering manifest tiers, heavy marker and optional settings (#551 FR15
   });
 });
 
-describe('change-tier selection (#551, #584 AC1, AC8, AC9)', () => {
+describe('@SCN001 @SCN010 change-tier selection (#551, #584 AC1, AC9)', () => {
   const tiered = () => [selecting(), node('full.suite', 'process.exit(1)', { tier: 'full' })];
   const selected = (extra = {}) => ({ mode: 'selected', tests: ['tests/app.test.js', 'tests/util.test.js'], surfaces: ['app'], ...extra });
 
@@ -240,8 +240,9 @@ describe('change-tier selection (#551, #584 AC1, AC8, AC9)', () => {
     expect(claudeCalls).toHaveLength(1);
     expect(claudeCalls[0].input).toContain('Base ref: main');
     expect(claudeCalls[0].input).toContain('- src/app.js');
+    expect(artifact.ceiling).toBeNull();
     const [unit, full] = artifact.results;
-    expect(unit).toMatchObject({ id: 'unit.tests', tier: 'change', applicable: true });
+    expect(unit).toMatchObject({ id: 'unit.tests', tier: 'change', applicable: true, effectiveStatus: 'passed' });
     expect(unit.selection).toEqual({ provider: 'claude:haiku', reason: 'selected', fallbackPath: null, selectedCount: 2 });
     expect(unit.request.config.args).toEqual(['-e', RECORD_ARGS]);
     expect(unit.request.command).toEqual({ args: ['-e', RECORD_ARGS, 'tests/app.test.js', 'tests/util.test.js'] });
@@ -265,18 +266,6 @@ describe('change-tier selection (#551, #584 AC1, AC8, AC9)', () => {
     expect(artifact.results[0].selection).toMatchObject({ reason: 'selected', selectedCount: 2 });
   });
 
-  it('records a passed result without running the command for a docs-only empty selection (AC8)', async () => {
-    const root = await fixture(tiered());
-    change(root, 'docs/guide.md');
-    claudeAnswer = selected({ tests: [], surfaces: [] });
-    const artifact = await verify(root);
-    expect(artifact.ceiling).toBeNull();
-    expect(artifact.results[0]).toMatchObject({ applicable: true, effectiveStatus: 'passed', tier: 'change',
-      selection: { reason: 'selection_empty', fallbackPath: null, selectedCount: 0 } });
-    expect(artifact.selection).toMatchObject({ reason: 'selection_empty', rejection: null, surfaces: [] });
-    expect(ranWith(root)).toBeNull();
-  });
-
   it('runs the full command for a change that touches a fallback path, naming the first one, without asking Claude (AC9)', async () => {
     const root = await fixture(tiered());
     change(root, 'src/app.js');
@@ -294,10 +283,6 @@ describe('change-tier selection (#551, #584 AC1, AC8, AC9)', () => {
 
   it.each([
     ['Claude asking for everything', { mode: 'all', tests: [], surfaces: [] }, 'selection_all'],
-    ['output that is not JSON', 'not json', 'selection_failed'],
-    ['an unknown mode', { mode: 'some', tests: [], surfaces: [] }, 'selection_failed'],
-    ['tests that are not strings', { mode: 'selected', tests: [1], surfaces: ['app'] }, 'selection_failed'],
-    ['an undeclared surface', { mode: 'selected', tests: ['a'], surfaces: ['nope'] }, 'selection_failed'],
     ['Claude exiting non-zero', null, 'selection_failed'],
   ])('runs the full command and records why for %s (AC9)', async (_name, output, reason) => {
     const root = await fixture(tiered());

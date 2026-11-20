@@ -2,8 +2,8 @@
 // validations run and the surfaces the surface-bound validations exercise. A stored selection is reused while its
 // binding (head, change, steering, prompt and guidance) is unchanged, so `--mode select` and the gate share one call.
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { canonicalJson, projectPromptFragments } from "./sdlc-steering-runtime.mjs";
 import {
@@ -33,6 +33,26 @@ export const ANSWER_SCHEMA = Object.freeze({
   additionalProperties: false,
 });
 
+/** The most entries each rejection list keeps; the rest are counted in `truncated`, so a handoff stays bounded. */
+export const MAX_REJECTION_ENTRIES = 200;
+/** A selection check's rejection: `{ reasonCode, uncovered, missingSurfaces, unaccounted, truncated }`, each list capped. */
+export function rejectionOf(reasonCode, { uncovered = [], missingSurfaces = [], unaccounted = [], truncated = 0 } = {}) {
+  const cap = (list) => (Array.isArray(list) ? list.map(String) : []);
+  const lists = { uncovered: cap(uncovered), missingSurfaces: cap(missingSurfaces), unaccounted: cap(unaccounted) };
+  let omitted = Number.isSafeInteger(truncated) && truncated > 0 ? truncated : 0;
+  for (const key of Object.keys(lists)) {
+    omitted += Math.max(0, lists[key].length - MAX_REJECTION_ENTRIES);
+    lists[key] = lists[key].slice(0, MAX_REJECTION_ENTRIES);
+  }
+  return { reasonCode: String(reasonCode), ...lists, truncated: omitted };
+}
+/** `<reasonCode>: <named entries>`, naming at most 50 and counting the rest. */
+export function rejectionSummary(rejection) {
+  const named = [...(rejection.missingSurfaces ?? []), ...(rejection.uncovered ?? []), ...(rejection.unaccounted ?? [])];
+  const more = Math.max(0, named.length - 50) + (rejection.truncated > 0 ? rejection.truncated : 0);
+  return named.length ? `${rejection.reasonCode}: ${named.slice(0, 50).join(", ")}${more ? `, and ${more} more` : ""}` : rejection.reasonCode;
+}
+
 function hash(value) { return `sha256:${createHash("sha256").update(value).digest("hex")}`; }
 function git(projectRoot, args) {
   const result = spawnSync("git", args, { cwd: projectRoot, encoding: "utf8", shell: false, maxBuffer: 1024 * 1024 * 1024 });
@@ -51,12 +71,67 @@ function writeJson(path, value) {
   renameSync(temporary, path);
 }
 
-/** The committed and working-tree diff of the change, capped with a truncation marker. */
-export function changeDiff(projectRoot, baseRef) {
-  const text = `${git(projectRoot, ["diff", `${baseRef}...HEAD`])}${git(projectRoot, ["diff", "HEAD"])}`;
-  const bytes = Buffer.from(text, "utf8");
-  if (bytes.length <= MAX_DIFF_BYTES) return text;
-  return `${bytes.subarray(0, MAX_DIFF_BYTES).toString("utf8")}\n[diff truncated: ${bytes.length - MAX_DIFF_BYTES} more bytes]\n`;
+/** Untracked, non-ignored files rendered as new-file diffs, so their content reaches the prompt and the binding. */
+function untrackedDiff(projectRoot) {
+  const paths = git(projectRoot, ["ls-files", "-z", "--others", "--exclude-standard"]).split("\0").filter(Boolean).sort();
+  return paths.map((path) => {
+    let text;
+    try {
+      if (!lstatSync(join(projectRoot, path)).isFile()) return "";
+      text = readFileSync(join(projectRoot, path), "utf8");
+    } catch { return ""; }
+    const body = text.split("\n").map((line) => `+${line}`).join("\n");
+    return `diff --git a/${path} b/${path}\nnew file (untracked)\n--- /dev/null\n+++ b/${path}\n${body}\n`;
+  }).join("");
+}
+/** The committed, working-tree and untracked change: `{ text, digest }`, the text capped with a truncation marker and the digest over all of it. */
+export function changeDiffWithDigest(projectRoot, baseRef) {
+  const plain = ["-c", "core.quotepath=off", "diff", "--no-color", "--no-ext-diff"];
+  const full = `${git(projectRoot, [...plain, `${baseRef}...HEAD`])}${git(projectRoot, [...plain, "HEAD"])}${untrackedDiff(projectRoot)}`;
+  const bytes = Buffer.from(full, "utf8");
+  const text = bytes.length <= MAX_DIFF_BYTES ? full
+    : `${bytes.subarray(0, MAX_DIFF_BYTES).toString("utf8")}\n[diff truncated: ${bytes.length - MAX_DIFF_BYTES} more bytes]\n`;
+  return { text, digest: hash(full) };
+}
+/** The change's diff as the prompt receives it, capped with a truncation marker. */
+export function changeDiff(projectRoot, baseRef) { return changeDiffWithDigest(projectRoot, baseRef).text; }
+
+/** The manifest-level and validation-level fallback globs. */
+export function fallbackPathsOf(runtime) {
+  return [...(runtime.selection?.fallbackPaths ?? []), ...runtime.validations.flatMap((validation) => validation.fallbackPaths ?? [])];
+}
+
+const VERSION_TEXT = /^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]*)?\s*$/;
+/**
+ * Whether `path` changed only its version since the merge base: a JSON file whose parsed content differs only in
+ * its top-level `version`, or a `VERSION` file holding one version on both sides. Delivery prepares the version
+ * bump before the queue-head gate, so such a change selects nothing and needs no full run.
+ */
+function versionOnlyChange(projectRoot, mergeBase, path) {
+  let before;
+  let after;
+  try {
+    before = git(projectRoot, ["show", `${mergeBase}:${path}`]);
+    after = readFileSync(join(projectRoot, path), "utf8");
+  } catch { return false; }
+  if (before === after) return false;
+  if (path === "VERSION" || path.endsWith("/VERSION")) return VERSION_TEXT.test(before) && VERSION_TEXT.test(after);
+  if (!path.endsWith(".json")) return false;
+  try {
+    const old = JSON.parse(before);
+    const next = JSON.parse(after);
+    if (!old || !next || typeof old !== "object" || typeof next !== "object" || Array.isArray(old) || Array.isArray(next)) return false;
+    if (old.version === next.version) return false;
+    const { version: _old, ...restOld } = old;
+    const { version: _next, ...restNext } = next;
+    return canonicalJson(restOld) === canonicalJson(restNext);
+  } catch { return false; }
+}
+/** The changed paths whose only change is a version bump. */
+export function versionOnlyPaths(projectRoot, baseRef, paths) {
+  let mergeBase;
+  try { mergeBase = git(projectRoot, ["merge-base", baseRef, "HEAD"]).trim(); } catch { return []; }
+  return paths.filter((path) => versionOnlyChange(projectRoot, mergeBase, path));
 }
 
 /** The redispatch guidance stored for this head, or null. */
@@ -109,8 +184,24 @@ export function claudeSelectionCommand({ model, effort }) {
   };
 }
 
-function defaultRunSelection({ program, args, input, cwd, timeout }) {
-  return spawnSync(program, args, { cwd, input, encoding: "utf8", shell: false, timeout, maxBuffer: 64 * 1024 * 1024 });
+/** Runs the Claude call without blocking the event loop; resolves `{ status, signal, stdout, stderr, error }`. */
+function defaultRunSelection({ program, args, input, cwd, timeout, signal }) {
+  return new Promise((resolvePromise) => {
+    let child;
+    try { child = spawn(program, args, { cwd, shell: false, stdio: ["pipe", "pipe", "pipe"], timeout, killSignal: "SIGKILL", signal }); }
+    catch (error) { resolvePromise({ status: null, signal: null, stdout: "", stderr: "", error }); return; }
+    const out = [];
+    const err = [];
+    let size = 0;
+    let settled = false;
+    const finish = (value) => { if (!settled) { settled = true; resolvePromise(value); } };
+    child.stdout.on("data", (chunk) => { size += chunk.length; if (size <= 64 * 1024 * 1024) out.push(chunk); else child.kill("SIGKILL"); });
+    child.stderr.on("data", (chunk) => { if (err.reduce((total, part) => total + part.length, 0) < 65536) err.push(chunk); });
+    child.on("error", (error) => finish({ status: null, signal: null, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8"), error }));
+    child.on("close", (status, closeSignal) => finish({ status, signal: closeSignal, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8") }));
+    child.stdin.on("error", () => {});
+    child.stdin.end(input);
+  });
 }
 
 /** The answer object from the CLI's JSON result: its structured output, or a JSON `result` text. */
@@ -132,6 +223,9 @@ export function validateAnswer(answer, declaredIds) {
   if (!strings(answer.tests) || !strings(answer.surfaces)) throw new Error("tests or surfaces");
   const tests = [...new Set(answer.tests)];
   if (tests.length > MAX_SELECTED_TESTS || tests.some((test) => test.length > MAX_TEST_LENGTH)) throw new Error("tests bound");
+  // A test is appended to a command's arguments: never an option, an absolute path or a path leaving the project.
+  if (tests.some((test) => test.startsWith("-") || test.startsWith("/") || test.startsWith("\\") || /^[A-Za-z]:/.test(test)
+    || test.split(/[\\/]/).includes("..") || /[\0\r\n]/.test(test))) throw new Error("unsafe test entry");
   const surfaces = [...new Set(answer.surfaces)];
   if (surfaces.some((id) => !declaredIds.includes(id))) throw new Error("undeclared surface");
   return { mode: answer.mode, tests, surfaces };
@@ -139,32 +233,34 @@ export function validateAnswer(answer, declaredIds) {
 
 /**
  * Resolves the selection for one change-tier gate run of a manifest that declares `selection`. Returns
- * `{ mode, reason, fallbackPath, tests, surfaces, requiredSurfaces, model, effort, prompt, guidanceSupplied, reused, detail }`:
+ * `{ mode, reason, fallbackPath, tests, surfaces, requiredSurfaces, versionOnly, model, effort, prompt, guidanceSupplied, reused, detail }`:
  * `mode` is `selected` or `all`; `reason` is `selected`, `selection_empty`, `fallback_path`, `selection_failed` or
- * `selection_all`. In `all` mode `surfaces` is every declared surface id.
+ * `selection_all`. In `all` mode `surfaces` is every declared surface id. `versionOnly` lists the changed paths whose
+ * only change is a version bump: they never force a full run or require a surface.
  */
-export function resolveChangeSelection({ projectRoot, issue, baseRef, paths, runtime, models, runSelection = defaultRunSelection,
-  packageRoot = defaultPackageRoot, headSha } = {}) {
+export async function resolveChangeSelection({ projectRoot, issue, baseRef, paths, runtime, models, runSelection = defaultRunSelection,
+  packageRoot = defaultPackageRoot, headSha, signal } = {}) {
   const root = resolve(projectRoot);
   const surfaces = runtime.surfaces ?? [];
   const declaredIds = surfaces.map((surface) => surface.id);
   const { model, effort } = selectionModel(models);
-  const required = requiredSurfaces(surfaces, paths);
+  const versionOnly = versionOnlyPaths(root, baseRef, paths);
+  const scoped = paths.filter((path) => !versionOnly.includes(path));
+  const required = requiredSurfaces(surfaces, scoped);
   const head = headSha ?? git(root, ["rev-parse", "HEAD"]).trim();
-  const fallbackPaths = [...(runtime.selection?.fallbackPaths ?? []), ...runtime.validations.flatMap((validation) => validation.fallbackPaths ?? [])];
   const all = (reason, extra = {}) => ({ mode: "all", reason, fallbackPath: null, tests: [], surfaces: [...declaredIds], requiredSurfaces: required,
-    model, effort, prompt: null, guidanceSupplied: false, reused: false, detail: null, ...extra });
-  const fallbackPath = paths.find((path) => matches(path, fallbackPaths));
+    versionOnly, model, effort, prompt: null, guidanceSupplied: false, reused: false, detail: null, ...extra });
+  const fallbackPath = scoped.find((path) => matches(path, fallbackPathsOf(runtime)));
   if (fallbackPath !== undefined) return all("fallback_path", { fallbackPath });
 
   const guidance = readGuidance(root, issue, head);
   const rendered = renderSelectionPrompt(runtime, packageRoot);
   const prompt = { consumer: SELECTION_CONSUMER, fragments: rendered.provenance.fragments.map(({ id, hash: fragmentHash }) => ({ id, hash: fragmentHash })) };
-  const diff = changeDiff(root, baseRef);
+  const { text: diff, digest: diffDigest } = changeDiffWithDigest(root, baseRef);
   const binding = {
     headSha: head,
     pathsDigest: hash(canonicalJson(paths)),
-    diffDigest: hash(diff),
+    diffDigest,
     steeringHash: runtime.steeringHash,
     promptHash: hash(rendered.text),
     guidanceHash: guidance ? hash(guidance) : null,
@@ -173,17 +269,18 @@ export function resolveChangeSelection({ projectRoot, issue, baseRef, paths, run
   };
   const stored = readJson(selectionPath(root, issue));
   if (stored?.schemaVersion === 1 && canonicalJson(stored.binding) === canonicalJson(binding) && stored.selection) {
-    return { ...stored.selection, requiredSurfaces: required, reused: true };
+    return { ...stored.selection, requiredSurfaces: required, versionOnly, reused: true };
   }
 
-  const shared = { requiredSurfaces: required, model, effort, prompt, guidanceSupplied: Boolean(guidance), reused: false };
+  const shared = { requiredSurfaces: required, versionOnly, model, effort, prompt, guidanceSupplied: Boolean(guidance), reused: false };
   const input = selectionInput({ text: rendered.text, baseRef, paths, diff, surfaces, guidance });
   const command = claudeSelectionCommand({ model, effort });
   let selection;
   try {
-    const response = runSelection({ ...command, input, cwd: root, timeout: SELECTION_TIMEOUT_MS });
+    const response = await runSelection({ ...command, input, cwd: root, timeout: SELECTION_TIMEOUT_MS, ...(signal ? { signal } : {}) });
     if (!response || response.error || response.status !== 0) {
-      throw new Error(response?.error?.message ?? `claude exited ${response?.status ?? "without a status"}${response?.signal ? ` (${response.signal})` : ""}`);
+      const stderr = String(response?.stderr ?? "").trim();
+      throw new Error(`${response?.error?.message ?? `claude exited ${response?.status ?? "without a status"}${response?.signal ? ` (${response.signal})` : ""}`}${stderr ? `: ${stderr.slice(-300)}` : ""}`);
     }
     const answer = validateAnswer(answerFrom(response.stdout), declaredIds);
     selection = answer.mode === "all"

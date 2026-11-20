@@ -13,8 +13,10 @@ Below, `<project root>` is this nmg-sdlc checkout, `<head>` is its full `HEAD` S
 Run the selection ahead of the gate:
 
 ```bash
-node <plugin-root>/scripts/sdlc-verify-steering.mjs --project . --issue N --spec specs/N-SLUG --base main --mode select
+node <plugin-root>/scripts/sdlc-verify-steering.mjs --project . --issue N --spec specs/N-SLUG --base main --mode select [--controller-run-id R]
 ```
+
+When the worker header provides a non-empty controller run id, replace `[--controller-run-id R]` with `--controller-run-id R` using that exact value: under `/sdlc-execute` the controller lease is held by that run id, so the selection must run under it. Omit the option only for standalone verification.
 
 It prints `{ ok: true, selection }`, and `selection.surfaces` names the selected surfaces. The smoke surfaces are the interactive `draft-issue`, `write-spec`, `onboard-project`, `upgrade-project`, `steering` and `run-retro`, plus `execute`. Ignore any other selected surface id.
 

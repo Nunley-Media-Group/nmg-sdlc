@@ -360,7 +360,7 @@ describe('stageModelsWarning', () => {
   });
 });
 
-describe('selection model entry (#584 AC2, FR3)', () => {
+describe('@SCN002 Selection model and effort are configurable: the selection model entry', () => {
   const valid = () => JSON.parse(JSON.stringify(STAGE_MODEL_DEFAULTS));
 
   it('accepts an optional selection entry and never reports it missing', () => {

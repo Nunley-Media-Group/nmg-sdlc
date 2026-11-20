@@ -1,4 +1,4 @@
-// AC11 (specs/584-…): onboard/upgrade detection and the digest-bound verification-scope apply.
+// @SCN012 (specs/584-…): onboard/upgrade detection and the digest-bound verification-scope apply.
 import { afterEach, describe, expect, it } from '@jest/globals';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -84,7 +84,7 @@ const proposal = (root, overrides = {}) => {
   return file;
 };
 
-describe('detectVerificationScope (AC11)', () => {
+describe('@SCN012 detectVerificationScope', () => {
   it('reports the plugin project findings, including a legacy command selection and the missing coverage config', async () => {
     const root = await project({ plugin: true });
     legacySelection(root);
@@ -138,7 +138,7 @@ describe('detectVerificationScope (AC11)', () => {
   });
 });
 
-describe('applyVerificationScope (AC11)', () => {
+describe('@SCN012 applyVerificationScope', () => {
   it('refuses a stale digest with verification_scope_plan_stale and writes nothing', async () => {
     const root = await project({ plugin: true });
     const item = detectVerificationScope(root);
@@ -191,6 +191,23 @@ describe('applyVerificationScope (AC11)', () => {
     expect(fs.existsSync(path.join(root, 'steering/test-coverage.json'))).toBe(false);
   });
 
+  it('refuses a symlinked coverage config before any write and leaves the link and its outside target untouched', async () => {
+    const root = await project();
+    const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-verification-scope-outside-')));
+    roots.push(outside);
+    const target = path.join(outside, 'coverage.json');
+    fs.writeFileSync(target, 'outside\n');
+    fs.symlinkSync(target, path.join(root, 'steering', 'test-coverage.json'));
+    const item = detectVerificationScope(root);
+    const before = bytes(root, 'steering/manifest.json');
+    const result = await applyVerificationScope(root, item, proposal(root));
+    expect(result).toMatchObject({ ok: false, reasonCode: 'verification_scope_target_invalid' });
+    expect(result.message).toContain('steering/test-coverage.json');
+    expect(fs.readFileSync(target, 'utf8')).toBe('outside\n');
+    expect(fs.lstatSync(path.join(root, 'steering', 'test-coverage.json')).isSymbolicLink()).toBe(true);
+    expect(bytes(root, 'steering/manifest.json').equals(before)).toBe(true);
+  });
+
   it('rejects an opt-in naming an unknown validation before writing', async () => {
     const root = await project();
     const item = detectVerificationScope(root);
@@ -201,7 +218,7 @@ describe('applyVerificationScope (AC11)', () => {
   });
 });
 
-describe('verification-scope CLI (AC11)', () => {
+describe('@SCN012 verification-scope CLI', () => {
   it('detects and applies through argument arrays with stable exit codes', async () => {
     const root = await project({ plugin: true });
     const cli = (...args) => {
@@ -226,7 +243,7 @@ describe('verification-scope CLI (AC11)', () => {
   });
 });
 
-describe('sdlc-upgrade wiring (AC11)', () => {
+describe('@SCN012 sdlc-upgrade wiring', () => {
   it('detectUpgrade lists the item and applyUpgrade applies it from --scope-proposal', async () => {
     const root = await project({ plugin: true });
     legacySelection(root);

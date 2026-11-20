@@ -75,7 +75,9 @@ if (isCliEntry(import.meta.url)) {
   process.once("SIGINT", cancel);
   process.once("SIGTERM", cancel);
   main(process.argv.slice(2), { signal: controller.signal }).catch((error) => {
-    process.stdout.write(`${JSON.stringify({ ok: false, ceiling: "Incomplete", reasonCode: error.reasonCode ?? error.message }, null, 2)}\n`);
+    // A coded failure keeps its diagnostic (for example the steering/sdlc-models.json message) beside the code.
+    const summary = error.reasonCode && error.message && error.message !== error.reasonCode ? { summary: error.message } : {};
+    process.stdout.write(`${JSON.stringify({ ok: false, ceiling: "Incomplete", reasonCode: error.reasonCode ?? error.message, ...summary }, null, 2)}\n`);
     process.exitCode = 1;
   }).finally(() => {
     process.removeListener("SIGINT", cancel);

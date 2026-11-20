@@ -13,7 +13,7 @@ A selection that fails a check stops the delivery and is escalated to a person, 
 1. Read the base ref, the changed paths and the diff.
 2. Select every test whose code paths the change can affect: tests of each changed source file, tests that import or exercise it, and tests of code that depends on a changed shared module, configuration or fixture. A changed test file selects itself.
 3. Select every surface whose sources match a changed path. Also select a surface that consumes a changed shared file, even when its own sources did not change.
-4. Name tests exactly as the project's test runner accepts them as arguments, which is usually a repository- or runner-relative test file path. Name surfaces only by the declared surface ids.
+4. Name each test by its repository-relative test file path unless a project instruction above names another form. The gate appends each name to the test command and to the coverage command, so a name that is an option (begins with `-`), an absolute path or a path containing `..` is refused and the whole change runs in full. Name surfaces only by the declared surface ids.
 5. A change that touches only documentation may select nothing: answer `selected` with empty lists.
 6. Answer `all` when you cannot scope the change safely, for example when it changes the build, the test harness, dependency manifests or shared setup whose reach you cannot see in the diff.
 

@@ -27,6 +27,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isCliEntry } from './plugin-controller-path.mjs';
 
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptsDir, '..');
@@ -39,14 +40,14 @@ function usage(message) {
   process.exit(2);
 }
 
-function isRepoRelative(file) {
+export function isRepoRelative(file) {
   return typeof file === 'string' && file.length > 0 && !path.isAbsolute(file) && !file.includes('\\')
     && !file.split('/').some((segment) => segment === '' || segment === '.' || segment === '..');
 }
 
 /** Repository-relative POSIX path for an absolute file, or null when it must be left out. */
-function reportPath(absolute) {
-  const relative = path.relative(repoRoot, absolute);
+function reportPath(absolute, root = repoRoot) {
+  const relative = path.relative(root, absolute);
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return null;
   const posix = relative.split(path.sep).join('/');
   if (posix.includes(':') || posix.split('/').some((segment) => EXCLUDED_SEGMENTS.has(segment))) return null;
@@ -94,11 +95,15 @@ function runJest(file, tmp) {
   return { run, results: read(resultsFile), coverage: read(path.join(coverageDir, 'coverage-final.json')) };
 }
 
-function collect(file, results, coverage, executable) {
+/**
+ * Derives one test's report entry from Jest's --json results and istanbul-format coverage. Adds every statement start
+ * line to `executable`; returns `{ test, failed }`. `root` is the repository the reported paths are relative to.
+ */
+export function collect(file, results, coverage, executable, root = repoRoot) {
   const lines = new Set();
   const branches = new Set();
   for (const [absolute, data] of Object.entries(coverage)) {
-    const relative = reportPath(data.path ?? absolute);
+    const relative = reportPath(data.path ?? absolute, root);
     if (!relative) continue;
     const blank = blankLines(data.path ?? absolute);
     for (const [id, location] of Object.entries(data.statementMap ?? {})) {
@@ -133,7 +138,7 @@ function collect(file, results, coverage, executable) {
   };
 }
 
-function main(files) {
+export function main(files) {
   if (files.length === 0) usage('jest-per-test-coverage: no test files given');
   for (const file of files) {
     if (!isRepoRelative(file)) usage(`jest-per-test-coverage: not a repository-relative path: ${JSON.stringify(file)}`);
@@ -166,4 +171,4 @@ function main(files) {
   process.exitCode = status;
 }
 
-main(process.argv.slice(2));
+if (isCliEntry(import.meta.url)) main(process.argv.slice(2));

@@ -15,6 +15,7 @@ import { enterControllerLease, releaseControllerLease } from './sdlc-controller-
 import { reconcileStagePublication } from './sdlc-safe-recoveries.mjs';
 import { parseIssueBranch } from './sdlc-status.mjs';
 import { canonicalJson, resolveSteeringPath } from '../src/sdlc-steering-runtime.mjs';
+import { rejectionOf, rejectionSummary } from '../src/sdlc-test-selection.mjs';
 import { changedPaths, evaluateCondition, runsInTier, validationResultCoverage } from '../src/sdlc-verification-runtime.mjs';
 
 const USAGE = 'Usage: node scripts/sdlc-finalize-verification.mjs --issue N --spec specs/N-SLUG [--queue-gate] [--controller-run-id ID]';
@@ -318,15 +319,12 @@ function finalizeVerificationUnlocked({
   const rejection = freshArtifact?.selection?.rejection;
   if (rejection && typeof rejection === 'object' && freshArtifact.identity?.headSha === headSha) {
     const list = (value) => (Array.isArray(value) ? value.filter((item) => typeof item === 'string') : []);
-    const escalation = {
-      kind: 'selection',
-      reasonCode: String(rejection.reasonCode),
-      uncovered: list(rejection.uncovered),
-      missingSurfaces: list(rejection.missingSurfaces),
-      unaccounted: list(rejection.unaccounted),
-    };
-    const named = [...escalation.missingSurfaces, ...escalation.uncovered, ...escalation.unaccounted];
-    return fail('selection_escalation', `Selection for #${issueNumber} was rejected as ${escalation.reasonCode}${named.length ? `: ${named.slice(0, 20).join(', ')}${named.length > 20 ? `, and ${named.length - 20} more` : ''}` : ''}`, {
+    const bounded = rejectionOf(rejection.reasonCode, {
+      uncovered: list(rejection.uncovered), missingSurfaces: list(rejection.missingSurfaces), unaccounted: list(rejection.unaccounted),
+      truncated: Number.isSafeInteger(rejection.truncated) ? rejection.truncated : 0,
+    });
+    const escalation = { kind: 'selection', ...bounded };
+    return fail('selection_escalation', `Selection for #${issueNumber} was rejected as ${rejectionSummary(bounded)}`, {
       intervention: false, next: 'verify', artifacts: [reportPath, artifactRelative], escalation,
     });
   }

@@ -1,4 +1,4 @@
-// The change-selection resolver (#584 AC1, AC2, AC7, AC9, FR2, FR9).
+// The change-selection resolver: @SCN001, @SCN002, @SCN008 and @SCN010 (#584 AC1, AC2, AC7, AC9, FR2, FR9).
 import { afterEach, describe, expect, it } from '@jest/globals';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -17,7 +17,7 @@ const git = (root, ...args) => {
 };
 
 /** A committed project on `work` with a project snippet routed to gate:selection and one change to src/app.js. */
-async function project({ fallbackPaths = ['package.json'] } = {}) {
+async function project({ fallbackPaths = ['package.json'], baselineFiles = {} } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-584-select-')));
   roots.push(root);
   fs.writeFileSync(path.join(root, '.gitignore'), '.nmg-sdlc/\n');
@@ -32,6 +32,7 @@ async function project({ fallbackPaths = ['package.json'] } = {}) {
   manifest.selection = { docPaths: ['docs/**'], fallbackPaths };
   manifest.surfaces = [{ id: 'app', sources: ['src/**'] }, { id: 'cli', sources: ['bin/**'] }];
   fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+  for (const [name, text] of Object.entries(baselineFiles)) fs.writeFileSync(path.join(root, name), text);
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.email', 'test@example.com');
   git(root, 'config', 'user.name', 'Test');
@@ -56,11 +57,11 @@ const recorder = (answer) => {
 const resolve = (root, runtime, runSelection, extra = {}) => resolveChangeSelection({ projectRoot: root, issue: 42, baseRef: 'main',
   paths: ['src/app.js'], runtime, models: {}, runSelection, ...extra });
 
-describe('Claude selects tests and surfaces (#584 AC1)', () => {
+describe('@SCN001 Claude selects tests and surfaces (#584 AC1)', () => {
   it('sends the rendered prompt with the project snippet, base ref, changed paths, diff and surface ids', async () => {
     const { root, runtime } = await project();
     const { calls, run } = recorder({ mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] });
-    const selection = resolve(root, runtime, run);
+    const selection = await resolve(root, runtime, run);
     expect(calls).toHaveLength(1);
     const { input, program, args, cwd, timeout } = calls[0];
     expect(input).toContain('# Test and Surface Selection');
@@ -82,42 +83,61 @@ describe('Claude selects tests and surfaces (#584 AC1)', () => {
     expect(selection.prompt.fragments.every(({ hash }) => /^sha256:[0-9a-f]{64}$/.test(hash))).toBe(true);
   });
 
+  it('caps the diff with a truncation marker and includes untracked file content', async () => {
+    const { root, runtime } = await project();
+    fs.writeFileSync(path.join(root, 'src/big.js'), `${'x'.repeat(250_000)}\n`);
+    git(root, 'add', 'src/big.js');
+    git(root, 'commit', '-m', 'big');
+    fs.writeFileSync(path.join(root, 'src/new.js'), 'export const fresh = 1;\n');
+    const { calls, run } = recorder({ mode: 'selected', tests: ['t'], surfaces: ['app'] });
+    await resolve(root, runtime, run, { paths: ['src/app.js', 'src/big.js', 'src/new.js'] });
+    expect(calls[0].input).toMatch(/\[diff truncated: \d+ more bytes\]/);
+    fs.rmSync(path.join(root, 'src/big.js'));
+    git(root, 'commit', '-am', 'drop big');
+    fs.rmSync(selectionPath(root, 42));
+    await resolve(root, runtime, run, { paths: ['src/app.js', 'src/new.js'] });
+    expect(calls[1].input).toContain('+export const fresh = 1;');
+    // Editing the untracked file moves the binding, so the stored selection is not reused.
+    fs.writeFileSync(path.join(root, 'src/new.js'), 'export const fresh = 2;\n');
+    expect((await resolve(root, runtime, run, { paths: ['src/app.js', 'src/new.js'] })).reused).toBe(false);
+  });
+
   it('reads an answer printed as JSON text in the result', async () => {
     const { root, runtime } = await project();
     const { run } = recorder(() => ({ status: 0, stdout: JSON.stringify({ result: '```json\n{"mode":"selected","tests":[],"surfaces":["app"]}\n```' }) }));
-    expect(resolve(root, runtime, run)).toMatchObject({ mode: 'selected', reason: 'selected', surfaces: ['app'] });
+    expect(await resolve(root, runtime, run)).toMatchObject({ mode: 'selected', reason: 'selected', surfaces: ['app'] });
   });
 
   it('reuses the stored selection while its binding holds, and asks again when the change moves', async () => {
     const { root, runtime } = await project();
     const { calls, run } = recorder({ mode: 'selected', tests: ['t'], surfaces: ['app'] });
-    resolve(root, runtime, run);
+    await resolve(root, runtime, run);
     expect(fs.existsSync(selectionPath(root, 42))).toBe(true);
-    expect(resolve(root, runtime, run)).toMatchObject({ reused: true, tests: ['t'] });
+    expect(await resolve(root, runtime, run)).toMatchObject({ reused: true, tests: ['t'] });
     expect(calls).toHaveLength(1);
     fs.writeFileSync(path.join(root, 'src/app.js'), 'export const answer = 43;\n');
-    expect(resolve(root, runtime, run).reused).toBe(false);
+    expect((await resolve(root, runtime, run)).reused).toBe(false);
     expect(calls).toHaveLength(2);
   });
 });
 
-describe('selection model and effort (#584 AC2)', () => {
+describe('@SCN002 selection model and effort (#584 AC2)', () => {
   it('uses the configured selection entry and omits --effort for default', async () => {
     const { root, runtime } = await project();
     const { calls, run } = recorder({ mode: 'all', tests: [], surfaces: [] });
-    expect(resolve(root, runtime, run, { models: { selection: { model: 'sonnet', effort: 'high' } } })).toMatchObject({ model: 'sonnet', effort: 'high' });
+    expect(await resolve(root, runtime, run, { models: { selection: { model: 'sonnet', effort: 'high' } } })).toMatchObject({ model: 'sonnet', effort: 'high' });
     expect(calls[0].args.slice(0, 5)).toEqual(['-p', '--model', 'sonnet', '--effort', 'high']);
     fs.rmSync(selectionPath(root, 42));
-    resolve(root, runtime, run, { models: { selection: { model: 'opus', effort: 'default' } } });
+    await resolve(root, runtime, run, { models: { selection: { model: 'opus', effort: 'default' } } });
     expect(calls[1].args.slice(0, 4)).toEqual(['-p', '--model', 'opus', '--output-format']);
   });
 });
 
-describe('full-run fallbacks (#584 AC9)', () => {
+describe('@SCN010 full-run fallbacks (#584 AC9)', () => {
   it('does not ask Claude when a changed path matches a fallback path, and selects every surface', async () => {
     const { root, runtime } = await project();
     const { calls, run } = recorder({ mode: 'selected', tests: [], surfaces: [] });
-    expect(resolve(root, runtime, run, { paths: ['src/app.js', 'package.json'] })).toMatchObject({ mode: 'all', reason: 'fallback_path',
+    expect(await resolve(root, runtime, run, { paths: ['src/app.js', 'package.json'] })).toMatchObject({ mode: 'all', reason: 'fallback_path',
       fallbackPath: 'package.json', surfaces: ['app', 'cli'] });
     expect(calls).toHaveLength(0);
   });
@@ -126,26 +146,62 @@ describe('full-run fallbacks (#584 AC9)', () => {
     ['a non-zero exit', () => ({ status: 1, stdout: '' }), 'selection_failed'],
     ['a timeout', () => ({ status: null, signal: 'SIGTERM', error: Object.assign(new Error('spawnSync claude ETIMEDOUT'), { code: 'ETIMEDOUT' }) }), 'selection_failed'],
     ['malformed output', () => ({ status: 0, stdout: 'not json' }), 'selection_failed'],
+    ['an unknown mode', () => ({ status: 0, stdout: JSON.stringify({ structured_output: { mode: 'some', tests: [], surfaces: [] } }) }), 'selection_failed'],
+    ['tests that are not strings', () => ({ status: 0, stdout: JSON.stringify({ structured_output: { mode: 'selected', tests: [1], surfaces: ['app'] } }) }), 'selection_failed'],
     ['an undeclared surface', () => ({ status: 0, stdout: JSON.stringify({ structured_output: { mode: 'selected', tests: [], surfaces: ['web'] } }) }), 'selection_failed'],
     ['too many tests', () => ({ status: 0, stdout: JSON.stringify({ structured_output: { mode: 'selected', tests: Array.from({ length: 5001 }, (_, i) => `t${i}`), surfaces: [] } }) }), 'selection_failed'],
+    ['an is_error result', () => ({ status: 0, stdout: JSON.stringify({ is_error: true, structured_output: { mode: 'selected', tests: [], surfaces: ['app'] } }) }), 'selection_failed'],
+    ['a test that is an option', () => ({ status: 0, stdout: JSON.stringify({ structured_output: { mode: 'selected', tests: ['--passWithNoTests'], surfaces: ['app'] } }) }), 'selection_failed'],
+    ['an absolute test path', () => ({ status: 0, stdout: JSON.stringify({ structured_output: { mode: 'selected', tests: ['/etc/passwd'], surfaces: ['app'] } }) }), 'selection_failed'],
+    ['a test path leaving the project', () => ({ status: 0, stdout: JSON.stringify({ structured_output: { mode: 'selected', tests: ['tests/../../x.test.js'], surfaces: ['app'] } }) }), 'selection_failed'],
     ['an all answer', () => ({ status: 0, stdout: JSON.stringify({ structured_output: { mode: 'all', tests: [], surfaces: [] } }) }), 'selection_all'],
   ])('runs everything for %s', async (_name, answer, reason) => {
     const { root, runtime } = await project();
     const { run } = recorder(answer);
-    expect(resolve(root, runtime, run)).toMatchObject({ mode: 'all', reason, surfaces: ['app', 'cli'], tests: [] });
+    expect(await resolve(root, runtime, run)).toMatchObject({ mode: 'all', reason, surfaces: ['app', 'cli'], tests: [] });
     // A failed call is never stored, so the next run asks again.
     expect(fs.existsSync(selectionPath(root, 42))).toBe(reason !== 'selection_failed');
   });
 });
 
-describe('redispatch guidance (#584 AC7)', () => {
+describe('@SCN010 a failed call keeps its diagnostic (#584 AC9)', () => {
+  it('records the exit status and Claude stderr in the detail', async () => {
+    const { root, runtime } = await project();
+    const { run } = recorder(() => ({ status: 2, stdout: '', stderr: 'authentication expired\n' }));
+    expect(await resolve(root, runtime, run)).toMatchObject({ reason: 'selection_failed', detail: 'claude exited 2: authentication expired' });
+  });
+});
+
+describe('@SCN010 a version bump is not a fallback change (#584 AC9)', () => {
+  const manifestJson = (version, extra = {}) => `${JSON.stringify({ name: 'demo', version, ...extra }, null, 2)}\n`;
+
+  it('asks Claude, requires no surface and records the path when package.json changes only its version', async () => {
+    const { root, runtime } = await project({ baselineFiles: { 'package.json': manifestJson('1.0.0') } });
+    fs.writeFileSync(path.join(root, 'package.json'), manifestJson('1.1.0'));
+    const { calls, run } = recorder({ mode: 'selected', tests: ['t'], surfaces: ['app'] });
+    expect(await resolve(root, runtime, run, { paths: ['package.json', 'src/app.js'] })).toMatchObject({ mode: 'selected', reason: 'selected',
+      versionOnly: ['package.json'], requiredSurfaces: ['app'] });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('still runs in full when package.json changes anything besides its version', async () => {
+    const { root, runtime } = await project({ baselineFiles: { 'package.json': manifestJson('1.0.0') } });
+    fs.writeFileSync(path.join(root, 'package.json'), manifestJson('1.1.0', { type: 'module' }));
+    const { calls, run } = recorder({ mode: 'selected', tests: [], surfaces: [] });
+    expect(await resolve(root, runtime, run, { paths: ['package.json', 'src/app.js'] })).toMatchObject({ mode: 'all', reason: 'fallback_path',
+      fallbackPath: 'package.json', versionOnly: [] });
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe('@SCN008 redispatch guidance reaches the rerun selection prompt (#584 AC7)', () => {
   it('appends head-bound guidance to the prompt and records that it was supplied', async () => {
     const { root, runtime } = await project();
     const { calls, run } = recorder({ mode: 'selected', tests: ['t'], surfaces: ['app'] });
     writeGuidance(root, 42, '0'.repeat(40), 'stale guidance');
-    expect(resolve(root, runtime, run).guidanceSupplied).toBe(false);
+    expect((await resolve(root, runtime, run)).guidanceSupplied).toBe(false);
     writeGuidance(root, 42, git(root, 'rev-parse', 'HEAD'), 'check hooks tests');
-    const selection = resolve(root, runtime, run);
+    const selection = await resolve(root, runtime, run);
     expect(calls).toHaveLength(2);
     expect(calls[1].input).toContain('Supervisor guidance:\ncheck hooks tests');
     expect(selection).toMatchObject({ guidanceSupplied: true, reused: false });

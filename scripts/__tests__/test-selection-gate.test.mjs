@@ -1,11 +1,13 @@
-// The pre-merge gate's selection checks and surface binding (#584 AC4, AC5, AC5a, AC6, AC8), plus `--mode select`.
+// The pre-merge gate's selection checks and surface binding: @SCN001, @SCN002, @SCN004-@SCN007, @SCN009, @SCN010
+// (#584 AC1, AC2, AC4, AC5, AC5a, AC6, AC8, AC9), plus `--mode select`.
 import { afterEach, describe, expect, it } from '@jest/globals';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { applySteeringPlan, createInitializePlan } from '../sdlc-steering.mjs';
-import { runSteeringValidations } from '../../src/sdlc-verification-runtime.mjs';
+import { parseChangedLines, runSteeringValidations } from '../../src/sdlc-verification-runtime.mjs';
 import { main as verifySteering } from '../sdlc-verify-steering.mjs';
 
 const roots = [];
@@ -15,6 +17,7 @@ const providerRequests = [];
 afterEach(() => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
   calls.length = 0;
+  slots.length = 0;
   providerRequests.length = 0;
   answer = null;
   delete globalThis.__nmg584Provider;
@@ -28,7 +31,8 @@ const git = (root, ...args) => {
   if (result.status !== 0) throw new Error(result.stderr || result.stdout);
   return result.stdout.trim();
 };
-const RECORD_ARGS = "require('node:fs').writeFileSync('ran.json', JSON.stringify(process.argv.slice(1)))";
+// Records its arguments; exits 1 while a `fail-tests` marker exists, as failing selected tests do.
+const RECORD_ARGS = "const fs=require('node:fs');fs.writeFileSync('ran.json', JSON.stringify(process.argv.slice(1)));process.exitCode=fs.existsSync('fail-tests')?1:0";
 const tests = { id: 'unit.tests', provider: 'builtin.command', required: true, when: { kind: 'always' }, tier: 'change',
   config: { program: process.execPath, args: ['-e', RECORD_ARGS], cwd: '.', env: [] } };
 const site = { id: 'site.smoke', provider: 'project.site', required: true, when: { kind: 'always' }, config: {} };
@@ -39,12 +43,13 @@ const EXTENSION = `export const extension = Object.freeze({ schemaVersion: 1, id
   providers: Object.freeze({ 'project.site': (request) => globalThis.__nmg584Provider(request) }) });\n`;
 
 /** A committed project on branch `work`: unit.tests opts into the selection, site.smoke is bound to the `site` surface. */
-async function project({ selection = { docPaths: ['docs/**'], fallbackPaths: ['package.json'] }, coverage = true } = {}) {
+async function project({ selection = { docPaths: ['docs/**'], fallbackPaths: ['package.json'] }, coverage = true, baseline = {}, validations = [],
+  surfaces = null } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-584-gate-')));
   roots.push(root);
   fs.mkdirSync(path.join(root, 'specs', '42-test'), { recursive: true });
   for (const name of ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin']) fs.writeFileSync(path.join(root, 'specs', '42-test', name), `${name}\n`);
-  fs.writeFileSync(path.join(root, '.gitignore'), '.nmg-sdlc/\nran.json\ncoverage-args.json\ncoverage-report.json\n');
+  fs.writeFileSync(path.join(root, '.gitignore'), '.nmg-sdlc/\nran.json\ncoverage-args.json\ncoverage-report.json\nfail-tests\n');
   await applySteeringPlan(root, createInitializePlan(root, { validations: [] }));
   fs.mkdirSync(path.join(root, 'steering/extensions'), { recursive: true });
   fs.writeFileSync(path.join(root, 'steering/extensions/site.mjs'), EXTENSION);
@@ -55,10 +60,14 @@ async function project({ selection = { docPaths: ['docs/**'], fallbackPaths: ['p
   const file = path.join(root, 'steering/manifest.json');
   const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
   manifest.extensions = [{ id: 'test.site', path: 'steering/extensions/site.mjs', providers: ['project.site'] }];
-  manifest.validations = [{ ...tests, selection: true }, site, plain];
+  manifest.validations = [{ ...tests, selection: true }, ...validations, site, plain];
   manifest.selection = selection;
-  manifest.surfaces = [{ id: 'app', sources: ['src/**'] }, { id: 'site', sources: ['site/**'], validations: ['site.smoke'] }, { id: 'other', sources: ['other/**'] }];
+  manifest.surfaces = surfaces ?? [{ id: 'app', sources: ['src/**'] }, { id: 'site', sources: ['site/**'], validations: ['site.smoke'] }, { id: 'other', sources: ['other/**'] }];
   fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+  for (const [name, text] of Object.entries(baseline)) {
+    fs.mkdirSync(path.dirname(path.join(root, name)), { recursive: true });
+    fs.writeFileSync(path.join(root, name), text);
+  }
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.email', 'test@example.com');
   git(root, 'config', 'user.name', 'Test');
@@ -79,12 +88,16 @@ const change = (root, file, content = 'one\ntwo\n') => {
 };
 const report = (root, value) => fs.writeFileSync(path.join(root, 'coverage-report.json'), JSON.stringify(value));
 const ranWith = (root) => (fs.existsSync(path.join(root, 'ran.json')) ? JSON.parse(fs.readFileSync(path.join(root, 'ran.json'), 'utf8')) : null);
-const verify = (root) => runSteeringValidations({ projectRoot: root, issue: 42, specDir: path.join(root, 'specs/42-test'), baseRef: 'main',
-  verificationRunId: 'run-1', runSelection, models: {} });
+const slots = [];
+const acquireSlot = async ({ label }) => { slots.push(label); return { slot: 1, waitedMs: 0, release: () => {} }; };
+const verify = (root, extra = {}) => runSteeringValidations({ projectRoot: root, issue: 42, specDir: path.join(root, 'specs/42-test'), baseRef: 'main',
+  verificationRunId: 'run-1', runSelection, models: {}, acquireSlot, ...extra });
+const testReport = (lines, extra = {}) => ({ version: 1, ...extra, tests: [{ id: 'tests/app.test.js', file: 'tests/app.test.js', lines, branches: [], outcomes: [] }] });
+const NONE = { uncovered: [], missingSurfaces: [], unaccounted: [], truncated: 0 };
 const byId = (artifact) => Object.fromEntries(artifact.results.map((result) => [result.id, result]));
 const TIMEOUT = 30_000;
 
-describe('changed lines must be covered by the selected tests (#584 AC4)', () => {
+describe('@SCN004 changed lines must be covered by the selected tests (#584 AC4)', () => {
   it('rejects an uncovered changed executable line as selection_uncovered and records coverage', async () => {
     const root = await project();
     change(root, 'src/app.js', 'const a = 1;\nconst b = 2;\n');
@@ -93,12 +106,17 @@ describe('changed lines must be covered by the selected tests (#584 AC4)', () =>
       tests: [{ id: 'tests/app.test.js', file: 'tests/app.test.js', lines: ['src/app.js:1'], branches: [], outcomes: [] }] });
     const artifact = await verify(root);
     expect(JSON.parse(fs.readFileSync(path.join(root, 'coverage-args.json'), 'utf8'))).toEqual(['tests/app.test.js']);
+    expect(slots).toEqual(['coverage (#42)']);
     const unit = byId(artifact)['unit.tests'];
-    expect(unit.coverage).toEqual({ changedLines: ['src/app.js:1', 'src/app.js:2'], hitLines: ['src/app.js:1'], uncovered: ['src/app.js:2'] });
+    expect(unit.coverage).toEqual({ changedLines: ['src/app.js:1', 'src/app.js:2'], hitLines: ['src/app.js:1'], uncovered: ['src/app.js:2'],
+      counts: { changedLines: 2, hitLines: 1, uncovered: 1 } });
     expect(unit.effectiveStatus).toBe('failed');
     expect(unit.result.summary).toBe('selection_uncovered: src/app.js:2');
-    expect(artifact.selection.rejection).toEqual({ reasonCode: 'selection_uncovered', uncovered: ['src/app.js:2'], missingSurfaces: [], unaccounted: [] });
-    expect(artifact.ceiling).toBe('Fail');
+    expect(artifact.selection.rejection).toEqual({ ...NONE, reasonCode: 'selection_uncovered', uncovered: ['src/app.js:2'] });
+    // The failed required tests defer the project providers, so the gate is incomplete as well as failing.
+    expect(artifact.ceiling).toBe('Incomplete');
+    expect(byId(artifact).lint.effectiveStatus).toBe('incomplete');
+    expect(providerRequests).toEqual([]);
   }, TIMEOUT);
 
   it('ignores a changed blank line without executableLines, and passes a fully covered change', async () => {
@@ -108,7 +126,8 @@ describe('changed lines must be covered by the selected tests (#584 AC4)', () =>
     report(root, { version: 1, tests: [{ id: 'tests/app.test.js', file: 'tests/app.test.js', lines: ['src/app.js:1', 'src/app.js:3'], branches: [], outcomes: [] }] });
     const artifact = await verify(root);
     const unit = byId(artifact)['unit.tests'];
-    expect(unit.coverage).toEqual({ changedLines: ['src/app.js:1', 'src/app.js:3'], hitLines: ['src/app.js:1', 'src/app.js:3'], uncovered: [] });
+    expect(unit.coverage).toEqual({ changedLines: ['src/app.js:1', 'src/app.js:3'], hitLines: ['src/app.js:1', 'src/app.js:3'], uncovered: [],
+      counts: { changedLines: 2, hitLines: 2, uncovered: 0 } });
     expect(unit.effectiveStatus).toBe('passed');
     expect(artifact.selection.rejection).toBeNull();
     expect(artifact.ceiling).toBeNull();
@@ -123,15 +142,119 @@ describe('changed lines must be covered by the selected tests (#584 AC4)', () =>
     expect(byId(artifact)['unit.tests']).toMatchObject({ effectiveStatus: 'failed', selection: { reason: 'coverage_failed' } });
     expect(artifact.selection.rejection).toBeNull();
   }, TIMEOUT);
+
+  it('counts only a modified file\'s changed lines since the merge base, across several commits, plus untracked files', async () => {
+    const root = await project({ baseline: { 'src/lib.js': 'l1();\nl2();\nl3();\nl4();\nl5();\n' } });
+    change(root, 'src/lib.js', 'l1();\nl2();\nL3();\nl4();\nl5();\n');
+    change(root, 'src/lib.js', 'l1();\nl2();\nL3();\nl4();\nL5();\n');
+    fs.writeFileSync(path.join(root, 'src/new.js'), 'n1();\nn2();\n');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
+    report(root, testReport(['src/lib.js:3', 'src/lib.js:5', 'src/new.js:1', 'src/new.js:2']));
+    const artifact = await verify(root);
+    expect(byId(artifact)['unit.tests'].coverage).toMatchObject({ changedLines: ['src/lib.js:3', 'src/lib.js:5', 'src/new.js:1', 'src/new.js:2'], uncovered: [] });
+    expect(artifact.ceiling).toBeNull();
+  }, TIMEOUT);
+
+  it('checks only the changed lines executableLines lists', async () => {
+    const root = await project();
+    change(root, 'src/app.js', '// a comment\nrun();\n');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
+    report(root, testReport(['src/app.js:2'], { executableLines: ['src/app.js:2'] }));
+    const artifact = await verify(root);
+    expect(byId(artifact)['unit.tests'].coverage).toMatchObject({ changedLines: ['src/app.js:2'], hitLines: ['src/app.js:2'], uncovered: [] });
+    expect(artifact.ceiling).toBeNull();
+  }, TIMEOUT);
+
+  it('finds the changed lines of a path holding a space whatever the diff prefix configuration', async () => {
+    const root = await project();
+    git(root, 'config', 'diff.mnemonicPrefix', 'true');
+    git(root, 'config', 'diff.noprefix', 'true');
+    change(root, 'src/my app.js', 'one();\n++ two;\n');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
+    report(root, testReport(['src/my app.js:1']));
+    const artifact = await verify(root);
+    expect(artifact.selection.rejection).toEqual({ ...NONE, reasonCode: 'selection_uncovered', uncovered: ['src/my app.js:2'] });
+  }, TIMEOUT);
+
+  it('counts only the selected tests\' lines as hit', async () => {
+    const root = await project();
+    change(root, 'src/app.js', 'a();\nb();\n');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
+    report(root, { version: 1, tests: [
+      { id: 'tests/app.test.js', file: 'tests/app.test.js', lines: ['src/app.js:1'], branches: [], outcomes: [] },
+      { id: 'tests/other.test.js', file: 'tests/other.test.js', lines: ['src/app.js:2'], branches: [], outcomes: [] }] });
+    const artifact = await verify(root);
+    expect(artifact.selection.rejection).toEqual({ ...NONE, reasonCode: 'selection_uncovered', uncovered: ['src/app.js:2'] });
+  }, TIMEOUT);
+
+  it('runs no coverage and records an ordinary failure when the selected tests fail', async () => {
+    const root = await project();
+    change(root, 'lib/util.js');
+    fs.writeFileSync(path.join(root, 'fail-tests'), '');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: [] };
+    report(root, testReport(['lib/util.js:1', 'lib/util.js:2']));
+    const artifact = await verify(root);
+    expect(fs.existsSync(path.join(root, 'coverage-args.json'))).toBe(false);
+    expect(byId(artifact)['unit.tests']).toMatchObject({ effectiveStatus: 'failed', selection: { reason: 'selected' } });
+    expect(artifact.selection.rejection).toBeNull();
+    expect(byId(artifact).lint.effectiveStatus).toBe('incomplete');
+  }, TIMEOUT);
+
+  it('fails a coverage command that exits non-zero as coverage_failed, never as an unaccounted path', async () => {
+    const root = await project();
+    change(root, 'lib/util.js');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: [] };
+    const artifact = await verify(root);
+    expect(byId(artifact)['unit.tests']).toMatchObject({ effectiveStatus: 'failed', selection: { reason: 'coverage_failed' } });
+    expect(byId(artifact)['unit.tests'].result.summary).toMatch(/^coverage_failed: coverage command failed: exited 1$/);
+    expect(artifact.selection.rejection).toBeNull();
+  }, TIMEOUT);
+
+  it('runs the coverage command with a timeout and the gate\'s abort signal', async () => {
+    const root = await project();
+    change(root, 'src/app.js', 'a();\n');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
+    const runs = [];
+    const controller = new AbortController();
+    const runCoverage = async (program, args, options) => {
+      runs.push({ args, timeout: options.timeout, signal: options.signal });
+      return { status: 0, stdout: JSON.stringify(testReport(['src/app.js:1'])) };
+    };
+    const artifact = await verify(root, { runCoverage, signal: controller.signal });
+    expect(runs).toEqual([{ args: ['-e', expect.any(String), 'tests/app.test.js'], timeout: 3_600_000, signal: controller.signal }]);
+    expect(artifact.ceiling).toBeNull();
+  }, TIMEOUT);
+
+  it('bounds the recorded coverage and rejection lists, counting what it leaves out', async () => {
+    const root = await project();
+    change(root, 'src/app.js', Array.from({ length: 300 }, (_, i) => `f${i}();`).join('\n') + '\n');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
+    report(root, testReport([], { executableLines: Array.from({ length: 300 }, (_, i) => `src/app.js:${i + 1}`) }));
+    const artifact = await verify(root);
+    const unit = byId(artifact)['unit.tests'];
+    expect(unit.coverage.uncovered).toHaveLength(200);
+    expect(unit.coverage.counts).toEqual({ changedLines: 300, hitLines: 0, uncovered: 300 });
+    expect(artifact.selection.rejection.uncovered).toHaveLength(200);
+    expect(artifact.selection.rejection.truncated).toBe(100);
+    expect(unit.result.summary).toMatch(/, and 250 more$/);
+  }, TIMEOUT);
+
+  it('parses only diff headers as paths, never an added line beginning ++', () => {
+    const diff = ['diff --git a/x.js b/x.js', '--- a/x.js', '+++ b/x.js', '@@ -3 +3 @@', '-old', '+++ added', '@@ -9,0 +10,2 @@', '+a', '+b',
+      'diff --git "a/q\\"t.js" "b/q\\"t.js"', '--- /dev/null', '+++ "b/q\\"t.js"', '@@ -0,0 +1 @@', '+x',
+      'diff --git a/s p.js b/s p.js', '--- a/s p.js\t', '+++ b/s p.js\t', '@@ -1,2 +1 @@', '-a', '-b', '+c'].join('\n');
+    expect(Object.fromEntries([...parseChangedLines(diff)].map(([file, lines]) => [file, [...lines]])))
+      .toEqual({ 'x.js': [3, 10, 11], 'q"t.js': [1], 's p.js': [1] });
+  });
 });
 
-describe('changed surfaces must be selected (#584 AC5)', () => {
+describe('@SCN005 changed surfaces must be selected (#584 AC5)', () => {
   it('rejects an answer that omits a matched surface before anything runs, naming it', async () => {
     const root = await project();
     change(root, 'site/index.html');
     answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: [] };
     const artifact = await verify(root);
-    expect(artifact.selection.rejection).toEqual({ reasonCode: 'selection_surface_missing', uncovered: [], missingSurfaces: ['site'], unaccounted: [] });
+    expect(artifact.selection.rejection).toEqual({ ...NONE, reasonCode: 'selection_surface_missing', missingSurfaces: ['site'] });
     expect(ranWith(root)).toBeNull();
     const results = byId(artifact);
     expect(results['unit.tests']).toMatchObject({ effectiveStatus: 'failed', result: { summary: 'selection_surface_missing: site' } });
@@ -151,7 +274,7 @@ describe('changed surfaces must be selected (#584 AC5)', () => {
   }, TIMEOUT);
 });
 
-describe('surface-bound validations run only for selected surfaces (#584 AC5a, AC1)', () => {
+describe('@SCN006 @SCN001 surface-bound validations run only for selected surfaces (#584 AC5a, AC1)', () => {
   it('passes a bound validation as surface_not_selected without running it, and runs unbound ones with the scoped request', async () => {
     const root = await project();
     change(root, 'src/app.js');
@@ -178,7 +301,7 @@ describe('surface-bound validations run only for selected surfaces (#584 AC5a, A
   }, TIMEOUT);
 });
 
-describe('every changed path must be accounted for (#584 AC6)', () => {
+describe('@SCN007 every changed path must be accounted for (#584 AC6)', () => {
   it('rejects a path outside coverage, the selected surfaces, docPaths and fallbackPaths, naming it', async () => {
     const root = await project();
     change(root, 'src/app.js');
@@ -186,21 +309,59 @@ describe('every changed path must be accounted for (#584 AC6)', () => {
     answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
     report(root, { version: 1, tests: [{ id: 'tests/app.test.js', file: 'tests/app.test.js', lines: ['src/app.js:1', 'src/app.js:2'], branches: [], outcomes: [] }] });
     const artifact = await verify(root);
-    expect(artifact.selection.rejection).toEqual({ reasonCode: 'selection_unaccounted', uncovered: [], missingSurfaces: [], unaccounted: ['tools/build.sh'] });
+    expect(artifact.selection.rejection).toEqual({ ...NONE, reasonCode: 'selection_unaccounted', unaccounted: ['tools/build.sh'] });
     const results = byId(artifact);
     expect(results['unit.tests']).toMatchObject({ effectiveStatus: 'failed', result: { summary: 'selection_unaccounted: tools/build.sh' } });
     expect(results['site.smoke']).toMatchObject({ effectiveStatus: 'failed' });
-    expect(results.lint.effectiveStatus).toBe('passed');
+    expect(results.lint.effectiveStatus).toBe('incomplete');
+  }, TIMEOUT);
+
+  it('accounts for a changed selected test file and a docs path in a non-empty selection, but not an unselected test file', async () => {
+    const root = await project();
+    change(root, 'src/app.js', 'a();\n');
+    change(root, 'tests/app.test.js', 'test();\n');
+    change(root, 'docs/guide.md');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
+    report(root, { version: 1, tests: [{ id: 'tests/app.test.js', file: 'tests/app.test.js', lines: ['src/app.js:1'], branches: [], outcomes: [] },
+      { id: 'tests/other.test.js', file: 'tests/other.test.js', lines: [], branches: [], outcomes: [] }] });
+    expect((await verify(root)).ceiling).toBeNull();
+    change(root, 'tests/other.test.js', 'test();\n');
+    expect((await verify(root)).selection.rejection).toEqual({ ...NONE, reasonCode: 'selection_unaccounted', unaccounted: ['tests/other.test.js'] });
+  }, TIMEOUT);
+
+  it('accounts for a deleted file under coveragePaths, and names one outside them', async () => {
+    const root = await project({ selection: { docPaths: ['docs/**'], coveragePaths: ['lib/**'] }, baseline: { 'lib/old.js': 'gone();\n', 'tools/old.sh': 'x\n' } });
+    change(root, 'src/app.js', 'a();\n');
+    fs.rmSync(path.join(root, 'lib/old.js'));
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
+    report(root, testReport(['src/app.js:1']));
+    expect((await verify(root)).ceiling).toBeNull();
+    fs.rmSync(path.join(root, 'tools/old.sh'));
+    expect((await verify(root)).selection.rejection).toEqual({ ...NONE, reasonCode: 'selection_unaccounted', unaccounted: ['tools/old.sh'] });
+  }, TIMEOUT);
+
+  it('fails a surface-bound local command that already ran when a path is unaccounted', async () => {
+    const build = { id: 'build', provider: 'builtin.command', required: true, when: { kind: 'always' }, tier: 'change',
+      config: { program: process.execPath, args: ['-e', '0'], cwd: '.', env: [] } };
+    const root = await project({ validations: [build], surfaces: [{ id: 'app', sources: ['src/**'], validations: ['build'] },
+      { id: 'site', sources: ['site/**'], validations: ['site.smoke'] }] });
+    change(root, 'src/app.js', 'a();\n');
+    change(root, 'tools/build.sh');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
+    report(root, testReport(['src/app.js:1']));
+    const artifact = await verify(root);
+    expect(byId(artifact).build).toMatchObject({ effectiveStatus: 'failed', result: { summary: 'selection_unaccounted: tools/build.sh' } });
   }, TIMEOUT);
 });
 
-describe('only a docs-only change may select nothing (#584 AC8)', () => {
+describe('@SCN009 only a docs-only change may select nothing (#584 AC8)', () => {
   it('passes the opted-in validation as selection_empty and gives providers no surfaces', async () => {
     const root = await project();
     change(root, 'docs/guide.md');
     answer = { mode: 'selected', tests: [], surfaces: [] };
     const artifact = await verify(root);
-    expect(byId(artifact)['unit.tests']).toMatchObject({ effectiveStatus: 'passed', selection: { reason: 'selection_empty' } });
+    expect(byId(artifact)['unit.tests']).toMatchObject({ effectiveStatus: 'passed', selection: { reason: 'selection_empty', fallbackPath: null, selectedCount: 0 } });
+    expect(artifact.selection).toMatchObject({ reason: 'selection_empty', rejection: null, surfaces: [] });
     expect(ranWith(root)).toBeNull();
     expect(providerRequests.find((item) => item.validationId === 'lint').selection).toEqual({ mode: 'selected', reason: 'selection_empty', surfaces: [] });
     expect(artifact.ceiling).toBeNull();
@@ -225,7 +386,7 @@ describe('only a docs-only change may select nothing (#584 AC8)', () => {
   }, TIMEOUT);
 });
 
-describe('full-run fallbacks give providers every surface (#584 AC9)', () => {
+describe('@SCN010 full-run fallbacks give providers every surface (#584 AC9)', () => {
   it('passes every declared surface on a fallback path and runs bound validations', async () => {
     const root = await project();
     change(root, 'package.json', '{}\n');
@@ -235,9 +396,21 @@ describe('full-run fallbacks give providers every surface (#584 AC9)', () => {
     expect(providerRequests.map((request) => request.selection.surfaces)).toEqual([['app', 'site', 'other'], ['app', 'site', 'other']]);
     expect(ranWith(root)).toEqual([]);
   }, TIMEOUT);
+
+  it('scopes a change whose package.json only bumps its version, as delivery prepares it before the queue-head gate', async () => {
+    const root = await project({ baseline: { 'package.json': '{\n  "name": "demo",\n  "version": "1.0.0"\n}\n' } });
+    change(root, 'src/app.js', 'a();\n');
+    change(root, 'package.json', '{\n  "name": "demo",\n  "version": "1.1.0"\n}\n');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
+    report(root, testReport(['src/app.js:1']));
+    const artifact = await verify(root);
+    expect(calls).toHaveLength(1);
+    expect(artifact.selection).toMatchObject({ mode: 'selected', reason: 'selected', requiredSurfaces: ['app'], rejection: null });
+    expect(artifact.ceiling).toBeNull();
+  }, TIMEOUT);
 });
 
-describe('--mode select stores the selection the gate reuses (#584 AC1, FR2)', () => {
+describe('@SCN001 --mode select stores the selection the gate reuses (#584 AC1, FR2)', () => {
   it('asks Claude once for a select run followed by a gate run with the same binding', async () => {
     const root = await project();
     change(root, 'src/app.js');
@@ -259,7 +432,7 @@ describe('--mode select stores the selection the gate reuses (#584 AC1, FR2)', (
   }, TIMEOUT);
 });
 
-describe('an invalid selection model (#584 AC2)', () => {
+describe('@SCN002 the gate reads the selection model from steering/sdlc-models.json (#584 AC2)', () => {
   it('fails the gate as stage_models_invalid with the steering/sdlc-models.json diagnostic', async () => {
     const root = await project();
     change(root, 'src/app.js');
@@ -269,5 +442,27 @@ describe('an invalid selection model (#584 AC2)', () => {
     expect(artifact.runtimeError.reasonCode).toBe('stage_models_invalid');
     expect(artifact.runtimeError.summary).toContain('steering/sdlc-models.json: selection.effort = "huge"');
     expect(calls).toHaveLength(0);
+  }, TIMEOUT);
+
+  it('prints the diagnostic beside the reason code when --mode select fails on the model file', async () => {
+    const root = await project();
+    change(root, 'src/app.js');
+    fs.writeFileSync(path.join(root, 'steering/sdlc-models.json'), JSON.stringify({ version: 1, selection: { model: 'haiku', effort: 'huge' } }));
+    const cli = spawnSync(process.execPath, [fileURLToPath(new URL('../sdlc-verify-steering.mjs', import.meta.url)), '--project', root, '--issue', '42', '--spec', 'specs/42-test',
+      '--base', 'main', '--mode', 'select'], { encoding: 'utf8' });
+    expect(cli.status).toBe(1);
+    const printed = JSON.parse(cli.stdout);
+    expect(printed).toMatchObject({ ok: false, reasonCode: 'stage_models_invalid' });
+    expect(printed.summary).toContain('selection.effort = "huge"');
+  }, TIMEOUT);
+
+  it('calls Claude with the configured selection model and effort', async () => {
+    const root = await project();
+    change(root, 'site/index.html');
+    fs.writeFileSync(path.join(root, 'steering/sdlc-models.json'), JSON.stringify({ version: 1, selection: { model: 'sonnet', effort: 'high' } }));
+    answer = { mode: 'selected', tests: [], surfaces: ['site'] };
+    const artifact = await runSteeringValidations({ projectRoot: root, issue: 42, specDir: path.join(root, 'specs/42-test'), baseRef: 'main', runSelection, acquireSlot });
+    expect(calls[0].args.slice(0, 5)).toEqual(['-p', '--model', 'sonnet', '--effort', 'high']);
+    expect(artifact.selection).toMatchObject({ model: 'sonnet', effort: 'high' });
   }, TIMEOUT);
 });
