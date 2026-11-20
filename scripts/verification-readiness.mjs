@@ -267,7 +267,8 @@ function readinessResult(status, reasonCode, implementation, scope, readiness, g
     gaps: [...new Set(gaps)],
   };
 }
-const SELECTION_CHECKED_REASONS = new Set(['selected', 'coverage_failed', 'coverage_cancelled']);
+/** Selection reasons of an opted-in command whose selected tests ran: a failure there is checked, even when not required. */
+export const SELECTION_CHECKED_REASONS = new Set(['selected', 'coverage_failed', 'coverage_cancelled']);
 export function inspectVerificationArtifactRepair(artifact, {
   expectedIssueNumber,
   expectedHeadSha,

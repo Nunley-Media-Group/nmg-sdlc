@@ -1837,23 +1837,6 @@ describe('@SCN011 this repository\'s smoke runs only the selected surfaces (#584
     }
   });
 
-  it('directs the verify worker to select, exercise only the selected surfaces and provision only for execute, draft-issue or write-spec', () => {
-    const snippet = fs.readFileSync(fileURLToPath(new URL('../../steering/snippets/project-smoke.md', import.meta.url)), 'utf8');
-    for (const required of [
-      'scripts/sdlc-verify-steering.mjs --project . --issue N --spec specs/N-SLUG --base main --mode select',
-      'When no smoke surface is selected, do nothing more here: the gate records `surface_not_selected`.',
-      'Provision (steps 2–5) only when `execute`, `draft-issue` or `write-spec` is selected.',
-      'When `draft-issue` or `write-spec` is selected, provision a fresh smoke issue',
-      '.nmg-sdlc/smoke/surfaces/<surface>.json',
-      'Surface records are bound to `<head>`.',
-    ]) {
-      expect(snippet).toContain(required);
-    }
-    for (const heading of ['Select', 'Exercise surfaces']) {
-      expect(snippet).toMatch(new RegExp(`^## \\d\\. ${heading}$`, 'm'));
-    }
-  });
-
   (process.platform === 'win32' ? it.skip : it)('fails a transcript reached through a symlinked directory inside the record directory', async () => {
     const { provider, request, root } = scoped(['steering'], { records: { steering: { transcript: '.nmg-sdlc/smoke/surfaces/sub/steering.log' } } });
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-smoke-outside-'));
@@ -1865,6 +1848,18 @@ describe('@SCN011 this repository\'s smoke runs only the selected surfaces (#584
 
     expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke surface not exercised: steering' });
     expect(outcome.evidence.map((item) => item.summary)).toEqual(['steering: transcript outside record directory']);
+  });
+
+  (process.platform === 'win32' ? it.skip : it)('fails a record whose transcript is a hard link to the record', async () => {
+    const { provider, request, root } = scoped(['steering'], { records: { steering: {} } });
+    const directory = path.join(root, '.nmg-sdlc', 'smoke', 'surfaces');
+    fs.rmSync(path.join(directory, 'steering.log'));
+    fs.linkSync(path.join(directory, 'steering.json'), path.join(directory, 'steering.log'));
+
+    const outcome = await provider(request);
+
+    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke surface not exercised: steering' });
+    expect(outcome.evidence.map((item) => item.summary)).toEqual(['steering: transcript names the record']);
   });
 
   it('fails a record whose transcript is the record itself', async () => {

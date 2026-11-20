@@ -9,8 +9,7 @@ import { matches } from '../../src/sdlc-glob.mjs';
 import { requiredSurfaces } from '../../src/sdlc-test-selection.mjs';
 import { loadTestCoverageConfig, validateCoverageReport } from '../test-coverage.mjs';
 import { detectVerificationScope } from '../verification-scope.mjs';
-import { expandTestPaths, testFileArgument } from '../jest-per-test-coverage.mjs';
-import os from 'node:os';
+import { jestArguments } from '../jest-per-test-coverage.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const PLUGIN_DIRS = ['workflows/', 'agents/', 'references/', 'commands/', 'hooks/', '.claude-plugin/'];
@@ -50,6 +49,23 @@ describe('@SCN013 This repository adopts scoped verification', () => {
     for (const term of ['gate:selection', 'selection_escalation', 'surface_not_selected']) expect(text).toContain(term);
   });
 
+  it('directs the verify worker to select, exercise only the selected surfaces and provision only for execute, draft-issue or write-spec', () => {
+    const snippet = fs.readFileSync(path.join(repoRoot, 'steering/snippets/project-smoke.md'), 'utf8');
+    for (const required of [
+      'scripts/sdlc-verify-steering.mjs --project . --issue N --spec specs/N-SLUG --base main --mode select',
+      'When no smoke surface is selected, do nothing more here: the gate records `surface_not_selected`.',
+      'Provision (steps 2–5) only when `execute`, `draft-issue` or `write-spec` is selected.',
+      'When `draft-issue` or `write-spec` is selected, provision a fresh smoke issue',
+      '.nmg-sdlc/smoke/surfaces/<surface>.json',
+      'Surface records are bound to `<head>`.',
+    ]) {
+      expect(snippet).toContain(required);
+    }
+    for (const heading of ['Select', 'Exercise surfaces']) {
+      expect(snippet).toMatch(new RegExp(`^## \\d\\. ${heading}$`, 'm'));
+    }
+  });
+
   it('leaves nothing for verification-scope detection to propose', () => {
     expect(detectVerificationScope(repoRoot)).toBeNull();
   });
@@ -71,21 +87,6 @@ describe('@SCN013 This repository adopts scoped verification: the Jest per-test 
   });
 
   it('prints a valid per-test report with repository-relative src/ coverage and executable lines for the ids the gate appends', () => {
-    // The gate appends selected ids as the selection call wrote them: a `./` prefix, a `::` suffix or a directory.
-    expect(['./scripts/__tests__/', 'scripts/__tests__/./', 'scripts//__tests__', `${subjectTest}::adds`].map(testFileArgument))
-      .toEqual(['scripts/__tests__', 'scripts/__tests__', 'scripts/__tests__', subjectTest]);
-    expect(['./', '../x', '/abs/a.test.mjs', 'a/../../x', 'a\\b.test.mjs'].map(testFileArgument)).toEqual([null, null, null, null, null]);
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-584-expand-'));
-    try {
-      for (const file of ['t/__tests__/a.test.mjs', 't/__tests__/helper.mjs', 't/b.spec.mjs', 't/c.mjs', 't/__tests__/notes.md',
-        't/__fixtures__/d.test.mjs', 't/node_modules/e.test.mjs']) {
-        fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
-        fs.writeFileSync(path.join(root, file), '');
-      }
-      expect(expandTestPaths(['t/', 'x/one.test.mjs'], root)).toEqual(['t/__tests__/a.test.mjs', 't/__tests__/helper.mjs', 't/b.spec.mjs', 'x/one.test.mjs']);
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
     const run = runCoverage([`./${subjectTest}`]);
     expect(run.status).toBe(0);
     const report = validateCoverageReport(JSON.parse(run.stdout));
@@ -103,4 +104,10 @@ describe('@SCN013 This repository adopts scoped verification: the Jest per-test 
     for (const outcome of test.outcomes) expect(outcome.startsWith(`${subjectTest}::`)).toBe(true);
     expect(test.outcomes.some((outcome) => outcome.endsWith(':passed'))).toBe(true);
   }, 120000);
+
+  it('runs each selected test file by path, behind ./ when it would read as an option', () => {
+    const tail = (file) => jestArguments(file, '/tmp/results.json', '/tmp/cov').slice(-2);
+    expect(tail('scripts/__tests__/a.test.mjs')).toEqual(['--runTestsByPath', '__tests__/a.test.mjs']);
+    expect(tail('scripts/--config=evil.json')).toEqual(['--runTestsByPath', './--config=evil.json']);
+  });
 });

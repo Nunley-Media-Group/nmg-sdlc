@@ -5,12 +5,14 @@
  * steering/test-coverage.json) and the approved apply of a proposal for it.
  *
  * Detection is read-only and reads steering/manifest.json as raw JSON, so a manifest the runtime would reject (a
- * legacy command `selection`) is still reported. `unaccounted_paths` lists every tracked or untracked, non-ignored
- * path outside `.nmg-sdlc/` that no glob accounts for, even while `selection` or `surfaces` is missing, so a first
- * proposal sees every path; the list is capped at UNACCOUNTED_LIST_LIMIT with the full count in `unaccountedCount`.
+ * legacy command `selection`) is still reported. `unaccounted_paths` lists every tracked path outside `.nmg-sdlc/`
+ * that no glob accounts for, plus the files an apply adds while they are still untracked: steering/test-coverage.json
+ * and each non-ignored file its commands name (a coverage wrapper). It is listed even while `selection` or
+ * `surfaces` is missing, so a first proposal sees every path, and capped at UNACCOUNTED_LIST_LIMIT with the full count
+ * in `unaccountedCount`. Other untracked files (scratch files, files another approved upgrade item creates) are not
+ * listed, so they never fail an apply.
  * Apply refuses a stale digest before any write, re-validates with the steering runtime and restores the original
- * bytes on any failure, including a proposal whose new files (steering/test-coverage.json, a coverage wrapper)
- * leave a path unaccounted.
+ * bytes on any failure, including a proposal whose new files leave a path unaccounted.
  */
 
 import { createHash } from 'node:crypto';
@@ -60,19 +62,47 @@ function readBytes(root, rel) {
 /** At most this many unaccounted paths are listed; `unaccountedCount` gives the full count. */
 export const UNACCOUNTED_LIST_LIMIT = 200;
 
-/**
- * Sorted `git ls-files` paths: the tracked ones, or with `untracked` also the untracked, non-ignored ones outside
- * the runtime `.nmg-sdlc/` directory. Empty when the root is not a git work tree.
- */
-function projectPaths(root, { untracked = false } = {}) {
-  const args = ['-c', 'core.quotePath=false', 'ls-files', '-z', ...(untracked ? ['--cached', '--others', '--exclude-standard'] : [])];
-  const result = spawnSync('git', args, {
+function gitPaths(root, args) {
+  const result = spawnSync('git', ['-c', 'core.quotePath=false', 'ls-files', '-z', ...args], {
     cwd: path.resolve(root),
     encoding: 'utf8',
     maxBuffer: 256 * 1024 * 1024,
   });
   if (result.status !== 0 || typeof result.stdout !== 'string') return [];
-  return [...new Set(result.stdout.split('\0').filter((rel) => rel && !rel.startsWith('.nmg-sdlc/')))].sort();
+  return result.stdout.split('\0').filter((rel) => rel && !rel.startsWith('.nmg-sdlc/'));
+}
+
+/** The repository-relative regular file a coverage-command token names, or null. */
+function namedFile(root, token) {
+  if (typeof token !== 'string' || token.length === 0 || token.startsWith('-') || path.isAbsolute(token)) return null;
+  const rel = path.posix.normalize(token.replaceAll('\\', '/'));
+  if (rel === '.' || rel === '..' || rel.startsWith('../')) return null;
+  return readBytes(root, rel) === null ? null : rel;
+}
+
+/**
+ * The files an apply adds that may still be untracked: steering/test-coverage.json and every regular file its suite
+ * and coverage commands name (a coverage wrapper), when present.
+ */
+function addedFiles(root) {
+  let config = null;
+  try {
+    config = loadTestCoverageConfig(root).config ?? null;
+  } catch {
+    // an invalid config is reported as test_coverage_invalid; it names no file
+  }
+  const tokens = config ? [config.suite, config.coverage].flatMap((command) => [command.program, ...command.args]) : [];
+  return [TEST_COVERAGE_PATH, ...tokens].map((token) => namedFile(root, token)).filter(Boolean);
+}
+
+/**
+ * Sorted paths detection accounts for: every tracked path, plus the untracked, non-ignored files an apply adds, all
+ * outside the runtime `.nmg-sdlc/` directory. Empty when the root is not a git work tree.
+ */
+function projectPaths(root) {
+  const added = [...new Set(addedFiles(root))];
+  const untracked = added.length ? gitPaths(root, ['--others', '--exclude-standard', '--', ...added.map((rel) => `:(literal)${rel}`)]) : [];
+  return [...new Set([...gitPaths(root, []), ...untracked])].sort();
 }
 
 function coverageState(root) {
@@ -83,12 +113,12 @@ function coverageState(root) {
   }
 }
 
-function digestOf(manifestBytes, coverageBytes, tracked) {
+function digestOf(manifestBytes, coverageBytes, paths) {
   const hash = createHash('sha256');
   for (const [rel, bytes] of [[MANIFEST_PATH, manifestBytes], [TEST_COVERAGE_PATH, coverageBytes]]) {
     hash.update(bytes === null ? `${rel}\0absent\0` : `${rel}\0${sha256(bytes)}\0`);
   }
-  for (const rel of tracked) hash.update(`${rel}\n`);
+  for (const rel of paths) hash.update(`${rel}\n`);
   return hash.digest('hex');
 }
 
@@ -111,7 +141,7 @@ export function detectVerificationScope(root) {
   }
   if (!isPlainObject(manifest)) return null;
   const coverageBytes = readBytes(root, TEST_COVERAGE_PATH);
-  const tracked = projectPaths(root);
+  const paths = projectPaths(root);
   const validations = Array.isArray(manifest.validations) ? manifest.validations.filter(isPlainObject) : [];
   const selection = Object.hasOwn(manifest, 'selection') && isPlainObject(manifest.selection) ? manifest.selection : null;
   const surfaces = Array.isArray(manifest.surfaces) && manifest.surfaces.length > 0 ? manifest.surfaces : null;
@@ -125,19 +155,19 @@ export function detectVerificationScope(root) {
   const coverageConfig = coverageState(root);
   if (commandValidations.length && coverageConfig !== 'present') findings.push(`test_coverage_${coverageConfig}`);
   if (!surfaces) findings.push('surfaces_missing');
-  // Listed whatever else is missing, so a first proposal sees every path it must account for. Untracked files count
-  // too, so a file an apply writes (steering/test-coverage.json, a coverage wrapper) must be accounted for.
+  // Listed whatever else is missing, so a first proposal sees every path it must account for, including the files an
+  // apply adds (steering/test-coverage.json, a coverage wrapper) before they are committed.
   const globs = [
     ...globsOf(selection?.coveragePaths),
     ...(surfaces ?? []).flatMap((surface) => globsOf(surface?.sources)),
     ...globsOf(selection?.docPaths),
     ...globsOf(selection?.fallbackPaths),
   ];
-  const unaccounted = projectPaths(root, { untracked: true }).filter((rel) => !matches(rel, globs));
+  const unaccounted = paths.filter((rel) => !matches(rel, globs));
   if (unaccounted.length) findings.push('unaccounted_paths');
   if (!findings.length) return null;
 
-  const digest = digestOf(manifestBytes, coverageBytes, tracked);
+  const digest = digestOf(manifestBytes, coverageBytes, paths);
   const pluginProject = readBytes(root, PLUGIN_MANIFEST_PATH) !== null;
   return {
     id: `verification-scope:${digest}`,

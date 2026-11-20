@@ -250,13 +250,47 @@ describe('@SCN012 the files an apply adds and the paths it lists', () => {
     expect(fs.existsSync(path.join(root, 'steering/test-coverage.json'))).toBe(false);
   });
 
-  it('lists untracked files, and at most 200 unaccounted paths with the full count', async () => {
+  it('lists at most 200 unaccounted tracked paths with the full count', async () => {
     const root = await project();
     for (let index = 0; index < 205; index += 1) write(root, `extra/f${String(index).padStart(3, '0')}.txt`, 'x\n');
+    git(root, 'add', 'extra');
     const item = detectVerificationScope(root);
     expect(item.unaccountedPaths).toHaveLength(200);
     expect(item.unaccountedPaths).toContain('extra/f000.txt');
     expect(item.unaccountedCount).toBeGreaterThan(205);
+  });
+
+  it('never lists runtime state under .nmg-sdlc/, even when it is tracked', async () => {
+    const root = await project();
+    write(root, '.nmg-sdlc/handoffs/42-implement.json', '{}\n');
+    git(root, 'add', '-f', '.nmg-sdlc/handoffs/42-implement.json');
+    const item = detectVerificationScope(root);
+    expect((item?.unaccountedPaths ?? []).filter((rel) => rel.startsWith('.nmg-sdlc/'))).toEqual([]);
+  });
+
+  it('accounts for the untracked coverage wrapper the config names, but not other untracked files', async () => {
+    const root = await project({ plugin: true });
+    // Untracked files another approved upgrade item creates, or a scratch file, never fail the apply.
+    write(root, 'steering/sdlc-models.json', '{}\n');
+    write(root, 'notes.txt', 'scratch\n');
+    write(root, 'tools/cov.mjs', 'process.exit(0);\n');
+    const item = detectVerificationScope(root);
+    expect(item.unaccountedPaths).not.toContain('notes.txt');
+    expect(item.unaccountedPaths).not.toContain('steering/sdlc-models.json');
+    const wrapper = { ...COVERAGE, coverage: { program: 'node', args: ['tools/cov.mjs'] } };
+    const missed = await applyVerificationScope(root, item, proposal(root, {
+      selection: { docPaths: ['README.md'], fallbackPaths: ['.gitignore', 'steering/manifest.json', 'steering/modules/**', 'steering/test-coverage.json'], coveragePaths: ['src/**'] },
+      testCoverage: wrapper,
+    }));
+    expect(missed).toMatchObject({ ok: false, reasonCode: 'verification_scope_proposal_incomplete', unaccountedPaths: ['tools/cov.mjs'] });
+    const applied = await applyVerificationScope(root, item, proposal(root, {
+      selection: { docPaths: ['README.md'], fallbackPaths: ['.gitignore', 'steering/manifest.json', 'steering/modules/**', 'steering/test-coverage.json', 'tools/cov.mjs'], coveragePaths: ['src/**'] },
+      testCoverage: wrapper,
+    }));
+    expect(applied).toMatchObject({ ok: true, status: 'applied' });
+    git(root, 'add', 'steering/manifest.json', 'steering/test-coverage.json', 'tools/cov.mjs');
+    git(root, '-c', 'user.email=t@example.com', '-c', 'user.name=t', 'commit', '-q', '-m', 'apply');
+    expect(detectVerificationScope(root)).toBeNull();
   });
 
   (process.platform === 'win32' ? it.skip : it)('never writes through a symlinked steering directory', async () => {

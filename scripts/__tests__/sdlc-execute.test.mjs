@@ -11,7 +11,7 @@ import { packageRoot } from '../../src/sdlc-workflows.mjs';
 import { STAGE_MODEL_DEFAULTS, STAGE_MODELS_PATH } from '../sdlc-models.mjs';
 import { inspectIssueSpecScope, specStatusOnRef } from '../issue-spec-scope.mjs';
 import { canonicalJson } from '../../src/sdlc-steering-runtime.mjs';
-import { resolveChangeSelection } from '../../src/sdlc-test-selection.mjs';
+import { guidancePath, resolveChangeSelection, writeGuidance } from '../../src/sdlc-test-selection.mjs';
 import { enterMergeQueue, leaveMergeQueue, listMergeQueue, recordInFlight } from '../sdlc-shared-state.mjs';
 import { ensureWorktree, listWorktrees } from '../sdlc-worktree.mjs';
 
@@ -2506,6 +2506,66 @@ describe('@SCN008 a rejected selection escalates to the orchestrator (#584 AC7, 
     expect(steps(f)).not.toContain('implement');
     expect(steps(f)[0]).toBe('verify');
     expect(f.state.starts[0].entry).toBe('verify');
+    // Without supervisor guidance the rerun is told only to rerun the gate.
+    expect(f.state.prompts[0].prompt).toContain('A selection escalation is not a code defect: rerun the gate, and never edit source or steering to pass it.');
+  });
+
+  it('recovers guidance stored by an earlier controller at the next verify, and an implement stage deletes it', () => {
+    const f = fixture();
+    writeGuidance(f.root, 42, 'a'.repeat(40), 'check hooks tests');
+    let verifications = 0;
+    const seen = [];
+    f.setWorker((context) => {
+      if (context.step === 'verify') {
+        const file = guidancePath(context.root, 42);
+        seen.push({ step: 'verify', guidance: fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null,
+          head: git(context.root, 'rev-parse', 'HEAD') });
+        if (verifications++ === 0) {
+          fs.mkdirSync(path.join(f.root, '.nmg-sdlc/verification'), { recursive: true });
+          fs.writeFileSync(path.join(f.root, '.nmg-sdlc/verification/42.json'), JSON.stringify({ schemaVersion: 1, issue: 42,
+            generatedAt: new Date().toISOString(), identity: { headSha: git(f.root, 'rev-parse', 'HEAD') }, ceiling: 'Fail',
+            coverage: { complete: true }, results: [] }));
+          return { status: 'failed', next: 'implement', reasonCode: 'verification_not_green', summary: 'tests failed', artifacts: [] };
+        }
+        context.passGate();
+        return { status: 'passed', next: 'deliver' };
+      }
+      if (context.step === 'implement') {
+        seen.push({ step: 'implement', stored: fs.existsSync(guidancePath(context.root, 42)) });
+        context.publish('fix: finish #42');
+        return { status: 'passed', next: 'verify' };
+      }
+      context.state.merged = true;
+      context.state.closed = true;
+      return { status: 'passed', next: null };
+    });
+    expect(f.execute('#42', { supervise: (report) => ({ action: report.kind === 'stage' ? 'accept' : 'continue' }) })).toMatchObject({ status: 0 });
+    expect(steps(f)).toEqual(['verify', 'implement', 'verify', 'deliver']);
+    // The restarted controller binds the stored guidance to the head its first verify runs at.
+    expect(seen[0].guidance).toMatchObject({ issue: 42, text: 'check hooks tests', headSha: seen[0].head });
+    expect(seen[1]).toEqual({ step: 'implement', stored: false });
+    expect(seen[2].guidance).toBeNull();
+  });
+
+  it('names a failed opted-in validation that is not required in the implement repair evidence', () => {
+    const f = fixture();
+    f.passGate();
+    const file = path.join(f.root, '.nmg-sdlc/verification/42.json');
+    const artifact = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const tests = artifact.results.find((item) => item.id === 'repository.tests');
+    Object.assign(tests, { required: false, effectiveStatus: 'failed', selection: { reason: 'selected' },
+      result: { ...tests.result, status: 'failed' } });
+    fs.writeFileSync(file, JSON.stringify({ ...artifact, ceiling: 'Fail', selection: { mode: 'selected', reason: 'selected', rejection: null } }));
+    f.setWorker((context) => {
+      if (context.step === 'implement') { context.publish('fix: finish #42'); return { status: 'passed', next: 'verify' }; }
+      if (context.step === 'verify') { context.passGate(); return { status: 'passed', next: 'deliver' }; }
+      context.state.merged = true;
+      context.state.closed = true;
+      return { status: 'passed', next: null };
+    });
+    expect(f.execute('#42', { supervise: (report) => ({ action: report.kind === 'stage' ? 'accept' : 'continue' }) })).toMatchObject({ status: 0 });
+    expect(steps(f)[0]).toBe('implement');
+    expect(f.state.prompts[0].prompt).toContain('Current registered gate is Fail: repository.tests');
   });
 
   it('stops an unsupervised run with selection_escalation', () => {

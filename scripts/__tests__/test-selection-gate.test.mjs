@@ -8,10 +8,9 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { applySteeringPlan, createInitializePlan } from '../sdlc-steering.mjs';
 import { runSteeringValidations } from '../../src/sdlc-verification-runtime.mjs';
-import { writeGuidance } from '../../src/sdlc-test-selection.mjs';
+import { MAX_UNTRACKED_FILE_BYTES, writeGuidance } from '../../src/sdlc-test-selection.mjs';
 import { main as verifySteering } from '../sdlc-verify-steering.mjs';
 import { inspectVerificationArtifactRepair } from '../verification-readiness.mjs';
-import { testPathArg } from '../jest-per-test-coverage.mjs';
 
 // The readiness check the controller and recovery read the artifact with.
 const readiness = (artifact) => inspectVerificationArtifactRepair(artifact, {
@@ -108,11 +107,6 @@ const byId = (artifact) => Object.fromEntries(artifact.results.map((result) => [
 const TIMEOUT = 30_000;
 
 describe('@SCN004 changed lines must be covered by the selected tests (#584 AC4)', () => {
-  it('hands this repository\'s coverage command an option-shaped test path only behind ./', () => {
-    expect(testPathArg('scripts/--config=evil.json')).toBe('./--config=evil.json');
-    expect(testPathArg('scripts/__tests__/a.test.mjs')).toBe('__tests__/a.test.mjs');
-  });
-
   it('rejects an uncovered changed executable line as selection_uncovered and records coverage', async () => {
     const root = await project();
     change(root, 'src/app.js', 'const a = 1;\nconst b = 2;\n');
@@ -236,7 +230,6 @@ describe('@SCN004 changed lines must be covered by the selected tests (#584 AC4)
     expect(artifact.selection.rejection).toBeNull();
     expect(artifact.ceiling).toBe('Fail');
     expect(readiness(artifact)).toMatchObject({ status: 'repairable', gaps: [], failedLocal: ['unit.tests'] });
-    expect(artifact.ceiling).toBe('Fail');
   }, TIMEOUT);
 
   it('fails a coverage command that exits non-zero as coverage_failed, never as an unaccounted path', async () => {
@@ -316,6 +309,18 @@ describe('@SCN004 changed lines must be covered by the selected tests (#584 AC4)
     expect(artifact.selection.rejection).toBeNull();
   }, TIMEOUT);
 
+  it('takes no changed lines from an untracked file over the size cap', async () => {
+    const root = await project();
+    change(root, 'src/app.js', 'a();\n');
+    fs.writeFileSync(path.join(root, 'src/big.js'), 'b();\n'.repeat(Math.ceil((MAX_UNTRACKED_FILE_BYTES + 1) / 5)));
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
+    report(root, testReport(['src/app.js:1', 'src/big.js:1'], { executableLines: ['src/app.js:1', 'src/big.js:1', 'src/big.js:2'] }));
+    const artifact = await verify(root);
+    expect(artifact.changedPaths).toEqual(['src/app.js', 'src/big.js']);
+    expect(byId(artifact)['unit.tests'].coverage).toMatchObject({ changedLines: ['src/app.js:1'], uncovered: [] });
+    expect(artifact.selection.rejection).toBeNull();
+  }, TIMEOUT);
+
   it('checks each file of a new untracked directory', async () => {
     const root = await project();
     fs.mkdirSync(path.join(root, 'src/newdir'), { recursive: true });
@@ -342,8 +347,12 @@ describe('@SCN004 changed lines must be covered by the selected tests (#584 AC4)
     expect(artifact.ceiling).toBeNull();
   }, TIMEOUT);
 
-  (process.platform === 'win32' ? it.skip : it)('records an aborted coverage run as incomplete and stops its whole process group', async () => {
+  (process.platform === 'win32' ? it.skip : it)('records an aborted coverage run as incomplete, even when not required, and stops its whole process group', async () => {
     const root = await project();
+    const manifestFile = path.join(root, 'steering/manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+    manifest.validations[0].required = false;
+    fs.writeFileSync(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
     const HANG = "const { spawn } = require('node:child_process'); const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' }); require('node:fs').writeFileSync('grandchild.pid', String(child.pid)); setTimeout(() => {}, 60000);";
     fs.writeFileSync(path.join(root, 'steering/test-coverage.json'), `${JSON.stringify({ version: 1, suite: { program: process.execPath, args: ['-e', '0'] },
       coverage: { program: process.execPath, args: ['-e', HANG] } }, null, 2)}\n`);
@@ -357,8 +366,10 @@ describe('@SCN004 changed lines must be covered by the selected tests (#584 AC4)
     const pid = Number(fs.readFileSync(pidFile, 'utf8'));
     controller.abort();
     const artifact = await running;
-    expect(byId(artifact)['unit.tests']).toMatchObject({ effectiveStatus: 'incomplete', result: { summary: 'coverage cancelled' } });
+    expect(byId(artifact)['unit.tests']).toMatchObject({ required: false, effectiveStatus: 'incomplete', result: { summary: 'coverage cancelled' } });
     expect(artifact.selection.rejection).toBeNull();
+    expect(artifact.ceiling).toBe('Incomplete');
+    expect(readiness(artifact)).toMatchObject({ gaps: [], incomplete: ['lint', 'unit.tests'] });
     let alive = true;
     for (let tries = 0; alive && tries < 100; tries += 1) {
       try { process.kill(pid, 0); await new Promise((done) => setTimeout(done, 50)); } catch { alive = false; }
@@ -753,16 +764,16 @@ describe('@SCN009 only a docs-only change may select nothing (#584 AC8)', () => 
     change(root, 'lib/x.js');
     answer = { mode: 'selected', tests: [], surfaces: [] };
     const artifact = await verify(root);
-    expect(artifact.selection.rejection).toMatchObject({ reasonCode: 'selection_empty_code_change', unaccounted: ['lib/x.js'] });
+    expect(artifact.selection).toMatchObject({ reason: 'selection_empty', rejection: { reasonCode: 'selection_empty_code_change', unaccounted: ['lib/x.js'] } });
     expect(byId(artifact)['unit.tests'].effectiveStatus).toBe('failed');
   }, TIMEOUT);
 
-  it('treats no change as docs-only without docPaths', async () => {
+  it('rejects an empty selection as selection_empty_code_change when no docPaths are declared', async () => {
     const root = await project({ selection: { fallbackPaths: ['package.json'] } });
     change(root, 'docs/guide.md');
     answer = { mode: 'selected', tests: [], surfaces: [] };
     const artifact = await verify(root);
-    expect(artifact.selection.rejection).toMatchObject({ reasonCode: 'selection_empty_code_change', unaccounted: ['docs/guide.md'] });
+    expect(artifact.selection).toMatchObject({ reason: 'selection_empty', rejection: { reasonCode: 'selection_empty_code_change', unaccounted: ['docs/guide.md'] } });
   }, TIMEOUT);
 });
 
@@ -804,9 +815,13 @@ describe('@SCN010 an unsafe answer runs everything (#584 AC9)', () => {
 });
 
 describe('@SCN001 --mode select stores the selection the gate reuses (#584 AC1, FR2)', () => {
-  it('refuses an option-shaped base ref before any git call', async () => {
-    await expect(verifySteering(['--project', '/nonexistent', '--issue', '42', '--spec', 'specs/42-test', '--base', '--output=/tmp/x', '--mode', 'select']))
-      .rejects.toThrow('invalid_arguments');
+  it('refuses an option-shaped base ref before reading the project or asking Claude', async () => {
+    // `--all` passes the ref-name character check, so only the leading-dash guard refuses it.
+    for (const base of ['--all', '-p']) {
+      await expect(verifySteering(['--project', '/nonexistent', '--issue', '42', '--spec', 'specs/42-test', '--base', base, '--mode', 'select'], { runSelection }))
+        .rejects.toThrow('invalid_arguments');
+    }
+    expect(calls).toEqual([]);
   });
 
   it('asks Claude once for a select run followed by a gate run with the same binding', async () => {

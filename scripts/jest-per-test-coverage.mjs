@@ -45,7 +45,7 @@ function usage(message) {
 }
 
 /** Each repository-relative directory replaced by the sorted Jest test files under it; any other path is kept. */
-export function expandTestPaths(files, root = repoRoot) {
+function expandTestPaths(files, root = repoRoot) {
   const isTest = (relative) => relative.endsWith('.mjs')
     && (relative.split('/').includes('__tests__') || /\.(test|spec)\.mjs$/.test(relative));
   const walk = (relative) => fs.readdirSync(path.join(root, relative), { withFileTypes: true })
@@ -97,9 +97,20 @@ function blankLines(absolute) {
 }
 
 /** The test path relative to scripts/; one that would start with `-` keeps a leading `./`, so Jest never reads it as an option. */
-export function testPathArg(file) {
+function testPathArg(file) {
   const relative = path.relative(scriptsDir, path.join(repoRoot, file)).split(path.sep).join('/');
   return relative.startsWith('-') ? `./${relative}` : relative;
+}
+
+/** The node argv that runs one test file under Jest with V8 coverage, by path. */
+export function jestArguments(file, resultsFile, coverageDir) {
+  return [
+    '--experimental-vm-modules', jestBin,
+    `--rootDir=${repoRoot}`, `--roots=${scriptsDir}`,
+    '--runInBand', '--ci', '--coverage', '--coverageProvider=v8', '--coverageReporters=json',
+    '--json', `--outputFile=${resultsFile}`, `--coverageDirectory=${coverageDir}`,
+    '--runTestsByPath', testPathArg(file),
+  ];
 }
 
 function runJest(file, tmp) {
@@ -107,13 +118,7 @@ function runJest(file, tmp) {
   delete env.JEST_WORKER_ID;
   const resultsFile = path.join(tmp, 'results.json');
   const coverageDir = path.join(tmp, 'cov');
-  const args = [
-    '--experimental-vm-modules', jestBin,
-    `--rootDir=${repoRoot}`, `--roots=${scriptsDir}`,
-    '--runInBand', '--ci', '--coverage', '--coverageProvider=v8', '--coverageReporters=json',
-    '--json', `--outputFile=${resultsFile}`, `--coverageDirectory=${coverageDir}`,
-    '--runTestsByPath', testPathArg(file),
-  ];
+  const args = jestArguments(file, resultsFile, coverageDir);
   const run = spawnSync(process.execPath, args, {
     cwd: scriptsDir, env, shell: false, encoding: 'utf8', timeout: RUN_TIMEOUT_MS, maxBuffer: 256 * 1024 * 1024,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -175,7 +180,7 @@ export function collect(file, results, coverage, executable, root = repoRoot) {
  * The repository-relative path a selected test id names, in the form the gate compares: without a `::` node suffix
  * (Jest runs whole files), a leading `./`, `.` segments or a trailing `/`. Null when it is no repository-relative path.
  */
-export function testFileArgument(id) {
+function testFileArgument(id) {
   const target = String(id).split('::')[0];
   if (target.includes('\\') || path.posix.isAbsolute(target)) return null;
   const normalized = path.posix.normalize(target).replace(/^\.\//, '').replace(/\/+$/, '');

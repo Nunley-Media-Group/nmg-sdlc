@@ -108,6 +108,15 @@ describe('@SCN001 Claude selects tests and surfaces (#584 AC1)', () => {
     expect((await resolve(root, runtime, run, { paths: ['src/app.js', 'src/new.js'] })).reused).toBe(false);
   });
 
+  it('names an untracked file over the size cap instead of reading it into the prompt', async () => {
+    const { root, runtime } = await project();
+    fs.writeFileSync(path.join(root, 'big.bin'), Buffer.alloc(MAX_UNTRACKED_FILE_BYTES + 1, 0x61));
+    const { calls, run } = recorder({ mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] });
+    await resolve(root, runtime, run);
+    expect(calls[0].input).toContain(`new file (untracked, ${MAX_UNTRACKED_FILE_BYTES + 1} bytes`);
+    expect(calls[0].input).not.toContain('a'.repeat(1000));
+  });
+
   (process.platform === 'win32' ? it.skip : it)('spawns claude with the prompt on stdin and reads its structured output', async () => {
     const { root } = await project();
     const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-584-claude-'));
@@ -209,15 +218,6 @@ describe('@SCN010 a failed call keeps its diagnostic (#584 AC9)', () => {
     expect(selection).toMatchObject({ mode: 'all', reason: 'selection_failed' });
     expect(selection.detail).toBeTruthy();
     expect(calls).toHaveLength(0);
-  });
-
-  it('names an untracked file over the size cap instead of reading it into the prompt', async () => {
-    const { root, runtime } = await project();
-    fs.writeFileSync(path.join(root, 'big.bin'), Buffer.alloc(MAX_UNTRACKED_FILE_BYTES + 1, 0x61));
-    const { calls, run } = recorder({ mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] });
-    await resolve(root, runtime, run);
-    expect(calls[0].input).toContain(`new file (untracked, ${MAX_UNTRACKED_FILE_BYTES + 1} bytes`);
-    expect(calls[0].input).not.toContain('a'.repeat(1000));
   });
 
   it('records the exit status and Claude stderr in the detail', async () => {
@@ -352,7 +352,7 @@ describe('@SCN010 a fallback path changed by a version bump runs everything (#58
 });
 
 describe('@SCN008 redispatch guidance survives a controller restart until implement runs (#584 AC7)', () => {
-  it('recovers stored guidance whatever head it is bound to, and an implement stage deletes it', async () => {
+  it('recovers stored guidance whatever head it is bound to, and clearGuidance deletes it', async () => {
     const { root } = await project();
     writeGuidance(root, 42, 'a'.repeat(40), 'check hooks tests');
     expect(readGuidance(root, 42, 'b'.repeat(40))).toBeNull();

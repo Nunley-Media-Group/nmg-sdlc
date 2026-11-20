@@ -19,7 +19,7 @@ import { loadStageModels, STAGE_MODEL_DEFAULTS, stageModelsWarning } from './sdl
 import { loadTestLayers, TEST_LAYER_TYPES } from './test-layers.mjs';
 import { collectEvidence, parseIssueBranch } from './sdlc-status.mjs';
 import { inspectPublicationScope, publicationFileEntries } from './sdlc-safe-recoveries.mjs';
-import { inspectVerificationArtifactRepair, inspectVerificationReadiness, MAX_VERIFICATION_REPORT_BYTES } from './verification-readiness.mjs';
+import { inspectVerificationArtifactRepair, inspectVerificationReadiness, MAX_VERIFICATION_REPORT_BYTES, SELECTION_CHECKED_REASONS } from './verification-readiness.mjs';
 import { matchesRegisteredResults } from './sdlc-finalize-verification.mjs';
 import { resolveSpecDir, specStatus, specStatusOnRef } from './issue-spec-scope.mjs';
 import { createIssueDependencyClient, eligibleIssues, issueDependencyStatus, readDependencyGraph } from './issue-dependencies.mjs';
@@ -786,7 +786,7 @@ function gateFailures(artifact) {
   // Required results, and opted-in commands whose selected tests ran, that did not pass.
   const failing = (artifact.results ?? []).filter((item) => item.applicable && item.effectiveStatus !== 'passed'
     && (item.required || (item.provider === 'builtin.command'
-      && ['selected', 'coverage_failed', 'coverage_cancelled'].includes(item.selection?.reason))));
+      && SELECTION_CHECKED_REASONS.has(item.selection?.reason))));
   const evidence = failing.flatMap((item) => (Array.isArray(item.result?.evidence) ? item.result.evidence : []));
   return {
     ids: failing.map((item) => item.id),
