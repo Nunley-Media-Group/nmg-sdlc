@@ -18,7 +18,7 @@ function skillFiles() {
     .filter((relativePath) => fs.existsSync(path.join(REPO_ROOT, relativePath)));
 }
 
-describe('native plan-mode interactive contract', () => {
+describe('@SCN004 native plan-mode interactive contract', () => {
   it('documents hooks-module plan entry, AskUserQuestion, and ExitPlanMode', () => {
     const source = read('references/interactive-gates.md');
 

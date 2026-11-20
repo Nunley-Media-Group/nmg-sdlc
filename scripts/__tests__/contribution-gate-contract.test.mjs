@@ -15,7 +15,7 @@ function workflowTemplate() {
   return match[1];
 }
 
-describe('contribution gate contract (issues #125, #143, and current repository rewrite)', () => {
+describe('@SCN002 contribution gate contract (issues #125, #143, and current repository rewrite)', () => {
   test('shared reference defines managed version 8, lifecycle status, and collision rules', () => {
     const contract = read('references/contribution-gate.md');
 

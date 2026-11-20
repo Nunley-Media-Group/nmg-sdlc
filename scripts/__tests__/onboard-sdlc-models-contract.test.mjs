@@ -7,7 +7,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const read = (rel) => fs.readFileSync(path.join(repoRoot, rel), 'utf8');
 const ENSURE = 'sdlc-models.mjs ensure --root .';
 
-describe('onboard creates steering/sdlc-models.json (AC1)', () => {
+describe('@SCN007 onboard creates steering/sdlc-models.json (AC1)', () => {
   it('runs the ensure command from the approved greenfield, enhancement, brownfield, and source-backfill plan', () => {
     for (const rel of [
       'workflows/onboard-project/WORKFLOW.md',

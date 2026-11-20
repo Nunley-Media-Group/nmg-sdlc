@@ -15,7 +15,7 @@ const UPGRADE_DOCS = [
 ];
 const GROUP_IDS = ['steering-v4-host-language', 'contributing-v4-host-language', 'agents-to-claude-md'];
 
-describe('v4 host-language upgrade contract', () => {
+describe('@SCN014 v4 host-language upgrade contract', () => {
   test.each(UPGRADE_DOCS)('%s names all three upgrade groups', (doc) => {
     const source = read(doc);
     for (const id of GROUP_IDS) expect(source).toContain(id);

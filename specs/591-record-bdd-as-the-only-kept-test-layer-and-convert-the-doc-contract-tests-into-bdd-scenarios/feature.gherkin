@@ -1,0 +1,130 @@
+**Issue**: #591
+**Date**: 2026-11-20
+**Status**: Approved
+**Author**: Claude Code
+**Related Spec**: specs/571-make-bdd-scenarios-the-single-acceptance-test-layer-with-a-kept-test-types-steering-setting/
+**Related Spec**: specs/572-add-an-sdlc-upgrade-project-item-that-migrates-non-kept-test-layers-into-bdd-scenarios-under-a-coverage-guarantee/
+
+# File: scripts/__tests__/check-test-layers.test.mjs
+# File: scripts/__tests__/contribution-gate-contract.test.mjs
+# File: scripts/__tests__/contribution-guide-contract.test.mjs
+# File: scripts/__tests__/interactive-gates-contract.test.mjs
+# File: scripts/__tests__/issue-form-contract.test.mjs
+# File: scripts/__tests__/onboard-changelog-contract.test.mjs
+# File: scripts/__tests__/onboard-sdlc-models-contract.test.mjs
+# File: scripts/__tests__/readme-sdlc-models-contract.test.mjs
+# File: scripts/__tests__/simplify-contract.test.mjs
+# File: scripts/__tests__/spec-context-contract.test.mjs
+# File: scripts/__tests__/start-issue-selection-contract.test.mjs
+# File: scripts/__tests__/status-skill-contract.test.mjs
+# File: scripts/__tests__/steering-contract.test.mjs
+# File: scripts/__tests__/upgrade-v4-host-language-contract.test.mjs
+# Generated from: specs/591-record-bdd-as-the-only-kept-test-layer-and-convert-the-doc-contract-tests-into-bdd-scenarios/requirements.md
+Feature: Record bdd as the only kept test layer and convert the doc contract tests into BDD scenarios
+
+  @SCN001
+  Scenario: The repository keeps bdd as its only test type
+    Given the approved upgrade plan
+    When the test-layers item is applied with --kept bdd
+    Then steering/test-layers.json is {"version":1,"kept":["bdd"]}
+
+  @SCN002
+  Scenario: The contribution gate workflow matches its managed contract
+    Given the shared contribution-gate reference and the dogfooded workflow
+    When the contract is read
+    Then the managed version, lifecycle status, collision rules and minimal permissions are documented
+    And the dogfooded workflow equals the canonical embedded template
+
+  @SCN003
+  Scenario: The contribution guide uses v4 invocations
+    Given the shared contribution-guide reference
+    When it is read
+    Then it uses v4 /sdlc-* invocations and specs/{N}-{slug} paths
+
+  @SCN004
+  Scenario: Interactive commands use native plan mode
+    Given the interactive workflows and the hooks module
+    When their contract is read
+    Then plan entry, AskUserQuestion and ExitPlanMode are documented and no plugin bypass is referenced
+
+  @SCN005
+  Scenario: The managed GitHub issue form is valid and referenced
+    Given .github/ISSUE_TEMPLATE/nmg-sdlc-ready-issue.yml
+    When it is parsed
+    Then its required fields, ids, labels and dropdown options are present, unique and schema-safe
+    And onboarding, upgrade-project, README and CHANGELOG reference it
+
+  @SCN006
+  Scenario: Onboarding creates the changelog
+    Given the onboard-project workflow
+    When each onboarding path is read
+    Then it creates CHANGELOG.md with an [Unreleased] heading
+
+  @SCN007
+  Scenario: Onboarding creates the stage models file
+    Given the onboard-project workflow
+    When an approved onboarding plan is read
+    Then it runs sdlc-models.mjs ensure, and already-initialized onboarding recommends upgrade instead
+
+  @SCN008
+  Scenario: The README documents per-project stage models
+    Given README.md
+    When its models sections are read
+    Then they describe steering/sdlc-models.json, its defaults, its diagnostics and its upgrade path
+
+  @SCN009
+  Scenario: The simplify workflow is bundled only into implementation
+    Given workflows/simplify/WORKFLOW.md
+    When the plugin bundles workflows
+    Then only the implementation surface includes it
+
+  @SCN010
+  Scenario: Spec context stays bounded
+    Given the spec-context and project-agents references
+    When they are read
+    Then they use specs/{N}-{slug} with Related Spec neighbors and keep the managed markers
+
+  @SCN011
+  Scenario: Start-issue requires an explicit issue
+    Given the start-issue workflow
+    When it is read
+    Then it requires an explicit issue number, treats an epic label as ordinary and keeps the compact controller invocation
+
+  @SCN012
+  Scenario: The status workflow keeps its compact contract
+    Given workflows/status/WORKFLOW.md and scripts/sdlc-status.mjs
+    When they are read
+    Then the workflow uses name and description frontmatter only and leaves recommendations to the script
+
+  @SCN013
+  Scenario: Repository steering describes the Claude Code plugin
+    Given the steering snippets and plugin manifest
+    When they are read
+    Then they use the Claude Code plugin identity, declare every version mirror and contain no unresolved placeholders
+
+  @SCN014
+  Scenario: Upgrade documents the v4 host-language migration
+    Given the upgrade-project workflow and references
+    When they are read
+    Then they name all three upgrade groups and their fail-closed reason codes
+    And this repository uses CLAUDE.md
+
+  @SCN015
+  Scenario: CI rejects a test of a type the project does not keep
+    Given steering/test-layers.json keeps bdd only
+    And a unit or doc test file that the allowlist does not list
+    When node scripts/check-test-layers.mjs --root . runs
+    Then it exits 1 with test_layers_type_not_kept naming the file and its type
+
+  @SCN016
+  Scenario: The allowlist only shrinks
+    Given scripts/test-layers-allowlist.json lists a file that is missing or now a bdd test
+    When the check runs
+    Then it exits 1 with test_layers_allowlist_stale
+    And an invalid steering/test-layers.json exits 1 with test_layers_invalid
+
+  @SCN017
+  Scenario: CI runs the kept-layer check before the tests
+    Given .github/workflows/nmg-sdlc-verify.yml
+    When the verify job runs
+    Then node scripts/check-test-layers.mjs --root . runs before the Jest suite

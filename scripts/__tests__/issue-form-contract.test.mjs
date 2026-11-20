@@ -35,7 +35,7 @@ function optionLines(block) {
   return section.split('\n').filter((line) => /^\s{8}- /.test(line));
 }
 
-describe('managed GitHub issue form contract (issues #135 and #177)', () => {
+describe('@SCN005 managed GitHub issue form contract (issues #135 and #177)', () => {
   test('canonical issue form exists with required top-level keys and body fields', () => {
     const source = read(FORM_RELATIVE_PATH);
     expect(source).toMatch(/^name: .+/m);

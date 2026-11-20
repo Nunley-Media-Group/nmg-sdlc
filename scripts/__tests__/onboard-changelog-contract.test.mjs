@@ -7,7 +7,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const read = (relative) => fs.readFileSync(path.join(repoRoot, relative), 'utf8');
 
 // #484 AC1: onboarding creates CHANGELOG.md when absent so prepare-version can deliver.
-describe('onboarding creates the changelog (#484)', () => {
+describe('@SCN006 onboarding creates the changelog (#484)', () => {
   test.each([
     'workflows/onboard-project/WORKFLOW.md',
     'workflows/onboard-project/references/greenfield.md',
