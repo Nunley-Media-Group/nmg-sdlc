@@ -29,7 +29,7 @@ function frontmatterKeys(source) {
     .map((line) => line.slice(0, line.indexOf(':')));
 }
 
-describe('repo steering contract (v4)', () => {
+describe('@SCN013 repo steering contract (v4)', () => {
   test('uses the Claude Code plugin identity and manifest', () => {
     const product = read('steering/snippets/project-product.md');
     const tech = read('steering/snippets/project-tech.md');

@@ -34,7 +34,10 @@ jobs:
         working-directory: scripts
         run: npm ci --no-audit --no-fund
 
-      - name: Run contract tests
+      - name: Check kept test layers
+        run: node scripts/check-test-layers.mjs --root .
+
+      - name: Run test suite (BDD scenarios + allowlisted unit tests)
         working-directory: scripts
         run: npm test
 

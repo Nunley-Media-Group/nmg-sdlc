@@ -8,7 +8,7 @@ function read(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-describe('start-issue explicit issue contract', () => {
+describe('@SCN011 start-issue explicit issue contract', () => {
   const skill = read('workflows/start-issue/WORKFLOW.md');
 
   test('requires an explicit issue number and has no picker', () => {

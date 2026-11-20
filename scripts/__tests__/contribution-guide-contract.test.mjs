@@ -9,7 +9,7 @@ function read(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-describe('contribution guide contract', () => {
+describe('@SCN003 contribution guide contract', () => {
   test('shared reference uses v4 invocations and specs/{N}-{slug}', () => {
     const contract = read('references/contribution-guide.md');
 

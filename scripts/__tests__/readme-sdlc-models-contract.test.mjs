@@ -15,7 +15,7 @@ function section(heading) {
   return next < 0 ? rest : rest.slice(0, next);
 }
 
-describe('README documents per-project stage models (FR8)', () => {
+describe('@SCN008 README documents per-project stage models (FR8)', () => {
   it('describes the file, the default verify effort, provider/model ids, and the default effort', () => {
     const models = section('### Models');
     expect(models).toContain('steering/sdlc-models.json');

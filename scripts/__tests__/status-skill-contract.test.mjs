@@ -8,7 +8,7 @@ const source = fs.readFileSync(skillPath, 'utf8');
 const statusScript = fs.readFileSync(path.join(repoRoot, 'scripts', 'sdlc-status.mjs'), 'utf8');
 const body = source.replace(/^---\n[\s\S]*?\n---\n/, '');
 
-describe('status skill contract', () => {
+describe('@SCN012 status skill contract', () => {
   it('uses only name and description frontmatter', () => {
     const block = source.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '';
     const keys = block.split('\n')

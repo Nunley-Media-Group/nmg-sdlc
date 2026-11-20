@@ -9,7 +9,7 @@ function read(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-describe('bounded spec context contract', () => {
+describe('@SCN010 bounded spec context contract', () => {
   test('shared spec-context reference uses specs/{N}-{slug} and Related Spec neighbors', () => {
     const contract = read('references/spec-context.md');
 
