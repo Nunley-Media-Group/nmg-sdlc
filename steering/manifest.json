@@ -192,12 +192,12 @@
       "LICENSE",
       "VERSION",
       "docs/**",
-      "specs/**"
+      "specs/**",
+      "package.json",
+      ".claude-plugin/plugin.json"
     ],
     "fallbackPaths": [
       "hooks/**",
-      ".claude-plugin/**",
-      "package.json",
       "tsconfig.json",
       ".gitignore",
       "scripts/package.json",
