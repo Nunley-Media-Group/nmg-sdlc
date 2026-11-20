@@ -15,7 +15,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { spawn } from "node:child_process";
 // The steering writer validates a staged copy of steering/ outside the checkout, where these
 // plugin modules do not resolve. Loading must still succeed there; a provider invocation
@@ -742,6 +742,110 @@ function smokePluginRoot(projectRoot, options) {
   }
 }
 
+// Surface-scoped smoke (#584). Each interactive command surface is exercised live by the verify
+// worker, which leaves a head-bound record under `.nmg-sdlc/smoke/surfaces/`; `execute` is one full
+// provisioned delivery. Selected surface ids that are not smoke surfaces are ignored.
+const INTERACTIVE_SURFACES = Object.freeze({
+  "draft-issue": "/sdlc-draft-issue",
+  "write-spec": "/sdlc-write-spec",
+  "onboard-project": "/sdlc-onboard-project",
+  "upgrade-project": "/sdlc-upgrade-project",
+  steering: "/sdlc-steering",
+  "run-retro": "/sdlc-run-retro",
+});
+const ISSUE_SURFACES = new Set(["draft-issue", "write-spec"]);
+const SURFACE_RECORD_DIR = join(".nmg-sdlc", "smoke", "surfaces");
+const NOT_EXERCISED = "nmg-sdlc-smoke surface not exercised";
+const NOT_SELECTED = "surface_not_selected: no surface selected";
+
+function insideDirectory(directory, path) {
+  const rel = relative(directory, path);
+  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+}
+
+// `{ schemaVersion: 1, repo, surface, headSha, status: "passed", command, transcript, issue? }`,
+// bound to the head under verification, with a non-empty regular transcript file under the
+// surface record directory. Returns `{ record, recordPath, transcriptPath }` or `{ reason }`.
+function readSurfaceRecord(readFile, projectRoot, surface, headSha) {
+  const directory = resolve(projectRoot, SURFACE_RECORD_DIR);
+  const recordPath = join(directory, `${surface}.json`);
+  let realDirectory;
+  try {
+    realDirectory = realpathSync(directory);
+    if (realDirectory !== join(realpathSync(projectRoot), SURFACE_RECORD_DIR)) return { reason: "record directory unsafe" };
+    const stat = lstatSync(recordPath);
+    if (stat.isSymbolicLink() || !stat.isFile()) return { reason: "record not a regular file" };
+  } catch (error) {
+    return { reason: error?.code === "ENOENT" ? "record missing" : "record unreadable" };
+  }
+  const record = readJsonFile(readFile, recordPath);
+  if (!record || typeof record !== "object" || Array.isArray(record)) return { reason: "record malformed" };
+  if (record.schemaVersion !== 1) return { reason: "record schemaVersion invalid" };
+  if (record.repo !== SMOKE_SLUG) return { reason: "record repo invalid" };
+  if (record.surface !== surface) return { reason: "record surface mismatch" };
+  if (!SHA.test(record.headSha ?? "") || !SHA.test(headSha ?? "")
+    || record.headSha.toLowerCase() !== headSha.toLowerCase()) return { reason: "record stale" };
+  if (record.status !== "passed") return { reason: `record status ${JSON.stringify(record.status ?? null)}` };
+  if (typeof record.command !== "string" || !record.command.includes(INTERACTIVE_SURFACES[surface])) {
+    return { reason: "record command invalid" };
+  }
+  if (ISSUE_SURFACES.has(surface) && (!Number.isSafeInteger(record.issue) || record.issue <= 0)) {
+    return { reason: "record issue invalid" };
+  }
+  if (typeof record.transcript !== "string" || !record.transcript) return { reason: "transcript missing" };
+  const transcriptPath = resolve(projectRoot, record.transcript);
+  // A transcript is never a surface record, this one or another, however its name is cased: on a case-insensitive
+  // file system a differently cased name opens the same record.
+  const recordNames = new Set(Object.keys(INTERACTIVE_SURFACES).map((id) => `${id}.json`));
+  const named = relative(directory, transcriptPath).toLowerCase();
+  if (transcriptPath === recordPath || named === `${surface}.json`) return { reason: "transcript names the record" };
+  if (recordNames.has(named)) return { reason: "transcript names a surface record" };
+  try {
+    if (!insideDirectory(directory, transcriptPath)) return { reason: "transcript outside record directory" };
+    const stat = lstatSync(transcriptPath);
+    if (stat.isSymbolicLink() || !stat.isFile() || stat.size === 0) return { reason: "transcript empty or not a regular file" };
+    const own = lstatSync(recordPath);
+    if (stat.dev === own.dev && stat.ino === own.ino) return { reason: "transcript names the record" };
+    if (!insideDirectory(realDirectory, realpathSync(transcriptPath))) return { reason: "transcript outside record directory" };
+  } catch {
+    return { reason: "transcript missing" };
+  }
+  return { record, recordPath, transcriptPath };
+}
+
+// Verifies every selected interactive surface's record. Returns the failing surfaces, any
+// environmental (incomplete) surfaces, and one evidence entry per exercised or checked surface.
+async function checkInteractiveSurfaces(executeCommand, readFile, env, request, surfaces) {
+  const failed = [];
+  const incomplete = [];
+  const evidence = [];
+  for (const surface of surfaces) {
+    const checked = readSurfaceRecord(readFile, request.projectRoot, surface, request.identity?.headSha);
+    if (!checked.record) {
+      failed.push(surface);
+      evidence.push({ kind: "surface", summary: `${surface}: ${checked.reason}`, artifact: join(SURFACE_RECORD_DIR, `${surface}.json`) });
+      continue;
+    }
+    const { record } = checked;
+    if (surface === "write-spec") {
+      const published = await publishedSpec(executeCommand, env, request.signal, record.issue);
+      evidence.push(...published.evidence);
+      if (published.status !== "passed") {
+        (published.status === "incomplete" ? incomplete : failed).push(surface);
+        evidence.push({ kind: "surface", summary: `${surface}: ${published.reason}`, artifact: checked.recordPath });
+        continue;
+      }
+    }
+    evidence.push({
+      kind: "surface",
+      summary: `${surface} exercised by ${record.command} at ${record.headSha.toLowerCase()}`
+        + `${record.issue ? ` (issue #${record.issue})` : ""}; record ${checked.recordPath}; transcript ${checked.transcriptPath}`,
+      artifact: checked.transcriptPath,
+    });
+  }
+  return { failed, incomplete, evidence };
+}
+
 export function createSmokeProvider({
   runCommand: executeCommand = runCommand,
   mkdtempSync: createTemp = mkdtempSync,
@@ -1398,10 +1502,47 @@ export function createSmokeProvider({
       return retain("incomplete", error instanceof Error ? error.message : String(error));
     }
   };
-  return async function smokeProvider(request) {
+  const fullDelivery = async (request) => {
     const recordedEvidence = [];
     const result = await deliverSmoke(request, recordedEvidence);
     return recordedEvidence.length ? { ...result, evidence: [...recordedEvidence, ...result.evidence] } : result;
+  };
+
+  // With a selection, only the selected smoke surfaces are exercised: interactive surfaces by
+  // their head-bound records, `execute` by exactly one full provisioned delivery.
+  const scopedSmoke = async (request, selection) => {
+    const identity = request.identity;
+    if (!Array.isArray(selection.surfaces) || !selection.surfaces.every((id) => typeof id === "string")) {
+      return envelope("failed", "nmg-sdlc-smoke selection invalid", identity);
+    }
+    const selected = new Set(selection.surfaces);
+    const interactive = Object.keys(INTERACTIVE_SURFACES).filter((surface) => selected.has(surface));
+    const execute = selected.has("execute");
+    if (!interactive.length && !execute) {
+      return envelope("passed", NOT_SELECTED, identity, [{ kind: "selection", summary: NOT_SELECTED, artifact: null }]);
+    }
+    const checked = await checkInteractiveSurfaces(executeCommand, readFile, env, request, interactive);
+    if (checked.failed.length) {
+      return envelope("failed", `${NOT_EXERCISED}: ${checked.failed.join(", ")}`, identity, checked.evidence);
+    }
+    if (checked.incomplete.length) {
+      return envelope("incomplete", `${NOT_EXERCISED}: ${checked.incomplete.join(", ")}`, identity, checked.evidence);
+    }
+    const exercised = execute ? [...interactive, "execute"] : interactive;
+    if (!execute) {
+      return envelope("passed", `nmg-sdlc-smoke exercised ${exercised.join(", ")}`, identity, checked.evidence);
+    }
+    const delivered = await fullDelivery(request);
+    const evidence = [...checked.evidence, ...delivered.evidence];
+    return delivered.status === "passed"
+      ? envelope("passed", `nmg-sdlc-smoke exercised ${exercised.join(", ")}; ${delivered.summary}`, identity, evidence)
+      : envelope(delivered.status, delivered.summary, identity, evidence);
+  };
+
+  return async function smokeProvider(request) {
+    const selection = request?.selection;
+    if (selection && typeof selection === "object" && !Array.isArray(selection)) return scopedSmoke(request, selection);
+    return fullDelivery(request);
   };
 }
 

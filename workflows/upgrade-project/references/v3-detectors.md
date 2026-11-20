@@ -29,7 +29,7 @@ CLI:
 
 ```
 node "<plugin-root>/scripts/sdlc-upgrade.mjs" detect [--root <dir>]
-node "<plugin-root>/scripts/sdlc-upgrade.mjs" apply --approve <id1,id2,...> [--kept <type,type,...>] [--root <dir>]
+node "<plugin-root>/scripts/sdlc-upgrade.mjs" apply --approve <id1,id2,...> [--kept <type,type,...>] [--scope-proposal <file>] [--root <dir>]
 node "<plugin-root>/scripts/sdlc-upgrade.mjs" detect-publication --root <dir> --spec specs/N-slug
 node "<plugin-root>/scripts/sdlc-upgrade.mjs" apply-publication --root <dir> --spec specs/N-slug --approve publication-files:<digest>
 node "<plugin-root>/scripts/sdlc-upgrade.mjs" test-layers-candidates --root <dir>
@@ -37,7 +37,7 @@ node "<plugin-root>/scripts/sdlc-upgrade.mjs" test-layers-batch <begin|gate> --r
 node "<plugin-root>/scripts/sdlc-upgrade.mjs" test-layers-report --root <dir>
 ```
 
-`--kept` is a value option that applies only with an approved `test-layers:<digest>` id. The `test-layers-*` subcommands print one JSON object and exit 0 on `ok:true`, 1 on a refusal and 2 on bad arguments; references/test-layer-migration.md gives the batch loop.
+`--kept` is a value option that applies only with an approved `test-layers:<digest>` id. `--scope-proposal <file>` names the approved verification-scope proposal (conventionally `.nmg-sdlc/plans/verification-scope.json`); an approved `verification-scope:<digest>` id without it fails `verification_scope_proposal_missing` before any write. The `test-layers-*` subcommands print one JSON object and exit 0 on `ok:true`, 1 on a refusal and 2 on bad arguments; references/test-layer-migration.md gives the batch loop.
 
 `applyUpgrade` is safe to call on temporary fixtures for tests (never mutates the nmg-sdlc specs/ tree directly).
 
@@ -154,6 +154,9 @@ v3 kept plugin runtime state under `.omp/sdlc/` and ignored it with the managed 
 20. **Test layers** (`id: test-layers:<sha256>`, `kind: test-layers`)
    - Signal: the project has at least one test file. The item reports `detectedTypes`, `recordedKept`, `pairs` and `coverageConfig`; the digest covers every inventoried test file plus `steering/test-layers.json` and `steering/test-coverage.json`.
    - Apply (order 10.82, after `sdlc-models-defaults`) fails a stale digest with `test_layers_plan_stale` before mutation. With `--kept` it writes `steering/test-layers.json` (always including `bdd`); without `--kept` it keeps a recorded set, or reports `skipped:kept_types_unrecorded` and writes nothing. It then records `.nmg-sdlc/upgrade/test-layers/inventory.json` and reports a `gap` when `steering/test-coverage.json` is missing or invalid. It never deletes a test: deletion happens only through the gated batch subcommands.
+21. **Verification scope** (`id: verification-scope:<sha256>`, `kind: verification-scope`)
+   - Signal: `detectVerificationScope` from `scripts/verification-scope.mjs` finds any of `selection_missing`, `doc_paths_missing`, `selection_command_legacy`, `test_coverage_missing`, `test_coverage_invalid`, `surfaces_missing` or `unaccounted_paths` (listing the tracked paths, plus `steering/test-coverage.json` and every file its commands name while still untracked, that no `coveragePaths`, surface, `docPaths` or `fallbackPaths` glob matches). The item also reports `pluginProject`. The digest covers `steering/manifest.json`, `steering/test-coverage.json` and those sorted paths.
+   - Apply (order 10.83, after `test-layers`) requires `--scope-proposal <file>` and fails a stale digest with `verification_scope_plan_stale` before mutation. It runs `verification-scope.mjs apply` as its own process: it converts each opted-in legacy command `selection` to `true`, writes the top-level `selection` and `surfaces` and, when given, `steering/test-coverage.json`, then re-validates with the steering runtime and restores the original bytes on failure, or when detection still reports a finding (`verification_scope_proposal_incomplete`, naming `remainingFindings`, `unaccountedPaths` (at most 200) and `unaccountedCount`). Detection counts a new `steering/test-coverage.json` and the coverage wrapper its commands name while they are untracked, so they must be accounted for; other untracked files, such as `steering/sdlc-models.json`, `steering/test-layers.json` or `CHANGELOG.md` created by earlier items of the same apply, are not counted and never fail it, but the proposal should still account for them so a later detection, once they are committed, proposes nothing. A symlinked or non-regular target, or one under a symlinked directory, fails `verification_scope_target_invalid` before any write. The root references/verification-scope.md gives the proposal derivation.
 
 Re-running detect after a successful v4 apply reports none of these items, except Test layers (item 20): it is re-emitted while the project has any test file, so a reappearing `test-layers:<digest>` item after an apply is expected, not a failed apply.
 

@@ -357,3 +357,12 @@ describe('stageModelsWarning', () => {
     expect(stageModelsWarning({ missing: true, missingKeys: [] })).toBe(ABSENT_WARNING);
   });
 });
+
+describe('@SCN002 Selection model and effort are configurable: the selection model entry', () => {
+  it('fails selection effort "huge" with the steering/sdlc-models.json diagnostic naming selection.effort', () => {
+    const selection = { model: 'sonnet', effort: 'huge' };
+    const config = { ...JSON.parse(JSON.stringify(STAGE_MODEL_DEFAULTS)), selection };
+    expect(() => validateStageModels(config)).toThrow(StageModelsError);
+    expect(() => validateStageModels(config)).toThrow('steering/sdlc-models.json: selection.effort = "huge": must be one of');
+  });
+});

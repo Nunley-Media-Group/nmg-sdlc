@@ -267,6 +267,8 @@ function readinessResult(status, reasonCode, implementation, scope, readiness, g
     gaps: [...new Set(gaps)],
   };
 }
+/** Selection reasons of an opted-in command whose selected tests ran: a failure there is checked, even when not required. */
+export const SELECTION_CHECKED_REASONS = new Set(['selected', 'coverage_failed', 'coverage_cancelled']);
 export function inspectVerificationArtifactRepair(artifact, {
   expectedIssueNumber,
   expectedHeadSha,
@@ -298,6 +300,9 @@ export function inspectVerificationArtifactRepair(artifact, {
   }
   const ids = [];
   const required = [];
+  // Opted-in commands whose selected tests ran (and the coverage check that followed): a failure there caps the
+  // ceiling and is a local failure to repair even when the validation is not required.
+  const checked = [];
   for (const result of Array.isArray(artifact.results) ? artifact.results : []) {
     if (!result || typeof result !== 'object' || Array.isArray(result)
       || typeof result.id !== 'string' || !result.id
@@ -310,14 +315,19 @@ export function inspectVerificationArtifactRepair(artifact, {
     }
     ids.push(result.id);
     if (result.required && result.applicable) required.push(result);
+    if (result.applicable && result.provider === 'builtin.command'
+      && SELECTION_CHECKED_REASONS.has(result.selection?.reason)) checked.push(result);
   }
   if (new Set(ids).size !== ids.length) gaps.push('verification artifact result ids must be unique');
-  const expectedCeiling = required.some(({ effectiveStatus }) => effectiveStatus === 'incomplete')
+  // The gate's selection ceiling: a rejection fails it; otherwise a checked opted-in result that did not pass caps it.
+  const rejected = Boolean(artifact.selection?.rejection);
+  const capping = [...required, ...(rejected ? [] : checked)];
+  const expectedCeiling = capping.some(({ effectiveStatus }) => effectiveStatus === 'incomplete')
     ? 'Incomplete'
-    : required.some(({ effectiveStatus }) => effectiveStatus !== 'passed')
+    : rejected || capping.some(({ effectiveStatus }) => effectiveStatus !== 'passed')
       ? 'Fail'
       : null;
-  if (artifact.ceiling !== expectedCeiling) gaps.push('verification artifact ceiling does not match required results');
+  if (artifact.ceiling !== expectedCeiling) gaps.push('verification artifact ceiling does not match required results and the selection');
   if (gaps.length) {
     return {
       status: 'unverifiable',
@@ -328,13 +338,13 @@ export function inspectVerificationArtifactRepair(artifact, {
       incomplete: [],
     };
   }
-  const failedLocal = required
+  const failedLocal = [...new Set(capping)]
     .filter(({ provider, effectiveStatus }) => provider === 'builtin.command' && effectiveStatus === 'failed')
     .map(({ id }) => id);
   const failedExternal = required
     .filter(({ provider, effectiveStatus }) => provider !== 'builtin.command' && effectiveStatus === 'failed')
     .map(({ id }) => id);
-  const incomplete = required
+  const incomplete = [...new Set(capping)]
     .filter(({ effectiveStatus }) => effectiveStatus === 'incomplete')
     .map(({ id }) => id);
   return {

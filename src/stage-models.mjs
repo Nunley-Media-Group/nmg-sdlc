@@ -4,6 +4,8 @@
 export const STAGE_MODELS_PATH = 'steering/sdlc-models.json';
 export const STAGE_NAMES = Object.freeze(['start', 'implement', 'verify', 'deliver', 'repair']);
 export const TOP_LEVEL_KEYS = Object.freeze(['version', ...STAGE_NAMES]);
+/** Optional top-level entries: validated when present, never reported missing, never added by completion. */
+export const OPTIONAL_TOP_LEVEL_KEYS = Object.freeze(['selection']);
 const ENTRY_KEYS = Object.freeze(['model', 'effort']);
 const EFFORTS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max', 'default']);
 const MODEL_ALIASES = Object.freeze(['haiku', 'sonnet', 'opus', 'fable', 'opusplan', 'best',
@@ -20,6 +22,9 @@ export const STAGE_MODEL_DEFAULTS = Object.freeze({
   deliver: Object.freeze({ model: 'haiku', effort: 'xhigh' }),
   repair: Object.freeze({ model: 'opus', effort: 'default' }),
 });
+
+/** The pre-merge gate's test and surface selection call when `selection` is absent. */
+export const SELECTION_MODEL_DEFAULT = Object.freeze({ model: 'haiku', effort: 'xhigh' });
 
 /** Earlier plugin defaults each stage no longer uses. Upgrade offers to move an entry that still holds one of these to
  * the current default; a value the project chose itself is never offered. Append here whenever a default changes. */
@@ -52,7 +57,7 @@ export function isValidStageModel(model) {
 export function validateStageModels(value) {
   if (!isPlainObject(value)) throw new StageModelsError('(root)', value, 'must be a JSON object');
   for (const key of Object.keys(value)) {
-    if (!TOP_LEVEL_KEYS.includes(key)) throw new StageModelsError(key, value[key], 'unknown top-level key');
+    if (!TOP_LEVEL_KEYS.includes(key) && !OPTIONAL_TOP_LEVEL_KEYS.includes(key)) throw new StageModelsError(key, value[key], 'unknown top-level key');
   }
   const missing = [];
   if (!Object.hasOwn(value, 'version')) missing.push('version');
@@ -62,22 +67,35 @@ export function validateStageModels(value) {
       missing.push(name);
       continue;
     }
-    const entry = value[name];
-    if (!isPlainObject(entry)) throw new StageModelsError(name, entry, 'must be an object with model and effort');
-    for (const key of Object.keys(entry)) {
-      if (!ENTRY_KEYS.includes(key)) throw new StageModelsError(`${name}.${key}`, entry[key], 'unknown key');
-    }
-    if (!Object.hasOwn(entry, 'model')) missing.push(`${name}.model`);
-    else if (!isValidStageModel(entry.model)) {
-      throw new StageModelsError(`${name}.model`, entry.model,
-        'must be a Claude alias, a claude-* id, or a provider/model id');
-    }
-    if (!Object.hasOwn(entry, 'effort')) missing.push(`${name}.effort`);
-    else if (!EFFORTS.includes(entry.effort)) {
-      throw new StageModelsError(`${name}.effort`, entry.effort, `must be one of ${EFFORTS.join(', ')}`);
-    }
+    validateEntry(name, value[name], missing);
   }
+  if (Object.hasOwn(value, 'selection')) validateEntry('selection', value.selection, []);
   return { missing };
+}
+
+function validateEntry(name, entry, missing) {
+  if (!isPlainObject(entry)) throw new StageModelsError(name, entry, 'must be an object with model and effort');
+  for (const key of Object.keys(entry)) {
+    if (!ENTRY_KEYS.includes(key)) throw new StageModelsError(`${name}.${key}`, entry[key], 'unknown key');
+  }
+  if (!Object.hasOwn(entry, 'model')) missing.push(`${name}.model`);
+  else if (!isValidStageModel(entry.model)) {
+    throw new StageModelsError(`${name}.model`, entry.model,
+      'must be a Claude alias, a claude-* id, or a provider/model id');
+  }
+  if (!Object.hasOwn(entry, 'effort')) missing.push(`${name}.effort`);
+  else if (!EFFORTS.includes(entry.effort)) {
+    throw new StageModelsError(`${name}.effort`, entry.effort, `must be one of ${EFFORTS.join(', ')}`);
+  }
+}
+
+/** The selection call's model and effort: the validated file's `selection` entry, each absent field defaulted. */
+export function selectionModel(config) {
+  const entry = isPlainObject(config?.selection) ? config.selection : {};
+  return {
+    model: Object.hasOwn(entry, 'model') ? entry.model : SELECTION_MODEL_DEFAULT.model,
+    effort: Object.hasOwn(entry, 'effort') ? entry.effort : SELECTION_MODEL_DEFAULT.effort,
+  };
 }
 
 export function stageModelsWarning(result) {

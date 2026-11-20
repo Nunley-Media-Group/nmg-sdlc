@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "suite": {
+    "program": "npm",
+    "args": ["--prefix", "scripts", "test", "--", "--runInBand"]
+  },
+  "coverage": {
+    "program": "node",
+    "args": ["scripts/jest-per-test-coverage.mjs"]
+  }
+}

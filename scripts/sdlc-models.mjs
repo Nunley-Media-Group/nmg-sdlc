@@ -13,73 +13,24 @@ import {
   StageModelsError,
   SUPERSEDED_STAGE_MODEL_DEFAULTS,
   TOP_LEVEL_KEYS,
-  stageModelsWarning,
   validateStageModels,
 } from '../src/stage-models.mjs';
+import { defaultsCopy, parseStageModelsFile as parseFile } from '../src/stage-models-file.mjs';
+
+export { loadStageModels } from '../src/stage-models-file.mjs';
 
 export {
+  SELECTION_MODEL_DEFAULT,
   STAGE_MODEL_DEFAULTS,
   STAGE_MODELS_PATH,
   STAGE_NAMES,
   StageModelsError,
   SUPERSEDED_STAGE_MODEL_DEFAULTS,
   isValidStageModel,
+  selectionModel,
   stageModelsWarning,
   validateStageModels,
 } from '../src/stage-models.mjs';
-
-function defaultsCopy() {
-  return Object.fromEntries([['version', 1], ...STAGE_NAMES.map((name) => [name, { ...STAGE_MODEL_DEFAULTS[name] }])]);
-}
-
-/** Config from a validated file: each missing key takes its plugin default. */
-function configFromValid(parsed) {
-  const config = { version: Object.hasOwn(parsed, 'version') ? parsed.version : 1 };
-  for (const name of STAGE_NAMES) {
-    const entry = Object.hasOwn(parsed, name) ? parsed[name] : {};
-    config[name] = {
-      model: Object.hasOwn(entry, 'model') ? entry.model : STAGE_MODEL_DEFAULTS[name].model,
-      effort: Object.hasOwn(entry, 'effort') ? entry.effort : STAGE_MODEL_DEFAULTS[name].effort,
-    };
-  }
-  return config;
-}
-
-function withWarning(result) {
-  return { ...result, warning: stageModelsWarning(result) };
-}
-
-/** `{ config, missing, missingKeys, warning }`: `missing` marks an absent file; invalid files throw. */
-export function loadStageModels(root) {
-  const target = path.join(path.resolve(root), STAGE_MODELS_PATH);
-  let stat;
-  try {
-    stat = fs.lstatSync(target);
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw new StageModelsError('(file)', undefined, `unreadable: ${error.code ?? error.message}`);
-    return withWarning({ config: defaultsCopy(), missing: true, missingKeys: [...TOP_LEVEL_KEYS] });
-  }
-  if (stat.isSymbolicLink() || !stat.isFile()) {
-    throw new StageModelsError('(file)', undefined, 'must be a regular file, not a symlink or directory');
-  }
-  const parsed = parseFile(target);
-  const { missing } = validateStageModels(parsed);
-  return withWarning({ config: configFromValid(parsed), missing: false, missingKeys: missing });
-}
-
-function parseFile(target) {
-  let text;
-  try {
-    text = fs.readFileSync(target, 'utf8');
-  } catch (error) {
-    throw new StageModelsError('(file)', undefined, `unreadable: ${error.code ?? error.message}`);
-  }
-  try {
-    return JSON.parse(text);
-  } catch (error) {
-    throw new StageModelsError('(file)', undefined, `invalid JSON: ${error.message}`);
-  }
-}
 
 function serialize(value) {
   return `${JSON.stringify(value, null, 2)}\n`;

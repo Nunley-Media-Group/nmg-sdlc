@@ -19,10 +19,14 @@ function parse(argv) {
   }
   if (!options.project || !/^\d+$/.test(options.issue ?? "") || !options.spec) throw new Error("invalid_arguments");
   if (options.tier !== undefined && !["pre-merge", "full"].includes(options.tier)) throw new Error("invalid_arguments");
+  // The base ref reaches git as an argument: one that is option-shaped or not a plain ref name is refused.
+  if (options.base !== undefined && (options.base.startsWith("-") || !/^[A-Za-z0-9._/@^~-]+$/.test(options.base))) throw new Error("invalid_arguments");
+  // `--mode select` resolves and stores the change selection without running any validation.
+  if (options.mode !== undefined && (options.mode !== "select" || options.tier === "full")) throw new Error("invalid_arguments");
   return options;
 }
 
-export async function main(argv = process.argv.slice(2), { signal } = {}) {
+export async function main(argv = process.argv.slice(2), { signal, runSelection, models } = {}) {
   const options = parse(argv);
   const projectRoot = realpathSync(resolve(options.project));
   const issue = Number(options.issue);
@@ -52,7 +56,14 @@ export async function main(argv = process.argv.slice(2), { signal } = {}) {
       verificationRunId,
       tier: options.tier ?? "pre-merge",
       signal,
+      runSelection,
+      models,
+      selectOnly: options.mode === "select",
     });
+    if (options.mode === "select") {
+      process.stdout.write(`${JSON.stringify({ ok: true, selection: artifact.selection }, null, 2)}\n`);
+      return;
+    }
     process.stdout.write(`${JSON.stringify({ ok: artifact.ceiling === null, ceiling: artifact.ceiling, issue: artifact.issue, coverage: artifact.coverage ?? null }, null, 2)}\n`);
     if (artifact.ceiling) process.exitCode = 1;
   } finally {
@@ -66,7 +77,9 @@ if (isCliEntry(import.meta.url)) {
   process.once("SIGINT", cancel);
   process.once("SIGTERM", cancel);
   main(process.argv.slice(2), { signal: controller.signal }).catch((error) => {
-    process.stdout.write(`${JSON.stringify({ ok: false, ceiling: "Incomplete", reasonCode: error.reasonCode ?? error.message }, null, 2)}\n`);
+    // A coded failure keeps its diagnostic (for example the steering/sdlc-models.json message) beside the code.
+    const summary = error.reasonCode && error.message && error.message !== error.reasonCode ? { summary: error.message } : {};
+    process.stdout.write(`${JSON.stringify({ ok: false, ceiling: "Incomplete", reasonCode: error.reasonCode ?? error.message, ...summary }, null, 2)}\n`);
     process.exitCode = 1;
   }).finally(() => {
     process.removeListener("SIGINT", cancel);

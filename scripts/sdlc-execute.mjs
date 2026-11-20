@@ -12,13 +12,14 @@ import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, 
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { defaultPromptRegistry, renderPrompt, writePromptProvenance } from '../src/sdlc-prompt-snippets.mjs';
 import { packageRoot } from '../src/sdlc-workflows.mjs';
+import { clearGuidance, storedGuidance, writeGuidance } from '../src/sdlc-test-selection.mjs';
 import { executeGoalCondition } from '../src/host-events.mjs';
 import { ACTIVE_AGENT_STATUSES, activityRecord, STAGE_AGENTS, WORKER_PERMISSION_MODES } from '../src/execute-host.mjs';
 import { loadStageModels, STAGE_MODEL_DEFAULTS, stageModelsWarning } from './sdlc-models.mjs';
 import { loadTestLayers, TEST_LAYER_TYPES } from './test-layers.mjs';
 import { collectEvidence, parseIssueBranch } from './sdlc-status.mjs';
 import { inspectPublicationScope, publicationFileEntries } from './sdlc-safe-recoveries.mjs';
-import { inspectVerificationArtifactRepair, inspectVerificationReadiness, MAX_VERIFICATION_REPORT_BYTES } from './verification-readiness.mjs';
+import { inspectVerificationArtifactRepair, inspectVerificationReadiness, MAX_VERIFICATION_REPORT_BYTES, SELECTION_CHECKED_REASONS } from './verification-readiness.mjs';
 import { matchesRegisteredResults } from './sdlc-finalize-verification.mjs';
 import { resolveSpecDir, specStatus, specStatusOnRef } from './issue-spec-scope.mjs';
 import { createIssueDependencyClient, eligibleIssues, issueDependencyStatus, readDependencyGraph } from './issue-dependencies.mjs';
@@ -57,6 +58,9 @@ const SETTLED = ['idle', 'completed'];
 const STOPPED = ['failed', 'killed'];
 export const STAGE_DECISIONS = Object.freeze(['accept', 'prompt', 'redispatch', 'halt']);
 export const CHECK_IN_DECISIONS = Object.freeze(['continue', 'prompt', 'redispatch', 'halt']);
+/** A rejected change selection is not a code defect: the supervising session supplies guidance, or halts. */
+export const SELECTION_ESCALATION_DECISIONS = Object.freeze(['redispatch', 'halt']);
+export const SELECTION_ESCALATION = 'selection_escalation';
 
 function defaultRun(command, args, options = {}) {
   return spawnSync(command, args, { encoding: 'utf8', ...options });
@@ -190,7 +194,7 @@ export function workerPermissionMode(env = process.env) {
   return WORKER_PERMISSION_MODES.includes(value) ? value : DEFAULT_WORKER_PERMISSION_MODE;
 }
 // Failures that wait on outside evidence rather than a repair: the next dispatch keeps its stage model.
-const REPAIR_EXEMPT_REASONS = new Set(['pr_evidence_pending', 'mergeability_reverification_required']);
+const REPAIR_EXEMPT_REASONS = new Set(['pr_evidence_pending', 'mergeability_reverification_required', 'selection_escalation']);
 /** The steering/sdlc-models.json entry a stage worker runs on: the repair entry for a repair
  * re-dispatch, otherwise the stage's own entry. */
 function stageEntry(step, failure, config) {
@@ -779,8 +783,10 @@ function prepareVersion(cwd, run, issue, invocationId) {
 // The gate's failing results: their ids, the test failure lines extracted from their command output (first ten
 // named), and the full-output log files that hold them.
 function gateFailures(artifact) {
-  const failing = (artifact.results ?? []).filter((item) =>
-    item.required && item.applicable && item.effectiveStatus !== 'passed');
+  // Required results, and opted-in commands whose selected tests ran, that did not pass.
+  const failing = (artifact.results ?? []).filter((item) => item.applicable && item.effectiveStatus !== 'passed'
+    && (item.required || (item.provider === 'builtin.command'
+      && SELECTION_CHECKED_REASONS.has(item.selection?.reason))));
   const evidence = failing.flatMap((item) => (Array.isArray(item.result?.evidence) ? item.result.evidence : []));
   return {
     ids: failing.map((item) => item.id),
@@ -797,6 +803,12 @@ function currentGateFailure(cwd, run, issue, head, report) {
     const artifact = JSON.parse(snapshot.bytes.toString('utf8'));
     const gateHead = sourceHeadForGate(cwd, run, head, report, artifact.identity?.headSha);
     if (!gateHead) return null;
+    // A rejected selection is escalated, never routed to implement.
+    const rejection = artifact.selection?.rejection;
+    if (rejection && typeof rejection === 'object') {
+      return { step: 'verify', head, reasonCode: SELECTION_ESCALATION,
+        summary: `Current registered gate rejected the change selection as ${rejection.reasonCode}`, artifacts: [path, ...(report ? [report] : [])] };
+    }
     const result = inspectVerificationArtifactRepair(artifact, {
       expectedIssueNumber: issue, expectedHeadSha: gateHead,
     });
@@ -990,10 +1002,13 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           evidence = statusEvidence(cwd, run);
           gate = registeredGateStatus(cwd, run, issue, headAfter, evidence) ?? 'not_green';
         } catch { /* reported as unavailable */ }
+        const escalated = step === 'verify' && handoff?.status === 'failed' && handoff.reasonCode === SELECTION_ESCALATION;
         const decision = decide({ kind: 'stage', ...base(), handoff, handoffFresh: Boolean(observed.handoff),
           workerState: observed.state, headBefore: before, headAfter, gate,
           ...(step === 'verify' ? { verification: verificationSummary(cwd, issue, evidence) } : {}),
-          promptRefusal, decisions: observed.state && !promptRefusal ? STAGE_DECISIONS : STAGE_DECISIONS.filter((action) => action !== 'prompt') });
+          ...(escalated ? { escalation: handoff.escalation ?? null } : {}),
+          promptRefusal, decisions: escalated ? SELECTION_ESCALATION_DECISIONS
+            : observed.state && !promptRefusal ? STAGE_DECISIONS : STAGE_DECISIONS.filter((action) => action !== 'prompt') });
         if (decision.action === 'accept') return { handoff, state: observed.state };
         if (decision.action !== 'prompt') return { handoff, state: observed.state, decision };
         // Snapshot before prompting: the handoff the worker writes for this guidance counts as fresh.
@@ -1068,6 +1083,14 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
       // A supervisor re-dispatch: the stage to repeat where routing allows, and its guidance.
       let forced = null;
       let guidance = null;
+      // Redispatch guidance for a selection escalation, kept until an implement stage changes the source.
+      let selectionGuidance = null;
+      // Stores the selection guidance bound to `head`; a write failure is reported, never fatal to the run.
+      const bindGuidance = (at, head) => {
+        try { writeGuidance(at, issue, head, selectionGuidance); } catch (error) {
+          output.push(`#${issue}: selection guidance not stored for ${head}: ${error.message}`);
+        }
+      };
       const implementedHeads = new Set();
       try {
       for (;;) {
@@ -1172,7 +1195,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           const intentLive = liveGateIntent(at, run, issue, current.head, evidence.verification?.path);
           if (!failure && !forced && !dirty && published && !intentLive) {
             const liveFailure = currentGateFailure(at, run, issue, current.head, evidence.verification?.path);
-            if (liveFailure) { recordFailure(liveFailure); needsImplement = true; }
+            if (liveFailure) { recordFailure(liveFailure); needsImplement = liveFailure.reasonCode !== SELECTION_ESCALATION; }
           }
           // A branch with nothing on it relative to the default branch has nothing to verify yet.
           const unimplemented = !implementedHeads.has(current.head) && !branchCommits(at, run, evidence);
@@ -1227,6 +1250,17 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           }
         }
         if (step === 'implement') inspectPublicationScope({ cwd: at, issue, spec: evidence.spec.path, step, run });
+        if (step === 'implement') {
+          selectionGuidance = null;
+          try { clearGuidance(at, issue); } catch {}
+        }
+        // A restarted controller recovers stored guidance, whatever head it was bound to.
+        if (step === 'verify' && selectionGuidance === null) {
+          try { selectionGuidance = storedGuidance(at, issue); } catch {}
+        }
+        // Queue-head integration and version preparation move the head after a redispatch, so the guidance is bound
+        // again to the head this verify runs at, and the rerun gate's selection still receives it.
+        if (step === 'verify' && selectionGuidance !== null) bindGuidance(at, current.head);
         inFlight(phase ? `${step}:${phase}` : step, branchIssue ? current.branch : '');
         const path = join(at, HANDOFF_DIR, `${issue}-${step}.json`);
         const prior = handoffSnapshot(at, path);
@@ -1241,7 +1275,9 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           ...(failure ? [
             `Previous attempted approach (${failure.step}) at HEAD ${failure.head}, tree ${failure.tree}, worktree ${JSON.stringify(failure.worktree)}: ${failure.reasonCode}: ${failure.summary}.\nArtifacts: ${failure.artifacts.join(', ') || '(none)'}.`,
             `Recent failure evidence:\n${history.slice(-8).map((item) => `- ${item.step} ${item.head}/${item.tree}: ${item.reasonCode}: ${item.summary}`).join('\n')}`,
-            'Diagnose the cause and choose a different testable repair. Do not repeat unchanged smoke inputs.',
+            failure.reasonCode === SELECTION_ESCALATION
+              ? `A selection escalation is not a code defect: rerun the gate${selectionGuidance !== null ? ' so the selection receives the supervisor guidance' : ''}, and never edit source or steering to pass it.`
+              : 'Diagnose the cause and choose a different testable repair. Do not repeat unchanged smoke inputs.',
           ] : []),
           ...(guidance ? [`Supervisor guidance: ${guidance}`] : []),
           ...(failure?.reasonCode === 'pr_evidence_pending' ? (
@@ -1284,6 +1320,11 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           }
           forced = step;
           guidance = decision.text;
+          // Selection guidance is bound to this head and appended to the rerun gate's selection prompt.
+          if (step === 'verify' && handoff?.reasonCode === SELECTION_ESCALATION) {
+            selectionGuidance = decision.text;
+            bindGuidance(at, checkout(at, run).head);
+          }
           // Only an implement re-dispatch implements; a verify re-dispatch skips the implement repair.
           needsImplement = step === 'implement';
           continue;
@@ -1367,6 +1408,10 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           failure = null;
           output.push(`#${issue}: ${step} passed`);
           continue;
+        }
+        if (step === 'verify' && handoff.status === 'failed' && !reviewed && handoff.reasonCode === SELECTION_ESCALATION) {
+          // Unsupervised, nobody can supply selection guidance, so the run stops.
+          throw new Error(`${SELECTION_ESCALATION}: ${handoff.summary}`);
         }
         if (step === 'verify' && handoff.status === 'failed' && !reviewed) {
           const afterEvidence = statusEvidence(at, run);

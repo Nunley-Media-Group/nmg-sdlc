@@ -115,6 +115,14 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/sdlc-review.mjs" finalize --issue N --spec s
 
 Run this phase only after a passed review of the current source. Do not repeat the review.
 
+When `steering/manifest.json` declares the top-level `selection`, first resolve the change selection, so any work it names (such as a project snippet's live surface exercises) can run before the gate:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/sdlc-verify-steering.mjs" --project . --issue N --spec specs/N-SLUG --base main --mode select [--controller-run-id R]
+```
+
+It prints `{ ok: true, selection }` and stores the selection; the gate below reuses it while the head, the change, the steering and the prompt are unchanged, so headless Claude is asked once per gate run. Then run the gate:
+
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/scripts/sdlc-verify-steering.mjs" --project . --issue N --spec specs/N-SLUG --base main [--controller-run-id R]
 ```
@@ -123,7 +131,9 @@ Read `.nmg-sdlc/verification/N.json`. The same runner is mandatory for interacti
 
 - In a project whose validations declare no `tier`, every required validation runs, as before, and each result records `tier: null` and `selection: null`.
 - In a project that declares tiers, the `change` tier runs and the `full` tier is recorded as skipped before merge; `/sdlc-verify-full` runs it on demand.
-- A `change` validation with a `selection` command runs its command with the tests that command selects for the changed paths appended to its `args`. It runs its full command when the change touches one of its `fallbackPaths`, or the selection command reports stale or missing data, answers `all`, or fails. Each result records `tier` and `selection`: `{ provider, reason, fallbackPath, selectedCount, dataAgeSeconds }`, where `reason` is `selected`, `fallback_path`, `selection_data_stale`, `selection_data_missing`, `selection_all`, `selection_failed` or `selection_empty`.
+- With a top-level `selection`, one headless Claude call (the bundled `gate:selection` prompt plus project snippets routed to it, on the `steering/sdlc-models.json` `selection` model, default `haiku` at `xhigh`) answers `{ mode, tests, surfaces }` for the change. A `change`-tier `builtin.command` validation with `selection: true` runs its command with the selected tests appended to its `args`. A changed path matching `fallbackPaths`, a failed, timed-out or malformed call, or an `all` answer runs everything (`fallback_path`, `selection_failed`, `selection_all`). Each result records `tier` and `selection`: `{ provider, reason, fallbackPath, selectedCount }`; the artifact's top-level `selection` records the prompt provenance, model, effort, reason, tests, surfaces, `requiredSurfaces`, `guidanceSupplied` and `rejection`.
+- A validation named in a surface's `validations` runs only when one of its surfaces is selected; otherwise it passes as `surface_not_selected`. An opted-in validation is never surface-bound (the steering runtime rejects the overlap), so the selected tests always run. Project providers receive `changedPaths` and `selection: { mode, reason, surfaces }`.
+- The selection is checked deterministically. A changed path outside `docPaths` matching a surface's `sources` must have that surface selected (`selection_surface_missing`). An empty selection passes (`selection_empty`) only when every changed path that still exists matches `docPaths` (so a deletion-only change may select nothing); otherwise it is `selection_empty_code_change`. After the selected tests pass, the `steering/test-coverage.json` coverage command runs for them, and every changed executable (or non-blank) line of a reported path must be hit (`selection_uncovered`, recorded as `coverage: { changedLines, hitLines, uncovered }`). Every changed path must be accounted for by the coverage report, a selected test, a selected surface, `docPaths` or `fallbackPaths` (`selection_unaccounted`); a path the change deletes is accounted for, since nothing of it is left to cover. A rejection fails the affected validations and names the surfaces, lines or paths.
 - A validation marked `heavy` waits for a slot in the host-wide heavy-job pool; the result records `heavy: { slot, waitedMs }`.
 
 Use the `coverage` summary to distinguish zero declarations from missing evidence: `declared: 0`, `recorded: 0`, and `complete: true` is a complete gate with no project-specific validations, while `complete: false` means declared results are missing, duplicated, or unknown and caps overall status at `Incomplete`. A required `failed` result caps status at `Fail`; required `incomplete`, runtime/provider/config errors, crashes, explicit cancellation, confirmed process loss, malformed output, stale identities, or applicable provider self-skips cap it at `Incomplete`. `Pass` and `PR Evidence Pending` are forbidden unless coverage is complete and every applicable required validation has a terminal result.
@@ -159,6 +169,8 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/sdlc-finalize-verification.mjs" --issue N --
 ```
 
 Pass `--queue-gate` in the gate phase under `/sdlc-execute`; standalone verification omits it. With it, a gate that is not green, other than PR Evidence Pending, fails with `reasonCode: "queue_gate_failed"` instead of `verification_not_ready`.
+
+A gate whose artifact records a selection `rejection` finalizes, with or without `--queue-gate`, as `reasonCode: "selection_escalation"`, `intervention: false`, `next: "verify"` and `escalation: { kind: "selection", reasonCode, uncovered, missingSurfaces, unaccounted, truncated }`, each list capped at 200 entries and `truncated` counting the rest. A selection gap is not a code defect: report it truthfully and do not edit source or steering to make it pass. `/sdlc-execute` presents it to its supervising session, and that session's redispatch guidance is appended to the rerun's selection prompt.
 
 The finalizer requires complete passing manifest-registered results, exact source/steering/spec identity, and the current truthful Pass report. A failed push is reconciled by the actual clean commit and exact upstream head with no force and no one-use allowance. Reinvocation with an unchanged report-only publication acknowledges the same passing source-parent gate without another commit; a changed implementation head requires the full registered gate.
 

@@ -40,6 +40,9 @@ import {
 } from './sdlc-safe-recoveries.mjs';
 import { TEST_LAYER_TYPES } from './test-layers.mjs';
 import { applyTestLayers, detectTestLayers, runTestLayersCli, TEST_LAYERS_COMMANDS } from './upgrade-test-layers.mjs';
+import { detectVerificationScope } from './verification-scope.mjs';
+
+const VERIFICATION_SCOPE_SCRIPT = fileURLToPath(new URL('./verification-scope.mjs', import.meta.url));
 
 const LEGACY_DIR_PREFIX_RE = /^(feature|bug|epic)-/;
 const NUM_SLUG_RE = /^(\d+)-(.*)$/;
@@ -2902,6 +2905,8 @@ function detectUpgrade(root, { run, includeIssueDependencies = run === defaultRu
   if (sdlcModelsDefaults) items.push(sdlcModelsDefaults);
   const testLayers = detectTestLayers(rootAbs);
   if (testLayers) items.push(testLayers);
+  const verificationScope = detectVerificationScope(rootAbs);
+  if (verificationScope) items.push(verificationScope);
 
   if (dependencyItem) {
     items.push(dependencyItem);
@@ -3162,9 +3167,31 @@ function applyAgentsSpikeLanguage(root, item) {
   return { id: item.id, status: 'applied' };
 }
 
+// The verification-scope apply re-validates with the async steering runtime, so it runs as its own CLI process.
+// applyUpgrade checked the approved digest against the live state before any item ran; the earlier items of this
+// same approved run (a steering-runtime repair, an AGENTS.md rename) may since have changed the manifest or the
+// tracked paths, so the child is bound to the state they left, re-detected here.
+function applyVerificationScopeItem(root, item, proposalPath) {
+  const current = detectVerificationScope(root);
+  if (!current) return { id: item.id, status: 'already-current' };
+  const result = spawnSync(process.execPath, [
+    VERIFICATION_SCOPE_SCRIPT, 'apply', '--root', root, '--approve', current.id, '--proposal', path.resolve(proposalPath),
+  ], { cwd: root, encoding: 'utf8', maxBuffer: MAX_COMMAND_OUTPUT_BYTES });
+  let output = null;
+  try {
+    output = JSON.parse(result.stdout);
+  } catch {
+    // reported below
+  }
+  if (output?.ok) return { ...output, id: item.id, status: 'applied' };
+  const reasonCode = output?.reasonCode ?? 'verification_scope_failed';
+  return { ...(output ?? {}), id: item.id, status: `failed:${reasonCode}`, message: output?.message ?? (result.stderr || String(result.error ?? '')) };
+}
+
 function applyUpgrade(root, approvedItemIds = [], run, {
   includeIssueDependencies = run === defaultRun,
   kept = null,
+  scopeProposal = null,
 } = {}) {
   const rootAbs = path.resolve(root);
   const report = detectUpgrade(rootAbs, { run, includeIssueDependencies });
@@ -3182,6 +3209,17 @@ function applyUpgrade(root, approvedItemIds = [], run, {
   if (approvedTestLayersId && report.items.find((item) => item.kind === 'test-layers')?.id !== approvedTestLayersId) {
     const error = new Error('Test files or test-layer steering changed after plan approval');
     error.reasonCode = 'test_layers_plan_stale';
+    throw error;
+  }
+  const approvedScopeId = [...approvedSet].find((id) => id.startsWith('verification-scope:'));
+  if (approvedScopeId && report.items.find((item) => item.kind === 'verification-scope')?.id !== approvedScopeId) {
+    const error = new Error('Steering manifest, test-coverage config or tracked files changed after plan approval');
+    error.reasonCode = 'verification_scope_plan_stale';
+    throw error;
+  }
+  if (approvedScopeId && !scopeProposal) {
+    const error = new Error('An approved verification-scope item needs --scope-proposal <file>');
+    error.reasonCode = 'verification_scope_proposal_missing';
     throw error;
   }
   const liveDependencyItem = report.items.find((item) => item.kind === 'issue-dependencies');
@@ -3209,7 +3247,7 @@ function applyUpgrade(root, approvedItemIds = [], run, {
 
   // Split cumulative packages before renaming their shared legacy source.
   const order = (a, b) => {
-    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'steering-runtime': 2, 'publication-files': 3, 'cumulative-split': 4, 'directory-rename': 5, 'epic-flatten': 6, 'spike-flatten': 7, 'spike-remove': 7, 'spike-issue-form': 7, 'agents-spike-language': 7, 'agents-host-language': 7.5, 'agents-to-claude-md': 7.75, 'frontmatter-fix': 8, 'v2-cleanup': 9, 'runtime-state-v4': 9.5, 'nmg-sdlc-ignore': 10, 'steering-v4-host-language': 10.5, 'contributing-v4-host-language': 10.5, 'changelog-create': 10.75, 'sdlc-models': 10.8, 'sdlc-models-defaults': 10.81, 'test-layers': 10.82, 'issue-dependencies': 11, 'already-current': 99 }[k] ?? 50);
+    const pri = (k) => ({ packaging: 0, 'legacy-layout': 1, 'steering-runtime': 2, 'publication-files': 3, 'cumulative-split': 4, 'directory-rename': 5, 'epic-flatten': 6, 'spike-flatten': 7, 'spike-remove': 7, 'spike-issue-form': 7, 'agents-spike-language': 7, 'agents-host-language': 7.5, 'agents-to-claude-md': 7.75, 'frontmatter-fix': 8, 'v2-cleanup': 9, 'runtime-state-v4': 9.5, 'nmg-sdlc-ignore': 10, 'steering-v4-host-language': 10.5, 'contributing-v4-host-language': 10.5, 'changelog-create': 10.75, 'sdlc-models': 10.8, 'sdlc-models-defaults': 10.81, 'test-layers': 10.82, 'verification-scope': 10.83, 'issue-dependencies': 11, 'already-current': 99 }[k] ?? 50);
     return pri(a.kind) - pri(b.kind);
   };
   const toApply = [...report.items].filter((it) => approvedSet.has(it.id));
@@ -3265,6 +3303,8 @@ function applyUpgrade(root, approvedItemIds = [], run, {
       res = applySdlcModelsDefaults(rootAbs, item);
     } else if (item.kind === 'test-layers') {
       res = applyTestLayers(rootAbs, item, kept);
+    } else if (item.kind === 'verification-scope') {
+      res = applyVerificationScopeItem(rootAbs, item, scopeProposal);
     } else if (item.kind === 'issue-dependencies') {
       res = applyIssueDependencyUpgrade(item, { cwd: rootAbs, run });
     } else if (item.kind === 'packaging' || item.kind === 'legacy-layout' || item.kind === 'already-current') {
@@ -3311,7 +3351,7 @@ function applyUpgrade(root, approvedItemIds = [], run, {
 const UPGRADE_COMMANDS = new Set(['detect', 'apply', 'detect-publication', 'apply-publication']);
 const PUBLICATION_COMMANDS = new Set(['detect-publication', 'apply-publication']);
 const LEGACY_UPGRADE_COMMANDS = new Set(['detect', 'apply']);
-const CLI_VALUE_OPTIONS = new Set(['--root', '-r', '--approve', '-a', '--spec', '-s', '--kept', '--batch']);
+const CLI_VALUE_OPTIONS = new Set(['--root', '-r', '--approve', '-a', '--spec', '-s', '--kept', '--batch', '--scope-proposal']);
 
 function resolveUpgradeCommand(argv) {
   const tokens = argv.slice(2);
@@ -3427,6 +3467,7 @@ function parseArgv(argv) {
     approveMalformed: false,
     specDirs: [],
     kept: null,
+    scopeProposal: null,
   };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
@@ -3451,6 +3492,8 @@ function parseArgv(argv) {
     } else if (a === '--kept' || a.startsWith('--kept=')) {
       const value = a === '--kept' ? (argv[++i] ?? '') : a.slice('--kept='.length);
       args.kept = value.split(',').map((entry) => entry.trim());
+    } else if (a === '--scope-proposal' || a.startsWith('--scope-proposal=')) {
+      args.scopeProposal = a === '--scope-proposal' ? (argv[++i] ?? '') : a.slice('--scope-proposal='.length);
     }
   }
   return args;
@@ -3478,7 +3521,7 @@ if (isCliEntry(import.meta.url) && TEST_LAYERS_COMMANDS.has(process.argv[2])) {
     validatePublicationCli(process.argv, args.cmd);
     if (!args.cmd) {
       console.error([
-        'Usage: node scripts/sdlc-upgrade.mjs <detect|apply> [--root <dir>] [--approve id1,id2] [--kept bdd,unit]',
+        'Usage: node scripts/sdlc-upgrade.mjs <detect|apply> [--root <dir>] [--approve id1,id2] [--kept bdd,unit] [--scope-proposal <file>]',
         'Usage: node scripts/sdlc-upgrade.mjs test-layers-candidates --root <dir>',
         'Usage: node scripts/sdlc-upgrade.mjs test-layers-batch <begin|gate> --root <dir> --batch batch-NNN',
         'Usage: node scripts/sdlc-upgrade.mjs test-layers-report --root <dir>',
@@ -3491,7 +3534,10 @@ if (isCliEntry(import.meta.url) && TEST_LAYERS_COMMANDS.has(process.argv[2])) {
       const out = detectUpgrade(args.root, { run: defaultRun });
       console.log(JSON.stringify(out, null, 2));
     } else if (args.cmd === 'apply') {
-      const out = applyUpgrade(args.root, args.approve, defaultRun, { kept: parseKept(args.kept) });
+      const out = applyUpgrade(args.root, args.approve, defaultRun, {
+        kept: parseKept(args.kept),
+        scopeProposal: args.scopeProposal || null,
+      });
       console.log(JSON.stringify(out, null, 2));
     } else if (args.cmd === 'detect-publication') {
       const out = detectPublicationUpgrade(args.root, { specDirs: args.specDirs });
@@ -3522,6 +3568,7 @@ if (isCliEntry(import.meta.url) && TEST_LAYERS_COMMANDS.has(process.argv[2])) {
 export {
   applyPublicationUpgrade,
   applyUpgrade,
+  applyVerificationScopeItem,
   detectPublicationUpgrade,
   detectUpgrade,
 };

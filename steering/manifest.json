@@ -87,6 +87,15 @@
       ],
       "slot": "body",
       "order": 510
+    },
+    {
+      "id": "project.selection",
+      "path": "steering/snippets/project-selection.md",
+      "consumers": [
+        "gate:selection"
+      ],
+      "slot": "body",
+      "order": 500
     }
   ],
   "extensions": [
@@ -117,7 +126,9 @@
         "env": [
           "CI"
         ]
-      }
+      },
+      "tier": "change",
+      "selection": true
     },
     {
       "id": "repository.nmg-sdlc-smoke",
@@ -133,6 +144,203 @@
           "record": ".nmg-sdlc/smoke/provisioned.json"
         }
       }
+    },
+    {
+      "id": "repository.tests.full",
+      "provider": "builtin.command",
+      "required": true,
+      "when": {
+        "kind": "always"
+      },
+      "config": {
+        "program": "npm",
+        "args": [
+          "test",
+          "--",
+          "--runInBand"
+        ],
+        "cwd": "scripts",
+        "env": [
+          "CI"
+        ]
+      },
+      "tier": "full"
+    },
+    {
+      "id": "repository.nmg-sdlc-smoke.full",
+      "provider": "project.nmg-sdlc-smoke",
+      "required": true,
+      "when": {
+        "kind": "always"
+      },
+      "config": {
+        "issuesEnv": "NMG_SDLC_SMOKE_ISSUES",
+        "provision": {
+          "need": "Add one small, new, self-contained capability to this project that no existing issue or spec covers. Keep it to a single issue.",
+          "record": ".nmg-sdlc/smoke/provisioned.json"
+        }
+      },
+      "tier": "full"
+    }
+  ],
+  "selection": {
+    "docPaths": [
+      "README.md",
+      "CHANGELOG.md",
+      "CONTRIBUTING.md",
+      "CLAUDE.md",
+      "LICENSE",
+      "VERSION",
+      "docs/**",
+      "specs/**",
+      "package.json",
+      ".claude-plugin/plugin.json"
+    ],
+    "fallbackPaths": [
+      "hooks/**",
+      "tsconfig.json",
+      ".gitignore",
+      "scripts/package.json",
+      "scripts/package-lock.json",
+      "steering/manifest.json",
+      "steering/extensions/**",
+      "src/*.d.mts"
+    ],
+    "coveragePaths": [
+      "src/**/*.mjs",
+      "scripts/*.mjs",
+      "scripts/__tests__/**"
+    ]
+  },
+  "surfaces": [
+    {
+      "id": "draft-issue",
+      "sources": [
+        "workflows/draft-issue/**"
+      ],
+      "validations": [
+        "repository.nmg-sdlc-smoke"
+      ]
+    },
+    {
+      "id": "write-spec",
+      "sources": [
+        "workflows/write-spec/**",
+        "scripts/publish-approved-spec.mjs"
+      ],
+      "validations": [
+        "repository.nmg-sdlc-smoke"
+      ]
+    },
+    {
+      "id": "onboard-project",
+      "sources": [
+        "workflows/onboard-project/**"
+      ],
+      "validations": [
+        "repository.nmg-sdlc-smoke"
+      ]
+    },
+    {
+      "id": "upgrade-project",
+      "sources": [
+        "workflows/upgrade-project/**",
+        "workflows/migrate-project/**",
+        "scripts/sdlc-upgrade.mjs",
+        "scripts/verification-scope.mjs"
+      ],
+      "validations": [
+        "repository.nmg-sdlc-smoke"
+      ]
+    },
+    {
+      "id": "steering",
+      "sources": [
+        "workflows/steering/**",
+        "scripts/sdlc-steering.mjs"
+      ],
+      "validations": [
+        "repository.nmg-sdlc-smoke"
+      ]
+    },
+    {
+      "id": "run-retro",
+      "sources": [
+        "workflows/run-retro/**"
+      ],
+      "validations": [
+        "repository.nmg-sdlc-smoke"
+      ]
+    },
+    {
+      "id": "execute",
+      "sources": [
+        "workflows/execute/**",
+        "workflows/start-issue/**",
+        "workflows/write-code/**",
+        "workflows/verify-code/**",
+        "workflows/open-pr/**",
+        "workflows/address-pr-comments/**",
+        "workflows/simplify/**",
+        "agents/**",
+        "commands/sdlc-verify-code.md",
+        "commands/sdlc-open-pr.md",
+        "scripts/sdlc-execute*.mjs",
+        "scripts/sdlc-deliver.mjs",
+        "scripts/sdlc-review.mjs",
+        "scripts/sdlc-finalize-verification.mjs",
+        "src/execute-host.mjs"
+      ],
+      "validations": [
+        "repository.nmg-sdlc-smoke"
+      ]
+    },
+    {
+      "id": "status",
+      "sources": [
+        "workflows/status/**",
+        "commands/sdlc-status.md"
+      ]
+    },
+    {
+      "id": "verify-full",
+      "sources": [
+        "workflows/verify-full/**",
+        "commands/sdlc-verify-full.md"
+      ]
+    },
+    {
+      "id": "plugin-host",
+      "sources": [
+        "hooks/**",
+        ".claude-plugin/**"
+      ]
+    },
+    {
+      "id": "shared-references",
+      "sources": [
+        "references/**"
+      ]
+    },
+    {
+      "id": "project-steering",
+      "sources": [
+        "steering/**"
+      ]
+    },
+    {
+      "id": "script-assets",
+      "sources": [
+        "scripts/__fixtures__/**",
+        "scripts/**/*.json",
+        "scripts/**/*.sh"
+      ]
+    },
+    {
+      "id": "ci",
+      "sources": [
+        ".github/**"
+      ]
     }
   ]
 }

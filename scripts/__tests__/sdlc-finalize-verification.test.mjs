@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { finalizeVerification, matchesRegisteredResults, withScopeMarker } from '../sdlc-finalize-verification.mjs';
 import { inspectIssueSpecScope, issueScopeMarker } from '../issue-spec-scope.mjs';
 import { canonicalJson } from '../../src/sdlc-steering-runtime.mjs';
+import { MAX_REJECTION_ENTRIES } from '../../src/sdlc-test-selection.mjs';
 import { inspectVerificationReadiness } from '../verification-readiness.mjs';
 
 const roots = [];
@@ -366,5 +367,51 @@ describe('resolver-produced issue-scope marker (#491)', () => {
     expect(issueScopeMarker(scope)).toBe(`<!-- nmg-sdlc-issue-scope: {"issueNumber":42,"specPath":"${SPEC}","status":"scoped","delivery":{"acceptanceCriteria":["AC1"],"functionalRequirements":[],"tasks":[],"scenarios":["SCN001"]},"regression":{"acceptanceCriteria":[],"functionalRequirements":[],"scenarios":[]}} -->`);
     expect(issueScopeMarker({ ...scope, status: 'unverifiable' })).toBeNull();
     expect(issueScopeMarker(null)).toBeNull();
+  });
+});
+
+describe('@SCN008 a rejected selection escalates to the orchestrator (#584 AC7, FR7)', () => {
+  const ARTIFACT = '.nmg-sdlc/verification/42.json';
+  const rejection = { reasonCode: 'selection_unaccounted', uncovered: [], missingSurfaces: [], unaccounted: ['tools/build.sh'] };
+  function rejectedFixture(selected = rejection, { staleHead = false } = {}) {
+    const root = makeRoot();
+    writeSteering(root);
+    writeSpec(root);
+    const head = gitInit(root);
+    writeReport(root, 'Fail', head);
+    writeArtifact(root, head, 'Fail', 'failed');
+    const file = path.join(root, ARTIFACT);
+    const artifact = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const identity = staleHead ? { ...artifact.identity, headSha: 'f'.repeat(40) } : artifact.identity;
+    fs.writeFileSync(file, JSON.stringify({ ...artifact, identity, selection: { mode: 'selected', reason: 'selected', rejection: selected } }));
+    return root;
+  }
+
+  it.each([true, false])('finalizes a rejected selection as selection_escalation back to verify (queueGate %s)', (queueGate) => {
+    const root = rejectedFixture();
+    const out = finalizeVerification({ issue: 42, spec: SPEC, cwd: root, queueGate });
+    expect(out.handoff).toMatchObject({ status: 'failed', reasonCode: 'selection_escalation', intervention: false, next: 'verify',
+      artifacts: [REPORT, ARTIFACT], escalation: { kind: 'selection', ...rejection, truncated: 0 } });
+    expect(out.handoff.summary).toContain('selection_unaccounted: tools/build.sh');
+  });
+
+  it('never escalates a rejection recorded for another head', () => {
+    const root = rejectedFixture(rejection, { staleHead: true });
+    const out = finalizeVerification({ issue: 42, spec: SPEC, cwd: root });
+    expect(out.handoff.reasonCode).not.toBe('selection_escalation');
+    expect(out.handoff.escalation).toBeUndefined();
+  });
+
+  it('bounds a 5000-entry rejection so the escalation handoff stays readable', () => {
+    const unaccounted = Array.from({ length: 5000 }, (_, index) => `generated/file-${index}.js`);
+    const root = rejectedFixture({ ...rejection, unaccounted });
+    const out = finalizeVerification({ issue: 42, spec: SPEC, cwd: root });
+    expect(out.handoff.reasonCode).toBe('selection_escalation');
+    expect(out.handoff.escalation.unaccounted).toHaveLength(MAX_REJECTION_ENTRIES);
+    expect(out.handoff.escalation.truncated).toBe(5000 - MAX_REJECTION_ENTRIES);
+    expect(out.handoff.summary).toContain(`and ${5000 - 50} more`);
+    const written = fs.readFileSync(path.join(root, '.nmg-sdlc/handoffs/42-verify.json'));
+    expect(written.length).toBeLessThan(256 * 1024);
+    expect(JSON.parse(written.toString('utf8')).escalation.unaccounted).toHaveLength(MAX_REJECTION_ENTRIES);
   });
 });
