@@ -282,6 +282,10 @@ export async function loadSteeringRuntime(projectRoot, { manifestPath = "steerin
 
   const validationIds = new Set(validations.map((validation) => validation.id));
   if (optional.surfaces.some((surface) => surface.validations.some((id) => !validationIds.has(id)))) fail("steering_manifest_invalid", "surfaces");
+  // An opted-in validation runs the selected tests; binding it to a surface too would let an unselected surface pass
+  // it without running them.
+  const optedIn = new Set(validations.filter((validation) => validation.selection === true).map((validation) => validation.id));
+  if (optional.surfaces.some((surface) => surface.validations.some((id) => optedIn.has(id)))) fail("steering_manifest_invalid", "surfaces");
 
   const steeringFiles = [absoluteManifest, ...manifest.modules.map((x) => resolve(root, x.path)), ...manifest.snippets.map((x) => resolve(root, x.path)), ...manifest.extensions.map((x) => resolve(root, x.path))];
   const steeringHash = hash(steeringFiles.map((file) => `${relative(root, file)}\0${readFileSync(file)}`).join("\0"));

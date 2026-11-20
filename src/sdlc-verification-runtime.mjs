@@ -5,7 +5,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { canonicalJson, loadSteeringRuntime, SteeringError, validationTier } from "./sdlc-steering-runtime.mjs";
 import { acquireHeavySlot } from "./heavy-pool.mjs";
 import { globRegex, matches } from "./sdlc-glob.mjs";
-import { rebaseTestId, rejectionOf, rejectionSummary, resolveChangeSelection, selectedTestPaths, unaccountedPaths } from "./sdlc-test-selection.mjs";
+import { MAX_UNTRACKED_FILE_BYTES, rebaseTestId, rejectionOf, rejectionSummary, resolveChangeSelection, selectedTestPaths, unaccountedPaths } from "./sdlc-test-selection.mjs";
 import { StageModelsError } from "./stage-models.mjs";
 import { loadStageModels } from "./stage-models-file.mjs";
 import { loadTestCoverageConfig, validateCoverageReport } from "./test-coverage.mjs";
@@ -379,8 +379,10 @@ function changedLines(projectRoot, baseRef) {
     if (!entry.startsWith("?? ")) continue;
     const path = entry.slice(3);
     try {
-      // A symlink or other non-file entry is never followed into its target.
-      if (!lstatSync(resolve(projectRoot, path)).isFile()) continue;
+      // A symlink or other non-file entry is never followed into its target, and a file too large to be source is
+      // left to path accounting.
+      const stat = lstatSync(resolve(projectRoot, path));
+      if (!stat.isFile() || stat.size > MAX_UNTRACKED_FILE_BYTES) continue;
       const count = readFileSync(resolve(projectRoot, path), "utf8").split("\n").length;
       lines.set(path, new Set(Array.from({ length: count }, (_, index) => index + 1)));
     } catch {}

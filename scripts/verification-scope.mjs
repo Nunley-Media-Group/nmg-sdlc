@@ -5,9 +5,12 @@
  * steering/test-coverage.json) and the approved apply of a proposal for it.
  *
  * Detection is read-only and reads steering/manifest.json as raw JSON, so a manifest the runtime would reject (a
- * legacy command `selection`) is still reported. `unaccounted_paths` is evaluated only once both `selection` and
- * `surfaces` exist, so it never repeats the `selection_missing` / `surfaces_missing` findings. Apply refuses a stale
- * digest before any write, re-validates with the steering runtime and restores the original bytes on any failure.
+ * legacy command `selection`) is still reported. `unaccounted_paths` lists every tracked or untracked, non-ignored
+ * path outside `.nmg-sdlc/` that no glob accounts for, even while `selection` or `surfaces` is missing, so a first
+ * proposal sees every path; the list is capped at UNACCOUNTED_LIST_LIMIT with the full count in `unaccountedCount`.
+ * Apply refuses a stale digest before any write, re-validates with the steering runtime and restores the original
+ * bytes on any failure, including a proposal whose new files (steering/test-coverage.json, a coverage wrapper)
+ * leave a path unaccounted.
  */
 
 import { createHash } from 'node:crypto';
@@ -54,15 +57,22 @@ function readBytes(root, rel) {
   }
 }
 
-/** Sorted `git ls-files` paths; empty when the root is not a git work tree. */
-function trackedPaths(root) {
-  const result = spawnSync('git', ['-c', 'core.quotePath=false', 'ls-files', '-z'], {
+/** At most this many unaccounted paths are listed; `unaccountedCount` gives the full count. */
+export const UNACCOUNTED_LIST_LIMIT = 200;
+
+/**
+ * Sorted `git ls-files` paths: the tracked ones, or with `untracked` also the untracked, non-ignored ones outside
+ * the runtime `.nmg-sdlc/` directory. Empty when the root is not a git work tree.
+ */
+function projectPaths(root, { untracked = false } = {}) {
+  const args = ['-c', 'core.quotePath=false', 'ls-files', '-z', ...(untracked ? ['--cached', '--others', '--exclude-standard'] : [])];
+  const result = spawnSync('git', args, {
     cwd: path.resolve(root),
     encoding: 'utf8',
     maxBuffer: 256 * 1024 * 1024,
   });
   if (result.status !== 0 || typeof result.stdout !== 'string') return [];
-  return [...new Set(result.stdout.split('\0').filter(Boolean))].sort();
+  return [...new Set(result.stdout.split('\0').filter((rel) => rel && !rel.startsWith('.nmg-sdlc/')))].sort();
 }
 
 function coverageState(root) {
@@ -101,7 +111,7 @@ export function detectVerificationScope(root) {
   }
   if (!isPlainObject(manifest)) return null;
   const coverageBytes = readBytes(root, TEST_COVERAGE_PATH);
-  const tracked = trackedPaths(root);
+  const tracked = projectPaths(root);
   const validations = Array.isArray(manifest.validations) ? manifest.validations.filter(isPlainObject) : [];
   const selection = Object.hasOwn(manifest, 'selection') && isPlainObject(manifest.selection) ? manifest.selection : null;
   const surfaces = Array.isArray(manifest.surfaces) && manifest.surfaces.length > 0 ? manifest.surfaces : null;
@@ -115,15 +125,16 @@ export function detectVerificationScope(root) {
   const coverageConfig = coverageState(root);
   if (commandValidations.length && coverageConfig !== 'present') findings.push(`test_coverage_${coverageConfig}`);
   if (!surfaces) findings.push('surfaces_missing');
-  // Listed whatever else is missing, so a first proposal sees every path it must account for.
+  // Listed whatever else is missing, so a first proposal sees every path it must account for. Untracked files count
+  // too, so a file an apply writes (steering/test-coverage.json, a coverage wrapper) must be accounted for.
   const globs = [
     ...globsOf(selection?.coveragePaths),
     ...(surfaces ?? []).flatMap((surface) => globsOf(surface?.sources)),
     ...globsOf(selection?.docPaths),
     ...globsOf(selection?.fallbackPaths),
   ];
-  const unaccountedPaths = tracked.filter((rel) => !matches(rel, globs));
-  if (unaccountedPaths.length) findings.push('unaccounted_paths');
+  const unaccounted = projectPaths(root, { untracked: true }).filter((rel) => !matches(rel, globs));
+  if (unaccounted.length) findings.push('unaccounted_paths');
   if (!findings.length) return null;
 
   const digest = digestOf(manifestBytes, coverageBytes, tracked);
@@ -137,7 +148,8 @@ export function detectVerificationScope(root) {
     rel: MANIFEST_PATH,
     actionable: true,
     findings,
-    unaccountedPaths,
+    unaccountedPaths: unaccounted.slice(0, UNACCOUNTED_LIST_LIMIT),
+    unaccountedCount: unaccounted.length,
     pluginProject,
     commandValidations,
     legacySelections,
@@ -181,8 +193,20 @@ function readProposal(proposalPath) {
   return { ok: true, proposal: { ...proposal, optIn } };
 }
 
-/** Whether `rel` is absent or a regular file; a symlink or any other entry is never written through. */
+/**
+ * Whether `rel` is absent or a regular file under real directories: a symlink, at the target or at any directory
+ * between the root and it, or any other entry is never written through.
+ */
 function writableTarget(root, rel) {
+  const segments = rel.split('/');
+  for (let depth = 1; depth < segments.length; depth += 1) {
+    try {
+      const stat = fs.lstatSync(abs(root, segments.slice(0, depth).join('/')));
+      if (stat.isSymbolicLink() || !stat.isDirectory()) return false;
+    } catch (error) {
+      return error?.code === 'ENOENT';
+    }
+  }
   try {
     const stat = fs.lstatSync(abs(root, rel));
     return stat.isFile() && !stat.isSymbolicLink();
@@ -272,6 +296,7 @@ export async function applyVerificationScope(root, item, proposalPath) {
     return failure('verification_scope_proposal_incomplete', `the proposal leaves findings: ${remaining.findings.join(', ')}`, {
       remainingFindings: remaining.findings,
       unaccountedPaths: remaining.unaccountedPaths,
+      unaccountedCount: remaining.unaccountedCount,
       restored: updated,
     });
   }

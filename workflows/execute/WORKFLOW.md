@@ -121,7 +121,7 @@ Keep the session id. Answer every report before doing anything else, because the
 
 ### Selection escalations
 
-A verify stage report whose handoff has `reasonCode: "selection_escalation"` carries an `escalation` object: `{ kind: "selection", reasonCode, uncovered, missingSurfaces, unaccounted }`. The pre-merge gate rejected the change selection that headless Claude made for the change. The `reasonCode` is one of:
+A verify stage report whose handoff has `reasonCode: "selection_escalation"` carries an `escalation` object: `{ kind: "selection", reasonCode, uncovered, missingSurfaces, unaccounted, truncated }`, each list capped at 200 entries and `truncated` counting the rest. The pre-merge gate rejected the change selection that headless Claude made for the change. The `reasonCode` is one of:
 
 - `selection_uncovered`: changed lines the selected tests do not hit;
 - `selection_surface_missing`: a changed surface that was not selected;

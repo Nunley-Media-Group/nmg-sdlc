@@ -12,7 +12,7 @@ import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, 
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { defaultPromptRegistry, renderPrompt, writePromptProvenance } from '../src/sdlc-prompt-snippets.mjs';
 import { packageRoot } from '../src/sdlc-workflows.mjs';
-import { writeGuidance } from '../src/sdlc-test-selection.mjs';
+import { clearGuidance, storedGuidance, writeGuidance } from '../src/sdlc-test-selection.mjs';
 import { executeGoalCondition } from '../src/host-events.mjs';
 import { ACTIVE_AGENT_STATUSES, activityRecord, STAGE_AGENTS, WORKER_PERMISSION_MODES } from '../src/execute-host.mjs';
 import { loadStageModels, STAGE_MODEL_DEFAULTS, stageModelsWarning } from './sdlc-models.mjs';
@@ -783,8 +783,10 @@ function prepareVersion(cwd, run, issue, invocationId) {
 // The gate's failing results: their ids, the test failure lines extracted from their command output (first ten
 // named), and the full-output log files that hold them.
 function gateFailures(artifact) {
-  const failing = (artifact.results ?? []).filter((item) =>
-    item.required && item.applicable && item.effectiveStatus !== 'passed');
+  // Required results, and opted-in commands whose selected tests ran, that did not pass.
+  const failing = (artifact.results ?? []).filter((item) => item.applicable && item.effectiveStatus !== 'passed'
+    && (item.required || (item.provider === 'builtin.command'
+      && ['selected', 'coverage_failed', 'coverage_cancelled'].includes(item.selection?.reason))));
   const evidence = failing.flatMap((item) => (Array.isArray(item.result?.evidence) ? item.result.evidence : []));
   return {
     ids: failing.map((item) => item.id),
@@ -1248,7 +1250,14 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           }
         }
         if (step === 'implement') inspectPublicationScope({ cwd: at, issue, spec: evidence.spec.path, step, run });
-        if (step === 'implement') selectionGuidance = null;
+        if (step === 'implement') {
+          selectionGuidance = null;
+          try { clearGuidance(at, issue); } catch {}
+        }
+        // A restarted controller recovers stored guidance, whatever head it was bound to.
+        if (step === 'verify' && selectionGuidance === null) {
+          try { selectionGuidance = storedGuidance(at, issue); } catch {}
+        }
         // Queue-head integration and version preparation move the head after a redispatch, so the guidance is bound
         // again to the head this verify runs at, and the rerun gate's selection still receives it.
         if (step === 'verify' && selectionGuidance !== null) bindGuidance(at, current.head);
@@ -1267,7 +1276,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
             `Previous attempted approach (${failure.step}) at HEAD ${failure.head}, tree ${failure.tree}, worktree ${JSON.stringify(failure.worktree)}: ${failure.reasonCode}: ${failure.summary}.\nArtifacts: ${failure.artifacts.join(', ') || '(none)'}.`,
             `Recent failure evidence:\n${history.slice(-8).map((item) => `- ${item.step} ${item.head}/${item.tree}: ${item.reasonCode}: ${item.summary}`).join('\n')}`,
             failure.reasonCode === SELECTION_ESCALATION
-              ? 'A selection escalation is not a code defect: rerun the gate so the selection receives the supervisor guidance, and never edit source or steering to pass it.'
+              ? `A selection escalation is not a code defect: rerun the gate${selectionGuidance !== null ? ' so the selection receives the supervisor guidance' : ''}, and never edit source or steering to pass it.`
               : 'Diagnose the cause and choose a different testable repair. Do not repeat unchanged smoke inputs.',
           ] : []),
           ...(guidance ? [`Supervisor guidance: ${guidance}`] : []),

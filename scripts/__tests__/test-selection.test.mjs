@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { applySteeringPlan, createInitializePlan } from '../sdlc-steering.mjs';
 import { loadSteeringRuntime } from '../../src/sdlc-steering-runtime.mjs';
-import { ANSWER_SCHEMA, resolveChangeSelection, selectionPath } from '../../src/sdlc-test-selection.mjs';
+import { ANSWER_SCHEMA, clearGuidance, MAX_UNTRACKED_FILE_BYTES, readGuidance, resolveChangeSelection, selectionPath, storedGuidance, writeGuidance } from '../../src/sdlc-test-selection.mjs';
 
 const roots = [];
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
@@ -202,6 +202,24 @@ describe('@SCN010 full-run fallbacks (#584 AC9)', () => {
 });
 
 describe('@SCN010 a failed call keeps its diagnostic (#584 AC9)', () => {
+  it('runs everything when the prompt cannot be built, before any call', async () => {
+    const { root, runtime } = await project();
+    const { calls, run } = recorder({ mode: 'selected', tests: [], surfaces: ['app'] });
+    const selection = await resolve(root, runtime, run, { packageRoot: path.join(root, 'no-such-plugin') });
+    expect(selection).toMatchObject({ mode: 'all', reason: 'selection_failed' });
+    expect(selection.detail).toBeTruthy();
+    expect(calls).toHaveLength(0);
+  });
+
+  it('names an untracked file over the size cap instead of reading it into the prompt', async () => {
+    const { root, runtime } = await project();
+    fs.writeFileSync(path.join(root, 'big.bin'), Buffer.alloc(MAX_UNTRACKED_FILE_BYTES + 1, 0x61));
+    const { calls, run } = recorder({ mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] });
+    await resolve(root, runtime, run);
+    expect(calls[0].input).toContain(`new file (untracked, ${MAX_UNTRACKED_FILE_BYTES + 1} bytes`);
+    expect(calls[0].input).not.toContain('a'.repeat(1000));
+  });
+
   it('records the exit status and Claude stderr in the detail', async () => {
     const { root, runtime } = await project();
     const { run } = recorder(() => ({ status: 2, stdout: '', stderr: 'authentication expired\n' }));
@@ -330,5 +348,16 @@ describe('@SCN010 a fallback path changed by a version bump runs everything (#58
     expect(await resolve(root, runtime, run, { paths: ['VERSION', 'package.json', 'src/app.js'] })).toMatchObject({ mode: 'all', reason: 'fallback_path',
       fallbackPath: 'package.json', surfaces: ['app', 'cli'] });
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe('@SCN008 redispatch guidance survives a controller restart until implement runs (#584 AC7)', () => {
+  it('recovers stored guidance whatever head it is bound to, and an implement stage deletes it', async () => {
+    const { root } = await project();
+    writeGuidance(root, 42, 'a'.repeat(40), 'check hooks tests');
+    expect(readGuidance(root, 42, 'b'.repeat(40))).toBeNull();
+    expect(storedGuidance(root, 42)).toBe('check hooks tests');
+    clearGuidance(root, 42);
+    expect(storedGuidance(root, 42)).toBeNull();
   });
 });

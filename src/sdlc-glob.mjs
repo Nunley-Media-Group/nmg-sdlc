@@ -16,7 +16,18 @@ export function globRegex(glob) {
   return new RegExp(`${source}$`);
 }
 
+// Compiled globs, so matching many paths against the same globs compiles each one once.
+const compiled = new Map();
+function compiledGlob(glob) {
+  let regex = compiled.get(glob);
+  if (!regex) {
+    regex = globRegex(glob);
+    compiled.set(glob, regex);
+  }
+  return regex;
+}
+
 /** Whether `path` matches any of `patterns`. */
 export function matches(path, patterns) {
-  return (patterns ?? []).some((pattern) => globRegex(pattern).test(path));
+  return (patterns ?? []).some((pattern) => compiledGlob(pattern).test(path));
 }

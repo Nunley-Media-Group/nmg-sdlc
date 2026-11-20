@@ -236,6 +236,43 @@ describe('@SCN012 applyVerificationScope', () => {
   });
 });
 
+describe('@SCN012 the files an apply adds and the paths it lists', () => {
+  it('fails a proposal that leaves the new coverage config unaccounted, so committing it never reopens the item', async () => {
+    const root = await project({ plugin: true });
+    const item = detectVerificationScope(root);
+    const before = bytes(root, 'steering/manifest.json');
+    const result = await applyVerificationScope(root, item, proposal(root, {
+      selection: { docPaths: ['README.md'], fallbackPaths: ['.gitignore', 'steering/manifest.json', 'steering/modules/**', 'steering/snippets/**', 'steering/extensions/**', 'steering/*.md'], coveragePaths: ['src/**'] },
+    }));
+    expect(result).toMatchObject({ ok: false, reasonCode: 'verification_scope_proposal_incomplete', remainingFindings: ['unaccounted_paths'] });
+    expect(result.unaccountedPaths).toContain('steering/test-coverage.json');
+    expect(bytes(root, 'steering/manifest.json').equals(before)).toBe(true);
+    expect(fs.existsSync(path.join(root, 'steering/test-coverage.json'))).toBe(false);
+  });
+
+  it('lists untracked files, and at most 200 unaccounted paths with the full count', async () => {
+    const root = await project();
+    for (let index = 0; index < 205; index += 1) write(root, `extra/f${String(index).padStart(3, '0')}.txt`, 'x\n');
+    const item = detectVerificationScope(root);
+    expect(item.unaccountedPaths).toHaveLength(200);
+    expect(item.unaccountedPaths).toContain('extra/f000.txt');
+    expect(item.unaccountedCount).toBeGreaterThan(205);
+  });
+
+  (process.platform === 'win32' ? it.skip : it)('never writes through a symlinked steering directory', async () => {
+    const root = await project({ plugin: true });
+    const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-verification-scope-out-')));
+    roots.push(outside);
+    fs.cpSync(path.join(root, 'steering'), outside, { recursive: true });
+    fs.rmSync(path.join(root, 'steering'), { recursive: true });
+    fs.symlinkSync(outside, path.join(root, 'steering'));
+    const item = detectVerificationScope(root);
+    const result = await applyVerificationScope(root, item, proposal(root));
+    expect(result).toMatchObject({ ok: false, reasonCode: 'verification_scope_target_invalid' });
+    expect(fs.existsSync(path.join(outside, 'test-coverage.json'))).toBe(false);
+  });
+});
+
 describe('@SCN012 verification-scope CLI', () => {
   it('detects and applies through argument arrays with stable exit codes', async () => {
     const root = await project({ plugin: true });

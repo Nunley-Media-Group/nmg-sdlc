@@ -794,11 +794,18 @@ function readSurfaceRecord(readFile, projectRoot, surface, headSha) {
   }
   if (typeof record.transcript !== "string" || !record.transcript) return { reason: "transcript missing" };
   const transcriptPath = resolve(projectRoot, record.transcript);
-  if (transcriptPath === recordPath) return { reason: "transcript names the record" };
+  // A transcript is never a surface record, this one or another, however its name is cased: on a case-insensitive
+  // file system a differently cased name opens the same record.
+  const recordNames = new Set(Object.keys(INTERACTIVE_SURFACES).map((id) => `${id}.json`));
+  const named = relative(directory, transcriptPath).toLowerCase();
+  if (transcriptPath === recordPath || named === `${surface}.json`) return { reason: "transcript names the record" };
+  if (recordNames.has(named)) return { reason: "transcript names a surface record" };
   try {
     if (!insideDirectory(directory, transcriptPath)) return { reason: "transcript outside record directory" };
     const stat = lstatSync(transcriptPath);
     if (stat.isSymbolicLink() || !stat.isFile() || stat.size === 0) return { reason: "transcript empty or not a regular file" };
+    const own = lstatSync(recordPath);
+    if (stat.dev === own.dev && stat.ino === own.ino) return { reason: "transcript names the record" };
     if (!insideDirectory(realDirectory, realpathSync(transcriptPath))) return { reason: "transcript outside record directory" };
   } catch {
     return { reason: "transcript missing" };

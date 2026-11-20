@@ -296,7 +296,7 @@ Before any validation runs, the gate makes one headless Claude call. The prompt 
 The answer is then checked deterministically:
 
 - **Surfaces:** every surface whose `sources` match a changed path outside `docPaths` must be selected (`selection_surface_missing`); a doc path requires no surface.
-- **Empty answers:** only a change entirely inside `docPaths` may select nothing (`selection_empty`; otherwise `selection_empty_code_change`).
+- **Empty answers:** only a change whose every remaining (not deleted) path is inside `docPaths` may select nothing (`selection_empty`; otherwise `selection_empty_code_change`).
 - **Coverage:** after the selected tests pass, the per-test `coverage` command in `steering/test-coverage.json` runs for them. Every changed executable line of a reported path must be hit (`selection_uncovered`). The report may list `executableLines`; without it, non-blank lines count.
 - **Accounting:** every changed path must be covered by the report, a selected test, a selected surface, `docPaths` or `fallbackPaths` (`selection_unaccounted`). A path the change deletes is accounted for, since nothing of it is left to cover; a surface its sources match must still be selected.
 

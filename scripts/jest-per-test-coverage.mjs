@@ -96,6 +96,12 @@ function blankLines(absolute) {
   return sourceLinesCache.get(absolute);
 }
 
+/** The test path relative to scripts/; one that would start with `-` keeps a leading `./`, so Jest never reads it as an option. */
+export function testPathArg(file) {
+  const relative = path.relative(scriptsDir, path.join(repoRoot, file)).split(path.sep).join('/');
+  return relative.startsWith('-') ? `./${relative}` : relative;
+}
+
 function runJest(file, tmp) {
   const env = { ...process.env };
   delete env.JEST_WORKER_ID;
@@ -106,7 +112,7 @@ function runJest(file, tmp) {
     `--rootDir=${repoRoot}`, `--roots=${scriptsDir}`,
     '--runInBand', '--ci', '--coverage', '--coverageProvider=v8', '--coverageReporters=json',
     '--json', `--outputFile=${resultsFile}`, `--coverageDirectory=${coverageDir}`,
-    '--runTestsByPath', path.relative(scriptsDir, path.join(repoRoot, file)),
+    '--runTestsByPath', testPathArg(file),
   ];
   const run = spawnSync(process.execPath, args, {
     cwd: scriptsDir, env, shell: false, encoding: 'utf8', timeout: RUN_TIMEOUT_MS, maxBuffer: 256 * 1024 * 1024,

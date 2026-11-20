@@ -1876,6 +1876,18 @@ describe('@SCN011 this repository\'s smoke runs only the selected surfaces (#584
     expect(outcome.evidence.map((item) => item.summary)).toEqual(['steering: transcript names the record']);
   });
 
+  it.each([
+    ['its own record, however its name is cased', '.nmg-sdlc/smoke/surfaces/STEERING.json', 'steering: transcript names the record'],
+    ['another surface record', '.nmg-sdlc/smoke/surfaces/draft-issue.json', 'steering: transcript names a surface record'],
+  ])('fails a record whose transcript is %s', async (_name, transcript, summary) => {
+    const { provider, request } = scoped(['steering'], { records: { steering: { transcript } } });
+
+    const outcome = await provider(request);
+
+    expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke surface not exercised: steering' });
+    expect(outcome.evidence.map((item) => item.summary)).toEqual([summary]);
+  });
+
   it('requires every interactive record and runs one delivery in all mode, where every surface is selected', async () => {
     const interactive = ['draft-issue', 'write-spec', 'onboard-project', 'upgrade-project', 'steering', 'run-retro'];
     const all = [...interactive, 'execute', 'status', 'plugin-host'];

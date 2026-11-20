@@ -3,7 +3,7 @@
 // binding (head, change, steering, prompt and guidance) is unchanged, so `--mode select` and the gate share one call.
 import { createHash } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, posix, resolve } from "node:path";
 import { canonicalJson, projectPromptFragments } from "./sdlc-steering-runtime.mjs";
 import {
@@ -78,13 +78,19 @@ function writeJson(path, value) {
   renameSync(temporary, path);
 }
 
+/** The largest untracked file read whole into the diff; a larger one is named by its size and modification time. */
+export const MAX_UNTRACKED_FILE_BYTES = 8 * 1024 * 1024;
 /** Untracked, non-ignored files rendered as new-file diffs, so their content reaches the prompt and the binding. */
 function untrackedDiff(projectRoot) {
   const paths = git(projectRoot, ["ls-files", "-z", "--others", "--exclude-standard"]).split("\0").filter(Boolean).sort();
   return paths.map((path) => {
     let text;
     try {
-      if (!lstatSync(join(projectRoot, path)).isFile()) return "";
+      const stat = lstatSync(join(projectRoot, path));
+      if (!stat.isFile()) return "";
+      if (stat.size > MAX_UNTRACKED_FILE_BYTES) {
+        return `diff --git a/${path} b/${path}\nnew file (untracked, ${stat.size} bytes, modified ${stat.mtimeMs}, not shown)\n`;
+      }
       text = readFileSync(join(projectRoot, path), "utf8");
     } catch { return ""; }
     const body = text.split("\n").map((line) => `+${line}`).join("\n");
@@ -222,6 +228,18 @@ export function readGuidance(projectRoot, issue, headSha) {
   if (!value || value.schemaVersion !== 1 || Number(value.issue) !== Number(issue) || value.headSha !== headSha
     || typeof value.text !== "string" || !value.text.trim()) return null;
   return value.text;
+}
+
+/** The stored guidance text of `issue` whatever head it is bound to, so a restarted controller can bind it again. */
+export function storedGuidance(projectRoot, issue) {
+  const value = readJson(guidancePath(projectRoot, issue));
+  if (!value || value.schemaVersion !== 1 || Number(value.issue) !== Number(issue) || typeof value.text !== "string" || !value.text.trim()) return null;
+  return value.text;
+}
+
+/** Removes the stored guidance of `issue`: an implement stage changes the source it was written for. */
+export function clearGuidance(projectRoot, issue) {
+  rmSync(guidancePath(projectRoot, issue), { force: true });
 }
 
 /** Stores head-bound guidance for the next selection of `issue`. */
@@ -392,9 +410,17 @@ export async function resolveChangeSelection({ projectRoot, issue, baseRef, path
   if (fallbackPath !== undefined) return all("fallback_path", { fallbackPath });
 
   const guidance = readGuidance(root, issue, head);
-  const rendered = renderSelectionPrompt(runtime, packageRoot);
+  // A prompt or diff that cannot be built is a failed selection, like a failed call: everything runs.
+  let rendered;
+  let diff;
+  let diffDigest;
+  try {
+    rendered = renderSelectionPrompt(runtime, packageRoot);
+    ({ text: diff, digest: diffDigest } = changeDiffWithDigest(root, baseRef));
+  } catch (error) {
+    return all("selection_failed", { guidanceSupplied: Boolean(guidance), detail: String(error?.message ?? error).slice(0, 500) });
+  }
   const prompt = { consumer: SELECTION_CONSUMER, fragments: rendered.provenance.fragments.map(({ id, hash: fragmentHash }) => ({ id, hash: fragmentHash })) };
-  const { text: diff, digest: diffDigest } = changeDiffWithDigest(root, baseRef);
   const binding = {
     headSha: head,
     pathsDigest: hash(canonicalJson(paths)),

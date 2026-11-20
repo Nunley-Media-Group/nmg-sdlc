@@ -57,10 +57,10 @@ An invalid value for one of these keys fails with `steering_validation_invalid`.
 A manifest turns on scoped pre-merge verification with two optional top-level keys. `/sdlc-onboard-project` and `/sdlc-upgrade-project` detect and propose them (`verification-scope.md`). Full-tier runs, and manifests without `selection`, skip everything in this section.
 
 - `selection`: `{ docPaths?, fallbackPaths?, coveragePaths? }`, each an array of project-relative globs without a leading `!`. An unknown key fails with `steering_manifest_invalid` (`selection`). A command object (`program` or `args`) fails with `steering_validation_invalid`: selection takes a prompt.
-  - `docPaths`: a change whose every path matches one is docs-only and may select nothing. Without `docPaths`, no change is docs-only.
+  - `docPaths`: a change whose every path that still exists matches one is docs-only and may select nothing. A path the change deletes leaves nothing to cover, so without `docPaths` only a deletion-only change is docs-only.
   - `fallbackPaths`: a changed path matching one runs everything (`fallback_path`), and Claude is not asked.
   - `coveragePaths`: the source and test globs the coverage report accounts for. Onboarding and upgrade read it to find tracked files nothing accounts for. The gate does not read it: check 4 accounts for a path through the coverage report, the selected tests, `docPaths` and the selected surfaces.
-- `surfaces`: a non-empty array of `{ id, sources, validations? }`. `id` matches `^[a-z0-9][a-z0-9.-]*$` and is unique, `sources` is a non-empty array of globs, and `validations` names declared validation ids. Violations fail with `steering_manifest_invalid` (`surfaces`).
+- `surfaces`: a non-empty array of `{ id, sources, validations? }`. `id` matches `^[a-z0-9][a-z0-9.-]*$` and is unique, `sources` is a non-empty array of globs, and `validations` names declared validation ids that do not set `selection: true` (an opted-in validation runs the selected tests, so it is never surface-bound). Violations fail with `steering_manifest_invalid` (`surfaces`).
 
 **The selection call.** Before any validation runs, the change-tier gate makes one headless Claude call: `claude -p --model <m> [--effort <e>] --output-format json --json-schema <schema> --tools "" --no-session-persistence`, with a 300 000 ms timeout.
 - The prompt is the bundled `gate:selection` fragment plus every project snippet routed to the `gate:selection` consumer. It is followed by the base ref, the changed paths, the diff (capped at 200 000 bytes), the surfaces, the project's files named like tests (tracked or untracked, outside `docPaths`, at most 3000) and any supervisor guidance.
@@ -101,7 +101,7 @@ A rejection makes the affected validations `failed`, naming the surfaces, lines 
 
 **Escalation.** The verify finalizer turns a rejection into a failed handoff with `reasonCode: "selection_escalation"`, `intervention: false`, `next: "verify"` and `escalation: { kind: "selection", reasonCode, uncovered, missingSurfaces, unaccounted, truncated }`, bounded the same way.
 - `/sdlc-execute` presents it to its supervising session with only `redispatch` and `halt`, and never routes the branch to implement.
-- A `redispatch --text` stores the guidance in `.nmg-sdlc/verification/selection-guidance-<N>.json` for the current head, and binds it again to the head of each later verify dispatch until an implement stage runs, so queue-head integration and version preparation do not drop it. The rerun gate appends it to the selection prompt and records `guidanceSupplied: true`.
+- A `redispatch --text` stores the guidance in `.nmg-sdlc/verification/selection-guidance-<N>.json` for the current head, and binds it again to the head of each later verify dispatch until an implement stage runs (which deletes it), so queue-head integration, version preparation and a controller restart do not drop it. The rerun gate appends it to the selection prompt and records `guidanceSupplied: true`.
 - An unsupervised run stops with `selection_escalation`.
 
 ## Deterministic Validations

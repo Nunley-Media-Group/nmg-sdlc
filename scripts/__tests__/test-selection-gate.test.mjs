@@ -10,6 +10,12 @@ import { applySteeringPlan, createInitializePlan } from '../sdlc-steering.mjs';
 import { runSteeringValidations } from '../../src/sdlc-verification-runtime.mjs';
 import { writeGuidance } from '../../src/sdlc-test-selection.mjs';
 import { main as verifySteering } from '../sdlc-verify-steering.mjs';
+import { inspectVerificationArtifactRepair } from '../verification-readiness.mjs';
+import { testPathArg } from '../jest-per-test-coverage.mjs';
+
+// The readiness check the controller and recovery read the artifact with.
+const readiness = (artifact) => inspectVerificationArtifactRepair(artifact, {
+  expectedIssueNumber: artifact.issue, expectedHeadSha: artifact.identity.headSha });
 
 const roots = [];
 const calls = [];
@@ -102,6 +108,11 @@ const byId = (artifact) => Object.fromEntries(artifact.results.map((result) => [
 const TIMEOUT = 30_000;
 
 describe('@SCN004 changed lines must be covered by the selected tests (#584 AC4)', () => {
+  it('hands this repository\'s coverage command an option-shaped test path only behind ./', () => {
+    expect(testPathArg('scripts/--config=evil.json')).toBe('./--config=evil.json');
+    expect(testPathArg('scripts/__tests__/a.test.mjs')).toBe('__tests__/a.test.mjs');
+  });
+
   it('rejects an uncovered changed executable line as selection_uncovered and records coverage', async () => {
     const root = await project();
     change(root, 'src/app.js', 'const a = 1;\nconst b = 2;\n');
@@ -223,6 +234,8 @@ describe('@SCN004 changed lines must be covered by the selected tests (#584 AC4)
     expect(fs.existsSync(path.join(root, 'coverage-args.json'))).toBe(false);
     expect(byId(artifact)['unit.tests']).toMatchObject({ required: false, effectiveStatus: 'failed' });
     expect(artifact.selection.rejection).toBeNull();
+    expect(artifact.ceiling).toBe('Fail');
+    expect(readiness(artifact)).toMatchObject({ status: 'repairable', gaps: [], failedLocal: ['unit.tests'] });
     expect(artifact.ceiling).toBe('Fail');
   }, TIMEOUT);
 
@@ -489,6 +502,7 @@ describe('@SCN005 changed surfaces must be selected (#584 AC5)', () => {
     expect(artifact.selection.rejection).toMatchObject({ reasonCode: 'selection_surface_missing', missingSurfaces: ['other'] });
     expect(artifact.results.filter((result) => result.effectiveStatus === 'failed')).toEqual([]);
     expect(artifact.ceiling).toBe('Fail');
+    expect(readiness(artifact)).toMatchObject({ status: 'intervention', gaps: [] });
   }, TIMEOUT);
 
   it('accepts the matched surface plus an extra one', async () => {
@@ -502,6 +516,16 @@ describe('@SCN005 changed surfaces must be selected (#584 AC5)', () => {
 });
 
 describe('@SCN006 @SCN001 surface-bound validations run only for selected surfaces (#584 AC5a, AC1)', () => {
+  it('rejects a manifest that binds an opted-in validation to a surface, so an unselected surface never skips the selected tests', async () => {
+    const root = await project({ surfaces: [{ id: 'app', sources: ['src/**'], validations: ['unit.tests'] }] });
+    change(root, 'src/app.js');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: [] };
+    const artifact = await verify(root);
+    expect(artifact.ceiling).toBe('Incomplete');
+    expect(artifact.runtimeError).toMatchObject({ reasonCode: 'steering_manifest_invalid' });
+    expect(ranWith(root)).toBeNull();
+  }, TIMEOUT);
+
   it('passes a bound validation as surface_not_selected without running it, and runs unbound ones with the scoped request', async () => {
     const root = await project();
     change(root, 'src/app.js');
@@ -780,6 +804,11 @@ describe('@SCN010 an unsafe answer runs everything (#584 AC9)', () => {
 });
 
 describe('@SCN001 --mode select stores the selection the gate reuses (#584 AC1, FR2)', () => {
+  it('refuses an option-shaped base ref before any git call', async () => {
+    await expect(verifySteering(['--project', '/nonexistent', '--issue', '42', '--spec', 'specs/42-test', '--base', '--output=/tmp/x', '--mode', 'select']))
+      .rejects.toThrow('invalid_arguments');
+  });
+
   it('asks Claude once for a select run followed by a gate run with the same binding', async () => {
     const root = await project();
     change(root, 'src/app.js');

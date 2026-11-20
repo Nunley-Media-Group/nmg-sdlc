@@ -19,6 +19,8 @@ function parse(argv) {
   }
   if (!options.project || !/^\d+$/.test(options.issue ?? "") || !options.spec) throw new Error("invalid_arguments");
   if (options.tier !== undefined && !["pre-merge", "full"].includes(options.tier)) throw new Error("invalid_arguments");
+  // The base ref reaches git as an argument: one that is option-shaped or not a plain ref name is refused.
+  if (options.base !== undefined && (options.base.startsWith("-") || !/^[A-Za-z0-9._/@^~-]+$/.test(options.base))) throw new Error("invalid_arguments");
   // `--mode select` resolves and stores the change selection without running any validation.
   if (options.mode !== undefined && (options.mode !== "select" || options.tier === "full")) throw new Error("invalid_arguments");
   return options;
