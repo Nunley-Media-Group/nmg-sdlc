@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 /** Per-test coverage command for this repository (declared by steering/test-coverage.json).
  *
- * Usage: node scripts/jest-per-test-coverage.mjs <repo-relative test file>...
+ * Usage: node scripts/jest-per-test-coverage.mjs <repo-relative test file or directory>...
+ *
+ * A directory stands for the Jest test files under it (`.mjs` files under `__tests__/`, or named `*.test.mjs` or
+ * `*.spec.mjs`, outside node_modules and __fixtures__), so a selected directory runs as its test files.
  *
  * Runs Jest once per test file, from scripts/, with V8 coverage rooted at the repository so src/ files count, and
  * prints one JSON report `{ version: 1, tests, executableLines }` (see validateCoverageReport in test-coverage.mjs).
@@ -38,6 +41,29 @@ const EXCLUDED_SEGMENTS = new Set(['node_modules', '__tests__', '__fixtures__'])
 function usage(message) {
   process.stderr.write(`${message}\nusage: node scripts/jest-per-test-coverage.mjs <repo-relative test file>...\n`);
   process.exit(2);
+}
+
+/** Each repository-relative directory replaced by the sorted Jest test files under it; any other path is kept. */
+export function expandTestPaths(files, root = repoRoot) {
+  const isTest = (relative) => relative.endsWith('.mjs')
+    && (relative.split('/').includes('__tests__') || /\.(test|spec)\.mjs$/.test(relative));
+  const walk = (relative) => fs.readdirSync(path.join(root, relative), { withFileTypes: true })
+    .filter((entry) => !['node_modules', '__fixtures__'].includes(entry.name))
+    .flatMap((entry) => {
+      const child = `${relative}/${entry.name}`;
+      if (entry.isDirectory()) return walk(child);
+      return entry.isFile() && isTest(child) ? [child] : [];
+    });
+  return files.flatMap((file) => {
+    const relative = file.replace(/\/+$/, '');
+    let stat = null;
+    try {
+      stat = fs.lstatSync(path.join(root, relative));
+    } catch {
+      // A missing path is reported by Jest like any other.
+    }
+    return stat?.isDirectory() ? walk(relative).sort() : [file];
+  });
 }
 
 export function isRepoRelative(file) {
@@ -141,9 +167,14 @@ export function collect(file, results, coverage, executable, root = repoRoot) {
 export function main(files) {
   if (files.length === 0) usage('jest-per-test-coverage: no test files given');
   for (const file of files) {
-    if (!isRepoRelative(file)) usage(`jest-per-test-coverage: not a repository-relative path: ${JSON.stringify(file)}`);
+    if (!isRepoRelative(file.replace(/\/+$/, ''))) usage(`jest-per-test-coverage: not a repository-relative path: ${JSON.stringify(file)}`);
   }
-  const unique = [...new Set(files)];
+  const unique = [...new Set(expandTestPaths(files))];
+  if (unique.length === 0) {
+    process.stderr.write('jest-per-test-coverage: the given directories hold no test files\n');
+    process.exitCode = 1;
+    return;
+  }
   const executable = new Set();
   const tests = [];
   let status = 0;

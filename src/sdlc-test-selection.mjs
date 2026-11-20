@@ -15,7 +15,6 @@ import {
 } from "./sdlc-prompt-snippets.mjs";
 import { packageRoot as defaultPackageRoot } from "./sdlc-workflows.mjs";
 import { matches } from "./sdlc-glob.mjs";
-import { updatedVersionMirror, versionedArtifacts } from "./sdlc-version-artifacts.mjs";
 import { selectionModel } from "./stage-models.mjs";
 
 export const SELECTION_CONSUMER = "gate:selection";
@@ -23,6 +22,8 @@ export const SELECTION_TIMEOUT_MS = 300_000;
 export const MAX_DIFF_BYTES = 200_000;
 export const MAX_SELECTED_TESTS = 5000;
 const MAX_TEST_LENGTH = 1024;
+/** The most UTF-8 bytes all selected tests hold together, so the gate artifact recording them stays bounded. */
+export const MAX_SELECTED_TEST_BYTES = 1024 * 1024;
 /** The most claude stdout bytes read; a larger answer fails the call. */
 export const MAX_SELECTION_OUTPUT = 64 * 1024 * 1024;
 /** The most test files the prompt lists. */
@@ -106,45 +107,6 @@ export function fallbackPathsOf(runtime) {
   return [...(runtime.selection?.fallbackPaths ?? []), ...runtime.validations.flatMap((validation) => validation.fallbackPaths ?? [])];
 }
 
-const VERSION_TEXT = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
-/**
- * The version mirrors delivery prepares: every artifact besides `VERSION` and `CHANGELOG.md` that the `## Versioning`
- * table of the `worker:deliver` technical snippet declares, as a map from path to its declared field.
- */
-export function declaredVersionFiles(runtime) {
-  const declared = new Map();
-  const tech = (runtime.snippets ?? []).find((record) => record.id === "project.tech" && record.consumers?.includes("worker:deliver"));
-  if (!tech) return declared;
-  try {
-    for (const { relative, field } of versionedArtifacts(readFileSync(tech.absolutePath, "utf8"))) {
-      if (!["VERSION", "CHANGELOG.md"].includes(relative)) declared.set(relative, field);
-    }
-  } catch {}
-  return declared;
-}
-/**
- * The changed paths that are only delivery's version preparation: `VERSION` moved from one version to another since
- * the merge base, and each declared mirror whose content is exactly delivery's update of its merge-base content from
- * the old version to the new one (a JSON field, a TOML key or a text line). They are not part of the change the
- * selection scopes. Without a `VERSION` bump nothing is.
- */
-export function versionOnlyPaths(projectRoot, baseRef, paths, runtime) {
-  if (!paths.includes("VERSION")) return [];
-  let mergeBase;
-  try { mergeBase = git(projectRoot, ["merge-base", baseRef, "HEAD"]).trim(); } catch { return []; }
-  const before = (path) => git(projectRoot, ["show", `${mergeBase}:${path}`]);
-  const after = (path) => readFileSync(join(projectRoot, path), "utf8");
-  let from;
-  let to;
-  try { from = before("VERSION").trim(); to = after("VERSION").trim(); } catch { return []; }
-  if (!VERSION_TEXT.test(from) || !VERSION_TEXT.test(to) || from === to) return [];
-  const declared = declaredVersionFiles(runtime);
-  const bumped = (path) => {
-    try { return updatedVersionMirror(before(path), { relative: path, field: declared.get(path) }, from, to) === after(path); } catch { return false; }
-  };
-  return ["VERSION", ...paths.filter((path) => declared.has(path) && bumped(path))];
-}
-
 /** A test id split at its first `::` node suffix: `[target, suffix]`. */
 function splitTestId(test) {
   const at = test.indexOf("::");
@@ -169,44 +131,43 @@ function fileShaped(test) {
 export function normalizeTestId(test) {
   return fileShaped(test) ? `${testIdPath(test)}${splitTestId(test)[1]}` : test;
 }
-/** Every directory an opted-in validation runs its command from, the project root first. */
-export function optedInCwds(runtime) {
-  return [...new Set([".", ...runtime.validations.filter((validation) => validation.selection === true).map((validation) => validation.config?.cwd || ".")])];
+/** The project-relative paths the selected path-shaped ids name. */
+export function selectedTestPaths(tests) {
+  return [...new Set(tests.map(testIdPath).filter((target) => target !== null))];
 }
-/** The project-relative paths the selected path-shaped ids name, from the project root or an opted-in validation's directory. */
-export function selectedTestPaths(tests, cwds) {
-  return [...new Set(tests.flatMap((test) => {
-    const target = testIdPath(test);
-    return target === null ? [] : cwds.map((cwd) => posix.normalize(posix.join(cwd, target)));
-  }))];
-}
-/** Whether `relative` names a regular file under `base`, spelled exactly as each directory lists it. */
-function fileExactly(base, relative, listings) {
+/** Whether `relative` names an entry under `base` spelled exactly as each directory lists it, and of the wanted kind. */
+function entryExactly(base, relative, listings, wanted) {
   let directory = base;
-  for (const segment of relative.split("/")) {
+  if (relative !== ".") for (const segment of relative.split("/")) {
     if (!listings.has(directory)) {
       try { listings.set(directory, new Set(readdirSync(directory))); } catch { listings.set(directory, new Set()); }
     }
     if (!listings.get(directory).has(segment)) return false;
     directory = join(directory, segment);
   }
-  try { return lstatSync(directory).isFile(); } catch { return false; }
+  try {
+    const stat = lstatSync(directory);
+    return wanted === "file" ? stat.isFile() : stat.isFile() || stat.isDirectory();
+  } catch { return false; }
 }
 /**
- * Throws naming the first file-shaped test id that is no file, spelled exactly, under the project root or the
- * directory an opted-in validation runs from. Other ids (directories, packages, node ids without a file, test names)
- * pass through unchecked.
+ * Throws naming the first path-shaped test id that names nothing in the project, spelled exactly from the project
+ * root, the directory the coverage command runs from: a file-shaped id must be a regular file, any other path-shaped
+ * id (a directory or a package path) a file or a directory. Ids without a `/` (test or package names) pass through.
  */
-function requireTestFiles(root, tests, cwds) {
+function requireTestFiles(root, tests) {
   const listings = new Map();
-  const missing = tests.find((test) => fileShaped(test) && !cwds.some((cwd) => fileExactly(resolve(root, cwd), testIdPath(test), listings)));
-  if (missing !== undefined) throw new Error(`selected test is no file in the project: ${missing}`);
+  const missing = tests.find((test) => testIdPath(test) !== null && !entryExactly(root, testIdPath(test), listings, fileShaped(test) ? "file" : "entry"));
+  if (missing !== undefined) throw new Error(`selected test is no ${fileShaped(missing) ? "file" : "file or directory"} in the project: ${missing}`);
 }
 
 const TEST_DIRECTORY = /(^|\/)__tests__\//;
-const TEST_NAME = /(^|[._-])(test|tests|spec|specs)($|[._-])|[a-z0-9](Test|Tests|Spec)$/;
-/** Whether a path is named like a test file in common stacks: under `__tests__/`, or a base name such as `a.test.js`, `a_test.go`, `test_a.py` or `ATest.java`. */
+/** Base names, without their extension, of test files in common stacks: `a.test`, `a_test`, `a.spec`, `test_a`, `ATest`. */
+const TEST_NAME = /^test_|[._](test|tests|spec|specs)$|[a-z0-9](Test|Tests|Spec)$/;
+const DATA_FILE = /\.(md|markdown|txt|json|ya?ml|snap|lock|toml|csv|html?|css|svg|png|jpe?g|gif)$/i;
+/** Whether a path is named like a test file: a code file under `__tests__/`, or one named like `a.test.js`, `a_test.go`, `test_a.py` or `ATest.java`. */
 function testLike(path) {
+  if (DATA_FILE.test(path)) return false;
   const name = path.split("/").at(-1).replace(/\.[^.]*$/, "");
   return TEST_DIRECTORY.test(path) || TEST_NAME.test(name);
 }
@@ -220,12 +181,16 @@ export function testInventory(projectRoot, runtime) {
 }
 
 /**
- * The changed paths no check accounts for: none is a coverage-report path, a path a selected test names, under a
- * selected surface's sources or `docPaths`, or a deleted file under `coveragePaths`.
+ * The changed paths no check accounts for. A path is accounted for when the change deletes it (nothing of it is
+ * left to cover), when it has a line record in the coverage report, when it is a selected test's path or the `file`
+ * of a test in the coverage report, when it matches `docPaths`, or when it matches the sources of a selected surface.
+ * A path under `coveragePaths` is code the selected tests must reach: only a selected surface that binds a
+ * validation (`boundSurfaceSources`) accounts for it, never one that runs nothing.
  */
-export function unaccountedPaths({ paths, reportPaths = new Set(), testPaths = [], surfaceSources = [], docPaths = [], coveragePaths = [], exists }) {
-  return paths.filter((path) => !reportPaths.has(path) && !testPaths.includes(path) && !matches(path, surfaceSources)
-    && !matches(path, docPaths) && !(matches(path, coveragePaths) && !exists(path)));
+export function unaccountedPaths({ paths, reportPaths = new Set(), testPaths = [], surfaceSources = [], boundSurfaceSources = [], docPaths = [],
+  coveragePaths = [], exists }) {
+  return paths.filter((path) => exists(path) && !reportPaths.has(path) && !testPaths.includes(path) && !matches(path, docPaths)
+    && !matches(path, matches(path, coveragePaths) ? boundSurfaceSources : surfaceSources));
 }
 
 /** The redispatch guidance stored for this head, or null. */
@@ -324,7 +289,8 @@ export function validateAnswer(answer, declaredIds) {
   const strings = (value) => Array.isArray(value) && value.every((item) => typeof item === "string" && item !== "");
   if (!strings(answer.tests) || !strings(answer.surfaces)) throw new Error("tests or surfaces");
   const tests = [...new Set(answer.tests)];
-  if (tests.length > MAX_SELECTED_TESTS || tests.some((test) => test.length > MAX_TEST_LENGTH)) throw new Error("tests bound");
+  if (tests.length > MAX_SELECTED_TESTS || tests.some((test) => test.length > MAX_TEST_LENGTH)
+    || tests.reduce((total, test) => total + Buffer.byteLength(test, "utf8"), 0) > MAX_SELECTED_TEST_BYTES) throw new Error("tests bound");
   // A test is appended to a command's arguments: never an option, an absolute path or a path leaving the project.
   if (tests.some((test) => test.startsWith("-") || test.startsWith("/") || test.startsWith("\\") || /^[A-Za-z]:/.test(test)
     || test.split(/[\\/]/).includes("..") || /[\0\r\n]/.test(test))) throw new Error("unsafe test entry");
@@ -336,22 +302,20 @@ export function validateAnswer(answer, declaredIds) {
 /** The reason a selected answer records. */
 function selectedReason(tests, surfaces) { return tests.length || surfaces.length ? "selected" : "selection_empty"; }
 /** Whether a stored selection still satisfies the answer contract and names existing tests, so it can be reused. */
-function reusable(selection, root, declaredIds, cwds) {
+function reusable(selection, root, declaredIds) {
   try {
     if (selection.mode !== "selected") return selection.mode === "all" && selection.reason === "selection_all";
     const answer = validateAnswer({ mode: selection.mode, tests: selection.tests, surfaces: selection.surfaces }, declaredIds);
-    requireTestFiles(root, answer.tests, cwds);
+    requireTestFiles(root, answer.tests);
     return canonicalJson(answer.tests) === canonicalJson(selection.tests) && selection.reason === selectedReason(answer.tests, answer.surfaces);
   } catch { return false; }
 }
 
 /**
  * Resolves the selection for one change-tier gate run of a manifest that declares `selection`. Returns
- * `{ mode, reason, fallbackPath, tests, surfaces, requiredSurfaces, versionOnly, model, effort, prompt, guidanceSupplied, reused, detail }`:
+ * `{ mode, reason, fallbackPath, tests, surfaces, requiredSurfaces, model, effort, prompt, guidanceSupplied, reused, detail }`:
  * `mode` is `selected` or `all`; `reason` is `selected`, `selection_empty`, `fallback_path`, `selection_failed` or
- * `selection_all`. In `all` mode `surfaces` is every declared surface id. `versionOnly` lists the changed paths that
- * are only delivery's version preparation: they are not part of the change, so Claude, the fallback, the surfaces and
- * the gate's checks never see them.
+ * `selection_all`. In `all` mode `surfaces` is every declared surface id.
  */
 export async function resolveChangeSelection({ projectRoot, issue, baseRef, paths, runtime, models, runSelection = defaultRunSelection,
   packageRoot = defaultPackageRoot, headSha, signal, limits = {} } = {}) {
@@ -361,14 +325,11 @@ export async function resolveChangeSelection({ projectRoot, issue, baseRef, path
   const declaredIds = surfaces.map((surface) => surface.id);
   const { model, effort } = selectionModel(models);
   // Delivery's version preparation is not part of the change: it never forces a full run, needs no surface or account.
-  const versionOnly = versionOnlyPaths(root, baseRef, paths, runtime);
-  const scoped = paths.filter((path) => !versionOnly.includes(path));
-  const cwds = optedInCwds(runtime);
-  const required = requiredSurfaces(surfaces, scoped);
+  const required = requiredSurfaces(surfaces, paths);
   const head = headSha ?? git(root, ["rev-parse", "HEAD"]).trim();
   const all = (reason, extra = {}) => ({ mode: "all", reason, fallbackPath: null, tests: [], surfaces: [...declaredIds], requiredSurfaces: required,
-    versionOnly, model, effort, prompt: null, guidanceSupplied: false, reused: false, detail: null, ...extra });
-  const fallbackPath = scoped.find((path) => matches(path, fallbackPathsOf(runtime)));
+    model, effort, prompt: null, guidanceSupplied: false, reused: false, detail: null, ...extra });
+  const fallbackPath = paths.find((path) => matches(path, fallbackPathsOf(runtime)));
   if (fallbackPath !== undefined) return all("fallback_path", { fallbackPath });
 
   const guidance = readGuidance(root, issue, head);
@@ -386,12 +347,12 @@ export async function resolveChangeSelection({ projectRoot, issue, baseRef, path
     effort,
   };
   const stored = readJson(selectionPath(root, issue));
-  if (stored?.schemaVersion === 1 && canonicalJson(stored.binding) === canonicalJson(binding) && stored.selection && reusable(stored.selection, root, declaredIds, cwds)) {
-    return { ...stored.selection, requiredSurfaces: required, versionOnly, reused: true };
+  if (stored?.schemaVersion === 1 && canonicalJson(stored.binding) === canonicalJson(binding) && stored.selection && reusable(stored.selection, root, declaredIds)) {
+    return { ...stored.selection, requiredSurfaces: required, reused: true };
   }
 
-  const shared = { requiredSurfaces: required, versionOnly, model, effort, prompt, guidanceSupplied: Boolean(guidance), reused: false };
-  const input = selectionInput({ text: rendered.text, baseRef, paths: scoped, diff, surfaces, inventory: testInventory(root, runtime), guidance });
+  const shared = { requiredSurfaces: required, model, effort, prompt, guidanceSupplied: Boolean(guidance), reused: false };
+  const input = selectionInput({ text: rendered.text, baseRef, paths, diff, surfaces, inventory: testInventory(root, runtime), guidance });
   const command = claudeSelectionCommand({ model, effort });
   let selection;
   try {
@@ -402,9 +363,9 @@ export async function resolveChangeSelection({ projectRoot, issue, baseRef, path
     }
     const answer = validateAnswer(answerFrom(response.stdout), declaredIds);
     // A test file the change deletes cannot run: it is dropped, and its path is accounted for like any changed path.
-    const deleted = new Set(scoped.filter((path) => !existsSync(join(root, path))));
-    const tests = answer.tests.filter((test) => !selectedTestPaths([test], cwds).some((path) => deleted.has(path)));
-    if (answer.mode === "selected") requireTestFiles(root, tests, cwds);
+    const deleted = new Set(paths.filter((path) => !existsSync(join(root, path))));
+    const tests = answer.tests.filter((test) => !deleted.has(testIdPath(test)));
+    if (answer.mode === "selected") requireTestFiles(root, tests);
     selection = answer.mode === "all"
       ? all("selection_all", shared)
       : { mode: "selected", reason: selectedReason(tests, answer.surfaces), fallbackPath: null, tests, surfaces: answer.surfaces, ...shared, detail: null };

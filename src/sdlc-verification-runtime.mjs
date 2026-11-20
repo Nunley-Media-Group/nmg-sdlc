@@ -5,7 +5,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { canonicalJson, loadSteeringRuntime, SteeringError, validationTier } from "./sdlc-steering-runtime.mjs";
 import { acquireHeavySlot } from "./heavy-pool.mjs";
 import { globRegex, matches } from "./sdlc-glob.mjs";
-import { optedInCwds, rejectionOf, rejectionSummary, resolveChangeSelection, selectedTestPaths, testIdPath, unaccountedPaths } from "./sdlc-test-selection.mjs";
+import { rejectionOf, rejectionSummary, resolveChangeSelection, selectedTestPaths, unaccountedPaths } from "./sdlc-test-selection.mjs";
 import { loadStageModels, StageModelsError } from "../scripts/sdlc-models.mjs";
 import { loadTestCoverageConfig, validateCoverageReport } from "../scripts/test-coverage.mjs";
 import { terminateOwnedProcessGroup, terminateOwnedProcessGroupAfterLeaderLoss } from "./process-supervision.mjs";
@@ -60,7 +60,8 @@ function porcelainPaths(output) {
   return paths;
 }
 export function changedPaths(projectRoot, baseRef) {
-  const committed = git(projectRoot, ["diff", "--name-only", "-z", `${baseRef}...HEAD`]).stdout.split("\0");
+  // Without rename detection a committed rename lists its source as well as its target, so a moved file still counts.
+  const committed = git(projectRoot, ["diff", "--name-only", "--no-renames", "-z", `${baseRef}...HEAD`]).stdout.split("\0");
   // Every untracked file is listed, never its collapsed directory, so each one is coverage-checked.
   const dirty = porcelainPaths(git(projectRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]).stdout);
   return [...new Set([...committed, ...dirty].filter(Boolean).map((path) => path.split("\\").join("/")))].sort();
@@ -226,6 +227,7 @@ function deepFreeze(value) {
   return Object.freeze(value);
 }
 
+function withoutChangedPaths({ changedPaths: _changedPaths, ...request }) { return request; }
 function providerRequest(value, signal, spawnCommand) {
   Object.defineProperties(value, {
     signal: { value: signal, enumerable: false },
@@ -370,6 +372,8 @@ function changedLines(projectRoot, baseRef) {
     if (!entry.startsWith("?? ")) continue;
     const path = entry.slice(3);
     try {
+      // A symlink or other non-file entry is never followed into its target.
+      if (!lstatSync(resolve(projectRoot, path)).isFile()) continue;
       const count = readFileSync(resolve(projectRoot, path), "utf8").split("\n").length;
       lines.set(path, new Set(Array.from({ length: count }, (_, index) => index + 1)));
     } catch {}
@@ -434,7 +438,8 @@ function runCoverageCommand(program, args, { cwd, env, timeout, maxOutput = MAX_
  * The coverage check: runs the project's per-test coverage command for the selected tests in a heavy-job slot and
  * returns `{ status: "skipped" | "failed" | "incomplete" | "checked", summary?, reported?, uncovered?, coverage? }`.
  * Without a valid steering/test-coverage.json nothing is coverage-accounted and nothing fails; the skipped summary
- * names the file's state. Only the selected tests' lines count as hit.
+ * names the file's state. The command runs only the selected tests, so the lines every test of its report hits count
+ * as hit, whatever form the selected ids take; `testFiles` holds the `file` of each report test.
  */
 async function coverageCheck({ projectRoot, issue, baseRef, paths, tests, envKeys, runCoverage, acquireSlot, signal, limits = {} }) {
   const { timeoutMs = COVERAGE_TIMEOUT_MS, maxOutputBytes = MAX_COVERAGE_OUTPUT } = limits;
@@ -470,10 +475,8 @@ async function coverageCheck({ projectRoot, issue, baseRef, paths, tests, envKey
   const lineOf = (entry) => { const at = entry.lastIndexOf(":"); return [entry.slice(0, at), Number(entry.slice(at + 1))]; };
   const reported = new Set([...report.tests.flatMap((test) => test.lines), ...(report.executableLines ?? [])].map((entry) => lineOf(entry)[0]));
   const executable = report.executableLines ? new Set(report.executableLines) : null;
-  // A report test is selected when its id or file equals a selected id, compared in normalized form.
-  const key = (id) => testIdPath(id) ?? id;
-  const wanted = new Set(tests.map(key));
-  const hit = new Set(report.tests.filter((test) => wanted.has(key(test.id)) || wanted.has(key(test.file))).flatMap((test) => test.lines));
+  const hit = new Set(report.tests.flatMap((test) => test.lines));
+  const testFiles = report.tests.map((test) => test.file);
   const changed = changedLines(projectRoot, baseRef);
   const changedList = [];
   for (const path of paths.filter((candidate) => reported.has(candidate))) {
@@ -487,7 +490,7 @@ async function coverageCheck({ projectRoot, issue, baseRef, paths, tests, envKey
   const hitLines = changedList.filter((entry) => hit.has(entry));
   const uncovered = changedList.filter((entry) => !hit.has(entry));
   const capped = (list) => list.slice(0, MAX_COVERAGE_ENTRIES);
-  return { status: "checked", reported, uncovered,
+  return { status: "checked", reported, testFiles, uncovered,
     coverage: { changedLines: capped(changedList), hitLines: capped(hitLines), uncovered: capped(uncovered),
       counts: { changedLines: changedList.length, hitLines: hitLines.length, uncovered: uncovered.length } } };
 }
@@ -521,19 +524,16 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
     let selection = null;
     let rejection = null;
     let docsOnly = false;
-    let scopedPaths = paths;
     if (tier === "change" && !whole && runtime.selection) {
       selection = await resolveChangeSelection({ projectRoot: root, issue, baseRef, paths, runtime, signal, limits: limits.selection,
         models: models ?? selectionModels(root), ...(runSelection ? { runSelection } : {}) });
-      // Delivery's version preparation is not part of the change the checks scope.
-      scopedPaths = paths.filter((path) => !selection.versionOnly.includes(path));
       if (selection.mode === "selected") {
         const isDoc = (path) => matches(path, runtime.selection.docPaths ?? []);
         const missingSurfaces = selection.requiredSurfaces.filter((id) => !selection.surfaces.includes(id));
         if (missingSurfaces.length) rejection = rejectionOf("selection_surface_missing", { missingSurfaces });
         else if (!selection.tests.length && !selection.surfaces.length) {
-          docsOnly = Boolean(runtime.selection.docPaths) && scopedPaths.every(isDoc);
-          if (!docsOnly) rejection = rejectionOf("selection_empty_code_change", { unaccounted: scopedPaths.filter((path) => !isDoc(path)) });
+          docsOnly = Boolean(runtime.selection.docPaths) && paths.every(isDoc);
+          if (!docsOnly) rejection = rejectionOf("selection_empty_code_change", { unaccounted: paths.filter((path) => !isDoc(path)) });
         }
       }
     }
@@ -625,9 +625,10 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
       const ran = opted.map((validation) => resultById.get(validation.id)).filter((entry) => entry.selection?.reason === "selected");
       let checks = requiredLocalPassed && ran.every((entry) => entry.effectiveStatus === "passed");
       let reportPaths = new Set();
+      let reportTestFiles = [];
       if (checks && ran.length) {
         const envKeys = [...new Set(opted.flatMap((validation) => validation.config?.env ?? []))];
-        const checked = await coverageCheck({ projectRoot: root, issue, baseRef, paths: scopedPaths, tests: selection.tests, envKeys, runCoverage, acquireSlot, signal,
+        const checked = await coverageCheck({ projectRoot: root, issue, baseRef, paths, tests: selection.tests, envKeys, runCoverage, acquireSlot, signal,
           limits: limits.coverage });
         if (checked.status === "failed" || checked.status === "incomplete") {
           checks = false;
@@ -640,13 +641,16 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
           for (const entry of ran) entry.result.evidence.push({ kind: "selection", summary: checked.summary, headSha: entry.request.identity.headSha });
         } else {
           reportPaths = checked.reported;
+          reportTestFiles = checked.testFiles;
           for (const entry of ran) entry.coverage = checked.coverage;
           if (checked.uncovered.length) rejection = rejectionOf("selection_uncovered", { uncovered: checked.uncovered });
         }
       }
       if (checks && !rejection) {
-        const unaccounted = unaccountedPaths({ paths: scopedPaths, reportPaths, testPaths: selectedTestPaths(selection.tests, optedInCwds(runtime)),
-          surfaceSources: runtime.surfaces.filter((surface) => selection.surfaces.includes(surface.id)).flatMap((surface) => surface.sources),
+        const chosen = runtime.surfaces.filter((surface) => selection.surfaces.includes(surface.id));
+        const unaccounted = unaccountedPaths({ paths, reportPaths, testPaths: [...selectedTestPaths(selection.tests), ...reportTestFiles],
+          surfaceSources: chosen.flatMap((surface) => surface.sources),
+          boundSurfaceSources: chosen.filter((surface) => surface.validations.length > 0).flatMap((surface) => surface.sources),
           docPaths: runtime.selection.docPaths ?? [], coveragePaths: runtime.selection.coveragePaths ?? [],
           exists: (path) => existsSync(resolve(root, path)) });
         if (unaccounted.length) rejection = rejectionOf("selection_unaccounted", { unaccounted });
@@ -681,7 +685,9 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
         await Promise.all(batch.map((member) => execute(member, deferred(member)).then((entry) => resultById.set(member.id, entry))));
       }
     }
-    const results = runtime.validations.map((v) => resultById.get(v.id)).filter(Boolean);
+    // A request's changed paths are recorded once, at the artifact's top level, so the artifact stays bounded.
+    const results = runtime.validations.map((v) => resultById.get(v.id)).filter(Boolean)
+      .map((entry) => (entry.request && Object.hasOwn(entry.request, "changedPaths") ? { ...entry, request: withoutChangedPaths(entry.request) } : entry));
     const coverage = validationResultCoverage(runtime.validations, results);
     const artifact = { schemaVersion: 1, issue: whole ? null : Number(issue), generatedAt: new Date().toISOString(), identity: setupIdentity(root, specDir, runtime), baseRef: whole ? null : baseRef, ...(runtime.tiered || whole ? { tier: recordedTier } : {}), ceiling: verificationCeiling(results, coverage), changedPaths: paths, coverage,
       ...(selection ? { selection: { prompt: selection.prompt, model: selection.model, effort: selection.effort, mode: selection.mode,

@@ -1666,6 +1666,28 @@ describe('@SCN011 this repository\'s smoke runs only the selected surfaces (#584
     onlySmokePrograms(calls);
   });
 
+  (process.platform === 'win32' ? it.skip : it)('fails a record reached through a symlink as not exercised', async () => {
+    // A symlinked record file.
+    const linkedFile = scoped(['steering'], { records: { steering: {} } });
+    const record = path.join(linkedFile.root, '.nmg-sdlc', 'smoke', 'surfaces', 'steering.json');
+    const elsewhere = path.join(linkedFile.root, 'steering-record.json');
+    fs.renameSync(record, elsewhere);
+    fs.symlinkSync(elsewhere, record);
+    const fileOutcome = await linkedFile.provider(linkedFile.request);
+    expect(fileOutcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke surface not exercised: steering' });
+    expect(fileOutcome.evidence.map((item) => item.summary)).toContain('steering: record not a regular file');
+
+    // A symlinked record directory holding otherwise valid records.
+    const linkedDirectory = scoped(['steering'], { records: { steering: {} } });
+    const directory = path.join(linkedDirectory.root, '.nmg-sdlc', 'smoke', 'surfaces');
+    const moved = path.join(linkedDirectory.root, 'surfaces-elsewhere');
+    fs.renameSync(directory, moved);
+    fs.symlinkSync(moved, directory);
+    const directoryOutcome = await linkedDirectory.provider(linkedDirectory.request);
+    expect(directoryOutcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke surface not exercised: steering' });
+    expect(directoryOutcome.evidence.map((item) => item.summary)).toContain('steering: record directory unsafe');
+  });
+
   it('fails a missing and a stale record with nmg-sdlc-smoke surface not exercised', async () => {
     const { provider, request, calls } = scoped(['steering', 'run-retro', 'onboard-project'], {
       records: { steering: {}, 'run-retro': { headSha: 'b'.repeat(40) } },

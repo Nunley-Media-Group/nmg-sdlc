@@ -43,11 +43,9 @@ const COVERAGE = "const fs=require('node:fs');fs.writeFileSync('coverage-args.js
 const EXTENSION = `export const extension = Object.freeze({ schemaVersion: 1, id: 'test.site',
   providers: Object.freeze({ 'project.site': (request) => globalThis.__nmg584Provider(request) }) });\n`;
 
-const TECH = '# Tech\n\n## Versioning\n\n| File | Path |\n|------|------|\n| `VERSION` | file text |\n| `package.json` | `version` |\n';
-
 /**
- * A committed project on branch `work` with the test file tests/app.test.js and a technical snippet declaring the
- * version files: unit.tests opts into the selection, site.smoke is bound to the `site` surface.
+ * A committed project on branch `work` with the test file tests/app.test.js: unit.tests opts into the selection,
+ * site.smoke is bound to the `site` surface.
  */
 async function project({ selection = { docPaths: ['docs/**'], fallbackPaths: ['package.json'] }, coverage = true, baseline = {}, validations = [],
   surfaces = null } = {}) {
@@ -59,8 +57,6 @@ async function project({ selection = { docPaths: ['docs/**'], fallbackPaths: ['p
   await applySteeringPlan(root, createInitializePlan(root, { validations: [] }));
   fs.mkdirSync(path.join(root, 'steering/extensions'), { recursive: true });
   fs.writeFileSync(path.join(root, 'steering/extensions/site.mjs'), EXTENSION);
-  fs.mkdirSync(path.join(root, 'steering/snippets'), { recursive: true });
-  fs.writeFileSync(path.join(root, 'steering/snippets/tech.md'), TECH);
   if (coverage) {
     fs.writeFileSync(path.join(root, 'steering/test-coverage.json'), `${JSON.stringify({ version: 1,
       suite: { program: process.execPath, args: ['-e', '0'] }, coverage: { program: process.execPath, args: ['-e', COVERAGE] } }, null, 2)}\n`);
@@ -68,7 +64,6 @@ async function project({ selection = { docPaths: ['docs/**'], fallbackPaths: ['p
   const file = path.join(root, 'steering/manifest.json');
   const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
   manifest.extensions = [{ id: 'test.site', path: 'steering/extensions/site.mjs', providers: ['project.site'] }];
-  manifest.snippets.push({ id: 'project.tech', path: 'steering/snippets/tech.md', consumers: ['worker:deliver'], slot: 'body', order: 500 });
   manifest.validations = [{ ...tests, selection: true }, ...validations, site, plain];
   manifest.selection = selection;
   manifest.surfaces = surfaces ?? [{ id: 'app', sources: ['src/**'] }, { id: 'site', sources: ['site/**'], validations: ['site.smoke'] }, { id: 'other', sources: ['other/**'] }];
@@ -187,15 +182,19 @@ describe('@SCN004 changed lines must be covered by the selected tests (#584 AC4)
     expect(byId(artifact)['unit.tests'].coverage.changedLines).toEqual(['src/my app.js:1', 'src/my app.js:2', 'src/q"t.js:1']);
   }, TIMEOUT);
 
-  it('counts only the selected tests\' lines as hit', async () => {
+  it.each([
+    ['a directory', 'tests/'],
+    ['a package name', 'com.example.AppTest'],
+  ])('counts the lines every test of the coverage run hits as covered when the selected test is %s', async (_name, id) => {
     const root = await project();
     change(root, 'src/app.js', 'a();\nb();\n');
-    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
-    report(root, { version: 1, tests: [
-      { id: 'tests/app.test.js', file: 'tests/app.test.js', lines: ['src/app.js:1'], branches: [], outcomes: [] },
-      { id: 'tests/other.test.js', file: 'tests/other.test.js', lines: ['src/app.js:2'], branches: [], outcomes: [] }] });
+    answer = { mode: 'selected', tests: [id], surfaces: ['app'] };
+    report(root, testReport(['src/app.js:1', 'src/app.js:2']));
     const artifact = await verify(root);
-    expect(artifact.selection.rejection).toEqual({ ...NONE, reasonCode: 'selection_uncovered', uncovered: ['src/app.js:2'] });
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'coverage-args.json'), 'utf8'))).toEqual([id]);
+    expect(byId(artifact)['unit.tests'].coverage.uncovered).toEqual([]);
+    expect(artifact.selection.rejection).toBeNull();
+    expect(artifact.ceiling).toBeNull();
   }, TIMEOUT);
 
   it('runs no coverage and records an ordinary failure when the selected tests fail', async () => {
@@ -394,6 +393,18 @@ describe('@SCN005 changed surfaces must be selected (#584 AC5)', () => {
     expect(results.lint.effectiveStatus).toBe('incomplete');
   }, TIMEOUT);
 
+  it('requires the surface a committed rename moves a file out of', async () => {
+    const root = await project({ baseline: { 'site/a.js': 'a();\n' } });
+    fs.mkdirSync(path.join(root, 'lib'));
+    git(root, 'mv', 'site/a.js', 'lib/a.js');
+    git(root, 'commit', '-m', 'move');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: [] };
+    report(root, testReport(['lib/a.js:1']));
+    const artifact = await verify(root);
+    expect(artifact.changedPaths).toEqual(['lib/a.js', 'site/a.js']);
+    expect(artifact.selection.rejection).toEqual({ ...NONE, reasonCode: 'selection_surface_missing', missingSurfaces: ['site'] });
+  }, TIMEOUT);
+
   it('accepts the matched surface plus an extra one', async () => {
     const root = await project();
     change(root, 'site/index.html');
@@ -417,6 +428,10 @@ describe('@SCN006 @SCN001 surface-bound validations run only for selected surfac
     expect(providerRequests).toHaveLength(1);
     expect(providerRequests[0]).toMatchObject({ validationId: 'lint', changedPaths: ['src/app.js'],
       selection: { mode: 'selected', reason: 'selected', surfaces: ['app'] } });
+    // The artifact records the changed paths once, at its top level, not in every stored request.
+    expect(artifact.changedPaths).toEqual(['src/app.js']);
+    expect(results.lint.request).toMatchObject({ validationId: 'lint', selection: { surfaces: ['app'] } });
+    expect(Object.hasOwn(results.lint.request, 'changedPaths')).toBe(false);
     expect(artifact.ceiling).toBeNull();
   }, TIMEOUT);
 
@@ -452,22 +467,47 @@ describe('@SCN007 every changed path must be accounted for (#584 AC6)', () => {
     change(root, 'tests/app.test.js', 'test();\n');
     change(root, 'docs/guide.md');
     answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
-    report(root, { version: 1, tests: [{ id: 'tests/app.test.js', file: 'tests/app.test.js', lines: ['src/app.js:1'], branches: [], outcomes: [] },
-      { id: 'tests/other.test.js', file: 'tests/other.test.js', lines: [], branches: [], outcomes: [] }] });
+    report(root, testReport(['src/app.js:1']));
     expect((await verify(root)).ceiling).toBeNull();
     change(root, 'tests/other.test.js', 'test();\n');
     expect((await verify(root)).selection.rejection).toEqual({ ...NONE, reasonCode: 'selection_unaccounted', unaccounted: ['tests/other.test.js'] });
   }, TIMEOUT);
 
-  it('accounts for a deleted file under coveragePaths, and names one outside them', async () => {
-    const root = await project({ selection: { docPaths: ['docs/**'], coveragePaths: ['lib/**'] }, baseline: { 'lib/old.js': 'gone();\n', 'tools/old.sh': 'x\n' } });
+  it('accounts for a deleted file, whether code, a test or a script, since nothing of it is left to cover', async () => {
+    const root = await project({ selection: { docPaths: ['docs/**'], coveragePaths: ['lib/**'] },
+      baseline: { 'lib/old.js': 'gone();\n', 'tools/old.sh': 'x\n', 'tests/old.test.js': '// old\n' } });
     change(root, 'src/app.js', 'a();\n');
-    fs.rmSync(path.join(root, 'lib/old.js'));
-    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
+    for (const file of ['lib/old.js', 'tools/old.sh', 'tests/old.test.js']) fs.rmSync(path.join(root, file));
+    answer = { mode: 'selected', tests: ['tests/app.test.js', 'tests/old.test.js'], surfaces: ['app'] };
     report(root, testReport(['src/app.js:1']));
-    expect((await verify(root)).ceiling).toBeNull();
-    fs.rmSync(path.join(root, 'tools/old.sh'));
-    expect((await verify(root)).selection.rejection).toEqual({ ...NONE, reasonCode: 'selection_unaccounted', unaccounted: ['tools/old.sh'] });
+    const artifact = await verify(root);
+    expect(artifact.selection.tests).toEqual(['tests/app.test.js']);
+    expect(artifact.selection.rejection).toBeNull();
+    expect(artifact.ceiling).toBeNull();
+  }, TIMEOUT);
+
+  it('accounts for the file of a report test that a runner names without a path', async () => {
+    const root = await project({ baseline: { 'pkg/app_test.go': 'package app\n' } });
+    change(root, 'pkg/app.go', 'package app\nfunc A() {}\n');
+    change(root, 'pkg/app_test.go', 'package app\nfunc TestA() {}\n');
+    answer = { mode: 'selected', tests: ['TestA'], surfaces: [] };
+    report(root, { version: 1, tests: [{ id: 'TestA', file: 'pkg/app_test.go', lines: ['pkg/app.go:1', 'pkg/app.go:2'], branches: [], outcomes: [] }] });
+    const artifact = await verify(root);
+    expect(artifact.selection.rejection).toBeNull();
+    expect(artifact.ceiling).toBeNull();
+  }, TIMEOUT);
+
+  it('accounts for a coveragePaths file only through a selected surface that binds a validation', async () => {
+    const selection = { docPaths: ['docs/**'], coveragePaths: ['src/**'] };
+    answer = { mode: 'selected', tests: [], surfaces: ['app'] };
+    const unbound = await project({ selection });
+    change(unbound, 'src/app.js', 'a();\n');
+    expect((await verify(unbound)).selection.rejection).toEqual({ ...NONE, reasonCode: 'selection_unaccounted', unaccounted: ['src/app.js'] });
+    const bound = await project({ selection, surfaces: [{ id: 'app', sources: ['src/**'], validations: ['site.smoke'] }] });
+    change(bound, 'src/app.js', 'a();\n');
+    const artifact = await verify(bound);
+    expect(artifact.selection.rejection).toBeNull();
+    expect(byId(artifact)['site.smoke'].effectiveStatus).toBe('passed');
   }, TIMEOUT);
 
   it('fails a surface-bound local command that already ran when a path is unaccounted', async () => {
@@ -584,22 +624,6 @@ describe('@SCN010 full-run fallbacks give providers every surface (#584 AC9)', (
     expect(artifact.selection).toMatchObject({ mode: 'all', reason: 'fallback_path', fallbackPath: 'package.json', surfaces: ['app', 'site', 'other'] });
     expect(providerRequests.map((request) => request.selection.surfaces)).toEqual([['app', 'site', 'other'], ['app', 'site', 'other']]);
     expect(ranWith(root)).toEqual([]);
-  }, TIMEOUT);
-});
-
-describe('@SCN001 the change Claude receives leaves out delivery\'s version bump (#584 AC1)', () => {
-  it('asks Claude for the change\'s own paths and checks only them when VERSION and package.json only move to the new version', async () => {
-    const root = await project({ baseline: { 'VERSION': '1.0.0\n', 'package.json': '{\n  "name": "demo",\n  "version": "1.0.0"\n}\n' } });
-    change(root, 'src/app.js', 'a();\n');
-    change(root, 'VERSION', '1.1.0\n');
-    change(root, 'package.json', '{\n  "name": "demo",\n  "version": "1.1.0"\n}\n');
-    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
-    report(root, testReport(['src/app.js:1']));
-    const artifact = await verify(root);
-    expect(calls).toHaveLength(1);
-    expect(calls[0].input).toContain('Changed paths:\n- src/app.js\n\n');
-    expect(artifact.selection).toMatchObject({ mode: 'selected', reason: 'selected', requiredSurfaces: ['app'], rejection: null });
-    expect(artifact.ceiling).toBeNull();
   }, TIMEOUT);
 });
 

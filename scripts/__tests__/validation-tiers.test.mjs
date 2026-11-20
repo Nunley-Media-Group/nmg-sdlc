@@ -117,6 +117,7 @@ describe('steering manifest tiers, heavy marker and optional settings (#551 FR15
     ['a non-boolean heavy marker', (v) => { v.heavy = 'yes'; }],
     ['a selection on a full-tier validation', (v) => { v.tier = 'full'; v.selection = true; }],
     ['a selection without a tier', (v) => { v.selection = true; }],
+    ['a selection that is neither true nor a command', (v) => { v.tier = 'change'; v.selection = 'yes'; }],
     ['a selection on a validation that is not builtin.command', (v) => {
       Object.assign(v, { tier: 'change', provider: 'builtin.artifact', config: { path: 'out.json', checks: ['json'] }, selection: true }); }],
     ['a fallback path that escapes the project', (v) => { v.tier = 'change'; v.fallbackPaths = ['../x']; }],
@@ -129,6 +130,26 @@ describe('steering manifest tiers, heavy marker and optional settings (#551 FR15
     const root = await fixture([node('unit.tests', 'process.exit(0)')], { manifest: { selection: SELECTION } });
     editManifest(root, (manifest) => edit(manifest.validations[0]));
     await expect(loadSteeringRuntime(root)).rejects.toMatchObject({ reasonCode: 'steering_validation_invalid' });
+  });
+
+  it('rejects selection: true in a manifest without the top-level selection', async () => {
+    const root = await fixture([node('unit.tests', 'process.exit(0)', { tier: 'change', selection: true })]);
+    await expect(loadSteeringRuntime(root)).resolves.toMatchObject({ selection: SELECTION });
+    editManifest(root, (manifest) => { delete manifest.selection; });
+    await expect(loadSteeringRuntime(root)).rejects.toMatchObject({ reasonCode: 'steering_validation_invalid' });
+  });
+
+  it.each([
+    ['a selection glob that escapes the project', { selection: { docPaths: ['../x'] } }],
+    ['a negated selection glob', { selection: { fallbackPaths: ['!src/**'] } }],
+    ['an unknown selection key', { selection: { docs: ['docs/**'] } }],
+    ['an empty surfaces map', { surfaces: [] }],
+    ['a surface with an invalid id', { surfaces: [{ id: 'App', sources: ['src/**'] }] }],
+    ['duplicate surface ids', { surfaces: [{ id: 'app', sources: ['src/**'] }, { id: 'app', sources: ['lib/**'] }] }],
+    ['a surface naming an unknown validation', { surfaces: [{ id: 'app', sources: ['src/**'], validations: ['nope'] }] }],
+  ])('rejects %s with steering_manifest_invalid', async (_name, manifest) => {
+    const root = await fixture([node('unit.tests', 'process.exit(0)')], { manifest });
+    await expect(loadSteeringRuntime(root)).rejects.toMatchObject({ reasonCode: 'steering_manifest_invalid' });
   });
 
   it('rejects a validation key it does not know', async () => {

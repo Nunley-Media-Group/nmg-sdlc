@@ -165,6 +165,17 @@ describe('@SCN012 applyVerificationScope', () => {
     expect(detectVerificationScope(root)).toBeNull();
   });
 
+  (process.platform === 'win32' ? it.skip : it)('never writes the approved proposal through a symlinked coverage config', async () => {
+    const root = await project({ plugin: true });
+    const outside = path.join(root, 'outside.json');
+    fs.writeFileSync(outside, '{}\n');
+    fs.symlinkSync(outside, path.join(root, 'steering/test-coverage.json'));
+    const before = bytes(root, 'steering/manifest.json');
+    const result = await applyVerificationScope(root, detectVerificationScope(root), proposal(root));
+    expect(result).toMatchObject({ ok: false, reasonCode: 'verification_scope_target_invalid' });
+    expect(fs.readFileSync(outside, 'utf8')).toBe('{}\n');
+    expect(bytes(root, 'steering/manifest.json').equals(before)).toBe(true);
+  });
 });
 
 describe('@SCN012 verification-scope CLI', () => {
@@ -199,5 +210,16 @@ describe('@SCN012 sdlc-upgrade wiring', () => {
     const report = applyUpgrade(root, [live.id], noNetworkRun, { scopeProposal: proposal(root) });
     expect(report.results.find((result) => result.id === live.id)).toMatchObject({ status: 'applied' });
     expect(detectUpgrade(root, { run: noNetworkRun }).items.some((item) => item.kind === 'verification-scope')).toBe(false);
+  });
+
+  it('applies the approved proposal after an earlier approved item of the same run moved a tracked file', async () => {
+    const root = await project({ plugin: true, files: { 'AGENTS.md': '# Agents\n' } });
+    legacySelection(root);
+    const approved = detectUpgrade(root, { run: noNetworkRun }).items
+      .filter((item) => ['agents-to-claude-md', 'verification-scope'].includes(item.kind)).map((item) => item.id);
+    expect(approved).toHaveLength(2);
+    const report = applyUpgrade(root, approved, noNetworkRun, { scopeProposal: proposal(root) });
+    expect(approved.map((id) => report.results.find((result) => result.id === id)?.status)).toEqual(['applied', 'applied']);
+    expect(manifestOf(root).validations[0].selection).toBe(true);
   });
 });

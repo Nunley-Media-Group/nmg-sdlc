@@ -8,6 +8,8 @@ import { loadSteeringRuntime } from '../../src/sdlc-steering-runtime.mjs';
 import { matches } from '../../src/sdlc-glob.mjs';
 import { loadTestCoverageConfig, validateCoverageReport } from '../test-coverage.mjs';
 import { detectVerificationScope } from '../verification-scope.mjs';
+import { expandTestPaths } from '../jest-per-test-coverage.mjs';
+import os from 'node:os';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const PLUGIN_DIRS = ['workflows/', 'agents/', 'references/', 'commands/', 'hooks/', '.claude-plugin/'];
@@ -56,6 +58,20 @@ describe('@SCN013 This repository adopts scoped verification: the Jest per-test 
     expect(loadTestCoverageConfig(repoRoot)).toEqual({ config: { version: 1,
       suite: { program: 'npm', args: ['--prefix', 'scripts', 'test', '--', '--runInBand'] },
       coverage: { program: 'node', args: ['scripts/jest-per-test-coverage.mjs'] } } });
+  });
+
+  it('runs a selected directory as the Jest test files under it', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-584-expand-'));
+    try {
+      for (const file of ['t/__tests__/a.test.mjs', 't/__tests__/helper.mjs', 't/b.spec.mjs', 't/c.mjs', 't/__tests__/notes.md',
+        't/__fixtures__/d.test.mjs', 't/node_modules/e.test.mjs']) {
+        fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+        fs.writeFileSync(path.join(root, file), '');
+      }
+      expect(expandTestPaths(['t/', 'x/one.test.mjs'], root)).toEqual(['t/__tests__/a.test.mjs', 't/__tests__/helper.mjs', 't/b.spec.mjs', 'x/one.test.mjs']);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('prints a valid per-test report with repository-relative src/ coverage and executable lines', () => {

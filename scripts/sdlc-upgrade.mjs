@@ -3168,9 +3168,14 @@ function applyAgentsSpikeLanguage(root, item) {
 }
 
 // The verification-scope apply re-validates with the async steering runtime, so it runs as its own CLI process.
+// applyUpgrade checked the approved digest against the live state before any item ran; the earlier items of this
+// same approved run (a steering-runtime repair, an AGENTS.md rename) may since have changed the manifest or the
+// tracked paths, so the child is bound to the state they left, re-detected here.
 function applyVerificationScopeItem(root, item, proposalPath) {
+  const current = detectVerificationScope(root);
+  if (!current) return { id: item.id, status: 'already-current' };
   const result = spawnSync(process.execPath, [
-    VERIFICATION_SCOPE_SCRIPT, 'apply', '--root', root, '--approve', item.id, '--proposal', path.resolve(proposalPath),
+    VERIFICATION_SCOPE_SCRIPT, 'apply', '--root', root, '--approve', current.id, '--proposal', path.resolve(proposalPath),
   ], { cwd: root, encoding: 'utf8', maxBuffer: MAX_COMMAND_OUTPUT_BYTES });
   let output = null;
   try {
