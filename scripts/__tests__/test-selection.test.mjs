@@ -1,4 +1,4 @@
-// The change-selection resolver: @SCN001, @SCN002, @SCN008 and @SCN010 (#584 AC1, AC2, AC7, AC9, FR2, FR9).
+// The change-selection resolver: @SCN001, @SCN002 and @SCN010 (#584 AC1, AC2, AC9, FR2, FR9).
 import { afterEach, describe, expect, it } from '@jest/globals';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { applySteeringPlan, createInitializePlan } from '../sdlc-steering.mjs';
 import { loadSteeringRuntime } from '../../src/sdlc-steering-runtime.mjs';
-import { ANSWER_SCHEMA, resolveChangeSelection, selectionPath, writeGuidance } from '../../src/sdlc-test-selection.mjs';
+import { ANSWER_SCHEMA, resolveChangeSelection, selectionPath } from '../../src/sdlc-test-selection.mjs';
 
 const roots = [];
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
@@ -16,7 +16,12 @@ const git = (root, ...args) => {
   return result.stdout.trim();
 };
 
-/** A committed project on `work` with a project snippet routed to gate:selection and one change to src/app.js. */
+const TECH = '# Tech\n\n## Versioning\n\n| File | Path |\n|------|------|\n| `VERSION` | file text |\n| `package.json` | `version` |\n';
+
+/**
+ * A committed project on `work` with a project snippet routed to gate:selection, a technical snippet declaring the
+ * version files, the test file tests/app.test.js and one change to src/app.js.
+ */
 async function project({ fallbackPaths = ['package.json'], baselineFiles = {} } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-584-select-')));
   roots.push(root);
@@ -27,12 +32,17 @@ async function project({ fallbackPaths = ['package.json'], baselineFiles = {} } 
   const file = path.join(root, 'steering/manifest.json');
   const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
   manifest.snippets.push({ id: 'project.selection', path: 'steering/snippets/selection.md', consumers: ['gate:selection'], slot: 'body', order: 500 });
+  fs.writeFileSync(path.join(root, 'steering/snippets/tech.md'), TECH);
+  manifest.snippets.push({ id: 'project.tech', path: 'steering/snippets/tech.md', consumers: ['worker:deliver'], slot: 'body', order: 500 });
   manifest.validations = [{ id: 'unit.tests', provider: 'builtin.command', required: true, when: { kind: 'always' }, tier: 'change', selection: true,
     config: { program: process.execPath, args: ['-e', '0'], cwd: '.', env: [] } }];
   manifest.selection = { docPaths: ['docs/**'], fallbackPaths };
   manifest.surfaces = [{ id: 'app', sources: ['src/**'] }, { id: 'cli', sources: ['bin/**'] }];
   fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
-  for (const [name, text] of Object.entries(baselineFiles)) fs.writeFileSync(path.join(root, name), text);
+  for (const [name, text] of Object.entries({ 'tests/app.test.js': '// app test\n', ...baselineFiles })) {
+    fs.mkdirSync(path.dirname(path.join(root, name)), { recursive: true });
+    fs.writeFileSync(path.join(root, name), text);
+  }
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.email', 'test@example.com');
   git(root, 'config', 'user.name', 'Test');
@@ -89,7 +99,7 @@ describe('@SCN001 Claude selects tests and surfaces (#584 AC1)', () => {
     git(root, 'add', 'src/big.js');
     git(root, 'commit', '-m', 'big');
     fs.writeFileSync(path.join(root, 'src/new.js'), 'export const fresh = 1;\n');
-    const { calls, run } = recorder({ mode: 'selected', tests: ['t'], surfaces: ['app'] });
+    const { calls, run } = recorder({ mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] });
     await resolve(root, runtime, run, { paths: ['src/app.js', 'src/big.js', 'src/new.js'] });
     expect(calls[0].input).toMatch(/\[diff truncated: \d+ more bytes\]/);
     fs.rmSync(path.join(root, 'src/big.js'));
@@ -102,6 +112,32 @@ describe('@SCN001 Claude selects tests and surfaces (#584 AC1)', () => {
     expect((await resolve(root, runtime, run, { paths: ['src/app.js', 'src/new.js'] })).reused).toBe(false);
   });
 
+  (process.platform === 'win32' ? it.skip : it)('spawns claude with the prompt on stdin and reads its structured output', async () => {
+    const { root } = await project();
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-584-claude-'));
+    roots.push(bin);
+    // Selects the test only when the prompt it reads from stdin names the changed path, and records its arguments.
+    fs.writeFileSync(path.join(bin, 'claude'), `#!${process.execPath}
+const fs = require('node:fs');
+const input = fs.readFileSync(0, 'utf8');
+fs.writeFileSync(${JSON.stringify(path.join(bin, 'argv.json'))}, JSON.stringify(process.argv.slice(2)));
+const named = input.includes('Changed paths:\\n- src/app.js');
+process.stdout.write(JSON.stringify({ type: 'result', structured_output: { mode: 'selected', tests: named ? ['tests/app.test.js'] : [], surfaces: ['app'] } }));
+`, { mode: 0o755 });
+    // Jest gives a test a copy of process.env, so the resolver runs in a child process whose PATH finds the fake claude.
+    const modules = ['../../src/sdlc-steering-runtime.mjs', '../../src/sdlc-test-selection.mjs'].map((file) => new URL(file, import.meta.url).href);
+    const child = spawnSync(process.execPath, ['--input-type=module', '-e', `
+      const { loadSteeringRuntime } = await import(${JSON.stringify(modules[0])});
+      const { resolveChangeSelection } = await import(${JSON.stringify(modules[1])});
+      const runtime = await loadSteeringRuntime(${JSON.stringify(root)});
+      const selection = await resolveChangeSelection({ projectRoot: ${JSON.stringify(root)}, issue: 42, baseRef: 'main', paths: ['src/app.js'], runtime, models: {} });
+      process.stdout.write(JSON.stringify(selection));`], { encoding: 'utf8', env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` } });
+    expect(child.stderr).toBe('');
+    const selection = JSON.parse(child.stdout);
+    expect(selection).toMatchObject({ mode: 'selected', reason: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] });
+    expect(JSON.parse(fs.readFileSync(path.join(bin, 'argv.json'), 'utf8')).slice(0, 4)).toEqual(['-p', '--model', 'haiku', '--effort']);
+  });
+
   it('reads an answer printed as JSON text in the result', async () => {
     const { root, runtime } = await project();
     const { run } = recorder(() => ({ status: 0, stdout: JSON.stringify({ result: '```json\n{"mode":"selected","tests":[],"surfaces":["app"]}\n```' }) }));
@@ -110,10 +146,10 @@ describe('@SCN001 Claude selects tests and surfaces (#584 AC1)', () => {
 
   it('reuses the stored selection while its binding holds, and asks again when the change moves', async () => {
     const { root, runtime } = await project();
-    const { calls, run } = recorder({ mode: 'selected', tests: ['t'], surfaces: ['app'] });
+    const { calls, run } = recorder({ mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] });
     await resolve(root, runtime, run);
     expect(fs.existsSync(selectionPath(root, 42))).toBe(true);
-    expect(await resolve(root, runtime, run)).toMatchObject({ reused: true, tests: ['t'] });
+    expect(await resolve(root, runtime, run)).toMatchObject({ reused: true, tests: ['tests/app.test.js'] });
     expect(calls).toHaveLength(1);
     fs.writeFileSync(path.join(root, 'src/app.js'), 'export const answer = 43;\n');
     expect((await resolve(root, runtime, run)).reused).toBe(false);
@@ -154,6 +190,8 @@ describe('@SCN010 full-run fallbacks (#584 AC9)', () => {
     ['a test that is an option', () => ({ status: 0, stdout: JSON.stringify({ structured_output: { mode: 'selected', tests: ['--passWithNoTests'], surfaces: ['app'] } }) }), 'selection_failed'],
     ['an absolute test path', () => ({ status: 0, stdout: JSON.stringify({ structured_output: { mode: 'selected', tests: ['/etc/passwd'], surfaces: ['app'] } }) }), 'selection_failed'],
     ['a test path leaving the project', () => ({ status: 0, stdout: JSON.stringify({ structured_output: { mode: 'selected', tests: ['tests/../../x.test.js'], surfaces: ['app'] } }) }), 'selection_failed'],
+    ['a test that is not a file in the project', () => ({ status: 0, stdout: JSON.stringify({ structured_output: { mode: 'selected', tests: ['tests/app.test.js', 'tests/glob.test.js'], surfaces: ['app'] } }) }), 'selection_failed'],
+    ['an answer with an unexpected key', () => ({ status: 0, stdout: JSON.stringify({ structured_output: { mode: 'selected', tests: [], surfaces: ['app'], note: 'x' } }) }), 'selection_failed'],
     ['an all answer', () => ({ status: 0, stdout: JSON.stringify({ structured_output: { mode: 'all', tests: [], surfaces: [] } }) }), 'selection_all'],
   ])('runs everything for %s', async (_name, answer, reason) => {
     const { root, runtime } = await project();
@@ -170,6 +208,21 @@ describe('@SCN010 a failed call keeps its diagnostic (#584 AC9)', () => {
     const { run } = recorder(() => ({ status: 2, stdout: '', stderr: 'authentication expired\n' }));
     expect(await resolve(root, runtime, run)).toMatchObject({ reason: 'selection_failed', detail: 'claude exited 2: authentication expired' });
   });
+
+  it('names a selected test that is not a file, and asks again instead of reusing a stored test that was removed', async () => {
+    const { root, runtime } = await project();
+    const missing = recorder({ mode: 'selected', tests: ['tests/glob.test.js'], surfaces: ['app'] });
+    expect(await resolve(root, runtime, missing.run)).toMatchObject({ mode: 'all', reason: 'selection_failed',
+      detail: 'selected test is not a file in the project: tests/glob.test.js' });
+    const { calls, run } = recorder({ mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] });
+    await resolve(root, runtime, run);
+    expect(calls).toHaveLength(1);
+    // A stored selection is checked again on reuse: an entry that breaks the answer contract is never reused.
+    const stored = JSON.parse(fs.readFileSync(selectionPath(root, 42), 'utf8'));
+    fs.writeFileSync(selectionPath(root, 42), JSON.stringify({ ...stored, selection: { ...stored.selection, tests: ['--passWithNoTests'] } }));
+    expect(await resolve(root, runtime, run)).toMatchObject({ reason: 'selected', tests: ['tests/app.test.js'], reused: false });
+    expect(calls).toHaveLength(2);
+  });
 });
 
 describe('@SCN010 a version bump is not a fallback change (#584 AC9)', () => {
@@ -178,10 +231,20 @@ describe('@SCN010 a version bump is not a fallback change (#584 AC9)', () => {
   it('asks Claude, requires no surface and records the path when package.json changes only its version', async () => {
     const { root, runtime } = await project({ baselineFiles: { 'package.json': manifestJson('1.0.0') } });
     fs.writeFileSync(path.join(root, 'package.json'), manifestJson('1.1.0'));
-    const { calls, run } = recorder({ mode: 'selected', tests: ['t'], surfaces: ['app'] });
+    const { calls, run } = recorder({ mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] });
     expect(await resolve(root, runtime, run, { paths: ['package.json', 'src/app.js'] })).toMatchObject({ mode: 'selected', reason: 'selected',
       versionOnly: ['package.json'], requiredSurfaces: ['app'] });
     expect(calls).toHaveLength(1);
+  });
+
+  it('exempts only the version files technical steering declares', async () => {
+    const { root, runtime } = await project({ fallbackPaths: ['config/**'], baselineFiles: { 'VERSION': '1.0.0\n', 'config/models.json': manifestJson('1.0.0') } });
+    fs.writeFileSync(path.join(root, 'VERSION'), '1.1.0\n');
+    fs.writeFileSync(path.join(root, 'config/models.json'), manifestJson('2.0.0'));
+    const { calls, run } = recorder({ mode: 'selected', tests: [], surfaces: [] });
+    expect(await resolve(root, runtime, run, { paths: ['VERSION', 'config/models.json'] })).toMatchObject({ mode: 'all', reason: 'fallback_path',
+      fallbackPath: 'config/models.json', versionOnly: ['VERSION'] });
+    expect(calls).toHaveLength(0);
   });
 
   it('still runs in full when package.json changes anything besides its version', async () => {
@@ -191,19 +254,5 @@ describe('@SCN010 a version bump is not a fallback change (#584 AC9)', () => {
     expect(await resolve(root, runtime, run, { paths: ['package.json', 'src/app.js'] })).toMatchObject({ mode: 'all', reason: 'fallback_path',
       fallbackPath: 'package.json', versionOnly: [] });
     expect(calls).toHaveLength(0);
-  });
-});
-
-describe('@SCN008 redispatch guidance reaches the rerun selection prompt (#584 AC7)', () => {
-  it('appends head-bound guidance to the prompt and records that it was supplied', async () => {
-    const { root, runtime } = await project();
-    const { calls, run } = recorder({ mode: 'selected', tests: ['t'], surfaces: ['app'] });
-    writeGuidance(root, 42, '0'.repeat(40), 'stale guidance');
-    expect((await resolve(root, runtime, run)).guidanceSupplied).toBe(false);
-    writeGuidance(root, 42, git(root, 'rev-parse', 'HEAD'), 'check hooks tests');
-    const selection = await resolve(root, runtime, run);
-    expect(calls).toHaveLength(2);
-    expect(calls[1].input).toContain('Supervisor guidance:\ncheck hooks tests');
-    expect(selection).toMatchObject({ guidanceSupplied: true, reused: false });
   });
 });

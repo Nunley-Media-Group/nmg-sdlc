@@ -3,7 +3,7 @@
 // binding (head, change, steering, prompt and guidance) is unchanged, so `--mode select` and the gate share one call.
 import { createHash } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
-import { lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { canonicalJson, projectPromptFragments } from "./sdlc-steering-runtime.mjs";
 import {
@@ -15,6 +15,7 @@ import {
 } from "./sdlc-prompt-snippets.mjs";
 import { packageRoot as defaultPackageRoot } from "./sdlc-workflows.mjs";
 import { matches } from "./sdlc-glob.mjs";
+import { versionedArtifacts } from "./sdlc-version-artifacts.mjs";
 import { selectionModel } from "./stage-models.mjs";
 
 export const SELECTION_CONSUMER = "gate:selection";
@@ -103,11 +104,39 @@ export function fallbackPathsOf(runtime) {
 
 const VERSION_TEXT = /^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]*)?\s*$/;
 /**
- * Whether `path` changed only its version since the merge base: a JSON file whose parsed content differs only in
- * its top-level `version`, or a `VERSION` file holding one version on both sides. Delivery prepares the version
- * bump before the queue-head gate, so such a change selects nothing and needs no full run.
+ * The version files delivery prepares: the root `VERSION` plus every artifact the `worker:deliver` technical snippet
+ * declares in its `## Versioning` table, as a map from path to its declared field.
  */
-function versionOnlyChange(projectRoot, mergeBase, path) {
+export function declaredVersionFiles(runtime) {
+  const declared = new Map([["VERSION", "file text"]]);
+  const tech = (runtime.snippets ?? []).find((record) => record.id === "project.tech" && record.consumers?.includes("worker:deliver"));
+  if (!tech) return declared;
+  try {
+    for (const { relative, field } of versionedArtifacts(readFileSync(tech.absolutePath, "utf8"))) if (!declared.has(relative)) declared.set(relative, field);
+  } catch {}
+  return declared;
+}
+/** `value` without the dotted `field`, or undefined when the field is absent. */
+function withoutField(value, field) {
+  const keys = field.split(".").map((key) => key.trim()).filter(Boolean);
+  if (!keys.length) return undefined;
+  const copy = structuredClone(value);
+  let owner = copy;
+  for (const key of keys.slice(0, -1)) {
+    if (!owner || typeof owner !== "object" || !Object.hasOwn(owner, key)) return undefined;
+    owner = owner[key];
+  }
+  if (!owner || typeof owner !== "object" || !Object.hasOwn(owner, keys.at(-1))) return undefined;
+  const removed = owner[keys.at(-1)];
+  delete owner[keys.at(-1)];
+  return { rest: copy, removed };
+}
+/**
+ * Whether declared version file `path` changed only its version since the merge base: the root `VERSION` holding one
+ * version on both sides, or a declared JSON file whose parsed content differs only in its declared field. Any other
+ * declared format is never exempt.
+ */
+function versionOnlyChange(projectRoot, mergeBase, path, field) {
   let before;
   let after;
   try {
@@ -115,23 +144,32 @@ function versionOnlyChange(projectRoot, mergeBase, path) {
     after = readFileSync(join(projectRoot, path), "utf8");
   } catch { return false; }
   if (before === after) return false;
-  if (path === "VERSION" || path.endsWith("/VERSION")) return VERSION_TEXT.test(before) && VERSION_TEXT.test(after);
+  if (path === "VERSION") return VERSION_TEXT.test(before) && VERSION_TEXT.test(after);
   if (!path.endsWith(".json")) return false;
   try {
-    const old = JSON.parse(before);
-    const next = JSON.parse(after);
-    if (!old || !next || typeof old !== "object" || typeof next !== "object" || Array.isArray(old) || Array.isArray(next)) return false;
-    if (old.version === next.version) return false;
-    const { version: _old, ...restOld } = old;
-    const { version: _next, ...restNext } = next;
-    return canonicalJson(restOld) === canonicalJson(restNext);
+    const old = withoutField(JSON.parse(before), field);
+    const next = withoutField(JSON.parse(after), field);
+    if (!old || !next || canonicalJson(old.removed) === canonicalJson(next.removed)) return false;
+    return canonicalJson(old.rest) === canonicalJson(next.rest);
   } catch { return false; }
 }
-/** The changed paths whose only change is a version bump. */
-export function versionOnlyPaths(projectRoot, baseRef, paths) {
+/** The changed paths that are declared version files whose only change is a version bump. */
+export function versionOnlyPaths(projectRoot, baseRef, paths, runtime) {
+  const declared = declaredVersionFiles(runtime);
+  const candidates = paths.filter((path) => declared.has(path));
+  if (!candidates.length) return [];
   let mergeBase;
   try { mergeBase = git(projectRoot, ["merge-base", baseRef, "HEAD"]).trim(); } catch { return []; }
-  return paths.filter((path) => versionOnlyChange(projectRoot, mergeBase, path));
+  return candidates.filter((path) => versionOnlyChange(projectRoot, mergeBase, path, declared.get(path)));
+}
+
+/**
+ * The changed paths no check accounts for: none is a coverage-report path, a selected test, under a selected
+ * surface's sources or `docPaths`, a version-only change, or a deleted file under `coveragePaths`.
+ */
+export function unaccountedPaths({ paths, reportPaths = new Set(), tests = [], surfaceSources = [], docPaths = [], versionOnly = [], coveragePaths = [], exists }) {
+  return paths.filter((path) => !reportPaths.has(path) && !tests.includes(path) && !matches(path, surfaceSources)
+    && !matches(path, docPaths) && !versionOnly.includes(path) && !(matches(path, coveragePaths) && !exists(path)));
 }
 
 /** The redispatch guidance stored for this head, or null. */
@@ -219,6 +257,8 @@ function answerFrom(stdout) {
 /** Validates the bounded answer; returns `{ mode, tests, surfaces }` or throws. */
 export function validateAnswer(answer, declaredIds) {
   if (!answer || typeof answer !== "object" || Array.isArray(answer) || !["selected", "all"].includes(answer.mode)) throw new Error("mode");
+  const extra = Object.keys(answer).filter((key) => !Object.hasOwn(ANSWER_SCHEMA.properties, key));
+  if (extra.length) throw new Error(`unexpected answer keys: ${extra.join(", ")}`);
   const strings = (value) => Array.isArray(value) && value.every((item) => typeof item === "string" && item !== "");
   if (!strings(answer.tests) || !strings(answer.surfaces)) throw new Error("tests or surfaces");
   const tests = [...new Set(answer.tests)];
@@ -229,6 +269,23 @@ export function validateAnswer(answer, declaredIds) {
   const surfaces = [...new Set(answer.surfaces)];
   if (surfaces.some((id) => !declaredIds.includes(id))) throw new Error("undeclared surface");
   return { mode: answer.mode, tests, surfaces };
+}
+/** Throws naming the first selected test that is not a regular file in the project: a test id is a file path. */
+function requireTestFiles(projectRoot, tests) {
+  const missing = tests.find((test) => {
+    const file = join(projectRoot, test);
+    try { return !existsSync(file) || !lstatSync(file).isFile(); } catch { return true; }
+  });
+  if (missing !== undefined) throw new Error(`selected test is not a file in the project: ${missing}`);
+}
+/** Whether a stored selection still satisfies the answer contract, so it can be reused. */
+function reusable(selection, root, declaredIds) {
+  try {
+    if (selection.mode !== "selected") return selection.mode === "all";
+    validateAnswer({ mode: selection.mode, tests: selection.tests, surfaces: selection.surfaces }, declaredIds);
+    requireTestFiles(root, selection.tests);
+    return true;
+  } catch { return false; }
 }
 
 /**
@@ -244,7 +301,7 @@ export async function resolveChangeSelection({ projectRoot, issue, baseRef, path
   const surfaces = runtime.surfaces ?? [];
   const declaredIds = surfaces.map((surface) => surface.id);
   const { model, effort } = selectionModel(models);
-  const versionOnly = versionOnlyPaths(root, baseRef, paths);
+  const versionOnly = versionOnlyPaths(root, baseRef, paths, runtime);
   const scoped = paths.filter((path) => !versionOnly.includes(path));
   const required = requiredSurfaces(surfaces, scoped);
   const head = headSha ?? git(root, ["rev-parse", "HEAD"]).trim();
@@ -268,7 +325,7 @@ export async function resolveChangeSelection({ projectRoot, issue, baseRef, path
     effort,
   };
   const stored = readJson(selectionPath(root, issue));
-  if (stored?.schemaVersion === 1 && canonicalJson(stored.binding) === canonicalJson(binding) && stored.selection) {
+  if (stored?.schemaVersion === 1 && canonicalJson(stored.binding) === canonicalJson(binding) && stored.selection && reusable(stored.selection, root, declaredIds)) {
     return { ...stored.selection, requiredSurfaces: required, versionOnly, reused: true };
   }
 
@@ -283,6 +340,7 @@ export async function resolveChangeSelection({ projectRoot, issue, baseRef, path
       throw new Error(`${response?.error?.message ?? `claude exited ${response?.status ?? "without a status"}${response?.signal ? ` (${response.signal})` : ""}`}${stderr ? `: ${stderr.slice(-300)}` : ""}`);
     }
     const answer = validateAnswer(answerFrom(response.stdout), declaredIds);
+    if (answer.mode === "selected") requireTestFiles(root, answer.tests);
     selection = answer.mode === "all"
       ? all("selection_all", shared)
       : { mode: "selected", reason: answer.tests.length || answer.surfaces.length ? "selected" : "selection_empty", fallbackPath: null,

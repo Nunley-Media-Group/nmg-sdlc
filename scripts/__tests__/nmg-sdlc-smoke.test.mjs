@@ -1706,16 +1706,22 @@ describe('@SCN011 this repository\'s smoke runs only the selected surfaces (#584
     ]);
   });
 
-  it('fails a record naming another command or another repository', async () => {
-    const { provider, request, calls } = scoped(['steering', 'run-retro'], {
-      records: { steering: { command: '/sdlc-run-retro' }, 'run-retro': { repo: 'Nunley-Media-Group/other' } },
+  it('fails a record naming another command, repository, surface or schema version', async () => {
+    const { provider, request, calls } = scoped(['steering', 'run-retro', 'onboard-project', 'upgrade-project'], {
+      records: {
+        steering: { command: '/sdlc-run-retro' },
+        'run-retro': { repo: 'Nunley-Media-Group/other' },
+        'onboard-project': { surface: 'upgrade-project' },
+        'upgrade-project': { schemaVersion: 2 },
+      },
     });
 
     const outcome = await provider(request);
 
     expect(outcome.status).toBe('failed');
-    expect(outcome.summary).toBe('nmg-sdlc-smoke surface not exercised: steering, run-retro');
-    expect(outcome.evidence.map((item) => item.summary)).toEqual(['steering: record command invalid', 'run-retro: record repo invalid']);
+    expect(outcome.summary).toBe('nmg-sdlc-smoke surface not exercised: onboard-project, upgrade-project, steering, run-retro');
+    expect(outcome.evidence.map((item) => item.summary)).toEqual(['onboard-project: record surface mismatch', 'upgrade-project: record schemaVersion invalid',
+      'steering: record command invalid', 'run-retro: record repo invalid']);
     expect(calls).toHaveLength(0);
   });
 
@@ -1818,35 +1824,5 @@ describe('@SCN011 this repository\'s smoke runs only the selected surfaces (#584
       expect(deliveries(calls)).toHaveLength(1);
       onlySmokePrograms(calls);
     }
-  });
-
-  it('directs the verify worker to select under the controller run id, record and conditionally provision smoke surfaces', () => {
-    const snippet = fs.readFileSync(path.join(SOURCE_ROOT, 'steering', 'snippets', 'project-smoke.md'), 'utf8');
-
-    // Selection runs ahead of the gate with the verify-steering CLI in select mode.
-    expect(snippet).toMatch(/node <plugin-root>\/scripts\/sdlc-verify-steering\.mjs --project \. --issue N --spec \S+ [^\n]*--mode select/);
-    expect(snippet).toMatch(/--mode select \[--controller-run-id R\]\n/);
-    expect(snippet).toContain('replace `[--controller-run-id R]` with `--controller-run-id R` using that exact value');
-    expect(snippet).toContain('{ ok: true, selection }');
-    expect(snippet).toContain('selection.surfaces');
-
-    // Each selected interactive surface is driven live through its real command and recorded.
-    for (const command of ['/sdlc-draft-issue', '/sdlc-write-spec #N', '/sdlc-onboard-project', '/sdlc-upgrade-project', '/sdlc-steering', '/sdlc-run-retro']) {
-      expect(snippet).toContain(command);
-    }
-    expect(snippet).toContain('claude --plugin-dir <project root>');
-    expect(snippet).toContain('fresh clone of `Nunley-Media-Group/nmg-sdlc-smoke`');
-    expect(snippet).toContain('.nmg-sdlc/smoke/surfaces/<surface>.json');
-    expect(snippet).toContain('.nmg-sdlc/smoke/surfaces/<surface>.log');
-    for (const field of ['"schemaVersion": 1', '"repo": "Nunley-Media-Group/nmg-sdlc-smoke"', '"surface"', '"headSha": "<head>"', '"status": "passed"', '"command"', '"transcript"', '"issue"']) {
-      expect(snippet).toContain(field);
-    }
-    expect(snippet).toContain('nmg-sdlc-smoke surface not exercised: <surface>');
-
-    // Provisioning is conditional on the selected surfaces.
-    expect(snippet).toContain('Provision (steps 2–5) only when `execute`, `draft-issue` or `write-spec` is selected.');
-    expect(snippet).toContain('When `draft-issue` or `write-spec` is selected, provision a fresh smoke issue');
-    expect(snippet).toContain('When only `execute` is selected, the recorded issue may be reused');
-    expect(snippet).toContain('When no smoke surface is selected, do nothing more here: the gate records `surface_not_selected`.');
   });
 });

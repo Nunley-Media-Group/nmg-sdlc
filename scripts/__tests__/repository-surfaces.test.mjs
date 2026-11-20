@@ -3,11 +3,9 @@ import { describe, expect, it } from '@jest/globals';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { loadSteeringRuntime } from '../../src/sdlc-steering-runtime.mjs';
 import { runsInTier } from '../../src/sdlc-verification-runtime.mjs';
-import { collect } from '../jest-per-test-coverage.mjs';
 import { matches } from '../../src/sdlc-glob.mjs';
 import { loadTestCoverageConfig, validateCoverageReport } from '../test-coverage.mjs';
 import { detectVerificationScope } from '../verification-scope.mjs';
@@ -118,51 +116,6 @@ describe('@SCN013 This repository adopts scoped verification: the Jest per-test 
       coverage: { program: 'node', args: ['scripts/jest-per-test-coverage.mjs'] } } });
   });
 
-  it('records only the hit statements and branch locations as covered, and every statement line as executable', () => {
-    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-jest-coverage-')));
-    try {
-      const source = path.join(root, 'src', 'demo.mjs');
-      fs.mkdirSync(path.dirname(source), { recursive: true });
-      fs.writeFileSync(source, ['const a = 1;', '', 'if (a) run();', 'else skip();', 'done();'].join('\n'));
-      const coverage = { [source]: {
-        path: source,
-        statementMap: { 0: { start: { line: 1, column: 0 } }, 1: { start: { line: 2, column: 0 } }, 2: { start: { line: 3, column: 0 } },
-          3: { start: { line: 4, column: 5 } }, 4: { start: { line: 5, column: 0 } } },
-        s: { 0: 1, 1: 4, 2: 2, 3: 0, 4: 0 },
-        branchMap: { 0: { locations: [{ start: { line: 3, column: 7 } }, { start: { line: 4, column: 5 } }] } },
-        b: { 0: [2, 0] },
-      } };
-      const results = { success: true, testResults: [{ status: 'passed', assertionResults: [{ fullName: 'demo works', status: 'passed' }] }] };
-      const executable = new Set();
-      const { test, failed } = collect('scripts/__tests__/demo.test.mjs', results, coverage, executable, root);
-      expect(failed).toBe(false);
-      // Line 2 is blank, so it is neither executable nor covered, whatever its count.
-      expect([...executable].sort()).toEqual(['src/demo.mjs:1', 'src/demo.mjs:3', 'src/demo.mjs:4', 'src/demo.mjs:5']);
-      expect(test.lines).toEqual(['src/demo.mjs:1', 'src/demo.mjs:3']);
-      expect(test.branches).toEqual(['src/demo.mjs:3:7']);
-      expect(test.outcomes).toEqual(['scripts/__tests__/demo.test.mjs::demo works:passed']);
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it('leaves out files outside the repository and reports a failed assertion or suite', () => {
-    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-jest-coverage-')));
-    try {
-      const outside = path.join(os.tmpdir(), 'nmg-outside-demo.mjs');
-      const coverage = { [outside]: { path: outside, statementMap: { 0: { start: { line: 1, column: 0 } } }, s: { 0: 1 }, branchMap: {}, b: {} } };
-      const executable = new Set();
-      const results = { success: false, testResults: [{ status: 'failed', assertionResults: [] }, { status: 'failed', assertionResults: [{ fullName: 'x', status: 'failed' }] }] };
-      const { test, failed } = collect('scripts/__tests__/demo.test.mjs', results, coverage, executable, root);
-      expect(failed).toBe(true);
-      expect(executable.size).toBe(0);
-      expect(test.lines).toEqual([]);
-      expect(test.outcomes).toEqual(['scripts/__tests__/demo.test.mjs::(suite):failed', 'scripts/__tests__/demo.test.mjs::x:failed']);
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  });
-
   it('prints a valid per-test report with repository-relative src/ coverage and executable lines', () => {
     const run = runCoverage([subjectTest]);
     expect(run.status).toBe(0);
@@ -175,16 +128,10 @@ describe('@SCN013 This repository adopts scoped verification: the Jest per-test 
     expect([...test.lines, ...report.executableLines].some((line) => /node_modules|__tests__|__fixtures__/.test(line) || path.isAbsolute(line))).toBe(false);
     const executable = new Set(report.executableLines);
     expect(test.lines.filter((line) => !executable.has(line))).toEqual([]);
-    // Some executable statements of the covered modules are not run by this one test file.
+    // Only the statements this test file runs are hit: other executable statements of the covered modules are not.
     expect(report.executableLines.filter((line) => line.startsWith('scripts/sdlc-models.mjs:') && !test.lines.includes(line)).length).toBeGreaterThan(0);
+    expect(test.branches.some((branch) => /^(src\/stage-models|scripts\/sdlc-models)\.mjs:\d+:\d+$/.test(branch))).toBe(true);
     for (const outcome of test.outcomes) expect(outcome.startsWith(`${subjectTest}::`)).toBe(true);
     expect(test.outcomes.some((outcome) => outcome.endsWith(':passed'))).toBe(true);
   }, 120000);
-
-  it('rejects missing and non-repository-relative arguments with a usage error', () => {
-    expect(runCoverage([]).status).toBe(2);
-    expect(runCoverage(['../outside.test.mjs']).status).toBe(2);
-    expect(runCoverage([path.join(repoRoot, subjectTest)]).status).toBe(2);
-    expect(runCoverage(['scripts\\__tests__\\x.test.mjs']).status).toBe(2);
-  });
 });

@@ -1,5 +1,5 @@
-// The pre-merge gate's selection checks and surface binding: @SCN001, @SCN002, @SCN004-@SCN007, @SCN009, @SCN010
-// (#584 AC1, AC2, AC4, AC5, AC5a, AC6, AC8, AC9), plus `--mode select`.
+// The pre-merge gate's selection checks and surface binding: @SCN001, @SCN002, @SCN004-@SCN010
+// (#584 AC1, AC2, AC4, AC5, AC5a, AC6, AC7, AC8, AC9), plus `--mode select`.
 import { afterEach, describe, expect, it } from '@jest/globals';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -7,7 +7,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { applySteeringPlan, createInitializePlan } from '../sdlc-steering.mjs';
-import { parseChangedLines, runSteeringValidations } from '../../src/sdlc-verification-runtime.mjs';
+import { runSteeringValidations } from '../../src/sdlc-verification-runtime.mjs';
+import { writeGuidance } from '../../src/sdlc-test-selection.mjs';
 import { main as verifySteering } from '../sdlc-verify-steering.mjs';
 
 const roots = [];
@@ -42,7 +43,12 @@ const COVERAGE = "const fs=require('node:fs');fs.writeFileSync('coverage-args.js
 const EXTENSION = `export const extension = Object.freeze({ schemaVersion: 1, id: 'test.site',
   providers: Object.freeze({ 'project.site': (request) => globalThis.__nmg584Provider(request) }) });\n`;
 
-/** A committed project on branch `work`: unit.tests opts into the selection, site.smoke is bound to the `site` surface. */
+const TECH = '# Tech\n\n## Versioning\n\n| File | Path |\n|------|------|\n| `VERSION` | file text |\n| `package.json` | `version` |\n';
+
+/**
+ * A committed project on branch `work` with the test file tests/app.test.js and a technical snippet declaring the
+ * version files: unit.tests opts into the selection, site.smoke is bound to the `site` surface.
+ */
 async function project({ selection = { docPaths: ['docs/**'], fallbackPaths: ['package.json'] }, coverage = true, baseline = {}, validations = [],
   surfaces = null } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-584-gate-')));
@@ -53,6 +59,8 @@ async function project({ selection = { docPaths: ['docs/**'], fallbackPaths: ['p
   await applySteeringPlan(root, createInitializePlan(root, { validations: [] }));
   fs.mkdirSync(path.join(root, 'steering/extensions'), { recursive: true });
   fs.writeFileSync(path.join(root, 'steering/extensions/site.mjs'), EXTENSION);
+  fs.mkdirSync(path.join(root, 'steering/snippets'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'steering/snippets/tech.md'), TECH);
   if (coverage) {
     fs.writeFileSync(path.join(root, 'steering/test-coverage.json'), `${JSON.stringify({ version: 1,
       suite: { program: process.execPath, args: ['-e', '0'] }, coverage: { program: process.execPath, args: ['-e', COVERAGE] } }, null, 2)}\n`);
@@ -60,11 +68,12 @@ async function project({ selection = { docPaths: ['docs/**'], fallbackPaths: ['p
   const file = path.join(root, 'steering/manifest.json');
   const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
   manifest.extensions = [{ id: 'test.site', path: 'steering/extensions/site.mjs', providers: ['project.site'] }];
+  manifest.snippets.push({ id: 'project.tech', path: 'steering/snippets/tech.md', consumers: ['worker:deliver'], slot: 'body', order: 500 });
   manifest.validations = [{ ...tests, selection: true }, ...validations, site, plain];
   manifest.selection = selection;
   manifest.surfaces = surfaces ?? [{ id: 'app', sources: ['src/**'] }, { id: 'site', sources: ['site/**'], validations: ['site.smoke'] }, { id: 'other', sources: ['other/**'] }];
   fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
-  for (const [name, text] of Object.entries(baseline)) {
+  for (const [name, text] of Object.entries({ 'tests/app.test.js': '// app test\n', ...baseline })) {
     fs.mkdirSync(path.dirname(path.join(root, name)), { recursive: true });
     fs.writeFileSync(path.join(root, name), text);
   }
@@ -170,10 +179,12 @@ describe('@SCN004 changed lines must be covered by the selected tests (#584 AC4)
     git(root, 'config', 'diff.mnemonicPrefix', 'true');
     git(root, 'config', 'diff.noprefix', 'true');
     change(root, 'src/my app.js', 'one();\n++ two;\n');
+    change(root, 'src/q"t.js', 'q();\n');
     answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
-    report(root, testReport(['src/my app.js:1']));
+    report(root, testReport(['src/my app.js:1', 'src/q"t.js:1']));
     const artifact = await verify(root);
     expect(artifact.selection.rejection).toEqual({ ...NONE, reasonCode: 'selection_uncovered', uncovered: ['src/my app.js:2'] });
+    expect(byId(artifact)['unit.tests'].coverage.changedLines).toEqual(['src/my app.js:1', 'src/my app.js:2', 'src/q"t.js:1']);
   }, TIMEOUT);
 
   it('counts only the selected tests\' lines as hit', async () => {
@@ -217,11 +228,12 @@ describe('@SCN004 changed lines must be covered by the selected tests (#584 AC4)
     const runs = [];
     const controller = new AbortController();
     const runCoverage = async (program, args, options) => {
-      runs.push({ args, timeout: options.timeout, signal: options.signal });
+      runs.push({ args, timeout: options.timeout, signal: options.signal, env: Object.keys(options.env).sort() });
       return { status: 0, stdout: JSON.stringify(testReport(['src/app.js:1'])) };
     };
     const artifact = await verify(root, { runCoverage, signal: controller.signal });
-    expect(runs).toEqual([{ args: ['-e', expect.any(String), 'tests/app.test.js'], timeout: 3_600_000, signal: controller.signal }]);
+    expect(runs).toEqual([{ args: ['-e', expect.any(String), 'tests/app.test.js'], timeout: 3_600_000, signal: controller.signal,
+      env: ['HOME', 'LANG', 'LC_ALL', 'PATH', 'TMPDIR', 'CI', 'TEMP', 'TMP'].filter((key) => process.env[key] !== undefined).sort() }]);
     expect(artifact.ceiling).toBeNull();
   }, TIMEOUT);
 
@@ -239,13 +251,66 @@ describe('@SCN004 changed lines must be covered by the selected tests (#584 AC4)
     expect(unit.result.summary).toMatch(/, and 250 more$/);
   }, TIMEOUT);
 
-  it('parses only diff headers as paths, never an added line beginning ++', () => {
-    const diff = ['diff --git a/x.js b/x.js', '--- a/x.js', '+++ b/x.js', '@@ -3 +3 @@', '-old', '+++ added', '@@ -9,0 +10,2 @@', '+a', '+b',
-      'diff --git "a/q\\"t.js" "b/q\\"t.js"', '--- /dev/null', '+++ "b/q\\"t.js"', '@@ -0,0 +1 @@', '+x',
-      'diff --git a/s p.js b/s p.js', '--- a/s p.js\t', '+++ b/s p.js\t', '@@ -1,2 +1 @@', '-a', '-b', '+c'].join('\n');
-    expect(Object.fromEntries([...parseChangedLines(diff)].map(([file, lines]) => [file, [...lines]])))
-      .toEqual({ 'x.js': [3, 10, 11], 'q"t.js': [1], 's p.js': [1] });
-  });
+  it('counts only added lines when diff.interHunkContext would merge two hunks', async () => {
+    const root = await project({ baseline: { 'src/app.js': 'l1();\nl2();\nl3();\nl4();\nl5();\nl6();\nl7();\n' } });
+    git(root, 'config', 'diff.interHunkContext', '5');
+    change(root, 'src/app.js', 'l1();\nL2();\nl3();\nl4();\nl5();\nL6();\nl7();\n');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
+    report(root, testReport(['src/app.js:2', 'src/app.js:6']));
+    const artifact = await verify(root);
+    expect(byId(artifact)['unit.tests'].coverage).toMatchObject({ changedLines: ['src/app.js:2', 'src/app.js:6'], uncovered: [] });
+    expect(artifact.ceiling).toBeNull();
+  }, TIMEOUT);
+
+  it('checks each file of a new untracked directory', async () => {
+    const root = await project();
+    fs.mkdirSync(path.join(root, 'src/newdir'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'src/newdir/a.js'), 'a();\nb();\n');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
+    report(root, testReport(['src/newdir/a.js:1'], { executableLines: ['src/newdir/a.js:1', 'src/newdir/a.js:2'] }));
+    const artifact = await verify(root);
+    expect(artifact.changedPaths).toEqual(['src/newdir/a.js']);
+    expect(artifact.selection.rejection).toEqual({ ...NONE, reasonCode: 'selection_uncovered', uncovered: ['src/newdir/a.js:2'] });
+  }, TIMEOUT);
+
+  it('runs the real coverage command with only the safe environment', async () => {
+    const root = await project({ selection: { docPaths: ['docs/**', 'steering/**'], fallbackPaths: ['package.json'] } });
+    const ENV_COVERAGE = "const fs=require('node:fs');fs.writeFileSync('coverage-args.json',JSON.stringify(Object.keys(process.env).filter((key)=>key.startsWith('NMG_584'))));process.stdout.write(fs.readFileSync('coverage-report.json','utf8'))";
+    fs.writeFileSync(path.join(root, 'steering/test-coverage.json'), `${JSON.stringify({ version: 1, suite: { program: process.execPath, args: ['-e', '0'] },
+      coverage: { program: process.execPath, args: ['-e', ENV_COVERAGE] } }, null, 2)}\n`);
+    change(root, 'src/app.js', 'a();\n');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
+    report(root, testReport(['src/app.js:1']));
+    process.env.NMG_584_SECRET = 'secret';
+    let artifact;
+    try { artifact = await verify(root); } finally { delete process.env.NMG_584_SECRET; }
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'coverage-args.json'), 'utf8'))).toEqual([]);
+    expect(artifact.ceiling).toBeNull();
+  }, TIMEOUT);
+
+  (process.platform === 'win32' ? it.skip : it)('records an aborted coverage run as incomplete and stops its whole process group', async () => {
+    const root = await project();
+    const HANG = "const { spawn } = require('node:child_process'); const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' }); require('node:fs').writeFileSync('grandchild.pid', String(child.pid)); setTimeout(() => {}, 60000);";
+    fs.writeFileSync(path.join(root, 'steering/test-coverage.json'), `${JSON.stringify({ version: 1, suite: { program: process.execPath, args: ['-e', '0'] },
+      coverage: { program: process.execPath, args: ['-e', HANG] } }, null, 2)}\n`);
+    fs.appendFileSync(path.join(root, '.gitignore'), 'grandchild.pid\n');
+    change(root, 'src/app.js', 'a();\n');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
+    const controller = new AbortController();
+    const running = verify(root, { signal: controller.signal });
+    const pidFile = path.join(root, 'grandchild.pid');
+    for (let tries = 0; !fs.existsSync(pidFile) && tries < 200; tries += 1) await new Promise((done) => setTimeout(done, 50));
+    const pid = Number(fs.readFileSync(pidFile, 'utf8'));
+    controller.abort();
+    const artifact = await running;
+    expect(byId(artifact)['unit.tests']).toMatchObject({ effectiveStatus: 'incomplete', result: { summary: 'coverage cancelled' } });
+    expect(artifact.selection.rejection).toBeNull();
+    let alive = true;
+    for (let tries = 0; alive && tries < 100; tries += 1) {
+      try { process.kill(pid, 0); await new Promise((done) => setTimeout(done, 50)); } catch { alive = false; }
+    }
+    expect(alive).toBe(false);
+  }, TIMEOUT);
 });
 
 describe('@SCN005 changed surfaces must be selected (#584 AC5)', () => {
@@ -351,6 +416,72 @@ describe('@SCN007 every changed path must be accounted for (#584 AC6)', () => {
     report(root, testReport(['src/app.js:1']));
     const artifact = await verify(root);
     expect(byId(artifact).build).toMatchObject({ effectiveStatus: 'failed', result: { summary: 'selection_unaccounted: tools/build.sh' } });
+  }, TIMEOUT);
+
+  it('accounts for a covered path outside every selected surface and docPaths', async () => {
+    const root = await project();
+    change(root, 'lib/util.js', 'u();\n');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: [] };
+    report(root, testReport(['lib/util.js:1']));
+    const artifact = await verify(root);
+    expect(artifact.selection.rejection).toBeNull();
+    expect(artifact.ceiling).toBeNull();
+  }, TIMEOUT);
+
+  it('accounts for a declared version file that only bumps its version outside fallbackPaths', async () => {
+    const root = await project({ selection: { docPaths: ['docs/**'] }, baseline: { 'package.json': '{\n  "name": "demo",\n  "version": "1.0.0"\n}\n' } });
+    change(root, 'src/app.js', 'a();\n');
+    change(root, 'package.json', '{\n  "name": "demo",\n  "version": "1.1.0"\n}\n');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
+    report(root, testReport(['src/app.js:1']));
+    const artifact = await verify(root);
+    expect(artifact.selection.rejection).toBeNull();
+    expect(artifact.ceiling).toBeNull();
+  }, TIMEOUT);
+
+  it('accounts for a changed selected test without a coverage config, naming the config state in the evidence', async () => {
+    const root = await project({ coverage: false });
+    change(root, 'src/app.js', 'a();\n');
+    change(root, 'tests/app.test.js', 'test();\n');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
+    const artifact = await verify(root);
+    expect(artifact.selection.rejection).toBeNull();
+    expect(byId(artifact)['unit.tests'].result.evidence.map((item) => item.summary)).toContain('coverage_skipped: steering/test-coverage.json is missing');
+    fs.writeFileSync(path.join(root, 'steering/test-coverage.json'), '{ not json');
+    const invalid = await verify(root);
+    expect(byId(invalid)['unit.tests'].result.evidence.map((item) => item.summary))
+      .toContainEqual(expect.stringMatching(/^coverage_skipped: steering\/test-coverage\.json is invalid: /));
+  }, TIMEOUT);
+
+  it('reports a failing required command as an ordinary failure instead of checking the paths', async () => {
+    const check = { id: 'check', provider: 'builtin.command', required: true, when: { kind: 'always' }, tier: 'change',
+      config: { program: process.execPath, args: ['-e', 'process.exitCode = 1'], cwd: '.', env: [] } };
+    const root = await project({ validations: [check] });
+    change(root, 'src/app.js', 'a();\n');
+    change(root, 'tools/build.sh');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
+    report(root, testReport(['src/app.js:1']));
+    const artifact = await verify(root);
+    expect(artifact.selection.rejection).toBeNull();
+    expect(byId(artifact).check.effectiveStatus).toBe('failed');
+    expect(artifact.ceiling).toBe('Incomplete');
+  }, TIMEOUT);
+});
+
+describe('@SCN008 a redispatch reruns the gate with the supervisor guidance (#584 AC7)', () => {
+  it('puts guidance for the current head in the selection prompt and records guidanceSupplied, ignoring another head', async () => {
+    const root = await project();
+    change(root, 'src/app.js', 'a();\n');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
+    report(root, testReport(['src/app.js:1']));
+    writeGuidance(root, 42, '0'.repeat(40), 'stale guidance');
+    expect((await verify(root)).selection.guidanceSupplied).toBe(false);
+    writeGuidance(root, 42, git(root, 'rev-parse', 'HEAD'), 'select the hooks tests');
+    const artifact = await verify(root);
+    expect(calls).toHaveLength(2);
+    expect(calls[0].input).not.toContain('Supervisor guidance:');
+    expect(calls[1].input).toContain('Supervisor guidance:\nselect the hooks tests');
+    expect(artifact.selection).toMatchObject({ guidanceSupplied: true, reused: false });
   }, TIMEOUT);
 });
 

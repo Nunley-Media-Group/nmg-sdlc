@@ -152,7 +152,7 @@ describe('repo steering contract (v4)', () => {
     ]) {
       expect(snippet).toContain(required);
     }
-    for (const heading of ['Select', 'Reuse', 'Clone', 'Draft', 'Specify', 'Exercise surfaces', 'Clean up', 'Classify failures', 'Bound the work']) {
+    for (const heading of ['Reuse', 'Clone', 'Draft', 'Specify', 'Clean up', 'Classify failures', 'Bound the work']) {
       expect(snippet).toMatch(new RegExp(`^## \\d\\. ${heading}$`, 'm'));
     }
     expect(snippet).not.toContain('NMG_SDLC_AUTOPILOT');

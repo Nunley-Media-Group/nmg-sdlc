@@ -5,7 +5,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { canonicalJson, loadSteeringRuntime, SteeringError, validationTier } from "./sdlc-steering-runtime.mjs";
 import { acquireHeavySlot } from "./heavy-pool.mjs";
 import { globRegex, matches } from "./sdlc-glob.mjs";
-import { fallbackPathsOf, rejectionOf, rejectionSummary, resolveChangeSelection } from "./sdlc-test-selection.mjs";
+import { rejectionOf, rejectionSummary, resolveChangeSelection, unaccountedPaths } from "./sdlc-test-selection.mjs";
 import { loadStageModels, StageModelsError } from "../scripts/sdlc-models.mjs";
 import { loadTestCoverageConfig, validateCoverageReport } from "../scripts/test-coverage.mjs";
 import { terminateOwnedProcessGroup, terminateOwnedProcessGroupAfterLeaderLoss } from "./process-supervision.mjs";
@@ -61,7 +61,8 @@ function porcelainPaths(output) {
 }
 export function changedPaths(projectRoot, baseRef) {
   const committed = git(projectRoot, ["diff", "--name-only", "-z", `${baseRef}...HEAD`]).stdout.split("\0");
-  const dirty = porcelainPaths(git(projectRoot, ["status", "--porcelain=v1", "-z"]).stdout);
+  // Every untracked file is listed, never its collapsed directory, so each one is coverage-checked.
+  const dirty = porcelainPaths(git(projectRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]).stdout);
   return [...new Set([...committed, ...dirty].filter(Boolean).map((path) => path.split("\\").join("/")))].sort();
 }
 function walk(root, prefix = "") {
@@ -330,14 +331,16 @@ function headerPath(text) {
   return Buffer.from(bytes).toString("utf8");
 }
 /**
- * New-side line numbers per path of `git diff -U0 --src-prefix=a/ --dst-prefix=b/` output. A `+++` line is a header
- * only after a `---` line outside a hunk, so an added content line beginning `++ ` is never read as one.
+ * New-side numbers of the added lines per path of `git diff --src-prefix=a/ --dst-prefix=b/` output. Only `+` lines
+ * count, so context lines inside a hunk never do. A `+++` line is a header only after a `---` line outside a hunk, so
+ * an added content line beginning `++ ` is never read as one.
  */
-export function parseChangedLines(diff) {
+function parseChangedLines(diff) {
   const lines = new Map();
   let current = null;
   let header = true;
   let sawOld = false;
+  let next = 0;
   for (const line of String(diff).split("\n")) {
     if (line.startsWith("diff --git ")) { header = true; sawOld = false; current = null; continue; }
     if (header && line.startsWith("--- ")) { sawOld = true; continue; }
@@ -348,23 +351,20 @@ export function parseChangedLines(diff) {
       sawOld = false;
       continue;
     }
-    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
-    if (hunk) {
-      header = false;
-      if (!current) continue;
-      const startLine = Number(hunk[1]);
-      const count = hunk[2] === undefined ? 1 : Number(hunk[2]);
-      for (let n = startLine; n < startLine + count; n += 1) lines.get(current).add(n);
-    }
+    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+    if (hunk) { header = false; next = Number(hunk[1]); continue; }
+    if (header || !current) continue;
+    if (line.startsWith("+")) { lines.get(current).add(next); next += 1; }
+    else if (line.startsWith(" ")) next += 1;
   }
   return lines;
 }
 /** Changed working-tree lines per path since the merge base with `baseRef`; an untracked file changes every line. */
 function changedLines(projectRoot, baseRef) {
   const mergeBase = git(projectRoot, ["merge-base", baseRef, "HEAD"]).stdout.trim();
-  // Fixed prefixes override any diff.mnemonicPrefix, diff.noprefix or prefix configuration.
+  // Fixed prefixes and hunk context override any diff.mnemonicPrefix, diff.noprefix, prefix or diff.interHunkContext configuration.
   const lines = parseChangedLines(git(projectRoot, ["-c", "core.quotepath=off", "diff", "-U0", "--no-color", "--no-ext-diff",
-    "--no-renames", "--src-prefix=a/", "--dst-prefix=b/", mergeBase]).stdout);
+    "--no-renames", "--inter-hunk-context=0", "--src-prefix=a/", "--dst-prefix=b/", mergeBase]).stdout);
   const status = git(projectRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]).stdout;
   for (const entry of status.split("\0")) {
     if (!entry.startsWith("?? ")) continue;
@@ -379,44 +379,86 @@ function changedLines(projectRoot, baseRef) {
 /** The most entries a result's coverage lists keep; the full counts are recorded beside them. */
 const MAX_COVERAGE_ENTRIES = 200;
 const COVERAGE_TIMEOUT_MS = 60 * 60 * 1000;
-/** Runs the coverage command off the event loop; resolves `{ status, signal, stdout, stderr, error }`. */
-function runCoverageCommand(program, args, { cwd, timeout, signal }) {
+/** The most coverage-report bytes read; a larger report fails the coverage check. */
+const MAX_COVERAGE_OUTPUT = 256 * 1024 * 1024;
+/**
+ * Runs the coverage command off the event loop in its own process group with the scrubbed environment, and stops
+ * the whole group on abort, timeout or an oversized report. Resolves `{ status, signal, stdout, stderr, error?,
+ * cancelled?, timedOut?, overflow? }`.
+ */
+function runCoverageCommand(program, args, { cwd, env, timeout, signal }) {
   return new Promise((resolvePromise) => {
+    if (signal?.aborted) { resolvePromise({ status: null, signal: null, stdout: "", stderr: "", cancelled: true }); return; }
     let child;
-    try { child = spawn(program, args, { cwd, shell: false, stdio: ["ignore", "pipe", "pipe"], timeout, killSignal: "SIGKILL", signal }); }
+    try { child = spawn(program, args, { cwd, env, shell: false, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] }); }
     catch (error) { resolvePromise({ status: null, signal: null, stdout: "", stderr: "", error }); return; }
     const out = [];
     const err = [];
+    let size = 0;
+    let errSize = 0;
+    let stopped = null;
     let settled = false;
-    const finish = (value) => { if (!settled) { settled = true; resolvePromise(value); } };
-    child.stdout.on("data", (chunk) => out.push(chunk));
-    child.stderr.on("data", (chunk) => err.push(chunk));
+    let timer = null;
     const text = (parts) => Buffer.concat(parts).toString("utf8");
-    child.on("error", (error) => finish({ status: null, signal: null, stdout: text(out), stderr: text(err), error }));
-    child.on("close", (status, closeSignal) => finish({ status, signal: closeSignal, stdout: text(out), stderr: text(err) }));
+    const onAbort = () => { void stop("cancelled"); };
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      resolvePromise({ stdout: text(out), stderr: text(err), ...value, ...(stopped ? { [stopped]: true } : {}) });
+    };
+    const stop = async (reason) => {
+      if (stopped || settled) return;
+      stopped = reason;
+      const cleanup = await terminateOwnedProcessGroup(child);
+      if (!cleanup.ok) {
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        child.unref?.();
+        finish({ status: null, signal: null, error: cleanup.error });
+      }
+    };
+    child.stdout.on("data", (chunk) => { size += chunk.length; if (size <= MAX_COVERAGE_OUTPUT) out.push(chunk); else void stop("overflow"); });
+    child.stderr.on("data", (chunk) => { if (errSize < 65536) { errSize += chunk.length; err.push(chunk); } });
+    child.on("error", (error) => finish({ status: null, signal: null, error }));
+    child.on("close", (status, closeSignal) => finish({ status, signal: closeSignal }));
+    if (timeout) timer = setTimeout(() => { void stop("timedOut"); }, timeout);
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
 /**
  * The coverage check: runs the project's per-test coverage command for the selected tests in a heavy-job slot and
- * returns `{ status: "skipped" | "failed" | "checked", summary?, reported?, testFiles?, coverage? }`. Without a valid
- * steering/test-coverage.json nothing is coverage-accounted and nothing fails. Only the selected tests' lines count
- * as hit.
+ * returns `{ status: "skipped" | "failed" | "incomplete" | "checked", summary?, reported?, uncovered?, coverage? }`.
+ * Without a valid steering/test-coverage.json nothing is coverage-accounted and nothing fails; the skipped summary
+ * names the file's state. Only the selected tests' lines count as hit.
  */
-async function coverageCheck({ projectRoot, issue, baseRef, paths, tests, runCoverage, acquireSlot, signal }) {
+async function coverageCheck({ projectRoot, issue, baseRef, paths, tests, envKeys, runCoverage, acquireSlot, signal }) {
   let config;
-  try { config = loadTestCoverageConfig(projectRoot).config; } catch { config = null; }
-  if (!config || !tests.length) return { status: "skipped" };
+  try {
+    const loaded = loadTestCoverageConfig(projectRoot);
+    if (loaded.missing) return { status: "skipped", summary: "coverage_skipped: steering/test-coverage.json is missing" };
+    config = loaded.config;
+  } catch (error) {
+    return { status: "skipped", summary: `coverage_skipped: steering/test-coverage.json is invalid: ${String(error.message).slice(0, 300)}` };
+  }
+  const env = Object.fromEntries(SAFE_ENV.filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
+  for (const key of envKeys) if (process.env[key] !== undefined) env[key] = process.env[key];
   let report;
   let held = null;
   try {
     held = await acquireSlot({ label: `coverage (#${issue})`, projectRoot, issue: Number(issue), signal });
     const response = await runCoverage(config.coverage.program, config.coverage.args.concat(tests),
-      { cwd: projectRoot, encoding: "utf8", shell: false, timeout: COVERAGE_TIMEOUT_MS, signal, maxBuffer: 1024 * 1024 * 1024 });
+      { cwd: projectRoot, env, timeout: COVERAGE_TIMEOUT_MS, signal });
+    if (response?.cancelled || signal?.aborted) return { status: "incomplete", summary: "coverage cancelled" };
+    if (response?.timedOut) return { status: "failed", summary: `coverage_failed: coverage command timed out after ${COVERAGE_TIMEOUT_MS / 1000} s` };
+    if (response?.overflow) return { status: "failed", summary: `coverage_failed: coverage report exceeded ${MAX_COVERAGE_OUTPUT} bytes` };
     if (!response || response.error || response.status !== 0) {
       return { status: "failed", summary: `coverage_failed: coverage command failed: ${response?.error?.message ?? `exited ${response?.status ?? response?.signal}`}` };
     }
     report = validateCoverageReport(JSON.parse(String(response.stdout ?? "")));
   } catch (error) {
+    if (signal?.aborted) return { status: "incomplete", summary: "coverage cancelled" };
     return { status: "failed", summary: `coverage_failed: coverage report invalid: ${String(error.message).slice(0, 300)}` };
   } finally {
     held?.release();
@@ -425,8 +467,7 @@ async function coverageCheck({ projectRoot, issue, baseRef, paths, tests, runCov
   const reported = new Set([...report.tests.flatMap((test) => test.lines), ...(report.executableLines ?? [])].map((entry) => lineOf(entry)[0]));
   const executable = report.executableLines ? new Set(report.executableLines) : null;
   const wanted = new Set(tests);
-  const selected = report.tests.filter((test) => wanted.has(test.id) || wanted.has(test.file));
-  const hit = new Set(selected.flatMap((test) => test.lines));
+  const hit = new Set(report.tests.filter((test) => wanted.has(test.id) || wanted.has(test.file)).flatMap((test) => test.lines));
   const changed = changedLines(projectRoot, baseRef);
   const changedList = [];
   for (const path of paths.filter((candidate) => reported.has(candidate))) {
@@ -440,7 +481,7 @@ async function coverageCheck({ projectRoot, issue, baseRef, paths, tests, runCov
   const hitLines = changedList.filter((entry) => hit.has(entry));
   const uncovered = changedList.filter((entry) => !hit.has(entry));
   const capped = (list) => list.slice(0, MAX_COVERAGE_ENTRIES);
-  return { status: "checked", reported, testFiles: new Set(selected.map((test) => test.file)), uncovered,
+  return { status: "checked", reported, uncovered,
     coverage: { changedLines: capped(changedList), hitLines: capped(hitLines), uncovered: capped(uncovered),
       counts: { changedLines: changedList.length, hitLines: hitLines.length, uncovered: uncovered.length } } };
 }
@@ -566,37 +607,37 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
       }
     }
     // The selection checks: changed lines covered by the selected tests, then every changed path accounted for.
-    // Both run only once the selected tests passed: a failing test or coverage command is an ordinary failure for
-    // the implementation to repair, never a selection rejection.
+    // Both run only once the selected tests and every required local command passed: a failing test, coverage
+    // command or other required command is an ordinary failure for the implementation to repair, never a selection
+    // rejection.
     if (selection?.mode === "selected" && !rejection && !docsOnly) {
-      const optedResults = runtime.validations.filter((validation) => optedIn(validation) && resultById.get(validation.id)?.applicable).map((validation) => resultById.get(validation.id));
-      const ran = optedResults.filter((entry) => entry.selection?.reason === "selected");
-      let checks = ran.every((entry) => entry.effectiveStatus === "passed");
+      const opted = runtime.validations.filter((validation) => optedIn(validation) && resultById.get(validation.id)?.applicable);
+      const ran = opted.map((validation) => resultById.get(validation.id)).filter((entry) => entry.selection?.reason === "selected");
+      let checks = localRequiredCommandsPassed && ran.every((entry) => entry.effectiveStatus === "passed");
       let reportPaths = new Set();
-      let testFiles = new Set();
       if (checks && ran.length) {
-        const checked = await coverageCheck({ projectRoot: root, issue, baseRef, paths, tests: selection.tests, runCoverage, acquireSlot, signal });
-        if (checked.status === "failed") {
+        const envKeys = [...new Set(opted.flatMap((validation) => validation.config?.env ?? []))];
+        const checked = await coverageCheck({ projectRoot: root, issue, baseRef, paths, tests: selection.tests, envKeys, runCoverage, acquireSlot, signal });
+        if (checked.status === "failed" || checked.status === "incomplete") {
           checks = false;
           for (const entry of ran) {
-            entry.effectiveStatus = "failed";
-            entry.selection = { ...entry.selection, reason: "coverage_failed" };
-            entry.result = resultEnvelope("failed", checked.summary, entry.request.identity, [{ kind: "selection", summary: checked.summary, headSha: entry.request.identity.headSha }]);
+            entry.effectiveStatus = checked.status;
+            entry.selection = { ...entry.selection, reason: checked.status === "failed" ? "coverage_failed" : "coverage_cancelled" };
+            entry.result = resultEnvelope(checked.status, checked.summary, entry.request.identity, [{ kind: "selection", summary: checked.summary, headSha: entry.request.identity.headSha }]);
           }
-        } else if (checked.status === "checked") {
+        } else if (checked.status === "skipped") {
+          for (const entry of ran) entry.result.evidence.push({ kind: "selection", summary: checked.summary, headSha: entry.request.identity.headSha });
+        } else {
           reportPaths = checked.reported;
-          testFiles = checked.testFiles;
           for (const entry of ran) entry.coverage = checked.coverage;
           if (checked.uncovered.length) rejection = rejectionOf("selection_uncovered", { uncovered: checked.uncovered });
         }
       }
       if (checks && !rejection) {
-        const surfaceSources = runtime.surfaces.filter((surface) => selection.surfaces.includes(surface.id)).flatMap((surface) => surface.sources);
-        const fallbackPaths = fallbackPathsOf(runtime);
-        // A deleted coverage-path file has no line left to cover.
-        const deletedCode = (path) => matches(path, runtime.selection.coveragePaths ?? []) && !existsSync(resolve(root, path));
-        const unaccounted = paths.filter((path) => !reportPaths.has(path) && !testFiles.has(path) && !matches(path, surfaceSources)
-          && !matches(path, runtime.selection.docPaths ?? []) && !matches(path, fallbackPaths) && !selection.versionOnly.includes(path) && !deletedCode(path));
+        const unaccounted = unaccountedPaths({ paths, reportPaths, tests: selection.tests,
+          surfaceSources: runtime.surfaces.filter((surface) => selection.surfaces.includes(surface.id)).flatMap((surface) => surface.sources),
+          docPaths: runtime.selection.docPaths ?? [], versionOnly: selection.versionOnly, coveragePaths: runtime.selection.coveragePaths ?? [],
+          exists: (path) => existsSync(resolve(root, path)) });
         if (unaccounted.length) rejection = rejectionOf("selection_unaccounted", { unaccounted });
       }
       if (rejection) {

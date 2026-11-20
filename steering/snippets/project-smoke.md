@@ -6,6 +6,8 @@ Run these steps before you run the registered gates, and only when `repository.n
 
 The `repository.nmg-sdlc-smoke` gate never drafts an issue, writes a spec or drives an interactive command. When `execute` is selected, it delivers only the issue named by the provisioning record `.nmg-sdlc/smoke/provisioned.json`, which holds `{ "schemaVersion": 1, "repo": "Nunley-Media-Group/nmg-sdlc-smoke", "issue": N, "provisionedAt": "<ISO time>" }`. A missing, invalid or stale record fails the gate with `nmg-sdlc-smoke smoke issue not provisioned`. With an explicit `NMG_SDLC_SMOKE_ISSUES` queue, skip provisioning for `execute`: the gate delivers that queue.
 
+Surface records are bound to `<head>`. Under `/sdlc-execute` the version commit prepared at the queue head moves the head, so the gate-phase verify at the queue head drives every selected interactive surface live again; that repeat is expected and costs one live exercise per selected surface.
+
 Below, `<project root>` is this nmg-sdlc checkout, `<head>` is its full `HEAD` SHA, `<head8>` is the first eight characters of it, and `<need>` is `provision.need` from the `repository.nmg-sdlc-smoke` validation config in `steering/manifest.json`.
 
 ## 1. Select

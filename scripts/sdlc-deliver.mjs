@@ -18,6 +18,7 @@ import {
 } from './verification-readiness.mjs';
 import { isCliEntry } from './plugin-controller-path.mjs';
 import { readManifestOptions, resolveSteeringPath } from '../src/sdlc-steering-runtime.mjs';
+import { versionedArtifacts } from '../src/sdlc-version-artifacts.mjs';
 import {
   assertControllerLease,
   enterControllerLease,
@@ -476,33 +477,6 @@ function synchronizedDeliveryVersion(changelog, version, issue, title) {
   const release = changelog.slice(start, end < 0 ? changelog.length : end);
   return release.includes(`- ${title} (#${issue})`) || referencesIssue(release, issue);
 }
-function versionedArtifacts(tech) {
-  const source = String(tech);
-  const heading = source.match(/^## Versioning\s*$/m);
-  if (!heading) return [];
-  const body = source.slice(heading.index + heading[0].length);
-  const nextHeading = body.search(/^#{2,3}\s/m);
-  const section = nextHeading < 0 ? body : body.slice(0, nextHeading);
-  const artifacts = [];
-  const seen = new Map();
-  for (const line of section.split('\n')) {
-    const row = line.match(/^\|\s*`([^`]+)`\s*\|\s*(?:`([^`]+)`|([^|]+?))\s*\|/);
-    if (!row) continue;
-    const relative = row[1].trim();
-    const field = (row[2] ?? row[3]).trim();
-    if (!relative || !field) throw new Error('technical steering has an invalid version artifact declaration');
-    if (seen.has(relative)) {
-      if (seen.get(relative) !== field) {
-        throw new Error(`technical steering declares conflicting fields for ${relative}`);
-      }
-      continue;
-    }
-    seen.set(relative, field);
-    artifacts.push({ relative, field });
-  }
-  return artifacts;
-}
-
 function safeVersionArtifactPath(cwd, relative, fs = null) {
   if (path.isAbsolute(relative) || relative.split(/[\\/]/).includes('..')) {
     throw new Error(`version artifact path escapes the repository: ${relative}`);

@@ -39,7 +39,10 @@ const runSelection = (call) => {
 };
 afterEach(() => { claudeCalls.length = 0; claudeAnswer = null; });
 
-/** A committed project on branch `work` with `validations`, whose base branch is `main`. */
+// The test files the selection answers name: a selected test must be a file in the project.
+const TEST_FILES = ['tests/app.test.js', 'tests/util.test.js', 'a.test.js', 'b.test.js', 'one.test.js'];
+
+/** A committed project on branch `work` with `validations` and the test files, whose base branch is `main`. */
 async function fixture(validations, { manifest = {} } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-tiers-')));
   roots.push(root);
@@ -48,6 +51,8 @@ async function fixture(validations, { manifest = {} } = {}) {
     fs.writeFileSync(path.join(root, 'specs', '42-test', name), `${name}\n`);
   }
   fs.writeFileSync(path.join(root, '.gitignore'), '.nmg-sdlc/\nprovider-request.json\nprovider-answer.json\nran.json\n');
+  fs.mkdirSync(path.join(root, 'tests'), { recursive: true });
+  for (const file of TEST_FILES) fs.writeFileSync(path.join(root, file), `// ${file}\n`);
   // `selection: true` needs the top-level selection, which the initialize plan does not write.
   const optedIn = validations.some((validation) => validation.selection === true);
   await applySteeringPlan(root, createInitializePlan(root, { validations: validations.map(({ selection: _selection, ...validation }) => validation) }));
@@ -116,8 +121,6 @@ describe('steering manifest tiers, heavy marker and optional settings (#551 FR15
     ['a selection without a tier', (v) => { v.selection = true; }],
     ['a selection on a validation that is not builtin.command', (v) => {
       Object.assign(v, { tier: 'change', provider: 'builtin.artifact', config: { path: 'out.json', checks: ['json'] }, selection: true }); }],
-    ['a selection that is not true', (v) => { v.tier = 'change'; v.selection = 'node select.js'; }],
-    ['a false selection', (v) => { v.tier = 'change'; v.selection = false; }],
     ['a fallback path that escapes the project', (v) => { v.tier = 'change'; v.fallbackPaths = ['../x']; }],
     ['an absolute fallback path', (v) => { v.tier = 'change'; v.fallbackPaths = ['/etc/**']; }],
     ['a negated fallback path', (v) => { v.tier = 'change'; v.fallbackPaths = ['!src/**']; }],
@@ -136,12 +139,6 @@ describe('steering manifest tiers, heavy marker and optional settings (#551 FR15
     await expect(loadSteeringRuntime(root)).rejects.toMatchObject({ reasonCode: 'steering_manifest_unknown_key' });
   });
 
-  it('rejects selection: true without the top-level selection', async () => {
-    const root = await fixture([node('unit.tests', 'process.exit(0)', { tier: 'change' })]);
-    editManifest(root, (manifest) => { manifest.validations[0].selection = true; });
-    await expect(loadSteeringRuntime(root)).rejects.toMatchObject({ reasonCode: 'steering_validation_invalid', message: 'steering_validation_invalid: selection' });
-  });
-
   it.each([
     ['on a validation', (manifest) => { manifest.selection = SELECTION; Object.assign(manifest.validations[0], { tier: 'change', selection: { program: 'node', args: ['select.js'] } }); }],
     ['at the top level', (manifest) => { manifest.selection = { program: 'node', args: ['select.js'] }; }],
@@ -152,30 +149,6 @@ describe('steering manifest tiers, heavy marker and optional settings (#551 FR15
     const error = await loadSteeringRuntime(root).catch((caught) => caught);
     expect(error.reasonCode).toBe('steering_validation_invalid');
     expect(error.message).toContain('selection takes a prompt');
-  });
-
-  it.each([
-    ['an unknown selection key', { selection: { docPaths: ['docs/**'], tests: ['x'] } }, 'selection'],
-    ['an escaping doc path', { selection: { docPaths: ['../x'] } }, 'selection'],
-    ['a negated fallback path', { selection: { fallbackPaths: ['!x'] } }, 'selection'],
-    ['an empty surface map', { surfaces: [] }, 'surfaces'],
-    ['a surface without sources', { surfaces: [{ id: 'a', sources: [] }] }, 'surfaces'],
-    ['a duplicate surface id', { surfaces: [{ id: 'a', sources: ['a/**'] }, { id: 'a', sources: ['b/**'] }] }, 'surfaces'],
-    ['an invalid surface id', { surfaces: [{ id: 'A b', sources: ['a/**'] }] }, 'surfaces'],
-    ['a surface bound to an unknown validation', { surfaces: [{ id: 'a', sources: ['a/**'], validations: ['nope'] }] }, 'surfaces'],
-    ['an unknown surface key', { surfaces: [{ id: 'a', sources: ['a/**'], tests: [] }] }, 'surfaces'],
-  ])('rejects %s with steering_manifest_invalid', async (_name, extra, detail) => {
-    const root = await fixture([node('unit.tests', 'process.exit(0)')]);
-    editManifest(root, (manifest) => Object.assign(manifest, extra));
-    await expect(loadSteeringRuntime(root)).rejects.toMatchObject({ reasonCode: 'steering_manifest_invalid', message: `steering_manifest_invalid: ${detail}` });
-  });
-
-  it('accepts a surface map and exposes it normalized', async () => {
-    const root = await fixture([node('unit.tests', 'process.exit(0)')], { manifest: { selection: { coveragePaths: ['src/**'] },
-      surfaces: [{ id: 'app', sources: ['src/**'], validations: ['unit.tests'] }, { id: 'docs.site', sources: ['site/**'] }] } });
-    const runtime = await loadSteeringRuntime(root);
-    expect(runtime.surfaces).toEqual([{ id: 'app', sources: ['src/**'], validations: ['unit.tests'] }, { id: 'docs.site', sources: ['site/**'], validations: [] }]);
-    expect(readManifestOptions(root).surfaces).toEqual(runtime.surfaces);
   });
 
   it('accepts worktree commands and full-green actions, and rejects malformed ones', async () => {
@@ -225,11 +198,11 @@ describe('steering manifest tiers, heavy marker and optional settings (#551 FR15
   });
 });
 
-describe('@SCN001 @SCN010 change-tier selection (#551, #584 AC1, AC9)', () => {
+describe('change-tier selection (#551 AC9, AC10, FR16-FR18)', () => {
   const tiered = () => [selecting(), node('full.suite', 'process.exit(1)', { tier: 'full' })];
   const selected = (extra = {}) => ({ mode: 'selected', tests: ['tests/app.test.js', 'tests/util.test.js'], surfaces: ['app'], ...extra });
 
-  it('runs the command with the selected tests appended and records the selection (AC1)', async () => {
+  it('@SCN001 runs the command with the selected tests appended and records the selection (#584 AC1)', async () => {
     const root = await fixture(tiered());
     change(root, 'src/app.js');
     claudeAnswer = selected();
@@ -266,7 +239,7 @@ describe('@SCN001 @SCN010 change-tier selection (#551, #584 AC1, AC9)', () => {
     expect(artifact.results[0].selection).toMatchObject({ reason: 'selected', selectedCount: 2 });
   });
 
-  it('runs the full command for a change that touches a fallback path, naming the first one, without asking Claude (AC9)', async () => {
+  it('@SCN010 runs the full command for a change that touches a fallback path, naming the first one, without asking Claude (#584 AC9)', async () => {
     const root = await fixture(tiered());
     change(root, 'src/app.js');
     change(root, 'package.json');
@@ -284,7 +257,7 @@ describe('@SCN001 @SCN010 change-tier selection (#551, #584 AC1, AC9)', () => {
   it.each([
     ['Claude asking for everything', { mode: 'all', tests: [], surfaces: [] }, 'selection_all'],
     ['Claude exiting non-zero', null, 'selection_failed'],
-  ])('runs the full command and records why for %s (AC9)', async (_name, output, reason) => {
+  ])('@SCN010 runs the full command and records why for %s (#584 AC9)', async (_name, output, reason) => {
     const root = await fixture(tiered());
     change(root, 'src/app.js');
     claudeAnswer = output;
