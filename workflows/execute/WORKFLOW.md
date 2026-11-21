@@ -69,6 +69,7 @@ A stage subagent runs in the background while this session waits. Do not poll it
 
 1. When `supervise`, `wait` or `decide` prints `NMG_SDLC_EXECUTE_WORKER`, end your turn with no further tool call. The hooks module resumes this session when the subagent hands back or a check-in notice arrives.
 2. A stage hand-back means run `wait --session <id> --after <seq>` with the session id and sequence it gives you. A check-in notice prints the exact command, reading `nmg-sdlc /sdlc-execute report <seq> is waiting. Run: ... wait --session <id> --after <after>`. Run that command as printed.
+   In a headless run, the hooks module blocks this turn's end with a hold notice instead, reading `nmg-sdlc /sdlc-execute is still running in this headless session, so it must not end yet. Run: ... wait --session <id> --after <after> --hold`. Run that command as printed, in the foreground: it keeps the session alive while the worker runs and returns with the next report, the controller's result, or a running notice.
 3. Read the output as in the table above. A stage report or check-in report waits for one `decide`.
 
 ## Set the goal
@@ -94,7 +95,9 @@ The goal is judged from your replies alone, so print the completion lines in the
 
 ## Headless runs
 
-A headless run starts the controller from the command line and keeps its process alive until the controller finishes.
+A headless run starts the controller from the command line and stays alive until the controller records its result. A `claude -p` session ends as soon as its main loop stops with no turn running, even while a stage worker waits on a background command, so the hooks module blocks that stop with the hold notice under **Subagent turns** while the run's supervisor is alive and no result is recorded.
+
+- If the session is lost anyway, its heartbeat goes stale. The supervisor then stops the controller, releases its lease and merge-queue entry, and records `/sdlc-execute stopped: supervising_session_lost`. Rerun `/sdlc-execute #N`: it resumes from branch evidence, and a gate that the lost session cut off (every non-passing required check `incomplete`, none `failed`) runs again at the same head rather than going back to implement.
 
 - Start one with `claude -p --session-id <uuid> --plugin-dir <nmg-sdlc checkout> "/sdlc-execute #N"` on an Opus or Fable model. Choose the `<uuid>` yourself so the result can be recovered later.
 - The run's last output is the controller's final result lines: `#N: MERGED and CLOSED` for each delivered issue, or `/sdlc-execute stopped: <diagnosis>`.

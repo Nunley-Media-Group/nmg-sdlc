@@ -2577,3 +2577,50 @@ describe('@SCN008 a rejected selection escalates to the orchestrator (#584 AC7, 
     expect(steps(f)).toEqual(['verify']);
   });
 });
+
+describe('@SCN003 a gate cut off by a lost session reruns the gate (#564 AC3, FR4)', () => {
+  const stages = (f) => f.state.prompts.map(({ name, prompt }) => {
+    const step = name.split('-')[1];
+    return step !== 'verify' ? step : prompt.includes('Verify phase: gate.') ? 'gate' : 'review';
+  });
+  // A branch at the queue head with its version prepared, whose registered gate a lost session left with `status`.
+  const cutOff = (status) => {
+    const f = fixture();
+    fs.writeFileSync(path.join(f.root, 'VERSION'), '1.1.0\n');
+    f.publish('feat: deliver issue #42');
+    f.passGate();
+    f.passReview();
+    const file = path.join(f.root, '.nmg-sdlc/verification/42.json');
+    const artifact = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const smoke = artifact.results.find((item) => item.id === 'repository.nmg-sdlc-smoke');
+    Object.assign(smoke, { effectiveStatus: status, result: { ...smoke.result, status } });
+    fs.writeFileSync(file, JSON.stringify({ ...artifact, ceiling: status === 'incomplete' ? 'Incomplete' : 'Fail' }));
+    const head = git(f.root, 'rev-parse', 'HEAD');
+    const seen = [];
+    f.setWorker((context) => {
+      seen.push({ step: context.step, head: git(f.root, 'rev-parse', 'HEAD'),
+        subjects: git(f.root, 'log', '--format=%s', 'origin/main..HEAD').split('\n') });
+      if (context.step === 'implement') { context.publish('fix: repair #42'); return { status: 'passed', next: 'verify' }; }
+      return phasedWorker()(context);
+    });
+    return { f, head, seen };
+  };
+  it('dispatches the gate again at the reviewed head, with no revert, failure or implement dispatch', () => {
+    const { f, head, seen } = cutOff('incomplete');
+    expect(f.execute('#42')).toMatchObject({ status: 0 });
+    expect(stages(f)).toEqual(['gate', 'deliver']);
+    expect(seen[0]).toMatchObject({ step: 'verify', head });
+    expect(f.state.prompts[0].prompt).not.toContain('Previous attempted approach');
+    // Delivery merges the version prepared before the cut-off, never reverted or prepared again.
+    const delivered = seen.find(({ step }) => step === 'deliver').subjects;
+    expect(delivered.some((subject) => subject.startsWith('Revert "feat: deliver issue #42"'))).toBe(false);
+    expect(delivered.filter((subject) => subject === 'feat: deliver issue #42')).toHaveLength(1);
+  });
+
+  it('still routes a gate with a failed required check to implement', () => {
+    const { f } = cutOff('failed');
+    expect(f.execute('#42')).toMatchObject({ status: 0 });
+    expect(stages(f)[0]).toBe('implement');
+    expect(f.state.prompts[0].prompt).toContain('Current registered gate is Fail: repository.nmg-sdlc-smoke');
+  });
+});

@@ -16,6 +16,7 @@ import {
   releaseControllerLease,
 } from './sdlc-controller-lease.mjs';
 import { createFileHost } from './sdlc-execute-host.mjs';
+import { leaveMergeQueue } from './sdlc-shared-state.mjs';
 import {
   parseArgs,
   runExecute,
@@ -36,6 +37,8 @@ const HOST_CHECK_MS = 15_000;
 const MAX_GUIDANCE_CHARS = 8000;
 const CLAUDE_SESSION_ENV = 'NMG_SDLC_CLAUDE_SESSION_ID';
 const EXECUTE_CLI = join(packageRoot, 'scripts', 'sdlc-execute.mjs');
+// The cancellation reason, and terminal diagnosis, of a run whose supervising session went away after it yielded.
+export const SESSION_LOST = 'supervising_session_lost';
 
 export function sessionDirectory(cwd, session) {
   return join(cwd, '.nmg-sdlc', 'execute', session);
@@ -85,6 +88,22 @@ function processAlive(pid) {
 /** Whether the session's hooks-module heartbeat (`host.json`) was written within the heartbeat window. */
 function hostFresh(dir, now) {
   return heartbeatFresh(readJson(join(dir, 'host.json')), now);
+}
+
+/** A yielded run's check on its supervising session: true once a heartbeat that was seen fresh has gone stale, and
+ * `onLost` then runs once. A session that never wrote a fresh heartbeat is never lost. */
+export function sessionWatchdog({ dir, now = Date.now, onLost }) {
+  let seen = false;
+  let lost = false;
+  return () => {
+    if (lost) return true;
+    if (hostFresh(dir, now)) seen = true;
+    else if (seen) {
+      lost = true;
+      onLost();
+    }
+    return lost;
+  };
 }
 
 /** The controller's supervise callback for a session: writes each report, then blocks until its decision arrives.
@@ -148,9 +167,10 @@ function reportOutput(report) {
     '',
   ].join('\n');
 }
-function runningOutput(session) {
+function runningOutput(session, { after = 0, hold = false } = {}) {
+  const resume = hold ? ` --after ${after} --hold` : '';
   return `NMG_SDLC_EXECUTE_RUNNING: session ${session} has no new report yet; the controller is still working.\n`
-    + `Resume with: node ${JSON.stringify(EXECUTE_CLI)} wait --session ${session}\n`;
+    + `Resume with: node ${JSON.stringify(EXECUTE_CLI)} wait --session ${session}${resume}\n`;
 }
 function terminalResult(dir, session) {
   const result = readJson(join(dir, 'result.json'));
@@ -185,9 +205,11 @@ function writeResultRecord(cwd, session, result) {
   });
 }
 
-/** Waits up to `waitMs` for the session's next report after `after`, or its result. SIGINT/SIGTERM
+/** Waits up to `waitMs` for the session's next report after `after`, or its result. Without `hold` a running stage
+ * subagent ends the wait at once; a holding wait (a headless session's) keeps waiting through it. SIGINT/SIGTERM
  * are forwarded to the session daemon, which cancels the run as `run` cancellation does. */
-export async function awaitSession({ cwd = process.cwd(), session, after = 0, waitMs = MAX_SESSION_WAIT_MS } = {}) {
+export async function awaitSession({ cwd = process.cwd(), session, after = 0, waitMs = MAX_SESSION_WAIT_MS,
+  hold = false } = {}) {
   const dir = sessionDirectory(cwd, session);
   const daemon = readJson(join(dir, 'daemon.json'));
   if (!SESSION_PATTERN.test(session ?? '') || daemon?.session !== session || !Number.isSafeInteger(daemon.pid)) {
@@ -205,12 +227,12 @@ export async function awaitSession({ cwd = process.cwd(), session, after = 0, wa
       if (result) return result;
       const report = pendingReport(dir, session, after);
       if (report) return { status: 0, stdout: reportOutput(report), stderr: '' };
-      const worker = readJson(join(dir, 'worker.json'));
+      const worker = hold ? null : readJson(join(dir, 'worker.json'));
       if (typeof worker?.agentId === 'string') return { status: 0, stdout: workerOutput(worker), stderr: '' };
       if (!processAlive(daemon.pid)) {
         return terminalResult(dir, session) ?? { status: 1, stdout: '', stderr: 'controller_supervisor_lost\n' };
       }
-      if (Date.now() >= deadline) return { status: 0, stdout: runningOutput(session), stderr: '' };
+      if (Date.now() >= deadline) return { status: 0, stdout: runningOutput(session, { after, hold }), stderr: '' };
       await new Promise((resolve) => setTimeout(resolve, SESSION_POLL_MS));
     }
   } finally {
@@ -326,6 +348,8 @@ function cleanupCancelledRun(controllerPid, cwd, session, ownedLease) {
   const worker = dir ? readJson(join(dir, 'worker.json')) : null;
   if (typeof worker?.agentId === 'string') requestWorkerStop(dir, session, worker.agentId);
   if (!releaseControllerLease({ path, serialized })) throw new Error('controller_lease_release_failed');
+  // The ended controller's merge-queue entries go too, so the next entry need not wait on a pid that may be reused.
+  try { leaveMergeQueue(leaseRoot, null, { pid: controllerPid }); } catch { /* an unreadable queue holds no entry */ }
 }
 
 async function runSupervisor(args, cancellation, session = null) {
@@ -395,7 +419,9 @@ async function runSupervisor(args, cancellation, session = null) {
   cancellation.removeEventListener('abort', onCancel);
   let status = outcome.code ?? 1;
   if (cancelSignal || leaderLost) {
-    status = cancelSignal ? (cancelSignal === 'SIGINT' ? 130 : 143) : 1;
+    status = cancelSignal === 'SIGINT' ? 130 : cancelSignal && cancelSignal !== SESSION_LOST ? 143 : 1;
+    // A lost session's run ends with that diagnosis as its first line.
+    if (cancelSignal === SESSION_LOST) stderr = `${SESSION_LOST}\n${stderr}`;
     try {
       // Stop the group before releasing ownership; the cancelled run's running stage subagent is stopped through the session.
       const cleanup = await (leaderLost ? terminateOwnedProcessGroupAfterLeaderLoss : terminateOwnedProcessGroup)(controller);
@@ -473,8 +499,10 @@ async function runDaemon(args) {
   let startRequested = false;
   let bootstrapDisconnected = !process.connected;
   let started = false;
-  // A supervised invoker detaches at a yield: losing its connection afterwards is not cancellation.
+  // A supervised invoker detaches at a yield: losing its connection afterwards is not cancellation. From then on the
+  // session heartbeat is watched instead, and a session that has gone away cancels the run.
   let detached = false;
+  let watchdog = null;
   let finishStartup;
   const startup = new Promise((resolve) => { finishStartup = resolve; });
   const maybeStart = () => {
@@ -511,6 +539,9 @@ async function runDaemon(args) {
       cancellation.abort(message.signal);
     } else if (authenticated && message.type === 'detach' && dir && startRequested && !detached) {
       detached = true;
+      const check = sessionWatchdog({ dir, onLost: () => cancellation.abort(SESSION_LOST) });
+      check();
+      watchdog = setInterval(check, HOST_CHECK_MS);
       void writeMessage(socket, { type: 'detached' });
     } else {
       socket.destroy();
@@ -531,6 +562,7 @@ async function runDaemon(args) {
     await writeMessage(socket, { type: 'result', ...result });
     process.exitCode = result.status;
   } finally {
+    if (watchdog) clearInterval(watchdog);
     await new Promise((resolve) => {
       if (socket.destroyed) resolve();
       else socket.end(resolve);

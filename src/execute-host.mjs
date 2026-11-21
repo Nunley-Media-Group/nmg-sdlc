@@ -158,6 +158,21 @@ export function checkInNotice({ session, seq, pluginRoot }) {
   return `nmg-sdlc /sdlc-execute report ${seq} is waiting. Run: node "${pluginRoot}/scripts/sdlc-execute.mjs" wait --session ${session} --after ${seq - 1}`;
 }
 
+/** The reason that blocks a headless run's main-loop stop: it names the holding `wait` that returns only on the next
+ * report, the terminal result, supervisor loss, or the bounded wait deadline. */
+export function headlessHoldNotice({ session, after, pluginRoot }) {
+  return `nmg-sdlc /sdlc-execute is still running in this headless session, so it must not end yet. Run: node "${pluginRoot}/scripts/sdlc-execute.mjs" wait --session ${session} --after ${after} --hold`;
+}
+
+/** The hold notice for a headless run's main-loop stop, or null when the stop may proceed: a TUI run, no supervised
+ * session, a recorded result (`result.json` among the session directory's `names`), or a daemon that is gone. The
+ * notice's `--after` is the highest decided report sequence. */
+export function headlessHold({ headless, session, names, daemonAlive, pluginRoot }) {
+  if (!headless || !session || !daemonAlive || !Array.isArray(names) || names.includes('result.json')) return null;
+  const decided = names.map((name) => Number(/^decision-([1-9]\d*)\.json$/.exec(name)?.[1])).filter(Number.isSafeInteger);
+  return headlessHoldNotice({ session, after: Math.max(0, ...decided), pluginRoot });
+}
+
 /** Removes the leading YAML frontmatter from an agent file, leaving the system prompt body. */
 export function agentBody(text) {
   const source = String(text ?? '');
