@@ -12,9 +12,15 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.20.1] - 2026-11-21
+
 ### Changed
 
 - This repository keeps `bdd` as its only test layer (`steering/test-layers.json`). The 13 documentation contract tests are now `@SCN`-tagged scenario tests owned by spec #591, with unchanged assertions and coverage, and CI runs `scripts/check-test-layers.mjs` before the suite to reject new tests of non-kept types outside the shrink-only `scripts/test-layers-allowlist.json` (#591)
+
+### Fixed
+
+- A headless `/sdlc-execute` run no longer exits mid-gate while a stage worker waits on a background command: the hooks module blocks the main loop's stop with a holding `wait --hold` until the controller records its result; a supervisor whose session heartbeat goes stale after it yielded stops its controller, releases the lease and merge-queue entry, and records `/sdlc-execute stopped: supervising_session_lost`; and a resumed gate cut off with only `incomplete` checks reruns at the same head instead of reverting the prepared version and routing to implement (#564)
 
 ## [4.20.0] - 2026-11-20
 

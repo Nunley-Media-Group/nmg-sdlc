@@ -7,8 +7,11 @@ import path from 'node:path';
 import { createConnection } from 'node:net';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { fileSupervisor, removeSessionDirectory, resultLines } from '../sdlc-execute-supervisor.mjs';
-import { validateHostRequest } from '../../src/execute-host.mjs';
+import {
+  awaitSession, fileSupervisor, removeSessionDirectory, resultLines, SESSION_LOST, sessionWatchdog,
+} from '../sdlc-execute-supervisor.mjs';
+import { headlessHold, headlessHoldNotice, validateHostRequest } from '../../src/execute-host.mjs';
+import { enterMergeQueue, listMergeQueue } from '../sdlc-shared-state.mjs';
 import { STAGE_MODEL_DEFAULTS, STAGE_MODELS_PATH } from '../sdlc-models.mjs';
 
 const EXECUTE = fileURLToPath(new URL('../sdlc-execute.mjs', import.meta.url));
@@ -215,7 +218,7 @@ function startResponder(root, { mode, denyStop, paused = false }) {
 
 async function fixture({ mode = 'running', denyStop = false, ghAuthFails = false, inheritedPipes = false,
   holdBootstrap = false, startupFailure = false, probePeer = false, ancestorModule = false,
-  claudeSession = null, waitSeconds = 540, checkIn = null, bridgeAfterSupervise = false } = {}) {
+  claudeSession = null, waitSeconds = 540, checkIn = null, bridgeAfterSupervise = false, ghHangs = false } = {}) {
   // An ancestor `"type": "module"` package.json (as a system temporary directory may hold) must not
   // change how the extensionless fixture commands load.
   const parent = ancestorModule ? fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-module-'))) : null;
@@ -259,6 +262,7 @@ async function fixture({ mode = 'running', denyStop = false, ghAuthFails = false
   const descendantPath = path.join(runtime, 'descendant.pid');
   const peerRefused = path.join(runtime, 'peer-refused');
   const extraClosed = path.join(runtime, 'extra-closed');
+  const ghHung = path.join(runtime, 'gh-hung');
 
   const preload = path.join(bin, 'controller-fixture.mjs');
   fs.writeFileSync(preload, `
@@ -314,7 +318,13 @@ if (process.argv[2] === 'controller') {
     fs.writeFileSync(file, `#!/usr/bin/env node\n${content}`);
     fs.chmodSync(file, 0o755);
   };
+  // A hanging `gh pr list` holds the controller in a synchronous step, with its lease, where it checks no heartbeat.
   command('gh', `const args = process.argv.slice(2);
+if (${ghHangs} && args[0] === 'pr' && args[1] === 'list') {
+  require('node:fs').writeFileSync(${JSON.stringify(ghHung)}, '');
+  setInterval(() => {}, 1000);
+  return;
+}
 const out = value => { console.log(typeof value === 'string' ? value : JSON.stringify(value)); process.exit(0); };
 if (args[0] === 'auth') { if (${ghAuthFails}) process.exit(1); out(''); }
 if (args[0] === 'repo') out(args.includes('--jq') ? 'main' : {nameWithOwner:'acme/widgets'});
@@ -352,7 +362,7 @@ throw new Error('Unexpected gh command: '+args.join(' '));\n`);
   const value = {
     root, parent, childEnv, runtime, child, done, responder, foreign: null,
     leasePath, supervisorPath, bootstrapReady, bootstrapRelease, controllerStarted, descendantPath,
-    peerRefused, extraClosed,
+    peerRefused, extraClosed, ghHung,
     sessionDir: () => sessionDirOf(root),
     controllerPid: () => readJson(controllerStarted)?.pid ?? null,
     descendantPid: () => {
@@ -861,5 +871,140 @@ describe('removeSessionDirectory', () => {
 
   it('reports a missing directory as removed', () => {
     expect(removeSessionDirectory(path.join(tempDir(), 'absent'))).toBe(true);
+  });
+});
+
+// A session directory with a live daemon (this process) and a running stage subagent behind its waiting marker.
+function heldSession() {
+  const root = tempDir();
+  const session = randomUUID();
+  const dir = path.join(root, '.nmg-sdlc', 'execute', session);
+  fs.mkdirSync(dir, { recursive: true });
+  writeAtomic(path.join(dir, 'daemon.json'), { schemaVersion: 1, session, pid: process.pid });
+  writeAtomic(path.join(dir, 'worker.json'), { issue: 42, stage: 'verify', agentId: 'agent-1' });
+  return { root, session, dir };
+}
+
+describe('@SCN001 a headless run survives a worker waiting on a background command', () => {
+  const pluginRoot = '/opt/nmg';
+  const session = '00000000-0000-4000-8000-000000000564';
+  const command = `node "${pluginRoot}/scripts/sdlc-execute.mjs" wait --session ${session} --after 2 --hold`;
+
+  it('blocks the main-loop stop of a live, unfinished headless run with the exact holding wait command', () => {
+    const names = ['daemon.json', 'worker.json', 'report-1.json', 'decision-1.json', 'report-2.json', 'decision-2.json'];
+    const hold = headlessHold({ headless: true, session, names, daemonAlive: true, pluginRoot });
+    expect(hold).toBe(headlessHoldNotice({ session, after: 2, pluginRoot }));
+    expect(hold.endsWith(`Run: ${command}`)).toBe(true);
+    expect(headlessHold({ headless: true, session, names: ['daemon.json'], daemonAlive: true, pluginRoot }))
+      .toContain('--after 0 --hold');
+  });
+
+  it('lets the stop through in the TUI, after the result is recorded, once the daemon is gone, or with no session', () => {
+    const names = ['daemon.json', 'worker.json'];
+    expect(headlessHold({ headless: false, session, names, daemonAlive: true, pluginRoot })).toBeNull();
+    expect(headlessHold({ headless: true, session, names: [...names, 'result.json'], daemonAlive: true, pluginRoot })).toBeNull();
+    expect(headlessHold({ headless: true, session, names, daemonAlive: false, pluginRoot })).toBeNull();
+    expect(headlessHold({ headless: true, session: null, names, daemonAlive: true, pluginRoot })).toBeNull();
+  });
+
+  it('registers the hold on the main loop classic.Stop in the hooks module', () => {
+    const source = fs.readFileSync(fileURLToPath(new URL('../../hooks/register.ts', import.meta.url)), 'utf8');
+    const stop = source.indexOf("on('classic.Stop'");
+    expect(stop).toBeGreaterThan(0);
+    expect(source.slice(stop, stop + 300)).toContain('return hold === null ? next(e) : { block: hold }');
+    expect(source).toContain('return headlessHold({');
+    expect(source).toContain('daemonAlive: await daemonAlive($, state.dir)');
+  });
+
+  it('keeps a holding wait open while the worker runs and returns the next report', async () => {
+    const { root, session, dir } = heldSession();
+    expect((await awaitSession({ cwd: root, session, waitMs: 5000 })).stdout).toMatch(/^NMG_SDLC_EXECUTE_WORKER: /);
+    const begun = Date.now();
+    setTimeout(() => writeAtomic(path.join(dir, 'report-1.json'), { schemaVersion: 1, session, seq: 1, kind: 'stage',
+      issue: 42, stage: 'verify', decisions: ['accept', 'halt'] }), 700);
+    const held = await awaitSession({ cwd: root, session, waitMs: 10_000, hold: true });
+    expect(Date.now() - begun).toBeGreaterThanOrEqual(600);
+    expect(held.status).toBe(0);
+    expect(reportOf(held.stdout)).toEqual({ session, seq: 1, kind: 'stage', stage: 'verify' });
+  });
+
+  it('returns the terminal result, a holding running notice at its deadline, or the supervisor loss', async () => {
+    const finished = heldSession();
+    setTimeout(() => writeAtomic(path.join(finished.dir, 'result.json'),
+      { schemaVersion: 1, session: finished.session, status: 0, stdout: '#42: MERGED and CLOSED\n', stderr: '' }), 300);
+    expect(await awaitSession({ cwd: finished.root, session: finished.session, waitMs: 10_000, hold: true }))
+      .toEqual({ status: 0, stdout: '#42: MERGED and CLOSED\n', stderr: '' });
+
+    const running = heldSession();
+    const deadline = await awaitSession({ cwd: running.root, session: running.session, after: 3, waitMs: 500, hold: true });
+    expect(deadline.stdout).toContain('NMG_SDLC_EXECUTE_RUNNING');
+    expect(deadline.stdout).toContain(`wait --session ${running.session} --after 3 --hold\n`);
+
+    const lost = heldSession();
+    const gonePid = spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' });
+    writeAtomic(path.join(lost.dir, 'daemon.json'), { schemaVersion: 1, session: lost.session, pid: Number(gonePid.stdout) });
+    expect(await awaitSession({ cwd: lost.root, session: lost.session, waitMs: 5000, hold: true }))
+      .toEqual({ status: 1, stdout: '', stderr: 'controller_supervisor_lost\n' });
+  });
+
+  it('accepts --hold on the wait command line', () => {
+    const session2 = '00000000-0000-4000-8000-000000000491';
+    expect(cliSync(tempDir(), ['wait', '--session', session2, '--after', '0', '--hold']))
+      .toMatchObject({ code: 2, stderr: `execute_session_unknown: ${session2}\n` });
+  });
+});
+
+describe('@SCN002 a lost session does not leave an orphaned controller', () => {
+  const beat = (dir, at) => fs.writeFileSync(path.join(dir, 'host.json'),
+    JSON.stringify({ schemaVersion: 1, claudeSessionId: CLAUDE_HEARTBEAT, at }));
+
+  it('cancels only once a heartbeat that was seen fresh has gone stale', () => {
+    const dir = tempDir();
+    let clock = 1_000_000;
+    let lost = 0;
+    const check = sessionWatchdog({ dir, now: () => clock, onLost: () => { lost += 1; } });
+    // A session that never wrote a heartbeat is never lost.
+    expect(check()).toBe(false);
+    beat(dir, clock - 120_000);
+    expect(check()).toBe(false);
+    // A fresh heartbeat keeps the run going.
+    for (let i = 0; i < 10; i += 1) {
+      beat(dir, clock);
+      clock += 15_000;
+      expect(check()).toBe(false);
+    }
+    clock += 61_000;
+    expect(check()).toBe(true);
+    expect(check()).toBe(true);
+    expect(lost).toBe(1);
+  });
+
+  posix('yielded daemon', () => {
+    it('terminates its controller, releases the lease and queue entry, and records supervising_session_lost', async () => {
+      const claude = randomUUID();
+      const value = await fixture({ ghHangs: true, waitSeconds: 1, claudeSession: claude });
+      const started = await value.done;
+      expect(started.code).toBe(0);
+      expect(started.stdout).toContain('NMG_SDLC_EXECUTE_RUNNING');
+      const session = sessionOf(started.stdout);
+      const dir = path.join(value.root, '.nmg-sdlc', 'execute', session);
+      await until(() => fs.existsSync(value.ghHung) && fs.existsSync(value.leasePath), 'the controller held in a step with its lease');
+      const controller = value.controllerPid();
+      enterMergeQueue(value.root, { issue: 42, branch: '42-ship-it', worktree: value.root, pid: controller });
+      // The session goes away after its heartbeat was seen fresh.
+      value.responder.stop();
+      beat(dir, Date.now() - 120_000);
+      const outcome = await until(() => readJson(path.join(dir, 'result.json')), 'the daemon recording the lost session');
+      expect(outcome).toMatchObject({ session, status: 1 });
+      expect(outcome.stderr.split('\n')[0]).toBe(SESSION_LOST);
+      expect(fs.existsSync(value.leasePath)).toBe(false);
+      expect(listMergeQueue(value.root)).toEqual([]);
+      await until(() => gone(controller), 'the controller exiting');
+      expect(readJson(path.join(value.root, '.nmg-sdlc', 'execute', 'results', `${claude}.json`)).lines)
+        .toEqual(['/sdlc-execute stopped: supervising_session_lost']);
+      // The released lease can be taken again: a later run resumes from branch evidence.
+      const { acquireControllerLease } = await import('../sdlc-controller-lease.mjs');
+      expect(() => acquireControllerLease({ projectRoot: value.root, runId: randomUUID() })).not.toThrow();
+    }, 60_000);
   });
 });

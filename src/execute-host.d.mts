@@ -61,6 +61,14 @@ export function activityRecord(
 };
 
 export function checkInNotice(args: { session: string; seq: number; pluginRoot: string }): string;
+export function headlessHoldNotice(args: { session: string; after: number; pluginRoot: string }): string;
+export function headlessHold(args: {
+  headless: boolean;
+  session: string | null | undefined;
+  names: string[];
+  daemonAlive: boolean;
+  pluginRoot: string;
+}): string | null;
 export function agentBody(text: string): string;
 export type ExecuteResult = { text: string; exitCode: number };
 export function executeResultText(record: unknown): ExecuteResult | null;

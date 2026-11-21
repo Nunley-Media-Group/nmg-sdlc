@@ -782,11 +782,14 @@ function prepareVersion(cwd, run, issue, invocationId) {
 
 // The gate's failing results: their ids, the test failure lines extracted from their command output (first ten
 // named), and the full-output log files that hold them.
-function gateFailures(artifact) {
-  // Required results, and opted-in commands whose selected tests ran, that did not pass.
-  const failing = (artifact.results ?? []).filter((item) => item.applicable && item.effectiveStatus !== 'passed'
+// Required results, and opted-in commands whose selected tests ran, that did not pass.
+function gateFailing(artifact) {
+  return (artifact.results ?? []).filter((item) => item.applicable && item.effectiveStatus !== 'passed'
     && (item.required || (item.provider === 'builtin.command'
       && SELECTION_CHECKED_REASONS.has(item.selection?.reason))));
+}
+function gateFailures(artifact) {
+  const failing = gateFailing(artifact);
   const evidence = failing.flatMap((item) => (Array.isArray(item.result?.evidence) ? item.result.evidence : []));
   return {
     ids: failing.map((item) => item.id),
@@ -813,6 +816,12 @@ function currentGateFailure(cwd, run, issue, head, report) {
       expectedIssueNumber: issue, expectedHeadSha: gateHead,
     });
     if (artifact.ceiling === null && result.gaps.length === 0) return null;
+    // A gate cut off before its checks finished (every non-passing check incomplete, none failed) failed nothing:
+    // it runs again at this head.
+    const failing = gateFailing(artifact);
+    if (result.gaps.length === 0 && failing.length && failing.every((item) => item.effectiveStatus === 'incomplete')) {
+      return { rerunGate: true, head };
+    }
     const { ids, failures, logs } = gateFailures(artifact);
     const named = failures.length ? `; failures: ${failures.slice(0, 10).join(' | ')}` : '';
     return { step: 'verify', head, reasonCode: result.reasonCode ?? 'verification_not_green',
@@ -1195,7 +1204,11 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           const intentLive = liveGateIntent(at, run, issue, current.head, evidence.verification?.path);
           if (!failure && !forced && !dirty && published && !intentLive) {
             const liveFailure = currentGateFailure(at, run, issue, current.head, evidence.verification?.path);
-            if (liveFailure) { recordFailure(liveFailure); needsImplement = liveFailure.reasonCode !== SELECTION_ESCALATION; }
+            // A cut-off gate records no failure and routes to verify, which reruns the gate at this head.
+            if (liveFailure && !liveFailure.rerunGate) {
+              recordFailure(liveFailure);
+              needsImplement = liveFailure.reasonCode !== SELECTION_ESCALATION;
+            }
           }
           // A branch with nothing on it relative to the default branch has nothing to verify yet.
           const unimplemented = !implementedHeads.has(current.head) && !branchCommits(at, run, evidence);
@@ -1496,9 +1509,13 @@ async function sessionCommand(sub, rest) {
     }
     const session = takeOption(argv, 'session');
     const after = takeOption(argv, 'after');
+    // A holding wait (the headless hold notice's) keeps waiting while a stage subagent runs.
+    const holdIndex = sub === 'wait' ? argv.indexOf('--hold') : -1;
+    if (holdIndex >= 0) argv.splice(holdIndex, 1);
     if (sub === 'wait' && !argv.length) {
       if (after !== undefined && !/^\d+$/.test(after)) throw new Error('--after requires a non-negative report sequence');
-      return await supervisor.awaitSession({ session, after: after === undefined ? 0 : Number(after), waitMs });
+      return await supervisor.awaitSession({ session, after: after === undefined ? 0 : Number(after), waitMs,
+        hold: holdIndex >= 0 });
     }
     const seq = Number(takeOption(argv, 'seq'));
     const text = takeOption(argv, 'text');
@@ -1511,7 +1528,7 @@ async function sessionCommand(sub, rest) {
   return { status: 2, stdout: '', stderr: [
     'Usage: sdlc-execute.mjs supervise [--check-in-seconds N] [#N ...]',
     '       sdlc-execute.mjs decide --session S --seq N <accept|continue|prompt|redispatch|halt> [--text T]',
-    '       sdlc-execute.mjs wait --session S', ''].join('\n') };
+    '       sdlc-execute.mjs wait --session S [--after N] [--hold]', ''].join('\n') };
 }
 
 // The single issue the current branch names when parseIssueBranch recognizes it; otherwise null.

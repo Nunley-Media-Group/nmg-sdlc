@@ -24,6 +24,7 @@ import {
   emptyAgentRecord,
   executeResultPath,
   executeResultText,
+  headlessHold,
   hostResponse,
   missingResultText,
   recordBackgroundStart,
@@ -122,6 +123,9 @@ const REQUEST_FILE = /^request-([1-9]\d*)\.json$/
 const REPORT_FILE = /^report-([1-9]\d*)\.json$/
 const DECISION_FILE = /^decision-([1-9]\d*)\.json$/
 const RESULT_FILE = 'result.json'
+// Exits 0 while the pid named by its argument is running; the hooks module imports no Node built-ins.
+const PID_ALIVE_SCRIPT = 'try{process.kill(Number(process.argv[1]),0)}catch(e){process.exit(e.code==="EPERM"?0:1)}'
+const PID_CHECK_TIMEOUT_MS = 10_000
 
 // One write-spec run per process: plan approval may clear context, so
 // published[] must outlive the conversation. Each new /sdlc-write-spec
@@ -608,6 +612,35 @@ async function refreshLatestText($: Engine, state: Bridge, now: number): Promise
   }
 }
 
+async function daemonAlive($: Engine, dir: string): Promise<boolean> {
+  const pid = (await readJsonFile<{ pid?: unknown }>($, `${dir}/daemon.json`))?.pid
+  if (!Number.isSafeInteger(pid) || (pid as number) <= 0) return false
+  try {
+    const { exitCode } = await $.process.run(['node', '-e', PID_ALIVE_SCRIPT, String(pid)], { timeoutMs: PID_CHECK_TIMEOUT_MS })
+    return exitCode === 0
+  } catch {
+    return false
+  }
+}
+
+// A headless run ends when its main loop stops with no turn running, even while a stage worker waits on a
+// background command. While the supervised session's daemon is alive and no result is recorded, the stop is
+// blocked with the hold notice, whose foreground `wait --hold` keeps the session alive.
+async function headlessHoldNotice($: Engine): Promise<string | null> {
+  const state = bridge
+  if (!headlessRun || state === null) return null
+  let names: string[]
+  try {
+    names = (await $.fs.list(state.dir)).map((entry) => entry.name)
+  } catch {
+    return null
+  }
+  return headlessHold({
+    headless: headlessRun, session: state.session, names,
+    daemonAlive: await daemonAlive($, state.dir), pluginRoot: $.plugin.root,
+  })
+}
+
 // `/sdlc-execute --result`: the recorded lines and exit status for this Claude session, or the no-record answer.
 async function executeResult($: Engine): Promise<{ text: string; exitCode: number }> {
   const claudeSessionId = await $.session.id()
@@ -801,6 +834,13 @@ export const register: Register = on => {
       return { decision: approvePlan(e.tool_input) }
     }
     return next(e)
+  })
+
+  // The main loop's stop in a headless run is held while its controller is unfinished; `classic.Stop` never
+  // fires for a subagent, and every other stop passes through unchanged.
+  on('classic.Stop', async ($, e, next) => {
+    const hold = await headlessHoldNotice($)
+    return hold === null ? next(e) : { block: hold }
   })
 
   on('turn.complete', async ($, e, next) => {

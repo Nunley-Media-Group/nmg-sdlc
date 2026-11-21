@@ -141,12 +141,14 @@ export function enterMergeQueue(cwd, { issue, branch, worktree, session = null, 
   });
 }
 
-/** Removes the issue from the merge queue. Returns whether it held an entry. */
-export function leaveMergeQueue(cwd, issue, { run = defaultRun } = {}) {
+/** Removes the issue from the merge queue; with `pid`, only the entries that controller holds, and with a null `issue`
+ * every entry it holds. Returns whether any entry was removed. */
+export function leaveMergeQueue(cwd, issue, { run = defaultRun, pid } = {}) {
   const dir = sharedStateDir(cwd, run);
+  const leaving = (entry) => (issue === null || entry.issue === issue) && (pid === undefined || entry.pid === pid);
   return withLock(dir, 'merge-queue', () => {
     const entries = readQueue(dir);
-    const kept = entries.filter((entry) => entry.issue !== issue);
+    const kept = entries.filter((entry) => !leaving(entry));
     if (kept.length !== entries.length) writeQueue(dir, kept);
     return kept.length !== entries.length;
   });

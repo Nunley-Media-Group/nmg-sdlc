@@ -495,6 +495,8 @@ claude -p --session-id <uuid> --plugin-dir <nmg-sdlc checkout> --model opus "/sd
 
 Choose the UUID yourself and keep it. The run delivers the queue to completion, and its last output lines are the final result: `#42: MERGED and CLOSED` for each delivered issue, or `/sdlc-execute stopped: <diagnosis>`. Like the TUI command, it runs on an Opus or Fable session model, so keep `--model opus`. It runs unsupervised to completion and applies the same full-green gate and merge rules as the TUI.
 
+The session stays alive while a stage worker waits on a background command: the hooks module blocks the main loop's stop with a holding `wait` until the controller records its result. If the session is lost anyway, the supervisor stops the controller, releases its lease and merge-queue entry, and records `/sdlc-execute stopped: supervising_session_lost`; rerun `/sdlc-execute #N` to resume, and a gate the lost session cut off runs again at the same head.
+
 To print the recorded lines again and get the controller's exit status, resume the same session:
 
 ```bash
