@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -470,6 +470,25 @@ const advanceOrigin = (root, branch = 'main') => {
 };
 
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
+
+// The supervise call that runs under the session id the hooks module chose is driven end to end in
+// sdlc-execute-supervisor.test.mjs, which holds the supervise fixture; its refusals need no session.
+describe('@SCN002 supervise --session (#567 FR3)', () => {
+  const supervise = (cwd, args) => spawnSync(process.execPath,
+    [path.join(packageRoot, 'scripts/sdlc-execute.mjs'), 'supervise', ...args], { cwd, encoding: 'utf8' });
+
+  it('@SCN002 refuses a --session that is not a canonical UUID, or whose session already exists', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nmg-supervise-session-'));
+    roots.push(root);
+    expect(supervise(root, ['--session', 'not-a-uuid', '#42']))
+      .toMatchObject({ status: 2, stdout: '', stderr: expect.stringMatching(/^invalid_session_id: /) });
+    expect(fs.existsSync(path.join(root, '.nmg-sdlc'))).toBe(false);
+    const session = randomUUID();
+    fs.mkdirSync(path.join(root, '.nmg-sdlc', 'execute', session), { recursive: true });
+    expect(supervise(root, ['--session', session, '#42']))
+      .toMatchObject({ status: 2, stdout: '', stderr: expect.stringMatching(/^session_exists: /) });
+  });
+});
 
 describe('stage subagent dispatch (#538)', () => {
   const stageFile = (stages) => `${JSON.stringify({ ...STAGE_MODEL_DEFAULTS, ...stages }, null, 2)}\n`;

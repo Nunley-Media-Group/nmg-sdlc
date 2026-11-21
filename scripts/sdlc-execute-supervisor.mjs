@@ -624,8 +624,8 @@ export async function superviseExecute({ args = '', cwd = process.cwd(), env = p
       const report = pendingReport(dir, session, 0);
       // A running stage subagent ends the supervise call too: no supervision Bash call waits for a worker to run.
       const worker = report ? null : readJson(join(dir, 'worker.json'));
-      // So does a host request the controller is waiting on: the hooks module starts the bridge that answers
-      // it, and writes the heartbeat, only once this call has returned its session line.
+      // So does a host request the controller is waiting on and no fresh heartbeat answers: a session the
+      // hooks module did not name in advance is bridged only once this call has returned its session line.
       const awaitingHost = !report && !worker && awaitingBridge(dir);
       if (!report && !worker && !awaitingHost && Date.now() < deadline) return;
       yielded = report ? reportOutput(report)
