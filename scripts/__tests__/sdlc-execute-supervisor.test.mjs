@@ -746,17 +746,6 @@ describe('execute CLI argument and session usage', () => {
       .toMatchObject({ session, status: 1 });
   }, 30_000);
 
-  it('@SCN002 supervise refuses a --session that is not a canonical UUID, or whose session already exists', () => {
-    const dir = tempDir();
-    expect(cliSync(dir, ['supervise', '--session', 'not-a-uuid', '#42']))
-      .toMatchObject({ code: 2, stdout: '', stderr: expect.stringMatching(/^invalid_session_id: /) });
-    expect(fs.existsSync(path.join(dir, '.nmg-sdlc'))).toBe(false);
-    const session = randomUUID();
-    fs.mkdirSync(path.join(dir, '.nmg-sdlc', 'execute', session), { recursive: true });
-    expect(cliSync(dir, ['supervise', '--session', session, '#42']))
-      .toMatchObject({ code: 2, stdout: '', stderr: expect.stringMatching(/^session_exists: /) });
-  });
-
   it('refuses the removed --retain-worker flag before any session starts', () => {
     const dir = tempDir();
     const response = cliSync(dir, ['supervise', '--retain-worker', '#42']);

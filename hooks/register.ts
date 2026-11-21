@@ -83,6 +83,9 @@ type Bridge = {
   startedAt: number
   // When the last heartbeat was written; null until the directory exists and the first one is written.
   heartbeatAt: number | null
+  // The bridge this one replaced before its session directory existed: it keeps servicing its own session until
+  // this one's directory appears, and is the live bridge again if it never does.
+  previous: Bridge | null
   latestAt: number
   handled: Set<number>
   announced: Set<number>
@@ -123,9 +126,13 @@ const LATEST_TEXT_CHARS = 2_000
 const SUBAGENT_DISALLOWED = ['AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode']
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 const SESSION_LINE = new RegExp(`^NMG_SDLC_EXECUTE_SESSION: (${UUID})$`, 'm')
-// A command that runs the controller's supervise: `node <path>/sdlc-execute.mjs supervise` at the start of the
-// command or after a shell separator, so a search or a quoted string that only mentions the text never matches.
-const CONTROLLER_SUPERVISE = /(?:^|[;&|(\n]\s*)(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*node\s+(?:"[^"\n]*sdlc-execute\.mjs"|'[^'\n]*sdlc-execute\.mjs'|[^\s"';&|]*sdlc-execute\.mjs)\s+supervise\b/
+// A command that runs the controller's supervise: `[env] [NAME=value ...] <node> [flags] <path>/sdlc-execute.mjs
+// supervise` at the start of the command or after a shell separator outside quotes (see withExecuteSession), so a
+// search or a quoted string that only mentions the text never matches. Node may be named by any path.
+const NODE_PROGRAM = String.raw`(?:"[^"\n]*[\\/]node(?:\.exe)?"|'[^'\n]*[\\/]node(?:\.exe)?'|(?:[^\s"';&|()]*[\\/])?node(?:\.exe)?)`
+const EXECUTE_SCRIPT = String.raw`(?:"[^"\n]*sdlc-execute\.mjs"|'[^'\n]*sdlc-execute\.mjs'|[^\s"';&|]*sdlc-execute\.mjs)`
+const CONTROLLER_SUPERVISE = new RegExp(String.raw`(?:^|[;&|(\n])\s*(?:env\s+(?:-\S+\s+)*)?(?:[A-Za-z_]\w*=\S*\s+)*` +
+  String.raw`${NODE_PROGRAM}\s+(?:-[^\s"';&|]*\s+)*${EXECUTE_SCRIPT}\s+supervise\b`, 'g')
 // A `--session <uuid>` the supervise call already passes, read from its arguments.
 const GIVEN_SESSION = new RegExp(`^[^|;&\\n]*?\\s--session\\s+["']?(${UUID})`)
 const REQUEST_FILE = /^request-([1-9]\d*)\.json$/
@@ -386,12 +393,30 @@ function executeDir(cwd: string, session: string): string {
 // token, and the session it runs under; a command that already passes `--session <uuid>` keeps it. Any other
 // command gets null.
 function withExecuteSession(command: string, session: string): { command: string; session: string } | null {
-  const match = CONTROLLER_SUPERVISE.exec(command)
-  if (match === null) return null
+  const match = [...command.matchAll(CONTROLLER_SUPERVISE)].find((candidate) => unquoted(command, candidate.index))
+  if (match === undefined) return null
   const end = match.index + match[0].length
   const given = GIVEN_SESSION.exec(command.slice(end))?.[1]
   if (given !== undefined) return { command, session: given }
   return { command: `${command.slice(0, end)} --session ${session}${command.slice(end)}`, session }
+}
+
+// True when position `at` of a shell command lies outside every quoted string.
+function unquoted(command: string, at: number): boolean {
+  let quote: string | null = null
+  for (let i = 0; i < at; i++) {
+    const c = command[i]
+    if (quote === "'") {
+      if (c === "'") quote = null
+    } else if (c === '\\') {
+      i++
+    } else if (quote === '"') {
+      if (c === '"') quote = null
+    } else if (c === '"' || c === "'") {
+      quote = c
+    }
+  }
+  return quote === null
 }
 
 function stopBridge(state: Bridge): void {
@@ -400,29 +425,32 @@ function stopBridge(state: Bridge): void {
   if (!state.busy) state.cancel()
 }
 
-// Services an earlier session's directory again with the state it had, after a supervise call that replaced its
-// bridge started no session.
-function restoreBridge($: Engine, state: Bridge): void {
-  if (bridge !== null && bridge !== state) stopBridge(bridge)
-  state.cancel()
-  state.finished = false
-  bridge = state
-  const timer = $.clock.every(BRIDGE_TICK_MS, () => {
-    if (!state.busy && !state.finished) void tick($, state)
-  })
-  state.cancel = () => timer.cancel()
+// Ends a bridge whose session never started. The bridge it replaced, still servicing its own session, is the live
+// bridge again.
+function abandonBridge(state: Bridge): void {
+  const previous = state.previous
+  state.previous = null
+  stopBridge(state)
+  if (previous !== null && !previous.finished && bridge === null) bridge = previous
 }
 
 // Starts servicing one supervised session's directory. The supervise call's session id is chosen before the
-// command runs, so the bridge can start before supervise has created the directory.
-async function startBridge($: Engine, session: string): Promise<void> {
+// command runs, so the bridge can start before supervise has created the directory: such a `pending` bridge keeps
+// the bridge it replaces servicing its own session until the new directory appears. A bridge for a session that
+// has announced itself ends the earlier one at once.
+async function startBridge($: Engine, session: string, pending = false): Promise<void> {
   if (bridge?.session === session) return
-  if (bridge !== null) stopBridge(bridge)
+  const replaced = bridge
+  const previous = pending && replaced !== null ? (replaced.previous ?? replaced) : null
+  if (replaced !== null) {
+    for (const old of [replaced, replaced.previous]) if (old !== null && old !== previous) stopBridge(old)
+    replaced.previous = null
+  }
   const cwd = await $.session.cwd()
   const claudeSessionId = await $.session.id()
   const state: Bridge = {
     session, cwd, dir: executeDir(cwd, session), claudeSessionId,
-    busy: false, finished: false, startedAt: await $.clock.now(), heartbeatAt: null, latestAt: 0,
+    busy: false, finished: false, startedAt: await $.clock.now(), heartbeatAt: null, previous, latestAt: 0,
     handled: new Set(), announced: new Set(), cancel: () => undefined,
   }
   bridge = state
@@ -444,8 +472,13 @@ async function tick($: Engine, state: Bridge): Promise<void> {
     try {
       names = (await $.fs.list(state.dir)).map((entry) => entry.name)
     } catch {
-      if ((await $.clock.now()) - state.startedAt > HOST_HEARTBEAT_MS) stopBridge(state)
+      if ((await $.clock.now()) - state.startedAt > HOST_HEARTBEAT_MS) abandonBridge(state)
       return
+    }
+    // The session has started: the bridge it replaced is no longer needed.
+    if (state.previous !== null) {
+      stopBridge(state.previous)
+      state.previous = null
     }
     const now = await $.clock.now()
     // The first heartbeat is written as soon as the directory exists: the controller treats a session with no
@@ -804,28 +837,25 @@ export const register: Register = on => {
     // The hooks module names the supervising session's supervise session before the command runs, and its bridge
     // starts now, so a call the engine moves to the background (with no stdout yet) is still serviced. A stage
     // subagent's call, or a command that only mentions supervise, is left as it is and keeps the live bridge.
-    const named = (e as { agentId?: string }).agentId === undefined
-      ? withExecuteSession(command, crypto.randomUUID())
-      : null
+    const own = supervising && (e as { agentId?: string }).agentId === undefined
+    const named = own ? withExecuteSession(command, crypto.randomUUID()) : null
     const previous = bridge
     if (named !== null) {
       command = named.command
-      await startBridge($, named.session)
+      await startBridge($, named.session, true)
     }
     const ran = await next(command === e.command ? e : { ...e, command })
     const stdout = ran.deny !== undefined ? '' : ran.isError === true
       ? (ran.text ?? '')
       : (ran.result?.stdout ?? ran.text ?? '')
-    if (named !== null) {
-      const printed = SESSION_LINE.exec(stdout)?.[1]
-      // A printed session line that names another session rebinds the bridge to the printed one. A denied call, or
-      // one that ran in the foreground and printed no session line, started no session: the earlier bridge resumes.
-      if (printed !== undefined && printed !== named.session) await startBridge($, printed)
-      else if (printed === undefined && !ran.result?.backgroundTaskId && previous?.session !== named.session) {
-        if (bridge?.session === named.session) stopBridge(bridge)
-        if (previous !== null) restoreBridge($, previous)
-      }
-    }
+    // A printed session line binds the bridge to the printed session: one that names another session than the
+    // hooks module chose, or that of a supervise call in a form the hooks module could not name in advance.
+    const printed = own ? SESSION_LINE.exec(stdout)?.[1] : undefined
+    if (printed !== undefined && printed !== named?.session) await startBridge($, printed)
+    // A denied call, or one that ran in the foreground and printed no session line, started no session: the earlier
+    // bridge is the live one again.
+    else if (named !== null && printed === undefined && !ran.result?.backgroundTaskId
+      && previous?.session !== named.session && bridge?.session === named.session) abandonBridge(bridge)
     if (ran.deny !== undefined) return ran
     const goal = execute.active ? executeGoalRequest({ command, stdout }) : null
     if (goal !== null) execute.pendingIssues = goal
