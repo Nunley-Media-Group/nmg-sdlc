@@ -1494,6 +1494,15 @@ function waitSeconds(argv) {
   if (!/^[1-9]\d*$/.test(value) || Number(value) > 540) throw new Error('--wait-seconds must be 1-540');
   return Number(value) * 1000;
 }
+const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+// A hooks-module session id: a canonical UUID whose session directory does not exist yet.
+function givenSession(value, supervisor) {
+  if (!SESSION_ID_RE.test(value)) throw new Error('invalid_session_id: --session requires a canonical UUID');
+  if (existsSync(supervisor.sessionDirectory(process.cwd(), value))) {
+    throw new Error(`session_exists: execute session ${value} already exists`);
+  }
+  return value;
+}
 async function sessionCommand(sub, rest) {
   const supervisor = await import('./sdlc-execute-supervisor.mjs');
   const argv = [...rest];
@@ -1501,9 +1510,11 @@ async function sessionCommand(sub, rest) {
     const waitMs = waitSeconds(argv);
     if (sub === 'run') return { status: 2, stdout: '', stderr: 'execute requires /sdlc-execute in a Claude Code session\n' };
     if (sub === 'supervise') {
+      // The hooks module names the session before the command runs, so it can bridge a backgrounded call.
+      const given = takeOption(argv, 'session');
       // Arguments are checked before a session exists, so a refused call prints only its diagnosis.
       parseArgs(argv.join(' '));
-      const session = randomUUID();
+      const session = given === undefined ? randomUUID() : givenSession(given, supervisor);
       const result = await supervisor.superviseExecute({ args: argv.join(' '), session, waitMs });
       return { ...result, stdout: `NMG_SDLC_EXECUTE_SESSION: ${session}\n${result.stdout}` };
     }
@@ -1526,7 +1537,7 @@ async function sessionCommand(sub, rest) {
     return { status: 2, stdout: '', stderr: `${error.message}\n` };
   }
   return { status: 2, stdout: '', stderr: [
-    'Usage: sdlc-execute.mjs supervise [--check-in-seconds N] [#N ...]',
+    'Usage: sdlc-execute.mjs supervise [--session UUID] [--check-in-seconds N] [#N ...]',
     '       sdlc-execute.mjs decide --session S --seq N <accept|continue|prompt|redispatch|halt> [--text T]',
     '       sdlc-execute.mjs wait --session S [--after N] [--hold]', ''].join('\n') };
 }

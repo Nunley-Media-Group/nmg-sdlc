@@ -12,6 +12,10 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `/sdlc-execute` keeps supervising after it stops a stage worker that already settled: the hooks module confirms the stop of an idle or no longer listed worker instead of failing the controller with `worker_stop_failed`, and a `supervise` rerun in the same Claude session is bridged even when its `Bash` call moves to the background, because the hooks module names the session with `supervise --session <uuid>` and starts its bridge before the command runs (#567)
+
 ## [4.20.1] - 2026-11-21
 
 ### Changed

@@ -156,7 +156,9 @@ function engine(on: On, { interactive = true, env = {} as Record<string, string>
   on('tool.call', { tool: 'Bash' }, (_, e) => {
     world.seen.push(e.command)
     world.bashInputs.push({ ...e })
-    const answer = world.bash.find(item => item.command === e.command)
+    // A supervise call carries the session id the hooks module chose; its canned answer is keyed without it.
+    const asked = e.command.replace(/ --session [0-9a-f-]{36}/, '')
+    const answer = world.bash.find(item => item.command === asked)
     if (answer?.isError) return { isError: true, result: answer.stdout, text: answer.stdout }
     const background = answer?.backgroundTaskId === undefined
       ? {}
@@ -166,7 +168,8 @@ function engine(on: On, { interactive = true, env = {} as Record<string, string>
   on('tool.call', { tool: 'TaskStop' }, (_, e) => {
     const id = String((e as { task_id?: unknown }).task_id)
     world.stops.push(id)
-    world.agents[id] = world.stopStatus
+    // TaskStop changes only a running subagent; a settled or unlisted one is left as it is.
+    if (world.agents[id] === 'running') world.agents[id] = world.stopStatus
     return { result: {} as never }
   })
   on('tool.call', { tool: 'AskUserQuestion' }, (_, e) => ({
@@ -655,6 +658,7 @@ describe('stage subagents', () => {
     world.files[`${executeDir(session)}/notes.txt`] = ''
     await supervise($, world, root, session)
 
+    world.agents['worker-1'] = 'running'
     writeRequest(world, session, 2, { kind: 'stop', agentId: 'worker-1' })
     await world.clock.advance(1_000)
     expect(world.stops).toEqual(['worker-1'])
@@ -666,7 +670,7 @@ describe('stage subagents', () => {
     expect(world.seen).toEqual([])
   })
 
-  test('a stop the agent list does not confirm answers ok false', async ($, on) => {
+  test('@SCN001 a stop of a worker still running after TaskStop answers ok false', async ($, on) => {
     const world = engine(on)
     await start($, world)
     const root = await pluginRoot($, world)
@@ -675,12 +679,94 @@ describe('stage subagents', () => {
     world.files[`${executeDir(session)}/notes.txt`] = ''
     await supervise($, world, root, session)
 
+    world.agents['worker-1'] = 'running'
     world.stopStatus = 'running'
     writeRequest(world, session, 2, { kind: 'stop', agentId: 'worker-1' })
     await world.clock.advance(1_000)
     expect(response(world, session, 2)).toEqual({
       schemaVersion: 1, session, n: 2, ok: false, deny: 'nmg-sdlc: stop not confirmed for worker-1: status running',
     })
+  })
+
+  // @SCN001 (AC1): a worker that has written its handoff and settled is already stopped.
+  test('@SCN001 a stop of an idle or no longer listed worker is confirmed, and its later calls stay denied', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    const root = await pluginRoot($, world)
+    await startExecute($, world, root)
+    const session = uuid(12)
+    world.files[`${executeDir(session)}/notes.txt`] = ''
+    await supervise($, world, root, session)
+
+    world.agents['worker-idle'] = 'idle'
+    writeRequest(world, session, 2, { kind: 'stop', agentId: 'worker-idle' })
+    writeRequest(world, session, 3, { kind: 'stop', agentId: 'worker-gone' })
+    await world.clock.advance(1_000)
+    expect(world.stops).toEqual(['worker-idle', 'worker-gone'])
+    expect(world.agents).toEqual({ 'worker-idle': 'idle' })
+    expect(response(world, session, 2)).toEqual({ schemaVersion: 1, session, n: 2, ok: true })
+    expect(response(world, session, 3)).toEqual({ schemaVersion: 1, session, n: 3, ok: true })
+
+    world.seen.length = 0
+    for (const agentId of ['worker-idle', 'worker-gone']) {
+      expect(await $.tool.call({ tool: 'Bash', command: 'ls', agentId } as never)).toEqual(expect.objectContaining({ deny: STOP_DENIAL }))
+    }
+    writeRequest(world, session, 4, { kind: 'send', agentId: 'worker-idle', text: 'Continue.' })
+    await world.clock.advance(1_000)
+    expect(response(world, session, 4)).toEqual({ schemaVersion: 1, session, n: 4, ok: false, deny: STOP_DENIAL })
+    expect(world.seen).toEqual([])
+    expect(world.sends).toEqual([])
+  })
+
+  // @SCN002 (AC2): a supervise rerun the engine moves to the background prints no session line, yet is bridged.
+  test('@SCN002 a backgrounded supervise rerun after a finished session is bridged under the session the hooks module named', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    const root = await pluginRoot($, world)
+    await startExecute($, world, root)
+    const finished = uuid(13)
+    world.files[`${executeDir(finished)}/result.json`] = '{"status":1}'
+    await supervise($, world, root, finished)
+
+    const command = controller(root, 'supervise #42 --check-in-seconds 60')
+    world.bash.push({ command, stdout: '', backgroundTaskId: 'task-9', timedOutAfterMs: 120000 })
+    await $.tool.call({ tool: 'Bash', command, tool_use_id: 'supervise-rerun' } as never)
+    const ran = world.seen.at(-1) ?? ''
+    const session = /supervise --session ([0-9a-f-]{36}) #42 --check-in-seconds 60$/.exec(ran)?.[1] ?? ''
+    expect(session).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+    expect(session).not.toBe(finished)
+
+    // Until supervise creates the directory, the bridge waits and writes nothing into it.
+    await world.clock.advance(5_000)
+    expect(world.writes.filter((path) => path.startsWith(`${executeDir(session)}/`))).toEqual([])
+
+    world.files[`${root}/agents/spec-implementer.md`] = AGENT_FILE
+    world.files[`${executeDir(session)}/prompt-1.md`] = 'Implement #42 now.'
+    writeRequest(world, session, 1, spawnRequest())
+    await world.clock.advance(1_000)
+    expect(JSON.parse(world.files[`${executeDir(session)}/host.json`] ?? 'null'))
+      .toEqual({ schemaVersion: 1, claudeSessionId: SESSION_ID, at: expect.any(Number) })
+    expect(world.spawns).toHaveLength(1)
+    expect(response(world, session, 1)).toEqual(expect.objectContaining({ session, n: 1 }))
+  })
+
+  test('@SCN002 a supervise session directory still missing after the heartbeat window ends its bridge', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    const root = await pluginRoot($, world)
+    await startExecute($, world, root)
+    const command = controller(root, 'supervise #42')
+    world.bash.push({ command, stdout: '', backgroundTaskId: 'task-10', timedOutAfterMs: 120000 })
+    await $.tool.call({ tool: 'Bash', command, tool_use_id: 'supervise-missing' } as never)
+    const session = /supervise --session ([0-9a-f-]{36}) #42$/.exec(world.seen.at(-1) ?? '')?.[1] ?? ''
+    expect(session).not.toBe('')
+
+    await world.clock.advance(61_000)
+    world.files[`${executeDir(session)}/notes.txt`] = ''
+    writeRequest(world, session, 1, { kind: 'stop', agentId: 'worker-1' })
+    await world.clock.advance(1_000)
+    expect(world.files[`${executeDir(session)}/host.json`]).toBeUndefined()
+    expect(response(world, session, 1)).toBeUndefined()
   })
 
   // The kit starts no subagent, so the module's worker map stays empty; this drives the record transitions the

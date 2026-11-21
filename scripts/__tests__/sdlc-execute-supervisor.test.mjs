@@ -218,7 +218,8 @@ function startResponder(root, { mode, denyStop, paused = false }) {
 
 async function fixture({ mode = 'running', denyStop = false, ghAuthFails = false, inheritedPipes = false,
   holdBootstrap = false, startupFailure = false, probePeer = false, ancestorModule = false,
-  claudeSession = null, waitSeconds = 540, checkIn = null, bridgeAfterSupervise = false, ghHangs = false } = {}) {
+  claudeSession = null, waitSeconds = 540, checkIn = null, bridgeAfterSupervise = false, ghHangs = false,
+  session = null } = {}) {
   // An ancestor `"type": "module"` package.json (as a system temporary directory may hold) must not
   // change how the extensionless fixture commands load.
   const parent = ancestorModule ? fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-module-'))) : null;
@@ -345,7 +346,8 @@ throw new Error('Unexpected gh command: '+args.join(' '));\n`);
   if (claudeSession) childEnv.NMG_SDLC_CLAUDE_SESSION_ID = claudeSession;
 
   const responder = startResponder(root, { mode, denyStop, paused: bridgeAfterSupervise });
-  const args = ['supervise', ...(checkIn ? ['--check-in-seconds', String(checkIn)] : []),
+  const args = ['supervise', ...(session ? ['--session', session] : []),
+    ...(checkIn ? ['--check-in-seconds', String(checkIn)] : []),
     '--wait-seconds', String(waitSeconds), '#42'];
   const child = spawn('node', [EXECUTE, ...args], {
     cwd: root, detached: true, stdio: ['ignore', 'pipe', 'pipe'], env: childEnv,
@@ -733,6 +735,28 @@ posix('execute CLI cancellation of its stage subagent and lease', () => {
 });
 
 describe('execute CLI argument and session usage', () => {
+  // @SCN002 (AC2): the hooks module names the supervise session before the command runs.
+  it('@SCN002 supervise --session runs under the given session id', async () => {
+    const session = randomUUID();
+    const claude = randomUUID();
+    const value = await fixture({ ghAuthFails: true, claudeSession: claude, session });
+    const result = await value.done;
+    expect(SESSION_LINE.exec(result.stdout)?.[1]).toBe(session);
+    expect(readJson(path.join(value.root, '.nmg-sdlc', 'execute', 'results', `${claude}.json`)))
+      .toMatchObject({ session, status: 1 });
+  }, 30_000);
+
+  it('@SCN002 supervise refuses a --session that is not a canonical UUID, or whose session already exists', () => {
+    const dir = tempDir();
+    expect(cliSync(dir, ['supervise', '--session', 'not-a-uuid', '#42']))
+      .toMatchObject({ code: 2, stdout: '', stderr: expect.stringMatching(/^invalid_session_id: /) });
+    expect(fs.existsSync(path.join(dir, '.nmg-sdlc'))).toBe(false);
+    const session = randomUUID();
+    fs.mkdirSync(path.join(dir, '.nmg-sdlc', 'execute', session), { recursive: true });
+    expect(cliSync(dir, ['supervise', '--session', session, '#42']))
+      .toMatchObject({ code: 2, stdout: '', stderr: expect.stringMatching(/^session_exists: /) });
+  });
+
   it('refuses the removed --retain-worker flag before any session starts', () => {
     const dir = tempDir();
     const response = cliSync(dir, ['supervise', '--retain-worker', '#42']);

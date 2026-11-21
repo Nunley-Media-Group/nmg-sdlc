@@ -18,6 +18,7 @@ import {
   writeSpecPublication,
 } from '../src/host-events.mjs'
 import {
+  ACTIVE_AGENT_STATUSES,
   agentBody,
   backgroundTaskOf,
   checkInNotice,
@@ -25,6 +26,7 @@ import {
   executeResultPath,
   executeResultText,
   headlessHold,
+  HOST_HEARTBEAT_MS,
   hostResponse,
   missingResultText,
   recordBackgroundStart,
@@ -77,7 +79,10 @@ type Bridge = {
   claudeSessionId: string
   busy: boolean
   finished: boolean
-  heartbeatAt: number
+  // When the bridge started: a directory that supervise has not created yet is waited for up to HOST_HEARTBEAT_MS.
+  startedAt: number
+  // When the last heartbeat was written; null until the directory exists and the first one is written.
+  heartbeatAt: number | null
   latestAt: number
   handled: Set<number>
   announced: Set<number>
@@ -116,9 +121,11 @@ const NOTICE_IDLE_MS = 5_000
 const LATEST_TEXT_CHARS = 2_000
 // Tools a stage subagent may never call: it has no user to answer and no plan mode to enter or leave.
 const SUBAGENT_DISALLOWED = ['AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode']
-// Subagent statuses that confirm a stop request.
-const STOPPED_STATUSES = ['killed', 'completed', 'failed']
-const SESSION_LINE = /^NMG_SDLC_EXECUTE_SESSION: ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/m
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+const SESSION_LINE = new RegExp(`^NMG_SDLC_EXECUTE_SESSION: (${UUID})$`, 'm')
+// The supervise token of a controller command, and a `--session <uuid>` it already passes.
+const SUPERVISE_TOKEN = /sdlc-execute\.mjs["']?\s+supervise\b/
+const SUPERVISE_SESSION = new RegExp(`sdlc-execute\\.mjs["']?\\s+supervise\\b[^|;&\\n]*?\\s--session\\s+["']?(${UUID})`)
 const REQUEST_FILE = /^request-([1-9]\d*)\.json$/
 const REPORT_FILE = /^report-([1-9]\d*)\.json$/
 const DECISION_FILE = /^decision-([1-9]\d*)\.json$/
@@ -373,13 +380,22 @@ function executeDir(cwd: string, session: string): string {
   return `${cwd}/.nmg-sdlc/execute/${session}`
 }
 
+// The supervise command with `--session <session>` after its supervise token, and the session it runs under;
+// a command that already passes `--session <uuid>` keeps it.
+function withExecuteSession(command: string, session: string): { command: string; session: string } {
+  const given = SUPERVISE_SESSION.exec(command)?.[1]
+  if (given !== undefined) return { command, session: given }
+  return { command: command.replace(SUPERVISE_TOKEN, (token) => `${token} --session ${session}`), session }
+}
+
 function stopBridge(state: Bridge): void {
   state.finished = true
   if (bridge === state) bridge = null
   if (!state.busy) state.cancel()
 }
 
-// Starts servicing one supervised session's directory, once its supervise call has announced it.
+// Starts servicing one supervised session's directory. The supervise call's session id is chosen before the
+// command runs, so the bridge can start before supervise has created the directory.
 async function startBridge($: Engine, session: string): Promise<void> {
   if (bridge?.session === session) return
   if (bridge !== null) stopBridge(bridge)
@@ -387,7 +403,7 @@ async function startBridge($: Engine, session: string): Promise<void> {
   const claudeSessionId = await $.session.id()
   const state: Bridge = {
     session, cwd, dir: executeDir(cwd, session), claudeSessionId,
-    busy: false, finished: false, heartbeatAt: 0, latestAt: 0,
+    busy: false, finished: false, startedAt: await $.clock.now(), heartbeatAt: null, latestAt: 0,
     handled: new Set(), announced: new Set(), cancel: () => undefined,
   }
   bridge = state
@@ -395,19 +411,12 @@ async function startBridge($: Engine, session: string): Promise<void> {
     if (!state.busy && !state.finished) void tick($, state)
   })
   state.cancel = () => timer.cancel()
-  // The heartbeat is written at once: the supervise call has just created the directory, and the controller
-  // treats a session with no fresh heartbeat as gone.
-  try {
-    state.heartbeatAt = await $.clock.now()
-    await writeJsonFile($, `${state.dir}/host.json`, { schemaVersion: 1, claudeSessionId, at: state.heartbeatAt })
-  } catch {
-    // The next tick writes the heartbeat once the directory is listable.
-  }
   await tick($, state)
 }
 
 // One bridge pass: heartbeat, the controller's requests in order, the announcement of a waiting report, and
-// each worker's latest text. A directory that is gone, or a terminal result, ends the bridge.
+// each worker's latest text. A directory that supervise has not created yet is waited for, writing nothing,
+// until HOST_HEARTBEAT_MS has passed; a directory missing after that, or a terminal result, ends the bridge.
 async function tick($: Engine, state: Bridge): Promise<void> {
   if (state.busy) return
   state.busy = true
@@ -416,11 +425,13 @@ async function tick($: Engine, state: Bridge): Promise<void> {
     try {
       names = (await $.fs.list(state.dir)).map((entry) => entry.name)
     } catch {
-      stopBridge(state)
+      if ((await $.clock.now()) - state.startedAt > HOST_HEARTBEAT_MS) stopBridge(state)
       return
     }
     const now = await $.clock.now()
-    if (now - state.heartbeatAt >= HEARTBEAT_MS) {
+    // The first heartbeat is written as soon as the directory exists: the controller treats a session with no
+    // fresh heartbeat as gone.
+    if (state.heartbeatAt === null || now - state.heartbeatAt >= HEARTBEAT_MS) {
       state.heartbeatAt = now
       await writeJsonFile($, `${state.dir}/host.json`, { schemaVersion: 1, claudeSessionId: state.claudeSessionId, at: now })
     }
@@ -556,8 +567,8 @@ async function sendToWorker($: Engine, agentId: string, text: string): Promise<F
   }
 }
 
-// Stops the subagent: its further tool calls are denied from now on, and the stop is confirmed only when its
-// status is killed, completed or failed.
+// Stops the subagent: its further tool calls are denied from now on. The stop is confirmed unless the subagent
+// is still pending, running or waiting after TaskStop; a settled (idle) or no longer listed subagent is stopped.
 async function stopWorker($: Engine, agentId: string): Promise<Fields> {
   stopped.add(agentId)
   try {
@@ -574,8 +585,8 @@ async function stopWorker($: Engine, agentId: string): Promise<Fields> {
       ...record, status: status ?? record.status, stopped: true, updatedAt: at,
     })))
   }
-  if (status !== undefined && STOPPED_STATUSES.includes(status)) return { ok: true }
-  return refusal(`nmg-sdlc: stop not confirmed for ${agentId}: status ${status ?? 'unknown'}`)
+  if (status === undefined || !(ACTIVE_AGENT_STATUSES as readonly string[]).includes(status)) return { ok: true }
+  return refusal(`nmg-sdlc: stop not confirmed for ${agentId}: status ${status}`)
 }
 
 // Once a report waits, the supervising session is prompted to fetch it, after the main loop has been idle.
@@ -766,19 +777,27 @@ export const register: Register = on => {
   // installed plugin's absolute path replaces the placeholder before the shell
   // sees it.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    const command = materializePluginRootCommand(e.command, $.plugin.root)
-    if (execute.active && !execute.goalSet && isExecuteSuperviseCommand(command)) {
+    let command = materializePluginRootCommand(e.command, $.plugin.root)
+    const supervising = isExecuteSuperviseCommand(command)
+    if (execute.active && !execute.goalSet && supervising) {
       return { deny: 'NMG SDLC: /sdlc-execute sets its /goal before supervise. Run sdlc-execute.mjs goal with the resolved issues and end your turn.' }
+    }
+    // The hooks module names the supervise session before the command runs, and its bridge starts now, so a call
+    // the engine moves to the background (with no stdout yet) is still serviced.
+    let session: string | null = null
+    if (supervising) {
+      ;({ command, session } = withExecuteSession(command, crypto.randomUUID()))
+      await startBridge($, session)
     }
     const ran = await next(command === e.command ? e : { ...e, command })
     if (ran.deny !== undefined) return ran
     const stdout = ran.isError === true
       ? (ran.text ?? '')
       : (ran.result?.stdout ?? ran.text ?? '')
-    // The supervise call announces its session; the bridge services that session's requests from here on.
-    if (isExecuteSuperviseCommand(command)) {
-      const session = SESSION_LINE.exec(stdout)?.[1]
-      if (session !== undefined) await startBridge($, session)
+    // A printed session line that names another session rebinds the bridge to the printed one.
+    if (supervising) {
+      const printed = SESSION_LINE.exec(stdout)?.[1]
+      if (printed !== undefined && printed !== session) await startBridge($, printed)
     }
     const goal = execute.active ? executeGoalRequest({ command, stdout }) : null
     if (goal !== null) execute.pendingIssues = goal
