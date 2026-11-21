@@ -50,6 +50,7 @@ type World = {
   sendDelivered: boolean
   stops: string[]
   stopStatus: string
+  listFails: boolean
   agents: Record<string, string>
   messages: Record<string, { role: 'user' | 'assistant'; text: string; toolUses: never[] }[]>
   clock: ReturnType<typeof mock.clock>
@@ -73,7 +74,7 @@ function engine(on: On, { interactive = true, env = {} as Record<string, string>
     sessionModel: 'claude-sonnet-5-5', steps: [], origins: [], configWrites: [], modelFails: false,
     registered: [], registrations: [], spawns: [], spawnDeny: 'no subagent starts under the test kit',
     appended: [], appendDeny: false, sends: [], sendDelivered: true,
-    stops: [], stopStatus: 'killed', agents: {}, messages: {},
+    stops: [], stopStatus: 'killed', listFails: false, agents: {}, messages: {},
     clock: mock.clock(on),
   }
   mock.env(on, env)
@@ -111,7 +112,7 @@ function engine(on: On, { interactive = true, env = {} as Record<string, string>
     if (typeof started.agentId === 'string') world.agents[started.agentId] = 'running'
     return started
   })
-  on('agent.list', () => ({
+  on('agent.list', () => world.listFails ? { deny: 'the agent list is unavailable' } as never : ({
     value: Object.entries(world.agents).map(([id, status]) => ({ id, description: id, status })) as never,
   }))
   on('fs.read', (_, e) => {
@@ -686,6 +687,26 @@ describe('stage subagents', () => {
     await world.clock.advance(1_000)
     expect(response(world, session, 2)).toEqual({
       schemaVersion: 1, session, n: 2, ok: false, deny: 'nmg-sdlc: stop not confirmed for worker-1: status running',
+    })
+  })
+
+  // @SCN001 (AC1): only a listed status or an absent listing confirms a stop; a failed list read does not.
+  test('@SCN001 a stop whose agent list read fails answers ok false with status unknown', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    const root = await pluginRoot($, world)
+    await startExecute($, world, root)
+    const session = uuid(19)
+    world.files[`${executeDir(session)}/notes.txt`] = ''
+    await supervise($, world, root, session)
+
+    world.agents['worker-1'] = 'running'
+    world.stopStatus = 'running'
+    world.listFails = true
+    writeRequest(world, session, 2, { kind: 'stop', agentId: 'worker-1' })
+    await world.clock.advance(1_000)
+    expect(response(world, session, 2)).toEqual({
+      schemaVersion: 1, session, n: 2, ok: false, deny: 'nmg-sdlc: stop not confirmed for worker-1: status unknown',
     })
   })
 

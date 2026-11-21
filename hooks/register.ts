@@ -621,6 +621,7 @@ async function sendToWorker($: Engine, agentId: string, text: string): Promise<F
 
 // Stops the subagent: its further tool calls are denied from now on. The stop is confirmed unless the subagent
 // is still pending, running or waiting after TaskStop; a settled (idle) or no longer listed subagent is stopped.
+// A failed list read confirms nothing: the subagent's status is unknown.
 async function stopWorker($: Engine, agentId: string): Promise<Fields> {
   stopped.add(agentId)
   try {
@@ -628,8 +629,8 @@ async function stopWorker($: Engine, agentId: string): Promise<Fields> {
   } catch {
     // The status check below decides whether the stop held.
   }
-  const listed = await $.agent.list().catch(() => [])
-  const status = listed.find((agent) => agent.id === agentId)?.status
+  const listed = await $.agent.list().catch(() => null)
+  const status = listed?.find((agent) => agent.id === agentId)?.status
   const worker = workers.get(agentId)
   if (worker !== undefined) {
     const at = await $.clock.now()
@@ -637,6 +638,7 @@ async function stopWorker($: Engine, agentId: string): Promise<Fields> {
       ...record, status: status ?? record.status, stopped: true, updatedAt: at,
     })))
   }
+  if (listed === null) return refusal(`nmg-sdlc: stop not confirmed for ${agentId}: status unknown`)
   if (status === undefined || !(ACTIVE_AGENT_STATUSES as readonly string[]).includes(status)) return { ok: true }
   return refusal(`nmg-sdlc: stop not confirmed for ${agentId}: status ${status}`)
 }
