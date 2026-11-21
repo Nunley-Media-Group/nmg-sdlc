@@ -123,9 +123,11 @@ const LATEST_TEXT_CHARS = 2_000
 const SUBAGENT_DISALLOWED = ['AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode']
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 const SESSION_LINE = new RegExp(`^NMG_SDLC_EXECUTE_SESSION: (${UUID})$`, 'm')
-// The supervise token of a controller command, and a `--session <uuid>` it already passes.
-const SUPERVISE_TOKEN = /sdlc-execute\.mjs["']?\s+supervise\b/
-const SUPERVISE_SESSION = new RegExp(`sdlc-execute\\.mjs["']?\\s+supervise\\b[^|;&\\n]*?\\s--session\\s+["']?(${UUID})`)
+// A command that runs the controller's supervise: `node <path>/sdlc-execute.mjs supervise` at the start of the
+// command or after a shell separator, so a search or a quoted string that only mentions the text never matches.
+const CONTROLLER_SUPERVISE = /(?:^|[;&|(\n]\s*)(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*node\s+(?:"[^"\n]*sdlc-execute\.mjs"|'[^'\n]*sdlc-execute\.mjs'|[^\s"';&|]*sdlc-execute\.mjs)\s+supervise\b/
+// A `--session <uuid>` the supervise call already passes, read from its arguments.
+const GIVEN_SESSION = new RegExp(`^[^|;&\\n]*?\\s--session\\s+["']?(${UUID})`)
 const REQUEST_FILE = /^request-([1-9]\d*)\.json$/
 const REPORT_FILE = /^report-([1-9]\d*)\.json$/
 const DECISION_FILE = /^decision-([1-9]\d*)\.json$/
@@ -380,18 +382,35 @@ function executeDir(cwd: string, session: string): string {
   return `${cwd}/.nmg-sdlc/execute/${session}`
 }
 
-// The supervise command with `--session <session>` after its supervise token, and the session it runs under;
-// a command that already passes `--session <uuid>` keeps it.
-function withExecuteSession(command: string, session: string): { command: string; session: string } {
-  const given = SUPERVISE_SESSION.exec(command)?.[1]
+// For a command that runs the controller's supervise: the command with `--session <session>` after its supervise
+// token, and the session it runs under; a command that already passes `--session <uuid>` keeps it. Any other
+// command gets null.
+function withExecuteSession(command: string, session: string): { command: string; session: string } | null {
+  const match = CONTROLLER_SUPERVISE.exec(command)
+  if (match === null) return null
+  const end = match.index + match[0].length
+  const given = GIVEN_SESSION.exec(command.slice(end))?.[1]
   if (given !== undefined) return { command, session: given }
-  return { command: command.replace(SUPERVISE_TOKEN, (token) => `${token} --session ${session}`), session }
+  return { command: `${command.slice(0, end)} --session ${session}${command.slice(end)}`, session }
 }
 
 function stopBridge(state: Bridge): void {
   state.finished = true
   if (bridge === state) bridge = null
   if (!state.busy) state.cancel()
+}
+
+// Services an earlier session's directory again with the state it had, after a supervise call that replaced its
+// bridge started no session.
+function restoreBridge($: Engine, state: Bridge): void {
+  if (bridge !== null && bridge !== state) stopBridge(bridge)
+  state.cancel()
+  state.finished = false
+  bridge = state
+  const timer = $.clock.every(BRIDGE_TICK_MS, () => {
+    if (!state.busy && !state.finished) void tick($, state)
+  })
+  state.cancel = () => timer.cancel()
 }
 
 // Starts servicing one supervised session's directory. The supervise call's session id is chosen before the
@@ -782,23 +801,32 @@ export const register: Register = on => {
     if (execute.active && !execute.goalSet && supervising) {
       return { deny: 'NMG SDLC: /sdlc-execute sets its /goal before supervise. Run sdlc-execute.mjs goal with the resolved issues and end your turn.' }
     }
-    // The hooks module names the supervise session before the command runs, and its bridge starts now, so a call
-    // the engine moves to the background (with no stdout yet) is still serviced.
-    let session: string | null = null
-    if (supervising) {
-      ;({ command, session } = withExecuteSession(command, crypto.randomUUID()))
-      await startBridge($, session)
+    // The hooks module names the supervising session's supervise session before the command runs, and its bridge
+    // starts now, so a call the engine moves to the background (with no stdout yet) is still serviced. A stage
+    // subagent's call, or a command that only mentions supervise, is left as it is and keeps the live bridge.
+    const named = (e as { agentId?: string }).agentId === undefined
+      ? withExecuteSession(command, crypto.randomUUID())
+      : null
+    const previous = bridge
+    if (named !== null) {
+      command = named.command
+      await startBridge($, named.session)
     }
     const ran = await next(command === e.command ? e : { ...e, command })
-    if (ran.deny !== undefined) return ran
-    const stdout = ran.isError === true
+    const stdout = ran.deny !== undefined ? '' : ran.isError === true
       ? (ran.text ?? '')
       : (ran.result?.stdout ?? ran.text ?? '')
-    // A printed session line that names another session rebinds the bridge to the printed one.
-    if (supervising) {
+    if (named !== null) {
       const printed = SESSION_LINE.exec(stdout)?.[1]
-      if (printed !== undefined && printed !== session) await startBridge($, printed)
+      // A printed session line that names another session rebinds the bridge to the printed one. A denied call, or
+      // one that ran in the foreground and printed no session line, started no session: the earlier bridge resumes.
+      if (printed !== undefined && printed !== named.session) await startBridge($, printed)
+      else if (printed === undefined && !ran.result?.backgroundTaskId && previous?.session !== named.session) {
+        if (bridge?.session === named.session) stopBridge(bridge)
+        if (previous !== null) restoreBridge($, previous)
+      }
     }
+    if (ran.deny !== undefined) return ran
     const goal = execute.active ? executeGoalRequest({ command, stdout }) : null
     if (goal !== null) execute.pendingIssues = goal
     const publication = writeSpecPublication({ toolUseId: e.tool_use_id, command, stdout })

@@ -769,6 +769,55 @@ describe('stage subagents', () => {
     expect(response(world, session, 1)).toBeUndefined()
   })
 
+  // @SCN002 (AC2): only the supervising session's own supervise call is named in advance; nothing else rebinds.
+  test('@SCN002 a command that only mentions supervise, or a stage subagent\'s supervise call, leaves the command and the live bridge unchanged', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    const root = await pluginRoot($, world)
+    await startExecute($, world, root)
+    const live = uuid(14)
+    world.files[`${executeDir(live)}/notes.txt`] = ''
+    await supervise($, world, root, live)
+
+    const search = 'grep -rn "sdlc-execute.mjs supervise" README.md'
+    const echoed = `echo "${controller(root, 'supervise #42')}"`
+    const subagent = controller(root, 'supervise #42')
+    world.bash.push({ command: search, stdout: '' }, { command: echoed, stdout: '' }, { command: subagent, stdout: '' })
+    world.seen.length = 0
+    await $.tool.call({ tool: 'Bash', command: search, tool_use_id: 'search' } as never)
+    await $.tool.call({ tool: 'Bash', command: echoed, tool_use_id: 'echoed' } as never)
+    await $.tool.call({ tool: 'Bash', command: subagent, tool_use_id: 'subagent', agentId: 'worker-7' } as never)
+    expect(world.seen).toEqual([search, echoed, subagent])
+
+    writeRequest(world, live, 2, { kind: 'stop', agentId: 'worker-1' })
+    await world.clock.advance(1_000)
+    expect(response(world, live, 2)).toEqual({ schemaVersion: 1, session: live, n: 2, ok: true })
+  })
+
+  // @SCN002 (AC2): a supervise call that starts no session leaves the earlier session bridged.
+  test('@SCN002 a supervise call refused in the foreground with no session line keeps the earlier session bridged', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    const root = await pluginRoot($, world)
+    await startExecute($, world, root)
+    const live = uuid(15)
+    world.files[`${executeDir(live)}/notes.txt`] = ''
+    await supervise($, world, root, live)
+    writeRequest(world, live, 2, { kind: 'stop', agentId: 'worker-1' })
+    await world.clock.advance(1_000)
+
+    const command = controller(root, 'supervise --bogus #42')
+    world.bash.push({ command, stdout: 'Usage: sdlc-execute.mjs supervise [--session UUID] [#N ...]', isError: true })
+    await $.tool.call({ tool: 'Bash', command, tool_use_id: 'supervise-refused' } as never)
+    expect(world.seen.at(-1)).toMatch(/supervise --session [0-9a-f-]{36} --bogus #42$/)
+
+    writeRequest(world, live, 3, { kind: 'stop', agentId: 'worker-2' })
+    await world.clock.advance(1_000)
+    expect(response(world, live, 2)).toEqual({ schemaVersion: 1, session: live, n: 2, ok: true })
+    expect(response(world, live, 3)).toEqual({ schemaVersion: 1, session: live, n: 3, ok: true })
+    expect(world.stops).toEqual(['worker-1', 'worker-2'])
+  })
+
   // The kit starts no subagent, so the module's worker map stays empty; this drives the record transitions the
   // module's tool.call, turn.complete and turn.step hooks apply to a worker, with the Bash result the engine returns.
   test('a stage worker\'s backgrounded Bash call is recorded, kept through its turn end, and cleared on its next turn', async ($, on) => {
