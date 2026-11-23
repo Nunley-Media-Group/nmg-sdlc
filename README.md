@@ -180,7 +180,7 @@ The file declares the suite and per-test coverage commands as argument arrays, r
 }
 ```
 
-Unknown keys, a `version` other than `1`, an empty `program`, or non-string `args` are rejected. The coverage command prints one JSON object to stdout: `{ "version": 1, "tests": [{ "id": "…", "file": "test/cart.test.js", "lines": ["src/cart.js:12"], "branches": ["src/cart.js:12:0"], "outcomes": ["adds item"] }] }`. Test ids are unique and stable across edits (the gate detects removal by id, so do not embed line numbers), `file` is repository-relative, lines are `path:N`, branches are `path:N:K`, and two outcomes are equivalent when their strings are equal. Building that per-test report for your stack is project work; upgrade does not detect coverage runners.
+Unknown keys, a `version` other than `1`, an empty `program`, or non-string `args` are rejected. The coverage command prints one JSON object to stdout: `{ "version": 1, "tests": [{ "id": "…", "file": "test/cart.test.js", "lines": ["src/cart.js:12"], "branches": ["src/cart.js:12:0"], "outcomes": ["adds item"] }] }`. Test ids are unique and stable across edits (the gate detects removal by id, so do not embed line numbers), `file` is repository-relative, lines are `path:N`, branches are `path:N:K`, and two outcomes are equivalent when their strings are equal. A large suite may instead write a v2 report to the file named by `NMG_SDLC_COVERAGE_OUTPUT`, which is read line by line with no 256 MiB cap; `references/steering-schema.md` gives its format. Building that per-test report for your stack is project work; upgrade does not detect coverage runners.
 
 ### Upgrading from 3.x
 

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { loadSteeringRuntime } from '../../src/sdlc-steering-runtime.mjs';
 import { matches } from '../../src/sdlc-glob.mjs';
 import { requiredSurfaces } from '../../src/sdlc-test-selection.mjs';
-import { loadTestCoverageConfig, validateCoverageReport } from '../test-coverage.mjs';
+import { expandEntries, loadTestCoverageConfig, validateCoverageReport } from '../test-coverage.mjs';
 import { detectVerificationScope } from '../verification-scope.mjs';
 import { jestArguments } from '../jest-per-test-coverage.mjs';
 
@@ -92,15 +92,19 @@ describe('@SCN013 This repository adopts scoped verification: the Jest per-test 
     const report = validateCoverageReport(JSON.parse(run.stdout));
     expect(report.tests).toHaveLength(1);
     const [test] = report.tests;
+    // The report is held in its compact range form; the assertions read its entries expanded.
+    const lines = expandEntries('lines', test.lines);
+    const branches = expandEntries('branches', test.branches);
+    const executableLines = expandEntries('lines', report.executableLines);
     expect(test).toMatchObject({ id: subjectTest, file: subjectTest });
-    expect(test.lines.some((line) => /^src\/stage-models\.mjs:\d+$/.test(line))).toBe(true);
-    expect(test.lines.some((line) => /^scripts\/sdlc-models\.mjs:\d+$/.test(line))).toBe(true);
-    expect([...test.lines, ...report.executableLines].some((line) => /node_modules|__tests__|__fixtures__/.test(line) || path.isAbsolute(line))).toBe(false);
-    const executable = new Set(report.executableLines);
-    expect(test.lines.filter((line) => !executable.has(line))).toEqual([]);
+    expect(lines.some((line) => /^src\/stage-models\.mjs:\d+$/.test(line))).toBe(true);
+    expect(lines.some((line) => /^scripts\/sdlc-models\.mjs:\d+$/.test(line))).toBe(true);
+    expect([...lines, ...executableLines].some((line) => /node_modules|__tests__|__fixtures__/.test(line) || path.isAbsolute(line))).toBe(false);
+    const executable = new Set(executableLines);
+    expect(lines.filter((line) => !executable.has(line))).toEqual([]);
     // Only the statements this test file runs are hit: other executable statements of the covered modules are not.
-    expect(report.executableLines.filter((line) => line.startsWith('scripts/sdlc-models.mjs:') && !test.lines.includes(line)).length).toBeGreaterThan(0);
-    expect(test.branches.some((branch) => /^(src\/stage-models|scripts\/sdlc-models)\.mjs:\d+:\d+$/.test(branch))).toBe(true);
+    expect(executableLines.filter((line) => line.startsWith('scripts/sdlc-models.mjs:') && !lines.includes(line)).length).toBeGreaterThan(0);
+    expect(branches.some((branch) => /^(src\/stage-models|scripts\/sdlc-models)\.mjs:\d+:\d+$/.test(branch))).toBe(true);
     for (const outcome of test.outcomes) expect(outcome).not.toContain(subjectTest);
     expect(test.outcomes.some((outcome) => outcome.endsWith(':passed'))).toBe(true);
   }, 120000);

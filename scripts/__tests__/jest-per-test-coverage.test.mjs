@@ -6,6 +6,10 @@ import path from 'node:path';
 
 import { collect } from '../jest-per-test-coverage.mjs';
 import { computeCandidates, gateBatch } from '../upgrade-test-layers.mjs';
+import { compactTest } from '../test-coverage.mjs';
+
+// The batch helpers take tests in the compact range form that a coverage report is read into.
+const typed = (test, type) => ({ ...compactTest(test), type });
 
 const DOC = 'scripts/__tests__/pick-doc.test.mjs';
 const BDD = 'scripts/__tests__/pick-bdd.test.mjs';
@@ -122,8 +126,8 @@ describe('@SCN002 A cross-file doc to bdd conversion passes the gate', () => {
     const coverage = coverageFor(root);
     const doc = collect(DOC, DOC_RUN, coverage, new Set(), root).test;
     const bdd = collect(BDD, BDD_RUN, coverage, new Set(), root).test;
-    const before = { tests: [{ ...doc, type: 'doc' }, { ...bdd, type: 'bdd' }] };
-    const after = { tests: [{ ...bdd, type: 'bdd' }] };
+    const before = { tests: [typed(doc, 'doc'), typed(bdd, 'bdd')] };
+    const after = { tests: [typed(bdd, 'bdd')] };
 
     const result = gateBatch(before, after, { status: 0 }, { file: DOC }, ['bdd']);
 
@@ -146,8 +150,8 @@ describe('@SCN003 Dropping an asserted outcome is still refused', () => {
       new Set(),
       root,
     ).test;
-    const before = { tests: [{ ...doc, type: 'doc' }, { ...bddWithoutOneBlock, type: 'bdd' }] };
-    const after = { tests: [{ ...bddWithoutOneBlock, type: 'bdd' }] };
+    const before = { tests: [typed(doc, 'doc'), typed(bddWithoutOneBlock, 'bdd')] };
+    const after = { tests: [typed(bddWithoutOneBlock, 'bdd')] };
 
     const result = gateBatch(before, after, { status: 0 }, { file: DOC }, ['bdd']);
 
@@ -164,7 +168,7 @@ describe('@SCN004 Candidates label a cross-file covered test as duplicate', () =
     const doc = collect(DOC, DOC_RUN, coverage, new Set(), root).test;
     const bdd = collect(BDD, BDD_RUN, coverage, new Set(), root).test;
 
-    const result = computeCandidates([], ['bdd'], [{ ...doc, type: 'doc' }, { ...bdd, type: 'bdd' }]);
+    const result = computeCandidates([], ['bdd'], [typed(doc, 'doc'), typed(bdd, 'bdd')]);
 
     expect(result.unmatched).toEqual([]);
     const entries = result.batches.flatMap((batch) => batch.tests);
