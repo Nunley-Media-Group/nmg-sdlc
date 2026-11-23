@@ -21,10 +21,12 @@ afterEach(() => {
 });
 
 // The fixture coverage command. It prints the plan's tests as v1 JSON on stdout, or streams them as v2 to the file in
-// NMG_SDLC_COVERAGE_OUTPUT. A test whose file is gone from the tree drops out, as a deleted test would.
+// NMG_SDLC_COVERAGE_OUTPUT. A test whose file is gone from the tree drops out, as a deleted test would. A plan with
+// `fail` makes the command exit with that status and stderr instead.
 const COVERAGE_SCRIPT = `import fs from 'node:fs';
 const plan = JSON.parse(fs.readFileSync('tools/coverage-plan.json', 'utf8'));
 const present = plan.tests.filter((test) => fs.existsSync(test.file));
+if (plan.fail) { process.stderr.write(plan.fail.stderr); process.exit(plan.fail.status); }
 const toV2 = (test) => {
   const lines = {};
   const branches = {};
@@ -193,6 +195,7 @@ describe('@SCN003 A malformed v2 line refuses with its line number', () => {
   it.each([
     ['invalid JSON', 3, [header, testLine('a'), '{"id":', testLine('b')]],
     ['missing the v2 header', 1, [testLine('a'), testLine('b')]],
+    ['outcomes that are not strings', 2, [header, JSON.stringify({ id: 'a', file: 'test/cart.test.js', lines: {}, branches: {}, outcomes: [1] })]],
   ])('refuses the candidates run naming line %s, which holds %s', (_defect, line, raw) => {
     const root = project({ plan: { format: 'v2', tests: [], raw } });
     const result = testLayersCandidates(root);
@@ -209,6 +212,39 @@ describe('@SCN003 A malformed v2 line refuses with its line number', () => {
     expect(byId(artifact)['unit.tests']).toMatchObject({ effectiveStatus: 'failed', selection: { reason: 'coverage_failed' } });
     expect(byId(artifact)['unit.tests'].result.summary).toMatch(new RegExp(`^coverage_failed: coverage report invalid: line ${line}: `));
   });
+
+  it('refuses the candidates run with the status and stderr of a coverage command that exits non-zero', () => {
+    const root = project({ plan: { format: 'v2', tests: CART, fail: { status: 7, stderr: 'coverage exploded\n' } } });
+    const result = testLayersCandidates(root);
+    expect(result).toEqual({ ok: false, reasonCode: 'test_layers_coverage_failed', status: 7, message: 'coverage exploded' });
+    expect(fs.existsSync(path.join(root, STATE, 'baseline.json'))).toBe(false);
+  });
+
+  it('fails the verification gate coverage check when the report path holds a directory, not a file', async () => {
+    const root = await gateProject();
+    const runCoverage = async (program, args, { env }) => {
+      fs.mkdirSync(env.NMG_SDLC_COVERAGE_OUTPUT);
+      return { status: 0, stdout: JSON.stringify({ version: 1, tests: [] }) };
+    };
+    const artifact = await verifyGate(root, { runCoverage });
+    expect(byId(artifact)['unit.tests']).toMatchObject({ effectiveStatus: 'failed', selection: { reason: 'coverage_failed' } });
+    expect(byId(artifact)['unit.tests'].result.summary)
+      .toBe('coverage_failed: coverage report invalid: coverage output: must be a regular file, not a symlink or directory');
+  });
+
+  it('fails the verification gate coverage check when the report path cannot be inspected', async () => {
+    const root = await gateProject();
+    // The command replaces the plugin's output directory with a file, so the report path is unreadable, not absent.
+    const runCoverage = async (program, args, { env }) => {
+      const dir = path.dirname(env.NMG_SDLC_COVERAGE_OUTPUT);
+      fs.rmSync(dir, { recursive: true });
+      fs.writeFileSync(dir, '');
+      return { status: 0, stdout: JSON.stringify({ version: 1, tests: [] }) };
+    };
+    const artifact = await verifyGate(root, { runCoverage });
+    expect(byId(artifact)['unit.tests']).toMatchObject({ effectiveStatus: 'failed', selection: { reason: 'coverage_failed' } });
+    expect(byId(artifact)['unit.tests'].result.summary).toMatch(/^coverage_failed: coverage report invalid: ENOTDIR/);
+  });
 });
 
 describe('@SCN004 v1 and v2 forms of the same coverage classify identically', () => {
@@ -222,6 +258,64 @@ describe('@SCN004 v1 and v2 forms of the same coverage classify identically', ()
     expect(v2.refused).toMatchObject({ reasonCode: 'test_layers_coverage_gap' });
     expect(v2.report.accepted).toEqual(v1.report.accepted);
     expect(v2.report.refused).toEqual(v1.report.refused);
+  });
+
+  it('names the same partial evidence when no single scenario covers the removed test', () => {
+    // The unit test's line and outcomes are covered only by two scenarios together; a third shares nothing with it.
+    const tests = [
+      { id: 'cart.feature:add', file: 'features/cart.feature', lines: ['src/cart.js:1'], branches: [], outcomes: ['adds-item'] },
+      { id: 'cart.feature:clear', file: 'features/cart.feature', lines: ['src/cart.js:5'], branches: [], outcomes: ['clears-cart'] },
+      { id: 'cart.feature:remove', file: 'features/cart.feature', lines: ['src/cart.js:3'], branches: [], outcomes: ['removes-item'] },
+      { id: 'cart.test.js:swap', file: 'test/cart.test.js', lines: ['src/cart.js:3'], branches: [], outcomes: ['adds-item', 'removes-item'] },
+    ];
+    const flow = (format) => {
+      const root = project({ plan: { format, tests } });
+      const candidates = testLayersCandidates(root);
+      const begun = beginTestLayersBatch(root, 'batch-001');
+      fs.rmSync(path.join(root, 'test/cart.test.js'));
+      return { batches: candidates.batches, begun, gated: gateTestLayersBatch(root, 'batch-001') };
+    };
+    const v1 = flow('v1');
+    const v2 = flow('v2');
+    expect(v2.batches).toEqual([{ id: 'batch-001', file: 'test/cart.test.js', type: 'unit', feature: 'features/cart.feature',
+      tests: [{ id: 'cart.test.js:swap', label: 'convert', target: 'features/cart.feature' }] }]);
+    expect(v2.gated).toEqual({ ok: true, batch: 'batch-001', file: 'test/cart.test.js', status: 'accepted',
+      deleted: [{ id: 'cart.test.js:swap', file: 'test/cart.test.js', coveredBy: ['cart.feature:add', 'cart.feature:remove'], lines: ['src/cart.js:3'] }] });
+    expect(v2).toEqual(v1);
+  });
+
+  it('gates the same changed lines for an executableLines list given in the v1 report and in the v2 header', async () => {
+    const coverage = async (runCoverage) => {
+      const root = await gateProject();
+      write(root, 'src/app.js', 'a();\n// not code\nb();\n');
+      git(root, 'commit', '-am', 'add a comment and a call');
+      return byId(await verifyGate(root, { runCoverage }))['unit.tests'];
+    };
+    const v1 = await coverage(async () => ({ status: 0, stdout: JSON.stringify({ version: 1, executableLines: ['src/app.js:1', 'src/app.js:3'],
+      tests: [{ id: 'tests/app.test.js', file: 'tests/app.test.js', lines: ['src/app.js:1'], branches: [], outcomes: [] }] }) }));
+    const v2 = await coverage(rawCoverage([
+      '{"version":2,"executableLines":{"src/app.js":[[1,1],[3,3]]}}',
+      JSON.stringify({ id: 'tests/app.test.js', file: 'tests/app.test.js', lines: { 'src/app.js': [[1, 1]] }, branches: {}, outcomes: [] }),
+    ]));
+    expect(v2.coverage).toEqual({ changedLines: ['src/app.js:1', 'src/app.js:3'], hitLines: ['src/app.js:1'], uncovered: ['src/app.js:3'],
+      counts: { changedLines: 2, hitLines: 1, uncovered: 1 } });
+    expect(v2.coverage).toEqual(v1.coverage);
+    expect(v2.effectiveStatus).toBe(v1.effectiveStatus);
+    expect(v2.selection).toEqual(v1.selection);
+  });
+
+  it('reads the last test of a v2 report that does not end with a newline', async () => {
+    const root = await gateProject();
+    const runCoverage = async (program, args, { env }) => {
+      fs.writeFileSync(env.NMG_SDLC_COVERAGE_OUTPUT, ['{"version":2}',
+        JSON.stringify({ id: 'tests/other.test.js', file: 'tests/app.test.js', lines: {}, branches: {}, outcomes: [] }),
+        JSON.stringify({ id: 'tests/app.test.js', file: 'tests/app.test.js', lines: { 'src/app.js': [[1, 1]] }, branches: {}, outcomes: [] }),
+      ].join('\n'));
+      return { status: 0, stdout: '' };
+    };
+    const artifact = await verifyGate(root, { runCoverage });
+    expect(byId(artifact)['unit.tests']).toMatchObject({ effectiveStatus: 'passed', coverage: {
+      changedLines: ['src/app.js:1'], hitLines: ['src/app.js:1'], uncovered: [], counts: { changedLines: 1, hitLines: 1, uncovered: 0 } } });
   });
 });
 
