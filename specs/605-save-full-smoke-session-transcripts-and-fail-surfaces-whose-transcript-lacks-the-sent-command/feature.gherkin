@@ -1,0 +1,32 @@
+**Issue**: #605
+**Date**: 2026-11-23
+**Status**: Approved
+**Author**: Claude Code
+
+# File: scripts/__tests__/nmg-sdlc-smoke.test.mjs
+# Generated from: specs/605-save-full-smoke-session-transcripts-and-fail-surfaces-whose-transcript-lacks-the-sent-command/requirements.md
+Feature: Save full smoke session transcripts and fail surfaces whose transcript lacks the sent command
+
+  @SCN001 @regression
+  Scenario: Saved transcripts cover the whole session
+    Given the smoke instructions in "steering/snippets/project-smoke.md"
+    When a surface transcript is saved as instructed
+    Then the log is emptied before the surface's command is sent
+    And a capture is appended after the command is typed and before Enter is sent
+    And the pane is appended to the log at every poll and when the command finishes
+    And no instruction overwrites the log with a single final capture
+
+  @SCN002 @regression
+  Scenario: A transcript without the sent command fails the surface
+    Given a passed, head-bound "steering" surface record whose transcript does not contain "/sdlc-steering"
+    When the smoke validation checks the record
+    Then the validation fails with "nmg-sdlc-smoke surface not exercised: steering"
+    And its evidence reads "steering: transcript lacks the sent command"
+
+  @SCN003 @regression
+  Scenario: Complete transcripts still pass
+    Given a passed, head-bound "draft-issue" surface record with command "/sdlc-draft-issue add a thing"
+    And its transcript holds that command wrapped across two lines
+    When the smoke validation checks the record
+    Then the surface passes
+    And its evidence names the transcript
