@@ -11,6 +11,7 @@ import {
   isExecuteSuperviseCommand,
   materializePluginRootCommand,
   materializePluginRootPath,
+  materializePluginRootToolInput,
   parseInteractiveSlash,
   writeSpecFinishedSelection,
   writeSpecMergeIssue,
@@ -827,8 +828,12 @@ export const register: Register = on => {
     return yield* next(await overrideStep($, e))
   })
 
-  // A stopped subagent's further calls are denied; a stage subagent's calls are recorded as its activity.
+  // A stopped subagent's further calls are denied; a stage subagent's calls are recorded as its activity. A Glob or
+  // Grep path that names the plugin directory by placeholder is forwarded as the installed plugin's absolute path.
+  // Untyped, because the host tool declarations declare no Glob or Grep input and only one untyped tool.call handler
+  // may be registered.
   on('tool.call', async ($, e, next) => {
+    const forwarded = materializePluginRootToolInput(e, $.plugin.root)
     const agentId = (e as { agentId?: string }).agentId
     if (agentId !== undefined) {
       if (stopped.has(agentId)) return { deny: stoppedWorkerDenial() }
@@ -841,7 +846,7 @@ export const register: Register = on => {
           input: { command: call.command, file_path: call.file_path },
           at,
         }))).catch(() => undefined)
-        const ran = await next(e)
+        const ran = await next(forwarded)
         // A Bash call that moved to the background is tracked until the worker's next turn after it settles.
         const taskId = backgroundTaskOf(String(call.tool ?? ''), (ran as unknown as { result?: unknown }).result)
         if (taskId !== null) {
@@ -853,7 +858,7 @@ export const register: Register = on => {
         return ran
       }
     }
-    return next(e)
+    return next(forwarded)
   })
 
   // Workflows name plugin scripts as `<plugin-root>/scripts/<name>.mjs`; the

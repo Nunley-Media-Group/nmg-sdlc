@@ -12,6 +12,10 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A `<plugin-root>` placeholder inside single quotes, in a glob operand, or in a Glob or Grep `path` now resolves to the installed plugin's path: a single-quoted operand stays one literal word, a glob still expands even when the plugin root contains spaces, and Glob and Grep search the plugin directory (#604)
+
 ## [4.22.2] - 2026-11-23
 
 ### Fixed
