@@ -221,27 +221,66 @@ function controllerPath(root, scriptName) {
 /**
  * Rewrites plugin-root placeholders in a shell command to the installed
  * plugin's absolute path: `<plugin-root>`, `${NMG_SDLC_PLUGIN_ROOT}`, and
- * `$NMG_SDLC_PLUGIN_ROOT`. Inside double quotes the path is spliced raw; a bare
- * `<plugin-root>/scripts/<name>.mjs` operand becomes a JSON-quoted path.
+ * `$NMG_SDLC_PLUGIN_ROOT`. One left-to-right scan follows the quoting context.
+ * Inside single or double quotes the bare path is spliced raw (a `'` in a
+ * single-quoted splice becomes `'\''`). In unquoted text a
+ * `<plugin-root>/scripts/<name>.mjs` operand becomes a JSON-quoted path, and an
+ * operand whose tail has glob characters keeps that tail unquoted so the shell
+ * still expands it. An unquoted backslash escapes the next character, and a
+ * `\"` stays inside its double-quoted segment. A quoted segment must close on
+ * the same line.
  */
 export function materializePluginRootCommand(command, root) {
   if (typeof command !== "string" || typeof root !== "string" || root.length === 0) return command;
   const token = /<plugin-root>|\$\{NMG_SDLC_PLUGIN_ROOT\}|\$NMG_SDLC_PLUGIN_ROOT\b/;
   if (!token.test(command)) return command;
   const bareRoot = String(root).replace(/[\\/]+$/, "");
-  const quoted = command.replace(/"([^"\r\n]*)"/g, (match, inner) => (
-    token.test(inner)
-      ? `"${inner.replace(new RegExp(token.source, "g"), bareRoot)}"`
-      : match
-  ));
-  return quoted.replace(
-    /(<plugin-root>|\$\{NMG_SDLC_PLUGIN_ROOT\}|\$NMG_SDLC_PLUGIN_ROOT\b)(\/[^\s"'`;|&)<>]*)?/g,
-    (match, _token, rest = "") => {
-      const script = /^\/scripts\/([A-Za-z0-9._-]+\.mjs)$/.exec(rest)?.[1];
-      const path = script ? controllerPath(bareRoot, script) : `${bareRoot}${rest}`;
-      return JSON.stringify(path);
-    },
-  );
+  const everyToken = new RegExp(token.source, "g");
+  const singleQuotedRoot = bareRoot.replace(/'/g, "'\\''");
+  const operand = /(<plugin-root>|\$\{NMG_SDLC_PLUGIN_ROOT\}|\$NMG_SDLC_PLUGIN_ROOT\b)(\/[^\s"'`;|&)<>\\]*)?/y;
+  const doubleQuoted = /"((?:[^"\\\r\n]|\\[^\r\n])*)"/y;
+  const singleQuoted = /'([^'\r\n]*)'/y;
+  let rewritten = "";
+  let at = 0;
+  while (at < command.length) {
+    const char = command[at];
+    // An unquoted backslash escapes the next character, so an escaped quote opens no quoted segment.
+    if (char === "\\" && at + 1 < command.length) {
+      rewritten += command.slice(at, at + 2);
+      at += 2;
+      continue;
+    }
+    const segment = char === '"' ? doubleQuoted : char === "'" ? singleQuoted : null;
+    if (segment !== null) {
+      segment.lastIndex = at;
+      const quotedSegment = segment.exec(command);
+      if (quotedSegment !== null) {
+        const spliced = char === '"' ? bareRoot : singleQuotedRoot;
+        rewritten += `${char}${quotedSegment[1].replace(everyToken, () => spliced)}${char}`;
+        at += quotedSegment[0].length;
+        continue;
+      }
+    }
+    operand.lastIndex = at;
+    const placeholder = operand.exec(command);
+    if (placeholder !== null) {
+      rewritten += materializedOperand(placeholder[2] ?? "", bareRoot);
+      at += placeholder[0].length;
+      continue;
+    }
+    rewritten += char;
+    at += 1;
+  }
+  return rewritten;
+}
+
+/** The replacement for an unquoted placeholder operand whose `/...` tail is `tail`. */
+function materializedOperand(tail, bareRoot) {
+  const script = /^\/scripts\/([A-Za-z0-9._-]+\.mjs)$/.exec(tail)?.[1];
+  if (script) return JSON.stringify(controllerPath(bareRoot, script));
+  // The root alone is quoted, so a root with spaces stays one word; a glob tail stays unquoted for the shell to expand.
+  if (/[*?[]/.test(tail)) return `${JSON.stringify(bareRoot)}${tail}`;
+  return JSON.stringify(`${bareRoot}${tail}`);
 }
 
 /** Rewrites a leading `<plugin-root>` in a file path to the plugin's absolute path. */
@@ -249,4 +288,14 @@ export function materializePluginRootPath(path, root) {
   if (typeof path !== "string" || typeof root !== "string" || root.length === 0) return path;
   const bareRoot = root.replace(/[\\/]+$/, "");
   return path.replace(/^(?:<plugin-root>|\$\{NMG_SDLC_PLUGIN_ROOT\}|\$NMG_SDLC_PLUGIN_ROOT\b)(?=\/|$)/, bareRoot);
+}
+
+/**
+ * Rewrites a leading plugin-root placeholder in the `path` of a Glob or Grep
+ * call. Any other tool input, or a path without the placeholder, is returned as is.
+ */
+export function materializePluginRootToolInput(input, root) {
+  if ((input?.tool !== "Glob" && input?.tool !== "Grep") || typeof input.path !== "string") return input;
+  const path = materializePluginRootPath(input.path, root);
+  return path === input.path ? input : { ...input, path };
 }

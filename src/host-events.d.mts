@@ -30,3 +30,4 @@ export function writeSpecPublication(
 export function writeSpecFinishedSelection(answers: Record<string, unknown> | null | undefined): boolean;
 export function materializePluginRootCommand(command: string, root: string): string;
 export function materializePluginRootPath<T extends string | undefined>(path: T, root: string): T;
+export function materializePluginRootToolInput<T>(input: T, root: string): T;
