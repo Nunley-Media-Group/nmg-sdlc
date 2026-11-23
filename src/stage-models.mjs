@@ -17,8 +17,8 @@ const PROVIDER_MODEL_ID = /^[^/\s-][^/\s]*\/\S+$/;
 export const STAGE_MODEL_DEFAULTS = Object.freeze({
   version: 1,
   start: Object.freeze({ model: 'haiku', effort: 'default' }),
-  implement: Object.freeze({ model: 'opus', effort: 'medium' }),
-  verify: Object.freeze({ model: 'opus', effort: 'high' }),
+  implement: Object.freeze({ model: 'haiku', effort: 'xhigh' }),
+  verify: Object.freeze({ model: 'opus', effort: 'medium' }),
   deliver: Object.freeze({ model: 'haiku', effort: 'xhigh' }),
   repair: Object.freeze({ model: 'opus', effort: 'default' }),
 });
@@ -29,7 +29,8 @@ export const SELECTION_MODEL_DEFAULT = Object.freeze({ model: 'haiku', effort: '
 /** Earlier plugin defaults each stage no longer uses. Upgrade offers to move an entry that still holds one of these to
  * the current default; a value the project chose itself is never offered. Append here whenever a default changes. */
 export const SUPERSEDED_STAGE_MODEL_DEFAULTS = Object.freeze({
-  implement: Object.freeze([Object.freeze({ model: 'haiku', effort: 'xhigh' })]),
+  implement: Object.freeze([Object.freeze({ model: 'opus', effort: 'medium' })]),
+  verify: Object.freeze([Object.freeze({ model: 'opus', effort: 'high' })]),
 });
 
 /** Fail-closed diagnostic naming the file, the offending key, and the value. */

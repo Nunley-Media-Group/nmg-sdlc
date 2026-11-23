@@ -81,8 +81,8 @@ Every step runs on the Claude Code model suited to its workload, and your sessio
 | Step | Model | Effort |
 |------|-------|--------|
 | execute stage `start` | `start.model` in `steering/sdlc-models.json` (default `haiku`) | `start.effort` (default `default`, no flag) |
-| execute stage `implement` | `implement.model` in `steering/sdlc-models.json` (default `opus`) | `implement.effort` (default `medium`) |
-| execute stage `verify` | `verify.model` in `steering/sdlc-models.json` (default `opus`) | `verify.effort` (default `high`) |
+| execute stage `implement` | `implement.model` in `steering/sdlc-models.json` (default `haiku`) | `implement.effort` (default `xhigh`) |
+| execute stage `verify` | `verify.model` in `steering/sdlc-models.json` (default `opus`) | `verify.effort` (default `medium`) |
 | execute stage `deliver` | `deliver.model` in `steering/sdlc-models.json` (default `haiku`) | `deliver.effort` (default `xhigh`) |
 | execute repair re-dispatch (`implement`, `verify`, `deliver`) | `repair.model` in `steering/sdlc-models.json` (default `opus`) | `repair.effort` (default `default`, no flag) |
 | `/sdlc-status` | `haiku` | default |
@@ -96,14 +96,14 @@ A repair re-dispatch is the next implement, verify, or deliver worker after a re
 
 ### Per-project stage models
 
-The model and effort of each execute stage and of the repair re-dispatch come from the committed project file `steering/sdlc-models.json`. `/sdlc-onboard-project` creates it with the plugin defaults. `/sdlc-upgrade-project` creates it when it is absent, or adds only the missing keys to a valid file. It also offers to move an entry that still holds an earlier plugin default (such as `implement` `haiku`/`xhigh`) to the current default, and changes it only when you approve. It never changes a value the project chose itself. The file is project-owned and is not registered in `steering/manifest.json`.
+The model and effort of each execute stage and of the repair re-dispatch come from the committed project file `steering/sdlc-models.json`. `/sdlc-onboard-project` creates it with the plugin defaults. `/sdlc-upgrade-project` creates it when it is absent, or adds only the missing keys to a valid file. It also offers to move an entry that still holds an earlier plugin default (such as `implement` `opus`/`medium` or `verify` `opus`/`high`) to the current default, and changes it only when you approve. It never changes a value the project chose itself. The file is project-owned and is not registered in `steering/manifest.json`.
 
 ```json
 {
   "version": 1,
   "start": { "model": "haiku", "effort": "default" },
-  "implement": { "model": "opus", "effort": "medium" },
-  "verify": { "model": "opus", "effort": "high" },
+  "implement": { "model": "haiku", "effort": "xhigh" },
+  "verify": { "model": "opus", "effort": "medium" },
   "deliver": { "model": "haiku", "effort": "xhigh" },
   "repair": { "model": "opus", "effort": "default" }
 }
