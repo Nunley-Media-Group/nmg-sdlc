@@ -12,6 +12,8 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.22.0] - 2026-11-23
+
 ### Fixed
 
 - The per-test coverage command reports each outcome as `<it title>:<status>` (or `(suite):failed` for a suite that fails to run) instead of embedding the test file path and describe titles, so a test whose `it` blocks move into an `@SCN`-tagged test in another file is accepted by the test-layer gate and labelled `duplicate` rather than `unmatched` (#590)
