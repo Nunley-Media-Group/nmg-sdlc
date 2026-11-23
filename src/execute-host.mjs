@@ -123,6 +123,18 @@ export function clearBackground(record, at) {
   return { ...record, background: [], updatedAt: at };
 }
 
+/** The record with only the backgrounded commands the host still reports in flight: given a stop event's
+ * `background_tasks` array, every entry whose task id is not listed is dropped and `updatedAt` set to `at`. An entry
+ * started at or after `since`, when given, is kept, because the list was taken before it started. A missing list, or
+ * one that drops nothing, leaves the record unchanged. */
+export function reconcileBackground(record, inFlight, at, since) {
+  if (!Array.isArray(inFlight) || !Array.isArray(record.background)) return record;
+  const ids = new Set(inFlight.map((task) => task?.id));
+  const background = record.background.filter((entry) => ids.has(entry.taskId)
+    || (Number.isFinite(since) && Number.isFinite(entry.startedAt) && entry.startedAt >= since));
+  return background.length === record.background.length ? record : { ...record, background, updatedAt: at };
+}
+
 /** The task id of a Bash call that the timeout or `run_in_background` moved to the background, or null. */
 export function backgroundTaskOf(tool, result) {
   const taskId = result?.backgroundTaskId;

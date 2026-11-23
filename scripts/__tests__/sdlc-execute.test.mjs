@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { runExecute, parseArgs, stageEffort, stageModel, validateHandoff, VALID_STEPS, WORKER_PERMISSION_MODES,
   workerPermissionMode } from '../sdlc-execute.mjs';
-import { validateHostRequest } from '../../src/execute-host.mjs';
+import { reconcileBackground, validateHostRequest } from '../../src/execute-host.mjs';
 import { packageRoot } from '../../src/sdlc-workflows.mjs';
 import { STAGE_MODEL_DEFAULTS, STAGE_MODELS_PATH } from '../sdlc-models.mjs';
 import { inspectIssueSpecScope, specStatusOnRef } from '../issue-spec-scope.mjs';
@@ -2106,6 +2106,80 @@ describe('idle workers, prompt refusals, restart routing and background activity
     expect(checkIns.map((report) => report.reason)).not.toContain('activity_unchanged');
     expect(checkIns[0].activity.background).toEqual({ command: 'npm run gate', elapsedSeconds: expect.any(Number) });
     expect(checkIns[0].activity.background.elapsedSeconds).toBeGreaterThan(0);
+  });
+});
+
+// #574: a settled worker's tracked background commands are reconciled against the host's in-flight list at each
+// stop event, so the settle wait returns without the worker taking another turn.
+describe('a finished worker\'s exited background commands (#574)', () => {
+  const steps = (f) => f.state.starts.map((entry) => entry.step);
+  const supervise = (report) => ({ action: report.kind === 'stage' ? 'accept' : 'continue' });
+  // A verify worker that passes its gate and writes its handoff, settled, with one tracked background command; at
+  // each of its settle waits, `stopEvent(n)` returns the stop event's in-flight list the hooks module reconciles.
+  const settledWithBackground = (f, stopEvent) => {
+    const seen = { pauses: 0, listedAtStage: null };
+    f.setWorker((context) => {
+      if (context.step === 'deliver') { context.state.merged = true; context.state.closed = true; return { status: 'passed', next: null }; }
+      context.passGate();
+      Object.assign(context.record, {
+        background: [{ taskId: 'task-1', command: 'npm run gate', startedAt: 0 }],
+        onWait: ({ until }, record) => {
+          if (until !== 'started') return;
+          seen.pauses += 1;
+          Object.assign(record, reconcileBackground(record, stopEvent(seen.pauses), seen.pauses));
+        },
+      });
+      return { status: 'passed', next: 'deliver' };
+    });
+    return seen;
+  };
+
+  it('@SCN001 routes the next step once the stop event no longer lists the exited command, with no further worker turn', () => {
+    const f = fixture();
+    // The command has exited: the next stop event reports nothing in flight.
+    const seen = settledWithBackground(f, () => []);
+    expect(f.execute('#42', { supervise })).toMatchObject({ status: 0 });
+    expect(seen.pauses).toBe(1);
+    expect(f.state.appends).toEqual([]);
+    expect(f.state.reminders).toEqual([]);
+    expect(steps(f)).toEqual(['verify', 'deliver']);
+  });
+
+  it('@SCN001 the hooks module reconciles stage workers at subagent and main-loop stops, passing each stop through', () => {
+    const source = fs.readFileSync(path.join(packageRoot, 'hooks/register.ts'), 'utf8');
+    expect(source).toMatch(/on\('classic\.SubagentStop', async \(\$, e, next\) => \{\n\s+await reconcileWorker\(\$, e\.agent_id, e\.background_tasks\)\n\s+return next\(e\)/);
+    // The main loop's stop reconciles before the headless hold decides the outcome, which reconciliation never changes.
+    expect(source).toMatch(/on\('classic\.Stop', async \(\$, e, next\) => \{\n\s+await reconcileSettledWorkers\(\$, e\.background_tasks\)\n\s+const hold = await headlessHoldNotice\(\$\)\n\s+return hold === null \? next\(e\) : \{ block: hold \}/);
+    expect(source.match(/on\('classic\.Stop'/g)).toHaveLength(1);
+    // The main loop's stop reconciles only settled workers, all at once, keeping commands started after its list.
+    expect(source).toMatch(/if \(since !== undefined && !SETTLED_AGENT_STATUSES\.includes\(record\.status\)\) return/);
+    expect(source).toContain('reconcileBackground(record, inFlight, await $.clock.now(), since)');
+    expect(source).toContain('Promise.all([...workers.keys()].map((agentId) => reconcileWorker($, agentId, inFlight, since)))');
+    // An unchanged or missing record is never written.
+    expect(source).toContain('if (reconciled !== record) await writeJsonFile($, path, reconciled)');
+    expect(source).not.toMatch(/from 'node:/);
+  });
+
+  it('@SCN002 keeps waiting while the command is still listed in flight, and routes only after it is removed', () => {
+    const f = fixture();
+    // Two stops list the command, one stop reports no list at all, then the command exits.
+    const events = [[{ id: 'task-1', type: 'shell', status: 'running' }], [{ id: 'task-1' }, { id: 'task-9' }], undefined, []];
+    const seen = settledWithBackground(f, (n) => events[n - 1]);
+    expect(f.execute('#42', { supervise })).toMatchObject({ status: 0 });
+    expect(seen.pauses).toBe(4);
+    expect(f.state.appends).toEqual([]);
+    expect(steps(f)).toEqual(['verify', 'deliver']);
+  });
+
+  it('@SCN002 a listed command is kept, and a stop without a list leaves the record unchanged', () => {
+    const record = { agentId: 'a', background: [{ taskId: 'task-1' }, { taskId: 'task-2' }], updatedAt: 1 };
+    expect(reconcileBackground(record, [{ id: 'task-1' }, { id: 'task-2' }], 5)).toBe(record);
+    expect(reconcileBackground(record, undefined, 5)).toBe(record);
+    expect(reconcileBackground(record, [{ id: 'task-2' }], 5)).toEqual({ ...record, background: [{ taskId: 'task-2' }], updatedAt: 5 });
+    // A command started at or after the list was taken is still running, though the list cannot name it.
+    const late = { ...record, background: [{ taskId: 'task-1', startedAt: 3 }, { taskId: 'task-2', startedAt: 7 }] };
+    expect(reconcileBackground(late, [], 9, 7)).toEqual({ ...late, background: [{ taskId: 'task-2', startedAt: 7 }], updatedAt: 9 });
+    expect(reconcileBackground(late, [], 9, 3)).toBe(late);
   });
 });
 

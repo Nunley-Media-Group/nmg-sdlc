@@ -47,6 +47,7 @@ export function recordBackgroundStart(
   background: { taskId: string; command: unknown; at: number },
 ): AgentRecord;
 export function clearBackground(record: AgentRecord, at: number): AgentRecord;
+export function reconcileBackground(record: AgentRecord, inFlight: unknown, at: number, since?: number): AgentRecord;
 export function backgroundTaskOf(tool: string, result: unknown): string | null;
 export function recordStepStart(record: AgentRecord, at: number): AgentRecord;
 export function activityRecord(

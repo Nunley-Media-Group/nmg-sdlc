@@ -29,6 +29,7 @@ import {
   HOST_HEARTBEAT_MS,
   hostResponse,
   missingResultText,
+  reconcileBackground,
   recordBackgroundStart,
   recordStepStart,
   recordToolCall,
@@ -383,6 +384,34 @@ async function updateAgent(
   const path = agentPath(dir, agentId)
   const current = (await readJsonFile<AgentRecord>($, path)) ?? emptyAgentRecord(agentId, await $.clock.now())
   await writeJsonFile($, path, change(current))
+}
+
+// A stop event lists the session's in-flight background tasks, so a settled worker's tracked commands that have
+// exited are dropped without the worker taking another turn. A missing record, or one with nothing to drop, is not
+// written. With `since` (the main loop's stop), only a settled worker is reconciled, and a command it started at or
+// after `since` is kept, since the stop's list predates it. A failure is ignored: the stop's outcome never depends
+// on it.
+async function reconcileWorker($: Engine, agentId: string, inFlight: unknown, since?: number): Promise<void> {
+  const worker = workers.get(agentId)
+  if (worker === undefined) return
+  await queueAgent(agentId, async () => {
+    const path = agentPath(worker.dir, agentId)
+    const record = await readJsonFile<AgentRecord>($, path)
+    if (record === null || !Array.isArray(record.background) || record.background.length === 0) return
+    if (since !== undefined && !SETTLED_AGENT_STATUSES.includes(record.status)) return
+    const reconciled = reconcileBackground(record, inFlight, await $.clock.now(), since)
+    if (reconciled !== record) await writeJsonFile($, path, reconciled)
+  }).catch(() => undefined)
+}
+
+// The main loop's stop reconciles every settled stage worker at once, against the list taken at that stop.
+async function reconcileSettledWorkers($: Engine, inFlight: unknown): Promise<void> {
+  try {
+    const since = await $.clock.now()
+    await Promise.all([...workers.keys()].map((agentId) => reconcileWorker($, agentId, inFlight, since)))
+  } catch {
+    // The headless hold still decides the stop.
+  }
 }
 
 function executeDir(cwd: string, session: string): string {
@@ -915,9 +944,17 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // The main loop's stop in a headless run is held while its controller is unfinished; `classic.Stop` never
-  // fires for a subagent, and every other stop passes through unchanged.
+  // A subagent's stop reconciles that stage worker's tracked background commands; its outcome passes through.
+  on('classic.SubagentStop', async ($, e, next) => {
+    await reconcileWorker($, e.agent_id, e.background_tasks)
+    return next(e)
+  })
+
+  // The main loop's stop (each check-in turn of the supervising session) reconciles the settled stage workers first. A
+  // headless run's stop is then held while its controller is unfinished; `classic.Stop` never fires for a subagent,
+  // and every other stop passes through unchanged.
   on('classic.Stop', async ($, e, next) => {
+    await reconcileSettledWorkers($, e.background_tasks)
     const hold = await headlessHoldNotice($)
     return hold === null ? next(e) : { block: hold }
   })

@@ -581,7 +581,8 @@ function awaitTurnEnd({ host, agentId, cwd, issue, step, prior, waitFor, handoff
 }
 // Holds the stage report until the worker tracks no background command and the git index is unlocked. An active
 // worker is waited on until it settles; a settled one is waited on until it starts a new turn, which ends its
-// tracked background commands. A worker that stopped is not waited on.
+// tracked background commands, or until a host stop event no longer reports them in flight, which drops them
+// from its record without another turn; each pause slice re-reads the record. A worker that stopped is not waited on.
 function settleCommits({ host, agentId, cwd, run, pause }) {
   const gitDir = gitDirOf(cwd, run);
   for (;;) {
