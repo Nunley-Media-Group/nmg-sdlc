@@ -82,7 +82,8 @@ export function buildDeliveryPullRequestBody({ issue, specRelative, changedPaths
   const reportPath = `${specDirectory}/verification-report.md`;
   const commandResults = String(verificationReport ?? '')
     .split(/\r?\n/)
-    .filter((line) => /(?:`[^`]+`|\b(?:command|run)\s*:)/i.test(line)
+    .filter((line) => !/^ {0,3}#{1,6}(?:\s|$)/.test(line)
+      && /(?:`[^`]+`|\b(?:command|run)\s*:)/i.test(line)
       && /\b(?:pass(?:ed)?|fail(?:ed)?|succeed(?:ed)?|exit\s+(?:code\s+)?0|\d+\s+tests?\s+passed)\b/i.test(line));
   return [
     `Closes #${issue}`,
