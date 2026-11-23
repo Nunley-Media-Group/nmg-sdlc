@@ -268,6 +268,98 @@ describe('integration merges of the default branch', () => {
     const workflow = fs.readFileSync(
       path.join(path.dirname(script), '..', 'workflows', 'write-code', 'WORKFLOW.md'), 'utf8');
     expect(workflow).toContain('Read the exact existing stage subject with `git log -1 --first-parent --no-merges --format=%s HEAD`');
-    expect(workflow).toContain('conclude the merge with `git commit --no-edit`');
+  });
+});
+
+describe('@SCN001 commit-merge concludes a resolved integration merge', () => {
+  const commitMerge = (f, extra = []) => spawnSync(process.execPath, [
+    script, 'commit-merge', '--issue', '42', '--step', 'implement', '--spec', spec, ...extra,
+  ], { cwd: f.work, encoding: 'utf8' });
+  // Merges origin/main, which changed src/app.js again, into the branch's own edit of the same line.
+  const conflictedMerge = (f) => {
+    f.advanceMain({ 'src/app.js': 'export const value = 5;\n' });
+    const merged = spawnSync('git', ['merge', '--no-commit', '--no-ff', 'origin/main'], { cwd: f.work, encoding: 'utf8' });
+    expect(merged.status).not.toBe(0);
+    expect(f.git('ls-files', '-u')).not.toBe('');
+  };
+
+  test('commits the resolved merge with the default branch as its second parent', () => {
+    const f = mergeFixture();
+    conflictedMerge(f);
+    f.put('src/app.js', 'export const value = 6;\n');
+    f.git('add', 'src/app.js');
+    const before = f.git('rev-parse', 'HEAD');
+    const result = commitMerge(f);
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+    const head = f.git('rev-parse', 'HEAD');
+    expect(head).not.toBe(before);
+    expect(f.git('rev-parse', 'HEAD^1')).toBe(before);
+    expect(f.git('rev-parse', 'HEAD^2')).toBe(f.git('rev-parse', 'origin/main'));
+    expect(result.stdout).toContain('NMG_SDLC_PUBLICATION: ');
+    expect(result.stdout).toContain('"passed":true');
+    expect(result.stdout).toContain(`"commit":"${head}"`);
+  });
+
+  test('refuses an unresolved merge without committing', () => {
+    const f = mergeFixture();
+    conflictedMerge(f);
+    const before = f.git('rev-parse', 'HEAD');
+    const result = commitMerge(f);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('merge_unresolved');
+    expect(f.git('rev-parse', 'HEAD')).toBe(before);
+  });
+
+  test('refuses when no merge is in progress without committing', () => {
+    const f = mergeFixture();
+    const before = f.git('rev-parse', 'HEAD');
+    const result = commitMerge(f);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('merge_not_in_progress');
+    expect(f.git('rev-parse', 'HEAD')).toBe(before);
+  });
+
+  test('refuses an untracked non-runtime file beside a resolved merge', () => {
+    const f = mergeFixture();
+    conflictedMerge(f);
+    f.put('src/app.js', 'export const value = 6;\n');
+    f.git('add', 'src/app.js');
+    f.put('src/scratch.js', 'unstaged\n');
+    const before = f.git('rev-parse', 'HEAD');
+    const result = commitMerge(f);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('merge_unstaged');
+    expect(f.git('rev-parse', 'HEAD')).toBe(before);
+  });
+
+  test('refuses a resolution that edits an approved spec input and names the entry', () => {
+    const f = mergeFixture();
+    conflictedMerge(f);
+    f.put('src/app.js', 'export const value = 6;\n');
+    f.put(`${spec}/requirements.md`, '**Issue**: #42\n**Status**: Approved\nedited\n');
+    f.git('add', 'src/app.js', `${spec}/requirements.md`);
+    const result = commitMerge(f);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('publication_scope_unproven');
+    expect(result.stderr).toContain(`entry: ${spec}/requirements.md`);
+  });
+
+  test('refuses a merge of a branch other than the default branch', () => {
+    const f = mergeFixture();
+    f.git('checkout', '-b', 'side', 'main');
+    f.put('side.txt', 'side\n');
+    f.git('add', 'side.txt');
+    f.git('commit', '-m', 'chore: side work');
+    f.git('checkout', '42-parser');
+    f.git('merge', '--no-commit', '--no-ff', 'side');
+    const result = commitMerge(f);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('publication_scope_unproven');
+  });
+
+  test('rejects a --subject argument with a usage error', () => {
+    const f = mergeFixture();
+    expect(commitMerge(f, ['--subject', fixSubject]).status).toBe(2);
   });
 });
