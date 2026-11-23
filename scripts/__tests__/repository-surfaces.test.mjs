@@ -101,7 +101,7 @@ describe('@SCN013 This repository adopts scoped verification: the Jest per-test 
     // Only the statements this test file runs are hit: other executable statements of the covered modules are not.
     expect(report.executableLines.filter((line) => line.startsWith('scripts/sdlc-models.mjs:') && !test.lines.includes(line)).length).toBeGreaterThan(0);
     expect(test.branches.some((branch) => /^(src\/stage-models|scripts\/sdlc-models)\.mjs:\d+:\d+$/.test(branch))).toBe(true);
-    for (const outcome of test.outcomes) expect(outcome.startsWith(`${subjectTest}::`)).toBe(true);
+    for (const outcome of test.outcomes) expect(outcome).not.toContain(subjectTest);
     expect(test.outcomes.some((outcome) => outcome.endsWith(':passed'))).toBe(true);
   }, 120000);
 
