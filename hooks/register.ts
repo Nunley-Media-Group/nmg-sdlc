@@ -29,6 +29,7 @@ import {
   HOST_HEARTBEAT_MS,
   hostResponse,
   missingResultText,
+  reconcileBackground,
   recordBackgroundStart,
   recordStepStart,
   recordToolCall,
@@ -383,6 +384,17 @@ async function updateAgent(
   const path = agentPath(dir, agentId)
   const current = (await readJsonFile<AgentRecord>($, path)) ?? emptyAgentRecord(agentId, await $.clock.now())
   await writeJsonFile($, path, change(current))
+}
+
+// A stop event lists the session's in-flight background tasks, so a settled worker's tracked commands that have
+// exited are dropped without the worker taking another turn. A failed record update is ignored, and the stop's
+// outcome never depends on it.
+async function reconcileWorker($: Engine, agentId: string, inFlight: unknown): Promise<void> {
+  const worker = workers.get(agentId)
+  if (worker === undefined) return
+  const at = await $.clock.now()
+  await queueAgent(agentId, () => updateAgent($, worker.dir, agentId, (record) =>
+    reconcileBackground(record, inFlight, at))).catch(() => undefined)
 }
 
 function executeDir(cwd: string, session: string): string {
@@ -915,9 +927,17 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // The main loop's stop in a headless run is held while its controller is unfinished; `classic.Stop` never
-  // fires for a subagent, and every other stop passes through unchanged.
+  // A subagent's stop reconciles that stage worker's tracked background commands; its outcome passes through.
+  on('classic.SubagentStop', async ($, e, next) => {
+    await reconcileWorker($, e.agent_id, e.background_tasks)
+    return next(e)
+  })
+
+  // The main loop's stop (each check-in turn of the supervising session) reconciles every stage worker first. A
+  // headless run's stop is then held while its controller is unfinished; `classic.Stop` never fires for a subagent,
+  // and every other stop passes through unchanged.
   on('classic.Stop', async ($, e, next) => {
+    for (const agentId of [...workers.keys()]) await reconcileWorker($, agentId, e.background_tasks)
     const hold = await headlessHoldNotice($)
     return hold === null ? next(e) : { block: hold }
   })
