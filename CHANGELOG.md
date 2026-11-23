@@ -12,6 +12,10 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+### Changed
+
+- The execute `implement` stage now defaults to `haiku` at `xhigh` effort and `verify` to `opus` at `medium` effort; `/sdlc-upgrade-project` offers to move an entry still holding an earlier default (`implement` `opus`/`medium`, `verify` `opus`/`high`) to the new one (#568)
+
 ## [4.20.2] - 2026-11-21
 
 ### Fixed

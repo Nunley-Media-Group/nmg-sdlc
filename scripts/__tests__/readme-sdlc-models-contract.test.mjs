@@ -19,11 +19,11 @@ describe('@SCN008 README documents per-project stage models (FR8)', () => {
   it('describes the file, the default verify effort, provider/model ids, and the default effort', () => {
     const models = section('### Models');
     expect(models).toContain('steering/sdlc-models.json');
-    expect(models).toContain('verify.effort` (default `high`)');
-    expect(models).toContain('`implement.model` in `steering/sdlc-models.json` (default `opus`) | `implement.effort` (default `medium`)');
+    expect(models).toContain('verify.effort` (default `medium`)');
+    expect(models).toContain('`implement.model` in `steering/sdlc-models.json` (default `haiku`) | `implement.effort` (default `xhigh`)');
     const perProject = section('### Per-project stage models');
-    expect(perProject).toContain('"verify": { "model": "opus", "effort": "high" }');
-    expect(perProject).toContain('"implement": { "model": "opus", "effort": "medium" }');
+    expect(perProject).toContain('"verify": { "model": "opus", "effort": "medium" }');
+    expect(perProject).toContain('"implement": { "model": "haiku", "effort": "xhigh" }');
     expect(perProject).toContain('offers to move an entry that still holds an earlier plugin default');
     expect(perProject).toContain('provider/model');
     expect(perProject).toContain('opencode-go/kimi-k3.1-pro');
