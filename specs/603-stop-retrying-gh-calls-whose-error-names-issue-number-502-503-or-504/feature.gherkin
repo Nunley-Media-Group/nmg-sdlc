@@ -1,0 +1,53 @@
+**Issue**: #603
+**Date**: 2026-11-23
+**Status**: Approved
+**Author**: Claude Code
+**Related Spec**: specs/575-commit-resolved-queue-head-merges-and-retry-transient-github-reads-in-sdlc-execute/
+
+# File: scripts/__tests__/sdlc-execute-gh-retry.test.mjs
+# Generated from: specs/603-stop-retrying-gh-calls-whose-error-names-issue-number-502-503-or-504/requirements.md
+Feature: Stop retrying gh calls whose error names issue number 502, 503 or 504
+
+  @SCN001 @regression
+  Scenario Outline: An issue number is not a transient failure
+    Given a gh call that fails with "GraphQL: Could not resolve to an issue or pull request with the number of <number>. (repository.issue)"
+    When the retry wrapper runs it
+    Then the call runs once
+    And its failure is returned without any backoff sleep
+
+    Examples:
+      | number |
+      | 502    |
+      | 503    |
+      | 504    |
+
+  @SCN002 @regression
+  Scenario Outline: Real HTTP 5xx failures are still retried
+    Given a gh call that always fails with the output "<output>"
+    When the retry wrapper runs it
+    Then the call runs four times with backoff sleeps of 1000, 2000 and 4000 ms
+
+    Examples:
+      | output                  |
+      | HTTP 502                |
+      | HTTP 503                |
+      | HTTP 504                |
+      | 502 Bad Gateway         |
+      | 503 Service Unavailable |
+      | 504 Gateway Timeout     |
+
+  @SCN003 @regression
+  Scenario Outline: Other transient signals are unchanged
+    Given a gh call that always fails with <failure>
+    When the retry wrapper runs it
+    Then the call runs four times with backoff sleeps of 1000, 2000 and 4000 ms
+
+    Examples:
+      | failure                                              |
+      | the output "request timed out"                       |
+      | the output "connection reset by peer"                |
+      | the output "connection refused"                      |
+      | the output "could not resolve host: api.github.com"  |
+      | the output "TLS handshake timeout"                   |
+      | the output "unexpected EOF"                          |
+      | a spawn error with code EPIPE                        |
