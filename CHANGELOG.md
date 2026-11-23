@@ -12,6 +12,8 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.22.2] - 2026-11-23
+
 ### Fixed
 
 - A failed `gh` call whose output names an issue or pull request number 502, 503 or 504 (for example `Could not resolve to an issue or pull request with the number of 502`) runs once instead of being retried with backoff, while real HTTP 502–504 and gateway failures are still retried (#603)
