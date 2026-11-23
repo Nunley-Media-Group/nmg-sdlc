@@ -12,6 +12,10 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Implement publication proof now accepts a merge of the default branch: `bind` and `reconcile` check only the issue's own changes against the merged-in default-branch commit, reconcile walks first-parent commits and takes the implement subject from the latest non-merge commit, and write-code concludes a `queue_integration_conflict` merge with `git commit --no-edit` instead of adding an issue-subject commit (#573)
+
 ## [4.21.0] - 2026-11-23
 
 ### Changed
