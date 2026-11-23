@@ -1,0 +1,37 @@
+**Issue**: #590
+**Date**: 2026-11-23
+**Status**: Approved
+**Author**: Claude Code
+**Related Spec**: specs/572-add-an-sdlc-upgrade-project-item-that-migrates-non-kept-test-layers-into-bdd-scenarios-under-a-coverage-guarantee/
+
+# File: scripts/__tests__/jest-per-test-coverage.test.mjs
+# Generated from: specs/590-make-per-test-coverage-outcome-ids-independent-of-the-test-file-so-the-test-layer-gate-can-accept-cross-file-conversions/requirements.md
+Feature: Make per-test coverage outcome ids independent of the test file so the test-layer gate can accept cross-file conversions
+
+  @SCN001
+  Scenario: Outcome ids do not depend on the test file
+    Given Jest results for two test files that each contain an it titled the same under different describe blocks
+    When collect derives each file's report entry
+    Then both entries report the identical outcome "<it title>:<status>"
+    And no reported outcome contains a test file path or a describe title
+    And a suite that fails to run reports the outcome "(suite):failed"
+
+  @SCN002
+  Scenario: A cross-file doc to bdd conversion passes the gate
+    Given a doc test file whose it blocks were moved into an @SCN-tagged bdd test in another file covering the same lines and branches
+    When the original file is deleted and gateBatch evaluates its batch with bdd kept
+    Then the batch is accepted
+    And its deleted evidence lists the removed test with the bdd test id in coveredBy and the removed test's lines
+
+  @SCN003
+  Scenario: Dropping an asserted outcome is still refused
+    Given the same conversion with one moved it block missing from the bdd test
+    When gateBatch evaluates the batch
+    Then it is refused with test_layers_coverage_gap
+    And gap.outcomes lists exactly the missing outcome
+
+  @SCN004
+  Scenario: Candidates label a cross-file covered test as duplicate
+    Given coverage for a doc test and for a bdd test in another file whose lines, branches and outcomes include the doc test's
+    When computeCandidates runs with bdd kept
+    Then the doc test is labelled duplicate with the bdd test id in coveredBy
