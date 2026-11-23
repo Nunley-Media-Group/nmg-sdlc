@@ -12,6 +12,12 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.22.1] - 2026-11-23
+
+### Fixed
+
+- The delivery pull-request body no longer copies a verification-report line that the contribution gate reads as a Markdown heading, at any indentation including four or more spaces and a tab, so the body's `## Verification` section keeps its `Changed paths:` evidence and every changed path is matched (#602)
+
 ## [4.22.0] - 2026-11-23
 
 ### Fixed
