@@ -1,0 +1,32 @@
+**Issue**: #597
+**Date**: 2026-11-22
+**Status**: Approved
+**Author**: Claude Code
+**Related Spec**: specs/360-close-contribution-gate-evidence-gaps-in-automated-delivery/
+
+# File: scripts/__tests__/delivery-pull-request-body.test.mjs
+# Generated from: specs/597-delivery-pr-body-copies-verification-report-headings-into-the-verification-section-and-drops-the-changed-path-evidence/requirements.md
+Feature: Delivery PR body keeps report headings out of the Verification section
+
+  @SCN001 @regression
+  Scenario: A report heading is not copied into the body
+    Given a verification report with the heading "### Review Findings (all `info`, carried from the passed review)"
+    When the delivery pull-request body is built
+    Then the body contains no line from the report that starts a Markdown heading
+
+  @SCN002 @regression
+  Scenario: The changed-path list stays verification evidence
+    Given that report and changed paths "VERSION", "package.json" and ".claude-plugin/plugin.json"
+    When the built body is evaluated by the contribution evidence check
+    Then every changed path is matched and the evaluation passes
+
+  @SCN003 @regression
+  Scenario Outline: Command results are still copied
+    Given a verification report with the line <line>
+    When the delivery pull-request body is built
+    Then that line appears in the Verification section before "Changed paths:"
+
+    Examples:
+      | line                                   |
+      | "- `npm test` — passed"                |
+      | "\| `git diff --check` \| Pass \|"     |
