@@ -12,6 +12,10 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Delivery pull-request bodies no longer copy a verification-report Markdown heading into the `## Verification` section, so the `Changed paths:` list stays verification evidence and the contribution evidence check passes (#597)
+
 ## [4.21.1] - 2026-11-23
 
 ### Fixed
