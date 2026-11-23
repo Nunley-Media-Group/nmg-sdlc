@@ -1,0 +1,65 @@
+**Issue**: #615
+**Date**: 2026-11-23
+**Status**: Approved
+**Author**: Claude Code
+**Related Spec**: specs/572-add-an-sdlc-upgrade-project-item-that-migrates-non-kept-test-layers-into-bdd-scenarios-under-a-coverage-guarantee/
+
+# File: scripts/__tests__/coverage-report-v2.test.mjs
+# Generated from: specs/615-read-per-test-coverage-reports-from-a-file-in-a-streamable-range-compressed-format-so-large-suites-do-not-overflow-the-256-mib-stdout-buffer/requirements.md
+Feature: Read per-test coverage reports from a file in a streamable, range-compressed format
+
+  @SCN001 @regression
+  Scenario: A v2 report larger than 256 MiB is read from the provided path
+    Given a coverage command that writes a v2 report larger than 256 MiB to the path in NMG_SDLC_COVERAGE_OUTPUT
+    When test-layers-candidates runs
+    Then it records the baseline
+    And it lists the migration batches
+
+  @SCN002 @regression
+  Scenario Outline: A v1 report on stdout keeps working unchanged
+    Given a coverage command that prints a v1 report on stdout and writes no file
+    When <consumer> runs
+    Then its result equals the result for the same v1 report before this change
+
+    Examples:
+      | consumer                              |
+      | test-layers-candidates                |
+      | test-layers-batch begin               |
+      | test-layers-batch gate                |
+      | test-layers-report                    |
+      | the verification gate coverage check  |
+
+  @SCN003 @regression
+  Scenario Outline: A malformed v2 line refuses with its line number
+    Given a v2 report whose line <line> is <defect>
+    When <consumer> reads it
+    Then the run refuses with <reason>
+    And the message names line <line>
+
+    Examples:
+      | line | defect                 | consumer                             | reason                     |
+      | 3    | invalid JSON           | test-layers-candidates               | test_layers_coverage_failed |
+      | 1    | missing the v2 header  | test-layers-candidates               | test_layers_coverage_failed |
+      | 2    | a reversed range [5,2] | the verification gate coverage check | coverage_failed            |
+      | 4    | a duplicate test id    | the verification gate coverage check | coverage_failed            |
+
+  @SCN004 @regression
+  Scenario: v1 and v2 forms of the same coverage classify identically
+    Given the same coverage written once as a v1 report and once as a v2 report
+    When candidates and the batch gate run against each
+    Then the duplicate and convert classification is identical
+    And the accepted evidence and the coverage gap are identical
+
+  @SCN005 @regression
+  Scenario: Begin state round-trips without a suite-sized string
+    Given a batch begun against a v2 report of at least 2000 tests
+    When test-layers-batch gate accepts one batch and refuses another
+    Then the begin state is stored one test per line
+    And no single string built while storing or reading it exceeds 64 KiB
+    And the gate decisions equal those of the equivalent v1 run
+
+  @SCN006
+  Scenario: The references describe the v2 contract
+    Given the verification-scope, steering-schema and test-layer-migration references
+    When they are read
+    Then each names NMG_SDLC_COVERAGE_OUTPUT, the version 2 header, one test per line, line ranges, branch triples and the v1 stdout fallback
