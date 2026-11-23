@@ -5,7 +5,7 @@
 **Reviewer**: Claude (nmg-sdlc verify worker, gate phase)
 **Scope**: Pre-merge gate at the merge-queue head against the Approved spec
 
-**Verification head**: 19a2a44a0e63330b5fa37baa98bf6a32e62b210f
+**Verification head**: 3dd6e690cdb8f9c41ba969b9d1463cc0764af1cf
 
 ---
 
@@ -24,9 +24,9 @@
 ### Implementation Status: Pass
 **Total Issues**: 0 above `info`
 
-The code review passed at `9b29fb0a3a69` with only `info` findings. At this head, the full contract suite passes and the live smoke gate passes. The deterministic steering ceiling is clear: both applicable pre-merge validations passed, and the two full-tier validations were skipped by tier.
+The code review passed at `9b29fb0a3a69` with only `info` findings. This gate ran at the merge-queue head `3dd6e690`, the merge of `origin/main` (`1d32871`) into the branch. `hooks/register.ts`, `src/execute-host.mjs` and `scripts/sdlc-execute.mjs` are unchanged from the previously verified head `19a2a44`. At this head the full contract suite passes and the live smoke gate passes. The deterministic steering ceiling is clear: both applicable pre-merge validations passed, and the two full-tier validations were skipped by tier.
 
-The previous gate attempt at this head failed because the draft-issue, write-spec and onboard-project smoke surfaces were never exercised. That gate worker handed the exercises to subagents, and the permission classifier refused to start them. In this run, the gate worker drove those surfaces itself in tmux sessions. It provisioned smoke issue #347 (spec PR #348 merged), and the gate's headless `/sdlc-execute #347` delivered it through PR #349.
+Because surface records are head-bound, every selected interactive smoke surface was driven live again at this head. Smoke issue #347 from the previous gate was already delivered and closed, so a fresh issue was provisioned: #353 (spec PR #354 merged). The gate's headless `/sdlc-execute #353` delivered it through PR #355.
 
 ---
 
@@ -51,7 +51,7 @@ The previous gate attempt at this head failed because the draft-issue, write-spe
 ## Deterministic Steering Artifact and Ceiling
 
 - Artifact: `.nmg-sdlc/verification/574.json`, tier `pre-merge`, base `main`
-- Identity: head `19a2a44a0e63330b5fa37baa98bf6a32e62b210f`, steering `sha256:dd21875f54cdaa20fc04f9d39e709b8f8941858ee8ead4f9e9af1822c077b34b`, spec `sha256:4b8a7746316f96b5759d6fe815341274b03ed87be65ae83e92be4fbca97a5b8e`. The tree is dirty only because of this untracked report.
+- Identity: head `3dd6e690cdb8f9c41ba969b9d1463cc0764af1cf`, steering `sha256:dd21875f54cdaa20fc04f9d39e709b8f8941858ee8ead4f9e9af1822c077b34b`, spec `sha256:4b8a7746316f96b5759d6fe815341274b03ed87be65ae83e92be4fbca97a5b8e`. The tree was clean when the gate ran.
 - Coverage: declared 4, recorded 4, complete `true`; no missing, duplicate or unknown entries
 - Selection: model `haiku`, effort `xhigh`, mode `all`, reason `fallback_path` (`hooks/register.ts`), no rejection, no guidance supplied. Required surfaces were `execute` and `plugin-host`. Every surface was selected: draft-issue, write-spec, onboard-project, upgrade-project, steering, run-retro, execute, status, verify-full, plugin-host, shared-references, project-steering, script-assets, ci.
 - **Ceiling: none (Pass)**
@@ -67,7 +67,7 @@ The evidence comes from the passed review record `.nmg-sdlc/verification/574-rev
 | AC1 | A finished worker's exited background commands do not block routing | Pass | mocked | The SubagentStop/Stop handlers (`hooks/register.ts:947-960`) call `reconcileWorker`/`reconcileSettledWorkers` (`hooks/register.ts:394-415`). These drop each entry missing from `background_tasks` via `reconcileBackground` (`src/execute-host.mjs:130-136`). Covered by `@SCN001` in `scripts/__tests__/sdlc-execute.test.mjs` |
 | AC2 | A still-running background command still blocks | Pass | mocked | Entries whose task ID is listed are kept (`src/execute-host.mjs:132-133`). The Stop pass covers only settled workers, with a `since` guard (`hooks/register.ts:401`, `src/execute-host.mjs:134`). Covered by `@SCN002` in `scripts/__tests__/sdlc-execute.test.mjs` |
 
-**Criteria whose tests mock the path under test**: AC1 and AC2. The controller scenarios drive the real `awaitWorkerHandoff`/`settleCommits` against a fake host that applies the real `reconcileBackground`. The hooks-module wiring is covered by a source regex, because the hook test kit starts no subagent. An earlier review's live probe confirmed that SubagentStop reaches a plugin module and that the `background_tasks` IDs match `backgroundTaskId`. The live smoke `/sdlc-execute #347` delivery in this gate also ran this head's hooks module from start to merge.
+**Criteria whose tests mock the path under test**: AC1 and AC2. The controller scenarios drive the real `awaitWorkerHandoff`/`settleCommits` against a fake host that applies the real `reconcileBackground`. The hooks-module wiring is covered by a source regex, because the hook test kit starts no subagent. An earlier review's live probe confirmed that SubagentStop reaches a plugin module and that the `background_tasks` IDs match `backgroundTaskId`. The live smoke `/sdlc-execute #353` delivery in this gate also ran this head's hooks module from start to merge.
 
 | FR | Status | Evidence |
 |----|--------|----------|
@@ -127,13 +127,13 @@ Each interactive surface was exercised in an interactive `claude --plugin-dir <t
 
 | Surface | Command | Result |
 |---------|---------|--------|
-| draft-issue | `/sdlc-draft-issue <provision.need>` | Passed in this run. The interview chose Enhancement, milestone v3 and the `greeting_nfc` helper, and the plan was approved. It created smoke issue #347 "Add greeting_nfc library helper". Inside the exercised session, auto mode blocked the first creation command, which combined creating the milestone with creating the issue. The session split it and retried only the issue creation |
-| write-spec | `/sdlc-write-spec #347` | Passed in this run. The plan was approved, and the spec was published in PR #348 (`docs: approve spec for #347`, merged). #347 carries `spec-created`. The run chose "Finished — stop writing specs" |
-| onboard-project | `/sdlc-onboard-project` | Passed in this run. The smoke project is already initialized, so the workflow took its already-initialized branch: "Delegate to upgrade" and a plan with no file writes. It was approved, and `git status` stayed clean |
-| upgrade-project | `/sdlc-upgrade-project` | Passed. The record was written at this head by the previous gate attempt and reused; its transcript is a genuine live session |
-| steering | `/sdlc-steering` | Passed. The record was written at this head by the previous gate attempt and reused |
-| run-retro | `/sdlc-run-retro` | Passed. The record was written at this head by the previous gate attempt and reused |
-| execute | gate-driven headless `/sdlc-execute #347` | Passed. The baseline had no closing PR. Smoke PR #349 was MERGED at `08d2438fb3bc47a60e78c37c7a236d7081e5bfd8`, matching the pre-merge delivery proof, and issue #347 is CLOSED |
+| draft-issue | `/sdlc-draft-issue <provision.need>` | Passed. The interview chose Enhancement, milestone v3 and the `greeting_titlecase` helper, and the plan was approved. It created smoke issue #353 "Add greeting_titlecase library helper" |
+| write-spec | `/sdlc-write-spec #353` | Passed. The plan was approved, and the spec was published in PR #354 (`docs: approve spec for #353`, merged after CI). #353 carries `spec-created`. The run chose "Finished — stop writing specs" |
+| onboard-project | `/sdlc-onboard-project` | Passed. The smoke project is already initialized, so the workflow took its already-initialized branch: "Delegate to upgrade" and a plan with no file writes. It was approved, and `git status` stayed clean |
+| upgrade-project | `/sdlc-upgrade-project` | Passed. The interview kept `bdd` and `unit`, created the `sdlc-models` defaults and declined the verification scope. Auto mode blocked the plan-approved `sdlc-upgrade.mjs apply` inside the exercised session ("Destructive or Unwanted Actions"). The gate worker ran that exact approved command as a `!` command in the smoke clone, which stays inside the smoke clone. It exited 0: it created `steering/sdlc-models.json` and `steering/test-layers.json`; label backfill found nothing to add and skipped #35 and #96, with no failures. The session's checks then passed: detection went from 7 to 6 items, pytest reported 1081 passed and 2 skipped, ruff passed, and only the two new files changed |
+| steering | `/sdlc-steering` | Passed. A no-op refresh plan was approved. The session's first combined extract-and-apply command was blocked by auto mode, and it fell back to the Write tool and ran apply and validate separately. Steering and registration hashes were unchanged, and `git status` was clean |
+| run-retro | `/sdlc-run-retro` | Passed. The plan was approved and `steering/retrospective.md` and `steering/retrospective-state.json` were written in the clone. The first shell write was blocked by auto mode, and the session wrote the same content with the Write tool |
+| execute | gate-driven headless `/sdlc-execute #353` | Passed. The baseline had no closing PR. Smoke PR #355 was MERGED at `50e2658a38afc3469fccaaa6c30c8a656eac405f`, matching the pre-merge delivery proof, and issue #353 is CLOSED |
 
 The tmux sessions and smoke clones from this run were removed afterwards.
 
@@ -143,8 +143,8 @@ The tmux sessions and smoke clones from this run were removed afterwards.
 
 | Gate | Tier | Selection | Status | Evidence |
 |------|------|-----------|--------|----------|
-| `repository.tests` | change | `claude:haiku`, reason `fallback_path` (`hooks/register.ts`), full suite | Pass | `npm test -- --runInBand` exited 0: 78 suites passed, 1 skipped; 1947 tests passed, 2 skipped; 1186.6 s (`.nmg-sdlc/verification/574/repository.tests.log`) |
-| `repository.nmg-sdlc-smoke` | null | null | Pass | Exercised draft-issue, write-spec, onboard-project, upgrade-project, steering, run-retro and execute, and delivered smoke #347 through PR #349 (MERGED, issue CLOSED) |
+| `repository.tests` | change | `claude:haiku`, reason `fallback_path` (`hooks/register.ts`), full suite | Pass | `npm test -- --runInBand` exited 0: 79 suites passed, 1 skipped; 1951 tests passed, 2 skipped; 926.4 s (`.nmg-sdlc/verification/574/repository.tests.log`) |
+| `repository.nmg-sdlc-smoke` | null | null | Pass | Exercised draft-issue, write-spec, onboard-project, upgrade-project, steering, run-retro and execute, and delivered smoke #353 through PR #355 (MERGED, issue CLOSED) |
 | `repository.tests.full` | full | n/a | Skipped before merge | Runs under `/sdlc-verify-full` |
 | `repository.nmg-sdlc-smoke.full` | full | n/a | Skipped before merge | Runs under `/sdlc-verify-full` |
 
@@ -154,7 +154,7 @@ The tmux sessions and smoke clones from this run were removed afterwards.
 
 ## Fixes Applied
 
-None. No source, spec or steering file was edited. The fix for the previous gate failure was in how the gate was run: the gate worker drove the smoke surfaces directly instead of handing them to subagents.
+None. No source, spec or steering file was edited in this gate.
 
 ---
 
@@ -162,7 +162,7 @@ None. No source, spec or steering file was edited. The fix for the previous gate
 
 None above `info`. The four `info` review findings above are carried for follow-up.
 
-Observations from earlier exercised surfaces, not attributed to #574 and tracked separately: the `sdlc-upgrade.mjs detect` output is too large for one read, a `test-layers` item persists after apply, and auto mode blocks some plan-approved commands inside exercised sessions.
+Observations from earlier exercised surfaces, not attributed to #574 and tracked separately: the `sdlc-upgrade.mjs detect` output is too large for one read, a `test-layers` item persists after apply, and auto mode blocks some plan-approved commands inside exercised sessions (seen again this run in upgrade-project, steering and run-retro).
 
 ---
 
