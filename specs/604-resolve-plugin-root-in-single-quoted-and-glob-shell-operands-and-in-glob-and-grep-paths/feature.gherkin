@@ -1,0 +1,52 @@
+**Issue**: #604
+**Date**: 2026-11-23
+**Status**: Approved
+**Author**: Claude Code
+
+# File: scripts/__tests__/plugin-root-materialization.test.mjs
+# Generated from: specs/604-resolve-plugin-root-in-single-quoted-and-glob-shell-operands-and-in-glob-and-grep-paths/requirements.md
+Feature: Resolve <plugin-root> in single-quoted and glob shell operands and in Glob and Grep paths
+
+  @SCN001 @regression
+  Scenario Outline: Single-quoted operands resolve
+    Given the plugin root "/Volumes/Fast Brick/plugins/nmg-sdlc"
+    And the Bash command "<command>"
+    When the hooks module rewrites the command
+    Then the command is "<rewritten>"
+
+    Examples:
+      | command                                         | rewritten                                                    |
+      | ls '<plugin-root>/workflows'                    | ls '/Volumes/Fast Brick/plugins/nmg-sdlc/workflows'          |
+      | cat '${NMG_SDLC_PLUGIN_ROOT}/references/a.md'   | cat '/Volumes/Fast Brick/plugins/nmg-sdlc/references/a.md'   |
+
+  @SCN002 @regression
+  Scenario Outline: Glob operands still expand
+    Given the plugin root "/Volumes/Fast Brick/plugins/nmg-sdlc"
+    And the Bash command "ls <plugin-root>/workflows/<glob>"
+    When the hooks module rewrites the command
+    Then the command is "ls \"/Volumes/Fast Brick/plugins/nmg-sdlc\"/workflows/<glob>"
+    And the glob characters are outside every quoted segment
+
+    Examples:
+      | glob                              |
+      | draft-issue/references/*.md       |
+      | ?.md                              |
+      | [ab]*.md                          |
+
+  @SCN003 @regression
+  Scenario Outline: Glob and Grep paths resolve
+    Given the plugin root "/Volumes/Fast Brick/plugins/nmg-sdlc"
+    And a <tool> tool call whose path is "<plugin-root>/workflows"
+    When the hooks module handles the call
+    Then the tool receives the path "/Volumes/Fast Brick/plugins/nmg-sdlc/workflows"
+
+    Examples:
+      | tool |
+      | Glob |
+      | Grep |
+
+  @SCN004 @regression
+  Scenario: Existing rewrites are preserved
+    Given the plugin root "/Volumes/Fast Brick/plugins/nmg-sdlc"
+    When the double-quoted, bare controller, environment-variable and non-script Bash commands and a Read path with a placeholder are rewritten
+    Then each result equals its result before this change
