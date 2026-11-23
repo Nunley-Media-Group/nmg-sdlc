@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   assertInitialStagePublication,
   publicationPathDenied,
@@ -107,5 +108,166 @@ describe('live publication evidence', () => {
     }
     expect(publicationPathDenied('src/nmg-sdlc/runtime.mjs', { spec: 'specs/42-feature' })).toBe(false);
     expect(publicationPathDenied('.nmg-sdlc-notes.md', { spec: 'specs/42-feature' })).toBe(false);
+  });
+});
+
+const script = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'sdlc-safe-recoveries.mjs');
+const spec = 'specs/42-parser';
+const fixSubject = 'fix: repair the parser (#42)';
+
+// A bare origin whose HEAD names main, and an issue branch with a pushed fix commit.
+function mergeFixture() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-integration-'));
+  roots.push(root);
+  const remote = path.join(root, 'remote.git');
+  const work = path.join(root, 'work');
+  fs.mkdirSync(work);
+  const git = (...args) => {
+    const result = spawnSync('git', args, { cwd: work, encoding: 'utf8' });
+    if (result.status !== 0) throw new Error(`git ${args.join(' ')}: ${result.stderr}`);
+    return result.stdout.trim();
+  };
+  const put = (file, content) => {
+    const target = path.join(work, file);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, content);
+  };
+  spawnSync('git', ['init', '--bare', '--initial-branch=main', remote], { encoding: 'utf8' });
+  git('init', '-b', 'main');
+  git('config', 'user.name', 'Fixture');
+  git('config', 'user.email', 'fixture@example.test');
+  put('.gitignore', '.nmg-sdlc/\n');
+  for (const file of ['requirements.md', 'design.md', 'feature.gherkin']) {
+    put(`${spec}/${file}`, '**Issue**: #42\n**Status**: Approved\n');
+  }
+  put(`${spec}/tasks.md`, '**Issue**: #42\n**Status**: Approved\n\n### T001: Fix the parser\n\n'
+    + '**File(s)**: `src/app.js`\n**Type**: Modify\n**Depends**: none\n**Acceptance**:\n- parses\n');
+  put('src/app.js', 'export const value = 0;\n');
+  git('add', '.');
+  git('commit', '-m', 'chore: initialize');
+  git('remote', 'add', 'origin', remote);
+  git('push', '-u', 'origin', 'main');
+  git('remote', 'set-head', 'origin', '-a');
+  git('checkout', '-b', '42-parser');
+  put('src/app.js', 'export const value = 1;\n');
+  git('commit', '-am', fixSubject);
+  git('push', '-u', 'origin', '42-parser');
+  const advanceMain = (files) => {
+    git('checkout', 'main');
+    for (const [file, content] of Object.entries(files)) put(file, content);
+    git('add', '.');
+    git('commit', '-m', 'feat: another change (#77)');
+    git('push', 'origin', 'main');
+    git('checkout', '42-parser');
+    git('fetch', 'origin');
+  };
+  const cli = (action, subject = fixSubject) => spawnSync(process.execPath, [
+    script, action, '--issue', '42', '--step', 'implement', '--spec', spec, '--subject', subject,
+  ], { cwd: work, encoding: 'utf8' });
+  const reconcile = (allowedPaths) => reconcileStagePublication({
+    cwd: work, issue: 42, step: 'implement', spec, expectedSubject: fixSubject, allowedPaths,
+  });
+  return { work, git, put, advanceMain, cli, reconcile };
+}
+
+describe('integration merges of the default branch', () => {
+  test.each([
+    ['brings in another issue\'s spec directory', { 'specs/77-other/design.md': 'other\n' }],
+    ['brings in no spec files', { 'docs/other.md': 'other\n' }],
+  ])('@SCN001 reconcile passes for a pushed merge-of-main tip that %s', (_, files) => {
+    const f = mergeFixture();
+    f.advanceMain(files);
+    f.git('merge', '--no-edit', 'origin/main');
+    f.git('push');
+    const result = f.cli('reconcile');
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('"passed":true');
+    expect(result.stdout).toContain('"ack":true');
+  });
+
+  test('@SCN001 reconcile pushes an unpushed merge-of-main tip without an issue-subject commit', () => {
+    const f = mergeFixture();
+    f.advanceMain({ 'specs/77-other/design.md': 'other\n' });
+    f.git('merge', '--no-edit', 'origin/main');
+    expect(f.reconcile(['src/app.js'])).toMatchObject({ passed: true, pushed: true });
+    expect(f.git('rev-parse', 'origin/42-parser')).toBe(f.git('rev-parse', 'HEAD'));
+  });
+
+  test('@SCN002 bind checks only the diff from the merged-in main commit during the merge', () => {
+    const f = mergeFixture();
+    f.advanceMain({ 'specs/77-other/design.md': 'other\n', 'specs/77-other/tasks.md': 'other\n' });
+    f.git('merge', '--no-commit', '--no-ff', 'origin/main');
+    expect(f.git('diff', '--cached', '--name-only')).toContain('specs/77-other/design.md');
+    f.put('src/app.js', 'export const value = 2;\n');
+    f.git('add', 'src/app.js');
+    const bind = f.cli('bind');
+    expect(bind.stderr).toBe('');
+    expect(bind.status).toBe(0);
+    f.git('commit', '--no-edit');
+    f.git('push');
+    expect(f.git('log', '-1', '--first-parent', '--no-merges', '--format=%s', 'HEAD')).toBe(fixSubject);
+    expect(f.cli('reconcile').status).toBe(0);
+  });
+
+  test('@SCN003 bind refuses a merge whose result edits another issue\'s spec not on main', () => {
+    const f = mergeFixture();
+    f.advanceMain({ 'specs/77-other/design.md': 'other\n' });
+    f.git('merge', '--no-commit', '--no-ff', 'origin/main');
+    f.put('specs/88-another/design.md', 'edited\n');
+    const bind = f.cli('bind');
+    expect(bind.status).toBe(1);
+    expect(bind.stderr).toContain('publication_scope_unproven');
+    expect(bind.stderr).toContain('specs/88-another/design.md');
+  });
+
+  test('@SCN003 reconcile refuses a merge whose result edits this issue\'s Approved requirements', () => {
+    const f = mergeFixture();
+    f.advanceMain({ 'docs/other.md': 'other\n' });
+    f.git('merge', '--no-commit', '--no-ff', 'origin/main');
+    f.put(`${spec}/requirements.md`, '**Issue**: #42\n**Status**: Approved\nedited\n');
+    f.git('add', `${spec}/requirements.md`);
+    f.git('commit', '--no-edit');
+    expect(f.reconcile(['src/app.js'])).toMatchObject({
+      passed: false, summary: 'Publication commit exceeds approved scope',
+    });
+    const result = f.cli('reconcile');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('publication_scope_unproven');
+    expect(f.git('rev-parse', 'origin/42-parser')).not.toBe(f.git('rev-parse', 'HEAD'));
+  });
+
+  test('a merge of a non-default branch is refused by reconcile and bind', () => {
+    const f = mergeFixture();
+    f.git('checkout', '-b', 'side', 'main');
+    f.put('side.txt', 'side\n');
+    f.git('add', 'side.txt');
+    f.git('commit', '-m', 'chore: side work');
+    f.git('checkout', '42-parser');
+    f.git('merge', '--no-commit', '--no-ff', 'side');
+    expect(f.cli('bind').stderr).toContain('publication_scope_unproven');
+    f.git('commit', '--no-edit');
+    expect(f.reconcile(['side.txt', 'src/app.js'])).toMatchObject({
+      passed: false, summary: 'Publication merge is not an integration of the default branch',
+    });
+  });
+
+  test('a branch without merges keeps its bind and reconcile outcomes', () => {
+    const f = mergeFixture();
+    expect(f.cli('reconcile').status).toBe(0);
+    expect(f.cli('reconcile', 'fix: another subject (#42)').status).toBe(1);
+    f.put('src/app.js', 'export const value = 3;\n');
+    expect(f.cli('bind').status).toBe(0);
+    f.git('add', 'src/app.js');
+    const staged = f.cli('bind');
+    expect(staged.status).toBe(1);
+    expect(staged.stderr).toContain('publication_subject_unproven');
+  });
+
+  test('write-code reads the implement subject from the latest first-parent non-merge commit', () => {
+    const workflow = fs.readFileSync(
+      path.join(path.dirname(script), '..', 'workflows', 'write-code', 'WORKFLOW.md'), 'utf8');
+    expect(workflow).toContain('Read the exact existing stage subject with `git log -1 --first-parent --no-merges --format=%s HEAD`');
+    expect(workflow).toContain('conclude the merge with `git commit --no-edit`');
   });
 });

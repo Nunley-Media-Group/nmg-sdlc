@@ -10,7 +10,7 @@ import { isCliEntry } from './plugin-controller-path.mjs';
 import { enterControllerLease, releaseControllerLease } from './sdlc-controller-lease.mjs';
 import { inspectIssueSpecScope } from './issue-spec-scope.mjs';
 import { parseIssueBranch } from './sdlc-status.mjs';
-import { readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 
 
@@ -116,6 +116,152 @@ export function assertInitialStagePublication({ cwd = process.cwd(), ownerId, is
   }
 }
 
+const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+function gitOrUnproven(run, cwd, args) {
+  const result = run('git', args, { cwd });
+  if (!commandSucceeded(result)) throw safeError('publication_scope_unproven');
+  return String(result.stdout ?? '');
+}
+
+function commitParents(run, cwd, sha) {
+  const [self, ...parents] = gitOrUnproven(run, cwd, ['rev-list', '--parents', '-n', '1', sha]).trim().split(/\s+/);
+  if (self !== sha || !parents.every((parent) => SHA.test(parent))) throw safeError('publication_scope_unproven');
+  return parents;
+}
+
+function isAncestor(run, cwd, sha, ref) {
+  const result = run('git', ['merge-base', '--is-ancestor', sha, ref], { cwd });
+  if (result && !result.error && result.status === 0) return true;
+  if (result && !result.error && result.status === 1) return false;
+  throw safeError('publication_scope_unproven');
+}
+
+// The fetched default branch ref; called only after a merge has been observed.
+export function integrationBaseRef(run, cwd, remote) {
+  if (typeof remote !== 'string' || !/^[A-Za-z0-9._-]+$/.test(remote) || remote.startsWith('-')) {
+    throw safeError('publication_scope_unproven');
+  }
+  let name = '';
+  const symbolic = run('git', ['symbolic-ref', '--short', `refs/remotes/${remote}/HEAD`], { cwd });
+  if (commandSucceeded(symbolic) && String(symbolic.stdout).trim().startsWith(`${remote}/`)) {
+    name = String(symbolic.stdout).trim().slice(remote.length + 1);
+  } else {
+    const viewed = run('gh', ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'], { cwd });
+    if (commandSucceeded(viewed)) name = String(viewed.stdout).trim();
+  }
+  if (!/^[A-Za-z0-9._/-]+$/.test(name) || name.startsWith('-')
+    || !commandSucceeded(run('git', ['check-ref-format', '--branch', name], { cwd }))) {
+    throw safeError('publication_scope_unproven');
+  }
+  const baseRef = `refs/remotes/${remote}/${name}`;
+  gitOrUnproven(run, cwd, ['fetch', '--no-tags', remote, `refs/heads/${name}:${baseRef}`]);
+  return baseRef;
+}
+
+// The merged-in default-branch commit of an integration merge, or null.
+export function integrationParent(run, cwd, sha, baseRef) {
+  const parents = commitParents(run, cwd, sha);
+  if (parents.length !== 2) return null;
+  return isAncestor(run, cwd, parents[1], baseRef) && !isAncestor(run, cwd, parents[0], baseRef)
+    ? parents[1]
+    : null;
+}
+
+function mergeHeads(run, cwd) {
+  const location = gitOrUnproven(run, cwd, ['rev-parse', '--git-path', 'MERGE_HEAD']).trim();
+  const file = isAbsolute(location) ? location : join(cwd, location);
+  if (!existsSync(file)) return [];
+  return readFileSync(file, 'utf8').split('\n').map((line) => line.trim()).filter(Boolean);
+}
+
+export function mergeInProgress(run, cwd) {
+  return mergeHeads(run, cwd).length > 0;
+}
+
+// The single MERGE_HEAD of an in-progress integration merge, or null.
+export function inProgressIntegration(run, cwd, baseRef) {
+  const heads = mergeHeads(run, cwd);
+  if (heads.length !== 1 || !SHA.test(heads[0])) return null;
+  const head = gitOrUnproven(run, cwd, ['rev-parse', 'HEAD']).trim();
+  return isAncestor(run, cwd, heads[0], baseRef) && !isAncestor(run, cwd, head, baseRef) ? heads[0] : null;
+}
+
+function nulPaths(output) {
+  return output ? output.split('\0').filter(Boolean) : [];
+}
+
+// The issue's own changes: the diff from the merged-in default-branch commit.
+export function integrationChangeSet(run, cwd, base, { worktree = false } = {}) {
+  if (!SHA.test(base)) throw safeError('publication_scope_unproven');
+  const paths = new Set();
+  if (worktree) {
+    if (gitOrUnproven(run, cwd, ['ls-files', '-u', '-z'])) throw safeError('publication_scope_unproven');
+    for (const file of nulPaths(gitOrUnproven(run, cwd, ['diff', '--name-only', '--no-renames', '-z', base]))) paths.add(file);
+    for (const file of nulPaths(gitOrUnproven(run, cwd, ['ls-files', '--others', '--exclude-standard', '-z']))) paths.add(file);
+  } else {
+    for (const file of nulPaths(gitOrUnproven(run, cwd, ['diff', '--name-only', '--no-renames', '-z', base, 'HEAD']))) paths.add(file);
+  }
+  return [...paths].filter(nonRuntimePath).sort();
+}
+
+// Newest first-parent integration merge among the commits a publication would claim.
+function newestIntegrationMerge(run, cwd, commits, getBaseRef) {
+  for (const sha of commits) {
+    if (commitParents(run, cwd, sha).length !== 2) continue;
+    const base = integrationParent(run, cwd, sha, getBaseRef());
+    if (base) return { sha, base };
+  }
+  return null;
+}
+
+function claimedCommits(run, cwd) {
+  const upstream = run('git', ['rev-parse', '--verify', '@{u}'], { cwd });
+  const ahead = commandSucceeded(upstream)
+    ? gitOrUnproven(run, cwd, ['rev-list', '--first-parent', '@{u}..HEAD']).trim().split('\n').filter(Boolean)
+    : [];
+  return ahead.length ? ahead : [gitOrUnproven(run, cwd, ['rev-parse', 'HEAD']).trim()];
+}
+
+function branchRemote(run, cwd) {
+  const branch = gitOrUnproven(run, cwd, ['branch', '--show-current']).trim();
+  const configured = run('git', ['config', '--get', `branch.${branch}.remote`], { cwd });
+  const remote = commandSucceeded(configured) ? String(configured.stdout).trim() : '';
+  return remote && remote !== '.' ? remote : 'origin';
+}
+
+// Changed paths a bind or reconcile checks: the integration change set during an
+// in-progress merge of the default branch, otherwise the dirty non-runtime paths.
+export function observeDirtyPublicationPaths({ cwd = process.cwd(), step, run = defaultRun } = {}) {
+  const status = run('git', ['status', '--porcelain=v1', '-z'], { cwd });
+  if (!commandSucceeded(status)) throw safeError('publication_scope_unproven');
+  if (step !== 'implement' || !mergeInProgress(run, cwd)) {
+    return { paths: porcelainPaths(status.stdout), status: status.stdout, integration: false };
+  }
+  const base = inProgressIntegration(run, cwd, integrationBaseRef(run, cwd, branchRemote(run, cwd)));
+  if (!base) throw safeError('publication_scope_unproven');
+  return { paths: integrationChangeSet(run, cwd, base, { worktree: true }), status: status.stdout, integration: true };
+}
+
+// Committed paths a clean reconcile claims: the integration change set when a
+// claimed first-parent commit is an integration merge, otherwise HEAD's own diff.
+export function observeCommittedPublicationPaths({ cwd = process.cwd(), step, run = defaultRun } = {}) {
+  if (step === 'implement') {
+    const commits = claimedCommits(run, cwd);
+    if (commits.some((sha) => commitParents(run, cwd, sha).length > 1)) {
+      let baseRef;
+      const merge = newestIntegrationMerge(run, cwd, commits, () => {
+        baseRef ??= integrationBaseRef(run, cwd, branchRemote(run, cwd));
+        return baseRef;
+      });
+      if (merge) return integrationChangeSet(run, cwd, merge.base);
+    }
+  }
+  const names = gitOrUnproven(run, cwd, ['diff-tree', '--no-commit-id', '--name-only', '--no-renames', '-r', '-z', 'HEAD']);
+  if (!names.endsWith('\0')) throw safeError('publication_scope_unproven');
+  return names.slice(0, -1).split('\0');
+}
+
 export function reconcileStagePublication({
   cwd = process.cwd(), issue, step, spec, expectedSubject, allowedPaths = [], ownerId, run = defaultRun,
 } = {}) {
@@ -170,27 +316,58 @@ export function reconcileStagePublication({
     }
     if ((counts[1] === 0) !== (remoteHead === head)) return fail('Publication divergence contradicts exact upstream identity');
     // Live exact-head remote evidence, not an old allowance, decides whether to push.
-    const commits = counts[1] === 0 ? [head] : git(['rev-list', '@{u}..HEAD']).trim().split('\n');
-    if (commits.length !== (counts[1] || 1) || !commits.includes(head)) return fail('Publication commits are unreadable');
-    const observedCommitPaths = new Set();
+    // Only first-parent commits are claimed: a merged-in default branch's own commits are not.
+    const commits = counts[1] === 0 ? [head] : git(['rev-list', '--first-parent', '@{u}..HEAD']).trim().split('\n');
+    const claimedCount = counts[1] === 0 ? 1 : Number(git(['rev-list', '--first-parent', '--count', '@{u}..HEAD']).trim());
+    if (commits.length !== claimedCount || !commits.includes(head)) return fail('Publication commits are unreadable');
+    const deniedPath = (file) => outcomePolicy && publicationPathDenied(file, { spec, readOnlyPaths });
+    let observedCommitPaths = new Set();
+    let baseRef;
+    let integration = null;
+    let stageCommits = 0;
     for (const sha of commits) {
-      if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(sha) || git(['log', '-1', '--format=%s', sha]).trim() !== expectedSubject) {
+      if (!SHA.test(sha)) return fail('Publication commits are unreadable');
+      const parents = git(['rev-list', '--parents', '-n', '1', sha]).trim().split(/\s+/);
+      if (outcomePolicy && parents.length > 2 && parents[0] === sha) {
+        // An integration merge of the default branch needs no stage subject.
+        baseRef ??= integrationBaseRef(run, root, remote);
+        const base = integrationParent(run, root, sha, baseRef);
+        if (!base) return fail('Publication merge is not an integration of the default branch');
+        integration ??= { sha, base };
+        continue;
+      }
+      if (git(['log', '-1', '--format=%s', sha]).trim() !== expectedSubject) {
         return fail('Publication commit subject is not the expected stage subject');
       }
-      // Reject merge commits: an empty default diff-tree is not scope proof.
-      const parents = git(['rev-list', '--parents', '-n', '1', sha]).trim().split(/\s+/);
+      // Reject other merge commits: an empty default diff-tree is not scope proof.
       if (parents.length !== 2 || parents[0] !== sha
-        || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(parents[1]) || parents[1].length !== sha.length) {
+        || !SHA.test(parents[1]) || parents[1].length !== sha.length) {
         return fail('Publication commit is not a proven single-parent stage commit');
       }
       const names = git(['diff-tree', '--no-commit-id', '--name-only', '--no-renames', '-r', '-z', sha]);
       if (!names.endsWith('\0')) return fail('Publication changed-path observation is incomplete');
       const paths = names.slice(0, -1).split('\0');
-      if (!paths.length || paths.some((file) => !allowedPaths.includes(file)
-        || (outcomePolicy && publicationPathDenied(file, { spec, readOnlyPaths })))) {
+      // Every observed path must also be an allowed one: the set-equality check below proves it.
+      if (!paths.length || paths.some(deniedPath)) {
         return fail('Publication commit exceeds approved scope');
       }
+      stageCommits += 1;
       for (const file of paths) observedCommitPaths.add(file);
+    }
+    if (integration) {
+      // The issue's own changes are the diff from the merged-in default-branch commit.
+      observedCommitPaths = new Set(integrationChangeSet(run, root, integration.base));
+      if (!observedCommitPaths.size || [...observedCommitPaths].some(deniedPath)) {
+        return fail('Publication commit exceeds approved scope');
+      }
+      if (!stageCommits) {
+        const mergeBase = git(['merge-base', 'HEAD', baseRef]).trim();
+        const latest = git(['rev-list', '--first-parent', '--no-merges', '-n', '1', `${mergeBase}..HEAD`]).trim();
+        if (!SHA.test(latest) || git(['log', '-1', '--format=%s', latest]).trim() !== expectedSubject
+          || !validImplementationSubject(expectedSubject, issueNumber)) {
+          return fail('Publication commit subject is not the expected stage subject');
+        }
+      }
     }
     if (JSON.stringify([...observedCommitPaths].sort()) !== JSON.stringify(observedAllowedPaths)) {
       return fail('Publication commit exceeds approved scope');
@@ -808,17 +985,19 @@ function runCli(argv = process.argv.slice(2)) {
     const branch = defaultRun('git', ['branch', '--show-current'], { cwd });
     if (!commandSucceeded(branch) || parseIssueBranch(String(branch.stdout ?? '').trim())?.issueNumber !== Number(options.issue)) throw safeError('publication_branch_mismatch');
     const scope = inspectPublicationScope({ ...options, cwd });
-    const status = defaultRun('git', ['status', '--porcelain=v1', '-z'], { cwd });
-    if (!commandSucceeded(status)) throw safeError('publication_scope_unproven');
-    const observedPaths = porcelainPaths(status.stdout);
-    const deniedPath = observedPaths.find((file) => publicationPathDenied(file, {
+    const denied = (paths) => paths.find((file) => publicationPathDenied(file, {
       spec: options.spec,
       readOnlyPaths: scope.readOnlyPaths,
     }));
+    const dirty = observeDirtyPublicationPaths({ cwd, step: options.step });
+    const observedPaths = dirty.paths;
+    const deniedPath = denied(observedPaths);
     if (deniedPath) throw safeError('publication_scope_unproven', { entry: deniedPath });
-    if (options.step === 'implement' && action === 'bind'
-      && ((!suppliedSubject && porcelainPaths(status.stdout).length)
-        || (suppliedSubject && hasStagedNonRuntimeEntry(status.stdout)))) {
+    // An in-progress integration merge stages the default branch's files; the
+    // staged-entry rule applies only outside it.
+    if (options.step === 'implement' && action === 'bind' && !dirty.integration
+      && ((!suppliedSubject && observedPaths.length)
+        || (suppliedSubject && hasStagedNonRuntimeEntry(dirty.status)))) {
       throw safeError('publication_subject_unproven');
     }
     const controllerRunId = lease.owned ? lease.lease.record.runId : lease.lease.runId;
@@ -834,17 +1013,9 @@ function runCli(argv = process.argv.slice(2)) {
       const expectedSubject = options.step === 'implement' ? options.expectedSubject : getExpectedSubject(options.step, options.issue);
       let allowedPaths = observedPaths;
       if (!allowedPaths.length) {
-        const names = defaultRun('git', [
-          'diff-tree', '--no-commit-id', '--name-only', '--no-renames', '-r', '-z', 'HEAD',
-        ], { cwd });
-        if (!commandSucceeded(names) || !String(names.stdout ?? '').endsWith('\0')) {
-          throw safeError('publication_scope_unproven');
-        }
-        allowedPaths = String(names.stdout).slice(0, -1).split('\0');
-        const deniedHeadPath = allowedPaths.find((file) => publicationPathDenied(file, {
-          spec: options.spec,
-          readOnlyPaths: scope.readOnlyPaths,
-        }));
+        allowedPaths = observeCommittedPublicationPaths({ cwd, step: options.step });
+        if (!allowedPaths.length) throw safeError('publication_scope_unproven');
+        const deniedHeadPath = denied(allowedPaths);
         if (deniedHeadPath) throw safeError('publication_scope_unproven', { entry: deniedHeadPath });
       }
       outcome = {
