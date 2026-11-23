@@ -2717,3 +2717,46 @@ describe('@SCN003 a gate cut off by a lost session reruns the gate (#564 AC3, FR
     expect(f.state.prompts[0].prompt).toContain('Current registered gate is Fail: repository.nmg-sdlc-smoke');
   });
 });
+
+// The issue read the controller makes for evidence: the same JSON fields collectGithub requests.
+const ISSUE_EVIDENCE_FIELDS = 'number,title,state,body,labels,projectItems';
+describe('@SCN002 transient GitHub reads while collecting issue evidence (#575)', () => {
+  // Fails the first evidence read with the given stderr; every other call goes to the fixture.
+  const failFirstEvidenceRead = (f, stderr) => {
+    let reads = 0;
+    return (command, args, options) => {
+      if (command === 'gh' && args[0] === 'issue' && args[1] === 'view'
+        && args[args.indexOf('--json') + 1] === ISSUE_EVIDENCE_FIELDS && (reads += 1) === 1) {
+        return { status: 1, stdout: '', stderr };
+      }
+      return f.run(command, args, options);
+    };
+  };
+
+  it('@SCN002 retries a transient 5xx issue read after 1 s and continues the run without losing the decision', () => {
+    const f = fixture();
+    f.setWorker(phasedWorker());
+    const sleeps = [];
+    const response = f.execute('#42', {
+      run: failFirstEvidenceRead(f, 'HTTP 502: Bad Gateway\n'),
+      sleep: (milliseconds) => sleeps.push(milliseconds),
+    });
+    expect(response).toMatchObject({ status: 0 });
+    expect(response.stderr).not.toContain('evidence unavailable');
+    expect(sleeps).toEqual([1000]);
+    expect(f.state.finished).toBeGreaterThan(0);
+  });
+
+  it('@SCN002 does not retry a non-transient issue read failure such as HTTP 404', () => {
+    const f = fixture();
+    f.setWorker(phasedWorker());
+    const sleeps = [];
+    const response = f.execute('#42', {
+      run: failFirstEvidenceRead(f, 'HTTP 404: Not Found\n'),
+      sleep: (milliseconds) => sleeps.push(milliseconds),
+    });
+    expect(sleeps).toEqual([]);
+    expect(response.status).not.toBe(0);
+    expect(response.stderr).toContain('issue #42 evidence unavailable');
+  });
+});

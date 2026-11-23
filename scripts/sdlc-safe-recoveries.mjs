@@ -262,6 +262,26 @@ export function observeCommittedPublicationPaths({ cwd = process.cwd(), step, ru
   return names.slice(0, -1).split('\0');
 }
 
+// Concludes a resolved in-progress integration merge of the default branch with git's own merge message.
+// Every refusal happens before `git commit`; nothing is pushed. Returns the new HEAD commit.
+export function commitIntegrationMerge({ cwd = process.cwd(), spec, scope, run = defaultRun } = {}) {
+  if (!mergeInProgress(run, cwd)) throw safeError('merge_not_in_progress');
+  const base = inProgressIntegration(run, cwd, integrationBaseRef(run, cwd, branchRemote(run, cwd)));
+  if (!base) throw safeError('publication_scope_unproven');
+  if (gitOrUnproven(run, cwd, ['ls-files', '-u', '-z']).length) throw safeError('merge_unresolved');
+  const unstaged = [
+    ...nulPaths(gitOrUnproven(run, cwd, ['diff', '--name-only', '-z'])),
+    ...nulPaths(gitOrUnproven(run, cwd, ['ls-files', '--others', '--exclude-standard', '-z'])),
+  ];
+  if (unstaged.some(nonRuntimePath)) throw safeError('merge_unstaged');
+  const changes = integrationChangeSet(run, cwd, base, { worktree: true });
+  const denied = changes.find((file) => publicationPathDenied(file, { spec, readOnlyPaths: scope.readOnlyPaths }));
+  if (denied) throw safeError('publication_scope_unproven', { entry: denied });
+  const committed = run('git', ['commit', '--no-edit'], { cwd });
+  if (!commandSucceeded(committed)) throw safeError('merge_commit_failed');
+  return gitOrUnproven(run, cwd, ['rev-parse', 'HEAD']).trim();
+}
+
 export function reconcileStagePublication({
   cwd = process.cwd(), issue, step, spec, expectedSubject, allowedPaths = [], ownerId, run = defaultRun,
 } = {}) {
@@ -954,8 +974,10 @@ function runCli(argv = process.argv.slice(2)) {
     if (!key || Object.hasOwn(options, key) || !argv[index + 1]) return 2;
     options[key] = argv[index + 1];
   }
-  if (!['probe', 'bind', 'reconcile'].includes(action) || !/^[1-9]\d*$/.test(options.issue ?? '')
+  if (!['probe', 'bind', 'reconcile', 'commit-merge'].includes(action) || !/^[1-9]\d*$/.test(options.issue ?? '')
     || !['implement', 'verify'].includes(options.step)) return 2;
+  if (action === 'commit-merge' && (options.step !== 'implement' || !options.spec
+    || Object.hasOwn(options, 'expectedSubject'))) return 2;
   if (action === 'probe') {
     const suppliedKeys = Object.keys(options).sort().join(',');
     if (options.step !== 'implement'
@@ -978,13 +1000,21 @@ function runCli(argv = process.argv.slice(2)) {
   try {
     const cwd = process.cwd();
     const suppliedSubject = Object.hasOwn(options, 'expectedSubject');
-    if (options.step === 'implement' && !validImplementationSubject(options.expectedSubject, options.issue)) {
+    if (action !== 'commit-merge' && options.step === 'implement' && !validImplementationSubject(options.expectedSubject, options.issue)) {
       throw safeError('publication_subject_unproven');
     }
     lease = enterControllerLease({ projectRoot: cwd, runId: options.controllerRunId });
     const branch = defaultRun('git', ['branch', '--show-current'], { cwd });
     if (!commandSucceeded(branch) || parseIssueBranch(String(branch.stdout ?? '').trim())?.issueNumber !== Number(options.issue)) throw safeError('publication_branch_mismatch');
     const scope = inspectPublicationScope({ ...options, cwd });
+    if (action === 'commit-merge') {
+      // Decided before the dirty-path observation: unmerged conflict entries are this action's refusal, not a scope fault.
+      const controllerRunId = lease.owned ? lease.lease.record.runId : lease.lease.runId;
+      const ownerId = resolveRecoveryOwner({ ...options, cwd, controllerRunId });
+      const commit = commitIntegrationMerge({ cwd, spec: options.spec, scope });
+      process.stdout.write(`NMG_SDLC_PUBLICATION: ${JSON.stringify({ passed: true, commit, ownerId, scope })}\n`);
+      return 0;
+    }
     const denied = (paths) => paths.find((file) => publicationPathDenied(file, {
       spec: options.spec,
       readOnlyPaths: scope.readOnlyPaths,

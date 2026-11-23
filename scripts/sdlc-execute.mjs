@@ -225,9 +225,34 @@ function checkout(cwd, run) {
   }
   return { branch: branch.stdout.trim(), head: head.stdout.trim() };
 }
-function statusEvidence(cwd, run) {
+function sleepMilliseconds(milliseconds) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+}
+const TRANSIENT_GH_OUTPUT = /HTTP 5\d\d|\b50[234]\b|bad gateway|service unavailable|gateway timeout|timed? ?out|connection (reset|refused)|ECONNRESET|ETIMEDOUT|EAI_AGAIN|could not resolve host|TLS handshake|unexpected EOF/i;
+/** Whether a failed `gh` call shows a transient network, timeout or HTTP 5xx failure; a missing binary is not transient. */
+export function transientGhFailure(response) {
+  if (!response || succeeded(response)) return false;
+  if (response.error && response.error.code !== 'ENOENT') return true;
+  return TRANSIENT_GH_OUTPUT.test(`${String(response.stderr ?? '')}\n${String(response.stdout ?? '')}`);
+}
+/** Runs `gh` again after each backoff delay while its failure is transient; every other call runs once. Returns the
+ * first success, or the last response when every attempt failed. */
+export function retryingRun(run, { sleep = sleepMilliseconds, delays = [1000, 2000, 4000] } = {}) {
+  return (command, args, options) => {
+    let response = run(command, args, options);
+    if (command !== 'gh') return response;
+    for (const delay of delays) {
+      if (!transientGhFailure(response)) break;
+      sleep(delay);
+      response = run(command, args, options);
+    }
+    return response;
+  };
+}
+function statusEvidence(cwd, run, sleep) {
+  const retried = retryingRun(run, { sleep });
   return collectEvidence(cwd, { run: (command, args, options) => {
-    const response = run(command, args, options);
+    const response = retried(command, args, options);
     return { ...response, ok: succeeded(response), stdout: String(response?.stdout ?? ''), stderr: String(response?.stderr ?? '') };
   } });
 }
@@ -880,7 +905,7 @@ function liveGateIntent(cwd, run, issue, head, report) {
 export function runExecute({ args = '', cwd = process.cwd(), env = process.env, run = defaultRun,
   host = null, supervisorSession, processApi = process, onLeaseAcquired = () => {},
   supervise = null, now = Date.now, checkInMs,
-  sleep = (milliseconds) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds); } } = {}) {
+  sleep = sleepMilliseconds } = {}) {
   const fail = (reason, status = 1) => ({ status, stdout: '', stderr: `${reason}\n` });
   if (!host) return { status: 2, stdout: '', stderr: 'execute requires /sdlc-execute in a Claude Code session\n' };
   let selected;
@@ -1009,7 +1034,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
         let evidence = null;
         let gate = 'unavailable';
         try {
-          evidence = statusEvidence(cwd, run);
+          evidence = statusEvidence(cwd, run, sleep);
           gate = registeredGateStatus(cwd, run, issue, headAfter, evidence) ?? 'not_green';
         } catch { /* reported as unavailable */ }
         const escalated = step === 'verify' && handoff?.status === 'failed' && handoff.reasonCode === SELECTION_ESCALATION;
@@ -1110,7 +1135,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
         const current = checkout(at, run);
         const branchIssue = workdir ? parseIssueBranch(current.branch) : null;
         if (workdir && branchIssue?.issueNumber !== issue) throw new Error('worker_branch_mismatch');
-        const evidence = branchIssue ? statusEvidence(at, run) : null;
+        const evidence = branchIssue ? statusEvidence(at, run, sleep) : null;
         if (branchIssue && completed(at, run, issue, current.branch, current.head)) {
           output.push(`#${issue}: MERGED and CLOSED`);
           leaveQueue();
@@ -1390,7 +1415,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
             continue;
           }
           if (step === 'verify') {
-            const afterEvidence = statusEvidence(at, run);
+            const afterEvidence = statusEvidence(at, run, sleep);
             const gateStatus = registeredGateStatus(at, run, issue, after.head, afterEvidence);
             const green = ['pass', 'pr_evidence_satisfied'].includes(gateStatus)
               && (!requiresPrEvidence || (gateStatus === 'pr_evidence_satisfied'
@@ -1428,7 +1453,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           throw new Error(`${SELECTION_ESCALATION}: ${handoff.summary}`);
         }
         if (step === 'verify' && handoff.status === 'failed' && !reviewed) {
-          const afterEvidence = statusEvidence(at, run);
+          const afterEvidence = statusEvidence(at, run, sleep);
           if (handoff.reasonCode === 'pr_evidence_pending' && afterEvidence.verification?.status === 'pr_evidence_pending'
             && after.head !== current.head && remoteHead(at, run, after.branch) === after.head) {
             requiresPrEvidence = true;

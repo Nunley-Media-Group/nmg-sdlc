@@ -15,6 +15,7 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 ### Fixed
 
 - `/sdlc-execute` no longer stalls on a stage worker that has written its handoff and settled while it still tracks background commands that have exited: the hooks module drops each tracked command the host's `SubagentStop` or `Stop` event no longer reports in flight, so the controller routes the next step without prompting the worker again, and a command still running keeps the stage waiting (#574)
+- `/sdlc-execute` can conclude a resolved queue-head integration merge: the new `sdlc-safe-recoveries.mjs commit-merge` action commits an in-progress merge of the default branch with git's own merge message after the same integration, unmerged-entry, unstaged and denied-path checks, and write-code uses it instead of raw `git commit --no-edit`; a transient `gh` failure (HTTP 5xx, timeout or network error) while the controller reads issue evidence is retried after 1 s, 2 s and 4 s instead of ending the run, while non-transient failures such as HTTP 404 are not retried (#575)
 
 ## [4.21.2] - 2026-11-23
 
