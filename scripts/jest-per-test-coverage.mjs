@@ -19,8 +19,9 @@
  * - Lines that are empty or whitespace-only in the source are never executable or covered.
  * - Paths are repository-relative; files outside the repository, under node_modules, __tests__ or __fixtures__, or
  *   whose path holds a colon, are left out.
- * - `outcomes`: `<test file>::<full test name>:<status>` from Jest's --json results; a suite that fails to run reports
- *   `<test file>::(suite):failed`.
+ * - `outcomes`: `<it title>:<status>` from Jest's --json results, where the title is the `it` block's own title without the
+ *   file path or enclosing describe titles, so a moved `it` block keeps its outcome in another file; a suite that fails
+ *   to run reports `(suite):failed`.
  *
  * Arguments are the selected test ids: each is read as a path with any `::` suffix, a leading `./`, `.` segments and a
  * trailing `/` removed. Exit status: 2 for a usage error (no arguments or a path that is not repository-relative); 1 when Jest produced no
@@ -162,11 +163,11 @@ export function collect(file, results, coverage, executable, root = repoRoot) {
   let failed = !results.success;
   for (const suite of results.testResults ?? []) {
     if (suite.testExecError || (suite.status === 'failed' && (suite.assertionResults ?? []).length === 0)) {
-      outcomes.add(`${file}::(suite):failed`);
+      outcomes.add('(suite):failed');
       failed = true;
     }
     for (const assertion of suite.assertionResults ?? []) {
-      outcomes.add(`${file}::${assertion.fullName}:${assertion.status}`);
+      outcomes.add(`${assertion.title}:${assertion.status}`);
       if (assertion.status === 'failed') failed = true;
     }
   }
