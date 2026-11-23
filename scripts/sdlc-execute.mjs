@@ -228,7 +228,7 @@ function checkout(cwd, run) {
 function sleepMilliseconds(milliseconds) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
 }
-const TRANSIENT_GH_OUTPUT = /HTTP 5\d\d|\b50[234]\b|bad gateway|service unavailable|gateway timeout|timed? ?out|connection (reset|refused)|ECONNRESET|ETIMEDOUT|EAI_AGAIN|could not resolve host|TLS handshake|unexpected EOF/i;
+const TRANSIENT_GH_OUTPUT = /HTTP 5\d\d|bad gateway|service unavailable|gateway timeout|timed? ?out|connection (reset|refused)|ECONNRESET|ETIMEDOUT|EAI_AGAIN|could not resolve host|TLS handshake|unexpected EOF/i;
 /** Whether a failed `gh` call shows a transient network, timeout or HTTP 5xx failure; a missing binary is not transient. */
 export function transientGhFailure(response) {
   if (!response || succeeded(response)) return false;
