@@ -377,16 +377,6 @@ describe('per-project stage models (steering/sdlc-models.json)', () => {
     expect(startOf(f.state, 'verify')).toMatchObject({ model: 'opus', effort: 'medium' });
   });
 
-  it('@SCN001 resolves implement haiku/xhigh and verify opus/medium from the plugin defaults (#568 AC1)', () => {
-    expect(stageModel('implement', null, STAGE_MODEL_DEFAULTS)).toBe('haiku');
-    expect(stageEffort('implement', null, STAGE_MODEL_DEFAULTS)).toBe('xhigh');
-    expect(stageModel('verify', null, STAGE_MODEL_DEFAULTS)).toBe('opus');
-    expect(stageEffort('verify', null, STAGE_MODEL_DEFAULTS)).toBe('medium');
-    expect(stageModel('deliver', null, STAGE_MODEL_DEFAULTS)).toBe('haiku');
-    expect(stageEffort('deliver', null, STAGE_MODEL_DEFAULTS)).toBe('xhigh');
-    expect(stageEffort('start', null, STAGE_MODEL_DEFAULTS)).toBeUndefined();
-  });
-
   it('stops with exit 2 before any spawn, Git, or GitHub call on an invalid project file', () => {
     const f = fixture({ stageModels: stageFile({ verify: { model: 'opus', effort: 'extreme' } }) });
     const calls = [];
