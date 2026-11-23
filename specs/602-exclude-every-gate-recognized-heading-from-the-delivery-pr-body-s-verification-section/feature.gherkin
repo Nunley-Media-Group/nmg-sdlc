@@ -1,0 +1,40 @@
+**Issue**: #602
+**Date**: 2026-11-23
+**Status**: Approved
+**Author**: Claude Code
+**Related Spec**: specs/597-delivery-pr-body-copies-verification-report-headings-into-the-verification-section-and-drops-the-changed-path-evidence/
+
+# File: scripts/__tests__/delivery-pull-request-body-indented-headings.test.mjs
+# Generated from: specs/602-exclude-every-gate-recognized-heading-from-the-delivery-pr-body-s-verification-section/requirements.md
+Feature: Exclude every gate-recognized heading from the delivery PR body's Verification section
+
+  @SCN001 @regression
+  Scenario Outline: Indented heading lines are not copied
+    Given a verification report with the line "### Results (`npm test` passed)" indented by <indent>
+    When the delivery pull-request body is built
+    Then the body does not contain that line
+    And the only body line the gate's heading rule matches is "## Verification"
+
+    Examples:
+      | indent       |
+      | four spaces  |
+      | eight spaces |
+      | one tab      |
+
+  @SCN002 @regression
+  Scenario: Changed paths stay verification evidence
+    Given a verification report with a heading-shaped line indented by four spaces and changed paths "VERSION", "package.json" and ".claude-plugin/plugin.json"
+    When the built body is evaluated by the contribution evidence check
+    Then every changed path is matched and the evaluation passes
+
+  @SCN003 @regression
+  Scenario Outline: Command results are still copied
+    Given a verification report with the line <line>
+    When the delivery pull-request body is built
+    Then that line appears unchanged in the Verification section before "Changed paths:"
+
+    Examples:
+      | line                                   |
+      | "- `npm test` — passed"                |
+      | "\| `git diff --check` \| Pass \|"     |
+      | "    - `npm test` — passed"            |
