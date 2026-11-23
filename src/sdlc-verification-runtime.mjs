@@ -8,7 +8,7 @@ import { globRegex, matches } from "./sdlc-glob.mjs";
 import { MAX_UNTRACKED_FILE_BYTES, rebaseTestId, rejectionOf, rejectionSummary, resolveChangeSelection, selectedTestPaths, unaccountedPaths } from "./sdlc-test-selection.mjs";
 import { StageModelsError } from "./stage-models.mjs";
 import { loadStageModels } from "./stage-models-file.mjs";
-import { loadTestCoverageConfig, validateCoverageReport } from "./test-coverage.mjs";
+import { COVERAGE_OUTPUT_ENV, createCoverageOutput, hasLine, loadTestCoverageConfig, readCoverageRun, removeCoverageOutput, unionRanges } from "./test-coverage.mjs";
 import { terminateOwnedProcessGroup, terminateOwnedProcessGroupAfterLeaderLoss } from "./process-supervision.mjs";
 
 const SAFE_ENV = ["HOME", "PATH", "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL", "CI"];
@@ -470,7 +470,10 @@ async function coverageCheck({ projectRoot, issue, baseRef, paths, tests, envKey
     if (signal?.aborted) return { status: "incomplete", summary: "coverage cancelled" };
     return { status: "failed", summary: `coverage_failed: no heavy-job slot for the coverage command: ${String(error.message).slice(0, 300)}` };
   }
+  let output = null;
   try {
+    output = createCoverageOutput();
+    env[COVERAGE_OUTPUT_ENV] = output.file;
     const response = await runCoverage(config.coverage.program, config.coverage.args.concat(tests),
       { cwd: projectRoot, env, timeout: timeoutMs, maxOutput: maxOutputBytes, signal });
     if (response?.cancelled || signal?.aborted) return { status: "incomplete", summary: "coverage cancelled" };
@@ -479,17 +482,18 @@ async function coverageCheck({ projectRoot, issue, baseRef, paths, tests, envKey
     if (!response || response.error || response.status !== 0) {
       return { status: "failed", summary: `coverage_failed: coverage command failed: ${response?.error?.message ?? `exited ${response?.status ?? response?.signal}`}` };
     }
-    report = validateCoverageReport(JSON.parse(String(response.stdout ?? "")));
+    report = readCoverageRun({ outputFile: output.file, stdout: String(response.stdout ?? "") });
   } catch (error) {
     if (signal?.aborted) return { status: "incomplete", summary: "coverage cancelled" };
     return { status: "failed", summary: `coverage_failed: coverage report invalid: ${String(error.message).slice(0, 300)}` };
   } finally {
     held?.release();
+    if (output) removeCoverageOutput(output);
   }
   const lineOf = (entry) => { const at = entry.lastIndexOf(":"); return [entry.slice(0, at), Number(entry.slice(at + 1))]; };
-  const reported = new Set([...report.tests.flatMap((test) => test.lines), ...(report.executableLines ?? [])].map((entry) => lineOf(entry)[0]));
-  const executable = report.executableLines ? new Set(report.executableLines) : null;
-  const hit = new Set(report.tests.flatMap((test) => test.lines));
+  const hit = unionRanges("lines", report.tests.map((test) => test.lines));
+  const executable = report.executableLines ?? null;
+  const reported = new Set([...Object.keys(hit), ...Object.keys(executable ?? {})]);
   const testFiles = report.tests.map((test) => test.file);
   const changed = changedLines(projectRoot, baseRef);
   const changedList = [];
@@ -498,11 +502,12 @@ async function coverageCheck({ projectRoot, issue, baseRef, paths, tests, envKey
     try { text = readFileSync(resolve(projectRoot, path), "utf8").split("\n"); } catch {}
     for (const line of [...(changed.get(path) ?? [])].sort((a, b) => a - b)) {
       const entry = `${path}:${line}`;
-      if (executable ? executable.has(entry) : (text && text[line - 1] !== undefined && text[line - 1].trim() !== "")) changedList.push(entry);
+      if (executable ? hasLine(executable, path, line) : (text && text[line - 1] !== undefined && text[line - 1].trim() !== "")) changedList.push(entry);
     }
   }
-  const hitLines = changedList.filter((entry) => hit.has(entry));
-  const uncovered = changedList.filter((entry) => !hit.has(entry));
+  const isHit = (entry) => { const [file, line] = lineOf(entry); return hasLine(hit, file, line); };
+  const hitLines = changedList.filter((entry) => isHit(entry));
+  const uncovered = changedList.filter((entry) => !isHit(entry));
   const capped = (list) => list.slice(0, MAX_COVERAGE_ENTRIES);
   return { status: "checked", reported, testFiles, uncovered,
     coverage: { changedLines: capped(changedList), hitLines: capped(hitLines), uncovered: capped(uncovered),

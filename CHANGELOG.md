@@ -12,6 +12,12 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.22.4] - 2026-11-23
+
+### Fixed
+
+- A per-test coverage command may write its report as v2 to the file named by `NMG_SDLC_COVERAGE_OUTPUT`, which is read line by line into a compact range form, so a suite whose report overflowed the 256 MiB stdout buffer no longer fails test-layer candidates, batches or the verification coverage check; a v1 report on stdout works unchanged (#615)
+
 ## [4.22.3] - 2026-11-23
 
 ### Fixed

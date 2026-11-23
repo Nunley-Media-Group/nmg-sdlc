@@ -254,7 +254,7 @@ describe('@SCN004 changed lines must be covered by the selected tests (#584 AC4)
     };
     const artifact = await verify(root, { runCoverage, signal: controller.signal });
     expect(runs).toEqual([{ args: ['-e', expect.any(String), 'tests/app.test.js'], timeout: 3_600_000, signal: controller.signal,
-      env: ['HOME', 'LANG', 'LC_ALL', 'PATH', 'TMPDIR', 'CI', 'TEMP', 'TMP'].filter((key) => process.env[key] !== undefined).sort() }]);
+      env: ['HOME', 'LANG', 'LC_ALL', 'PATH', 'TMPDIR', 'CI', 'TEMP', 'TMP', 'NMG_SDLC_COVERAGE_OUTPUT'].filter((key) => key === 'NMG_SDLC_COVERAGE_OUTPUT' || process.env[key] !== undefined).sort() }]);
     expect(artifact.ceiling).toBeNull();
   }, TIMEOUT);
 

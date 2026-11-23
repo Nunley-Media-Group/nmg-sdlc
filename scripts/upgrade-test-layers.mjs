@@ -14,10 +14,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { TEST_LAYER_TYPES, TEST_LAYERS_PATH, loadTestLayers, writeTestLayers } from './test-layers.mjs';
 import {
+  COVERAGE_OUTPUT_ENV,
   TEST_COVERAGE_PATH,
+  compactTest,
+  createCoverageOutput,
+  expandEntries,
+  forEachLine,
   loadTestCoverageConfig,
+  rangeCount,
+  rangesContain,
+  rangesIntersect,
+  readCoverageRun,
+  removeCoverageOutput,
   runCommand,
-  validateCoverageReport,
+  subtractRanges,
+  unionRanges,
 } from './test-coverage.mjs';
 
 export const TEST_LAYERS_STATE_DIR = '.nmg-sdlc/upgrade/test-layers';
@@ -309,27 +320,29 @@ function typeResolver(root) {
     ?? classifyTestFile(rel, isFeature(rel) ? '' : readBytes(root, rel)?.toString('utf8') ?? '', refs);
 }
 
+/** Runs the coverage command with a fresh NMG_SDLC_COVERAGE_OUTPUT file and reads its report: the v2 file when the
+ * command wrote one, otherwise its v1 stdout. Tests come back in the compact form with their file's `type`. */
 function collectCoverage(root, config) {
-  const run = runCommand(root, config.coverage);
-  if (run.status !== 0) {
-    return { error: { reasonCode: 'test_layers_coverage_failed', status: run.status, message: run.stderr.trim().slice(0, 2000) } };
-  }
+  const output = createCoverageOutput();
   try {
-    const report = validateCoverageReport(JSON.parse(run.stdout));
-    const typeOf = typeResolver(root);
-    return { tests: report.tests.map((test) => ({ ...test, type: typeOf(test.file) })) };
-  } catch (error) {
-    return { error: { reasonCode: 'test_layers_coverage_failed', message: String(error.message) } };
+    const run = runCommand(root, config.coverage, { [COVERAGE_OUTPUT_ENV]: output.file });
+    if (run.status !== 0) {
+      return { error: { reasonCode: 'test_layers_coverage_failed', status: run.status, message: run.stderr.trim().slice(0, 2000) } };
+    }
+    try {
+      const report = readCoverageRun({ outputFile: output.file, stdout: run.stdout });
+      const typeOf = typeResolver(root);
+      return { tests: report.tests.map((test) => ({ ...test, type: typeOf(test.file) })) };
+    } catch (error) {
+      return { error: { reasonCode: 'test_layers_coverage_failed', message: String(error.message) } };
+    }
+  } finally {
+    removeCoverageOutput(output);
   }
-}
-
-function isSubset(small, big) {
-  const set = new Set(big);
-  return small.every((entry) => set.has(entry));
 }
 
 function covers(big, small) {
-  return KINDS.every((kind) => isSubset(small[kind], big[kind]));
+  return KINDS.every((kind) => rangesContain(kind, big[kind], small[kind]));
 }
 
 /** Labels each non-kept test `duplicate`, `convert` or `unmatched` and groups the first two into per-file batches.
@@ -362,10 +375,9 @@ export function computeCandidates(inventory, kept, coverage, priorIds = new Map(
   return { batches, unmatched };
 }
 
+/** The union of every test's compact entries, per kind. */
 function unionOf(tests) {
-  const sets = Object.fromEntries(KINDS.map((kind) => [kind, new Set()]));
-  for (const test of tests) for (const kind of KINDS) for (const entry of test[kind]) sets[kind].add(entry);
-  return sets;
+  return Object.fromEntries(KINDS.map((kind) => [kind, unionRanges(kind, tests.map((test) => test[kind]))]));
 }
 
 /** Pure gate decision for one batch. `after` is `{ tests }` or `{ error }`; tests carry their file `type`. */
@@ -390,20 +402,23 @@ export function gateBatch(before, after, suite, batch, kept) {
   const keptUnion = unionOf(keptAfter);
   const beforeUnion = unionOf(before.tests);
   const afterUnion = unionOf(after.tests);
+  // The gap is computed on ranges; only its missing entries are expanded into the reported strings.
   const gap = {};
   for (const kind of KINDS) {
-    const missing = new Set([...removedUnion[kind]].filter((entry) => !keptUnion[kind].has(entry)));
-    for (const entry of beforeUnion[kind]) if (!afterUnion[kind].has(entry)) missing.add(entry);
-    gap[kind] = [...missing].sort();
+    const missing = unionRanges(kind, [
+      subtractRanges(kind, removedUnion[kind], keptUnion[kind]),
+      subtractRanges(kind, beforeUnion[kind], afterUnion[kind]),
+    ]);
+    gap[kind] = expandEntries(kind, missing);
   }
   if (KINDS.some((kind) => gap[kind].length)) return { status: 'refused', reasonCode: 'test_layers_coverage_gap', gap };
   const bddAfter = keptAfter.filter((test) => test.type === 'bdd');
   const deleted = removed.map((test) => {
     let coveredBy = bddAfter.filter((candidate) => covers(candidate, test));
     if (!coveredBy.length) {
-      coveredBy = keptAfter.filter((candidate) => KINDS.some((kind) => candidate[kind].some((entry) => test[kind].includes(entry))));
+      coveredBy = keptAfter.filter((candidate) => KINDS.some((kind) => rangesIntersect(kind, candidate[kind], test[kind])));
     }
-    return { id: test.id, file: test.file, coveredBy: coveredBy.map((candidate) => candidate.id), lines: test.lines };
+    return { id: test.id, file: test.file, coveredBy: coveredBy.map((candidate) => candidate.id), lines: expandEntries('lines', test.lines) };
   });
   return { status: 'accepted', deleted };
 }
@@ -496,7 +511,12 @@ export function restore(root, tree, batchId) {
 
 function counts(tests) {
   const union = unionOf(tests);
-  return { testCount: tests.length, lines: union.lines.size, branches: union.branches.size, outcomes: union.outcomes.size };
+  return {
+    testCount: tests.length,
+    lines: rangeCount('lines', union.lines),
+    branches: rangeCount('branches', union.branches),
+    outcomes: rangeCount('outcomes', union.outcomes),
+  };
 }
 
 function preconditions(root) {
@@ -597,8 +617,46 @@ export function beginTestLayersBatch(root, batchId) {
   }
   const coverage = collectCoverage(root, pre.config);
   if (coverage.error) return { ok: false, batch: batchId, ...coverage.error };
-  writeState(root, ['batches', `${batchId}.begin.json`], { version: 1, batch, tree, tests: coverage.tests });
+  writeBeginTests(root, batchId, coverage.tests);
+  // The record keeps the batch's identity only: its candidate test list grows with the suite.
+  writeState(root, ['batches', `${batchId}.begin.json`], {
+    version: 2,
+    batch: { id: batch.id, file: batch.file, type: batch.type, feature: batch.feature },
+    tree,
+    testsFile: beginTestsName(batchId),
+  });
   return { ok: true, batch: batchId, status: 'begun', file: batch.file, tests: batch.tests };
+}
+
+/** The sidecar of a begun batch: its pre-batch tests, one compact test per line. */
+function beginTestsName(batchId) {
+  return `${batchId}.begin.tests.ndjson`;
+}
+
+/** Writes the begun tests one line per `fs.writeSync`, so no string holds the whole pre-batch coverage. */
+function writeBeginTests(root, batchId, tests) {
+  const target = stateFile(root, 'batches', beginTestsName(batchId));
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const fd = fs.openSync(target, 'w');
+  try {
+    for (const test of tests) {
+      const line = Buffer.from(`${JSON.stringify(test)}\n`);
+      for (let offset = 0; offset < line.length;) offset += fs.writeSync(fd, line, offset, line.length - offset);
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/** The pre-batch tests of a begun batch, read back from the sidecar; a version 1 record keeps its inline tests, which
+ * are converted from the v1 entry form. */
+function beginTests(root, batchId, begun) {
+  if (begun.version === 1) return (begun.tests ?? []).map((test) => ({ ...compactTest(test), type: test.type }));
+  const tests = [];
+  forEachLine(stateFile(root, 'batches', beginTestsName(batchId)), (text) => {
+    if (text.trim() !== '') tests.push(JSON.parse(text));
+  });
+  return tests;
 }
 
 /** Runs the suite and coverage after the batch's edits, gates them, and restores the snapshot on any refusal,
@@ -611,15 +669,17 @@ export function gateTestLayersBatch(root, batchId) {
   if (pre.refusal) {
     decision = { status: 'refused', ...pre.refusal };
   } else {
+    const before = { tests: beginTests(root, batchId, begun) };
     const suite = runCommand(root, pre.config.suite);
     const after = suite.status === 0 ? collectCoverage(root, pre.config) : { tests: [] };
-    decision = gateBatch({ tests: begun.tests }, after, suite, begun.batch, pre.kept);
+    decision = gateBatch(before, after, suite, begun.batch, pre.kept);
   }
   if (decision.status === 'refused') restore(root, begun.tree, batchId);
   const record = { batch: batchId, file: begun.batch.file, ...decision };
   writeState(root, ['batches', `${batchId}.json`], { version: 1, ...record });
   fs.rmSync(stateFile(root, `index-${batchId}`), { force: true });
   fs.rmSync(stateFile(root, 'batches', `${batchId}.begin.json`), { force: true });
+  fs.rmSync(stateFile(root, 'batches', beginTestsName(batchId)), { force: true });
   return { ok: decision.status === 'accepted', ...record };
 }
 
