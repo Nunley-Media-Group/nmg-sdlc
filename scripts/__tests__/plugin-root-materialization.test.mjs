@@ -22,6 +22,13 @@ describe('@SCN001 single-quoted operands resolve', () => {
   ])('rewrites %s inside its single quotes', (command, expected) => {
     expect(materializePluginRootCommand(command, root)).toBe(expected);
   });
+
+  it.each([
+    ["echo \\'<plugin-root>/workflows\\'", "echo \\'\"/Volumes/Fast Brick/plugins/nmg-sdlc/workflows\"\\'"],
+    ['echo "a\\" <plugin-root>/workflows"', 'echo "a\\" /Volumes/Fast Brick/plugins/nmg-sdlc/workflows"'],
+  ])('does not take the escaped quote of %s for a quoted segment', (command, expected) => {
+    expect(materializePluginRootCommand(command, root)).toBe(expected);
+  });
 });
 
 describe('@SCN002 glob operands still expand', () => {
@@ -65,14 +72,19 @@ describe('@SCN003 Glob and Grep paths resolve', () => {
     expect(materializePluginRootToolInput(bash, root)).toBe(bash);
   });
 
-  it('is applied by a tool.call handler of the hooks module', () => {
+  it('is applied by a tool.call handler of the hooks module that forwards only the rewritten input', () => {
     const source = fs.readFileSync(path.join(repoRoot, 'hooks', 'register.ts'), 'utf8');
-    const call = 'materializePluginRootToolInput(e, $.plugin.root)';
-    const index = source.indexOf(call);
-    expect(index).toBeGreaterThan(-1);
-    const handler = source.lastIndexOf("on('tool.call'", index);
+    const binding = /const (\w+) = materializePluginRootToolInput\(e, \$\.plugin\.root\)/.exec(source);
+    expect(binding).not.toBeNull();
+    const handler = source.lastIndexOf("on('tool.call'", binding.index);
     expect(handler).toBeGreaterThan(-1);
-    expect(source.slice(handler + 1, index)).not.toMatch(/\bon\('/);
+    expect(source.slice(handler + 1, binding.index)).not.toMatch(/\bon\('/);
+    // The handler body runs to the next registration; every call it hands to the engine carries the rewritten input.
+    const end = source.indexOf("\n  on('", binding.index);
+    const body = source.slice(binding.index, end === -1 ? undefined : end);
+    const forwards = [...body.matchAll(/\bnext\(([^)]*)\)/g)].map((call) => call[1]);
+    expect(forwards.length).toBeGreaterThan(0);
+    expect(forwards.every((argument) => argument === binding[1])).toBe(true);
   });
 });
 

@@ -226,7 +226,9 @@ function controllerPath(root, scriptName) {
  * single-quoted splice becomes `'\''`). In unquoted text a
  * `<plugin-root>/scripts/<name>.mjs` operand becomes a JSON-quoted path, and an
  * operand whose tail has glob characters keeps that tail unquoted so the shell
- * still expands it. A quoted segment must close on the same line.
+ * still expands it. An unquoted backslash escapes the next character, and a
+ * `\"` stays inside its double-quoted segment. A quoted segment must close on
+ * the same line.
  */
 export function materializePluginRootCommand(command, root) {
   if (typeof command !== "string" || typeof root !== "string" || root.length === 0) return command;
@@ -235,13 +237,19 @@ export function materializePluginRootCommand(command, root) {
   const bareRoot = String(root).replace(/[\\/]+$/, "");
   const everyToken = new RegExp(token.source, "g");
   const singleQuotedRoot = bareRoot.replace(/'/g, "'\\''");
-  const operand = /(<plugin-root>|\$\{NMG_SDLC_PLUGIN_ROOT\}|\$NMG_SDLC_PLUGIN_ROOT\b)(\/[^\s"'`;|&)<>]*)?/y;
-  const doubleQuoted = /"([^"\r\n]*)"/y;
+  const operand = /(<plugin-root>|\$\{NMG_SDLC_PLUGIN_ROOT\}|\$NMG_SDLC_PLUGIN_ROOT\b)(\/[^\s"'`;|&)<>\\]*)?/y;
+  const doubleQuoted = /"((?:[^"\\\r\n]|\\[^\r\n])*)"/y;
   const singleQuoted = /'([^'\r\n]*)'/y;
   let rewritten = "";
   let at = 0;
   while (at < command.length) {
     const char = command[at];
+    // An unquoted backslash escapes the next character, so an escaped quote opens no quoted segment.
+    if (char === "\\" && at + 1 < command.length) {
+      rewritten += command.slice(at, at + 2);
+      at += 2;
+      continue;
+    }
     const segment = char === '"' ? doubleQuoted : char === "'" ? singleQuoted : null;
     if (segment !== null) {
       segment.lastIndex = at;

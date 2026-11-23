@@ -988,6 +988,26 @@ describe('plugin-root materialization', () => {
     const read = await $.tool.call({ tool: 'Read', file_path: `${ROOT_TOKEN}/references/claude-code-tooling.md` })
     expect(JSON.stringify(read)).not.toContain(ROOT_TOKEN)
   })
+
+  test('Glob and Grep paths reach the engine with the plugin path', async ($, on) => {
+    const world = engine(on)
+    const paths: Record<string, string[]> = { Glob: [], Grep: [] }
+    for (const tool of ['Glob', 'Grep'] as const) {
+      on('tool.call', { tool } as never, ((_: unknown, e: { path?: string }) => {
+        paths[tool].push(String(e.path))
+        return { result: { type: 'text', text: '' } }
+      }) as never)
+    }
+    await start($, world)
+    await $.tool.call({ tool: 'Grep', pattern: 'x', path: `${ROOT_TOKEN}/workflows` } as never)
+    await $.tool.call({ tool: 'Glob', pattern: '**/*.md', path: `${ROOT_TOKEN}/workflows` } as never)
+    await $.tool.call({ tool: 'Grep', pattern: 'x', path: '/abs/workflows' } as never)
+    expect(paths.Grep[0]).toMatch(/^\/.+\/workflows$/)
+    expect(paths.Glob[0]).toMatch(/^\/.+\/workflows$/)
+    expect(paths.Grep[0]).not.toContain(ROOT_TOKEN)
+    expect(paths.Glob[0]).not.toContain(ROOT_TOKEN)
+    expect(paths.Grep[1]).toBe('/abs/workflows')
+  })
 })
 
 describe('write-spec continuation', () => {
