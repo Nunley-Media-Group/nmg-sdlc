@@ -2149,9 +2149,14 @@ describe('a finished worker\'s exited background commands (#574)', () => {
     const source = fs.readFileSync(path.join(packageRoot, 'hooks/register.ts'), 'utf8');
     expect(source).toMatch(/on\('classic\.SubagentStop', async \(\$, e, next\) => \{\n\s+await reconcileWorker\(\$, e\.agent_id, e\.background_tasks\)\n\s+return next\(e\)/);
     // The main loop's stop reconciles before the headless hold decides the outcome, which reconciliation never changes.
-    expect(source).toMatch(/on\('classic\.Stop', async \(\$, e, next\) => \{\n\s+for \(const agentId of \[\.\.\.workers\.keys\(\)\]\) await reconcileWorker\(\$, agentId, e\.background_tasks\)\n\s+const hold = await headlessHoldNotice\(\$\)\n\s+return hold === null \? next\(e\) : \{ block: hold \}/);
+    expect(source).toMatch(/on\('classic\.Stop', async \(\$, e, next\) => \{\n\s+await reconcileSettledWorkers\(\$, e\.background_tasks\)\n\s+const hold = await headlessHoldNotice\(\$\)\n\s+return hold === null \? next\(e\) : \{ block: hold \}/);
     expect(source.match(/on\('classic\.Stop'/g)).toHaveLength(1);
-    expect(source).toContain('reconcileBackground(record, inFlight, at)');
+    // The main loop's stop reconciles only settled workers, all at once, keeping commands started after its list.
+    expect(source).toMatch(/if \(since !== undefined && !SETTLED_AGENT_STATUSES\.includes\(record\.status\)\) return/);
+    expect(source).toContain('reconcileBackground(record, inFlight, await $.clock.now(), since)');
+    expect(source).toContain('Promise.all([...workers.keys()].map((agentId) => reconcileWorker($, agentId, inFlight, since)))');
+    // An unchanged or missing record is never written.
+    expect(source).toContain('if (reconciled !== record) await writeJsonFile($, path, reconciled)');
     expect(source).not.toMatch(/from 'node:/);
   });
 
@@ -2171,6 +2176,10 @@ describe('a finished worker\'s exited background commands (#574)', () => {
     expect(reconcileBackground(record, [{ id: 'task-1' }, { id: 'task-2' }], 5)).toBe(record);
     expect(reconcileBackground(record, undefined, 5)).toBe(record);
     expect(reconcileBackground(record, [{ id: 'task-2' }], 5)).toEqual({ ...record, background: [{ taskId: 'task-2' }], updatedAt: 5 });
+    // A command started at or after the list was taken is still running, though the list cannot name it.
+    const late = { ...record, background: [{ taskId: 'task-1', startedAt: 3 }, { taskId: 'task-2', startedAt: 7 }] };
+    expect(reconcileBackground(late, [], 9, 7)).toEqual({ ...late, background: [{ taskId: 'task-2', startedAt: 7 }], updatedAt: 9 });
+    expect(reconcileBackground(late, [], 9, 3)).toBe(late);
   });
 });
 
