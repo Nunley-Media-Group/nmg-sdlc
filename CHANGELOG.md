@@ -12,6 +12,12 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.22.8] - 2026-11-25
+
+### Fixed
+
+- `publish-approved-spec.mjs prepare` creates the returned `specDir` before it returns, so the directory exists when `prepare` succeeds on a new spec worktree, and the write-spec workflow states that (#619)
+
 ## [4.22.7] - 2026-11-25
 
 ### Fixed
