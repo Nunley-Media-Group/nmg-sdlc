@@ -51,27 +51,29 @@ tmux new-session -d -s nmg-smoke-<head8> -x 220 -y 60 -c <clone> 'claude --plugi
 
 Accept the workspace trust dialog. Then:
 
-- Send `/sdlc-draft-issue <need>` with `tmux send-keys -t nmg-smoke-<head8> '<text>' Enter`.
-- Poll `tmux capture-pane -p -t nmg-smoke-<head8>` every 10–30 s, and answer each dialog with `tmux send-keys` as the person would.
+- Capture the draft transcript as step 6 describes: empty `.nmg-sdlc/smoke/surfaces/draft-issue.log` with `: > .nmg-sdlc/smoke/surfaces/draft-issue.log`, type `/sdlc-draft-issue <need>` with `tmux send-keys -t nmg-smoke-<head8> '/sdlc-draft-issue <need>'` without `Enter`, append a capture with `tmux capture-pane -p -J -S - -t nmg-smoke-<head8> >> .nmg-sdlc/smoke/surfaces/draft-issue.log`, then send `Enter` with `tmux send-keys -t nmg-smoke-<head8> Enter`.
+- Poll every 10–30 s by appending the pane to `.nmg-sdlc/smoke/surfaces/draft-issue.log` with the same capture, and answer each dialog with `tmux send-keys` as the person would.
 - Approve a plan that delivers the need as one small issue in the smoke repository, and reject a plan that does anything else. Answer each question with the option that keeps the work one small issue in the smoke repository.
 - Draft ends when the session is idle and `gh issue list -R Nunley-Media-Group/nmg-sdlc-smoke --author @me` shows exactly one new issue N. Write `.nmg-sdlc/smoke/provisioned.json` as soon as N exists, so a retry reuses N.
 - When `draft-issue` is selected, write its surface record (step 6) with `"issue": N`.
 
 ## 5. Specify
 
-In the same session, send `/sdlc-write-spec #N` and answer its gates the same way. Choose `Finished — stop writing specs` when it offers another issue. Specify ends when N carries `spec-created` and its `docs: approve spec for #N` PR is merged. When `write-spec` is selected, write its surface record (step 6) with `"issue": N`; the gate also checks that N's spec is published.
+In the same session, capture the specify transcript as step 6 describes for `write-spec`: empty `.nmg-sdlc/smoke/surfaces/write-spec.log`, type `/sdlc-write-spec #N` without `Enter`, append a capture, then send `Enter`. Answer its gates the same way, appending the pane to the log at every poll. Choose `Finished — stop writing specs` when it offers another issue. Specify ends when N carries `spec-created` and its `docs: approve spec for #N` PR is merged. When `write-spec` is selected, write its surface record (step 6) with `"issue": N`; the gate also checks that N's spec is published.
 
 ## 6. Exercise surfaces
 
 For each selected interactive surface, drive its real command live in an interactive `claude --plugin-dir <project root>` session inside a detached tmux session against a fresh clone of `Nunley-Media-Group/nmg-sdlc-smoke`, as in step 4: `/sdlc-draft-issue` (`draft-issue`), `/sdlc-write-spec #N` (`write-spec`), `/sdlc-onboard-project` (`onboard-project`), `/sdlc-upgrade-project` (`upgrade-project`), `/sdlc-steering` (`steering`) and `/sdlc-run-retro` (`run-retro`). Answer each dialog and approve the plan yourself, keeping the work small and inside the smoke clone. Steps 4 and 5 exercise `draft-issue` and `write-spec`.
 
-When the command finishes, save the pane transcript under `<project root>` with `tmux capture-pane -p -S - -t <session> > .nmg-sdlc/smoke/surfaces/<surface>.log`, then write `.nmg-sdlc/smoke/surfaces/<surface>.json`:
+Save each surface's transcript over the whole session, not as one final screen: an interactive session redraws in place, so the pane history keeps only the last screen. Under `<project root>`, before the surface's command is sent, empty its log with `: > .nmg-sdlc/smoke/surfaces/<surface>.log`. Type the command with `tmux send-keys -t <session> '<text>'` without `Enter`. After the command is typed and before `Enter` is sent, append a capture of the pane with `tmux capture-pane -p -J -S - -t <session> >> .nmg-sdlc/smoke/surfaces/<surface>.log`, then send `Enter`. Append the same capture at every poll and once more when the command finishes. `-J` joins wrapped lines.
+
+When the command finishes, write `.nmg-sdlc/smoke/surfaces/<surface>.json`:
 
 ```json
 { "schemaVersion": 1, "repo": "Nunley-Media-Group/nmg-sdlc-smoke", "surface": "<surface>", "headSha": "<head>", "status": "passed", "command": "<the command you sent>", "transcript": ".nmg-sdlc/smoke/surfaces/<surface>.log", "issue": N }
 ```
 
-`issue` is required for `draft-issue` and `write-spec` and omitted otherwise. Write `"status": "passed"` only when the command completed its workflow; otherwise write `"failed"`. A missing, stale (another `headSha`), malformed or failed record fails the gate with `nmg-sdlc-smoke surface not exercised: <surface>`. The transcript must be a non-empty regular file under `.nmg-sdlc/smoke/surfaces/`.
+`issue` is required for `draft-issue` and `write-spec` and omitted otherwise. Write `"status": "passed"` only when the command completed its workflow; otherwise write `"failed"`. A missing, stale (another `headSha`), malformed or failed record fails the gate with `nmg-sdlc-smoke surface not exercised: <surface>`. The transcript must be a non-empty regular file under `.nmg-sdlc/smoke/surfaces/`, and it must contain the record's `command` with whitespace ignored, because a long command wraps over several pane lines. A transcript without the sent command fails the gate with `nmg-sdlc-smoke surface not exercised: <surface>`.
 
 ## 7. Clean up
 
