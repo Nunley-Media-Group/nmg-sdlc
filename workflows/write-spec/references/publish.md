@@ -84,7 +84,7 @@ The spec branch lives in its own git worktree beside the primary checkout (`<pri
 }
 ```
 
-Write the four spec files in `specDir`. Empty default branch fails `default_branch_unreadable`; other failures are `worktree_create_failed`, `worktree_setup_failed`, and `worktree_path_occupied` (a directory that is not this branch's worktree is in the way; report it, never delete it).
+`prepare` creates `specDir`, so `specDir` exists after `prepare` succeeds. Write the four spec files in `specDir`. Empty default branch fails `default_branch_unreadable`; other failures are `worktree_create_failed`, `worktree_setup_failed`, and `worktree_path_occupied` (a directory that is not this branch's worktree is in the way; report it, never delete it).
 
 ## Commit and push
 

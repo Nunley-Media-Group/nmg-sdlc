@@ -662,6 +662,70 @@ describe('publish-approved-spec', () => {
     expect(git(root, ['worktree', 'list', '--porcelain']).match(/^worktree /gm)).toHaveLength(2);
   });
 
+  describe('spec directory after prepare (#619)', () => {
+    const SPEC_FILES = ['requirements.md', 'design.md', 'tasks.md', 'feature.gherkin'];
+
+    it('@SCN001 prepare creates the spec directory', () => {
+      const { root, env } = makeRepo();
+
+      const result = run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env);
+
+      expect(result.status).toBe(0);
+      const output = parse(result);
+      expect(output).toEqual({
+        ok: true,
+        branch: 'spec/42-add-x',
+        worktree: expect.any(String),
+        specDir: path.join(output.worktree, 'specs', '42-add-x'),
+        created: true,
+      });
+      expect(fs.statSync(output.specDir).isDirectory()).toBe(true);
+    });
+
+    it('@SCN002 reuse leaves existing spec files untouched', () => {
+      const { root, env } = makeRepo();
+      const worktree = prepareSpec(root, env);
+      const specDir = path.join(worktree, 'specs', '42-add-x');
+      writeApproved(specDir, 42);
+      const recorded = Object.fromEntries(
+        SPEC_FILES.map((name) => [name, fs.readFileSync(path.join(specDir, name), 'utf8')]),
+      );
+
+      const again = run(root, ['prepare', '--issue', '42', '--name', '42-add-x'], env);
+
+      expect(again.status).toBe(0);
+      expect(parse(again)).toEqual({
+        ok: true,
+        branch: 'spec/42-add-x',
+        worktree,
+        specDir,
+        created: false,
+      });
+      for (const name of SPEC_FILES) {
+        expect(fs.readFileSync(path.join(specDir, name), 'utf8')).toBe(recorded[name]);
+      }
+    });
+
+    describe('@SCN003 the workflow states that specDir exists', () => {
+      const WORKFLOW = 'workflows/write-spec/WORKFLOW.md';
+      const PUBLISH = 'workflows/write-spec/references/publish.md';
+      const STATEMENT = '`specDir` exists after `prepare` succeeds';
+      // The prepare description of each file: the Approval Behavior step 1 line, or the Prepare section.
+      const prepareDescription = {
+        [WORKFLOW]: (text) => text.split('\n').filter((line) => line.includes('prepare --issue N --name {N}-{slug}')),
+        [PUBLISH]: (text) => [text.slice(text.indexOf('## Prepare'), text.indexOf('## Commit and push'))],
+      };
+
+      it.each([[WORKFLOW], [PUBLISH]])('%s states that specDir exists after prepare succeeds', (file) => {
+        const text = fs.readFileSync(path.join(path.dirname(SCRIPT), '..', file), 'utf8');
+        const description = prepareDescription[file](text);
+
+        expect(description.length).toBeGreaterThan(0);
+        expect(description.join('\n')).toContain(STATEMENT);
+      });
+    });
+  });
+
   it('a dirty primary checkout publishes end to end and keeps its branch, HEAD, and status', () => {
     const { root, remote, env } = makeRepo();
     fs.writeFileSync(path.join(root, 'README.md'), 'uncommitted\n');

@@ -7,7 +7,7 @@
  * JSON stdout. Never force-push. Never git add -A. Spec PRs must not close the issue.
  */
 
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, relative, resolve } from 'node:path';
 
@@ -282,10 +282,12 @@ function prepare(argv) {
   const issueN = parseIssue(flag(argv, '--issue'));
   const name = parseName(issueN, flag(argv, '--name'));
   const tree = specWorktree(name);
+  const specDir = join(tree.path, 'specs', name);
+  mkdirSync(specDir, { recursive: true });
   ok({
     branch: tree.branch,
     worktree: tree.path,
-    specDir: join(tree.path, 'specs', name),
+    specDir,
     created: tree.created,
   });
 }
