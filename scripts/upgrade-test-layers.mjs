@@ -106,13 +106,28 @@ function tokensOf(rel) {
   return new Set([...segments, ...base.split(/[^a-z0-9]+/).filter(Boolean)]);
 }
 
-/** First matching type in vocabulary priority: bdd, integration, property, doc, then unit. */
+// A pytest-bdd import at line start, bare or qualified: `from pytest_bdd[.sub] import …` or `import pytest_bdd[.sub]`.
+const PYTEST_BDD_IMPORT_RE = /^[ \t]*(?:from[ \t]+pytest_bdd(?:\.\w+)*[ \t]+import\b|import[ \t]+pytest_bdd(?:\.\w+)*(?![\w.]))/m;
+// A scenario binding: a `scenarios(` call or an `@scenario(` decorator, bare or `pytest_bdd.`-qualified.
+const PYTEST_BDD_BINDING_RE = /(?<![\w.])(?:pytest_bdd\.)?scenarios\(|@(?:pytest_bdd\.)?scenario\(/;
+
+/** True when a Python file binds Gherkin scenarios through pytest-bdd, so pytest reports its scenario tests under it. */
+function isPytestBddBindingFile(rel, text) {
+  return path.posix.extname(rel) === '.py' && PYTEST_BDD_IMPORT_RE.test(text) && PYTEST_BDD_BINDING_RE.test(text);
+}
+
+/**
+ * First matching type in vocabulary priority: bdd (feature files, step directories, @SCN tags, feature `# File:`
+ * headers and pytest-bdd binding files), integration, property, doc, then unit.
+ */
 export function classifyTestFile(rel, text = '', featureFileRefs = new Set()) {
   const segments = rel.split('/');
+  const body = text ?? '';
   if (isFeature(rel)
     || segments.slice(0, -1).some((dir) => dir === 'steps' || dir === 'step_definitions')
-    || /@SCN\d+/.test(text ?? '')
-    || featureFileRefs.has(rel)) return 'bdd';
+    || /@SCN\d+/.test(body)
+    || featureFileRefs.has(rel)
+    || isPytestBddBindingFile(rel, body)) return 'bdd';
   const tokens = tokensOf(rel);
   for (const [type, words] of TYPE_TOKENS) {
     if ([...words].some((word) => tokens.has(word))) return type;
