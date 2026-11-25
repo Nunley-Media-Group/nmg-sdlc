@@ -1,0 +1,39 @@
+**Issue**: #621
+**Date**: 2026-11-25
+**Status**: Approved
+**Author**: Claude Code
+
+# File: scripts/__tests__/plugin-root-nested-context.test.mjs
+# Generated from: specs/621-leave-escaped-plugin-root-variables-in-double-quotes-unchanged-and-scan-command-substitutions-inside-double-quotes-as-their-own-context/requirements.md
+Feature: Leave escaped plugin-root variables in double quotes unchanged and scan command substitutions inside double quotes as their own context
+
+  @SCN001 @regression
+  Scenario: An escaped variable inside double quotes is left unchanged
+    Given the plugin root /Fast Brick/p
+    When the commands echo "\$NMG_SDLC_PLUGIN_ROOT/x" and echo "\${NMG_SDLC_PLUGIN_ROOT}/x" are materialized
+    Then each command is returned unchanged
+
+  @SCN002 @regression
+  Scenario: Inner double quotes inside a substitution stay one word
+    Given the plugin root /Fast Brick/p
+    When the command echo "$(cat "<plugin-root>/x")" is materialized
+    Then the result is echo "$(cat "/Fast Brick/p/x")"
+
+  @SCN003 @regression
+  Scenario: Inner single quotes inside a substitution keep balanced quoting
+    Given the plugin root /u/o'n/p
+    When the command echo "$(cat '<plugin-root>/x')" is materialized
+    Then the result is echo "$(cat '/u/o'\''n/p/x')"
+
+  @SCN004 @regression
+  Scenario: Unquoted operands inside a substitution follow the unquoted rules
+    Given the plugin root /Fast Brick/p
+    When the commands echo "$(cat <plugin-root>/x)" and echo "$(ls <plugin-root>/a/*.md)" are materialized
+    Then the first result is echo "$(cat "/Fast Brick/p/x")"
+    And the second result is echo "$(ls "/Fast Brick/p"/a/*.md)"
+
+  @SCN005 @regression
+  Scenario: Existing rewrites are preserved
+    Given the plugin root /Fast Brick/p
+    When single-quoted operands, glob operands, Glob and Grep paths, double-quoted and bare controller paths, and escaped quotes outside double quotes are materialized
+    Then each result equals its result before this change
