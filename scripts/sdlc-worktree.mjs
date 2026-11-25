@@ -110,11 +110,37 @@ export function runWorktreeCommand(kind, path, { run = defaultRun, env = process
   return { ran: true, ok: false, summary: `${text} exited ${response?.status ?? 'without a status'}${detail ? `: ${detail}` : ''}` };
 }
 
+/** A setup command in the form the record stores: its JSON text is the command's identity, so a change to any field changes it. */
+function normalizedCommand({ program, args, cwd, env }) {
+  return { program, args, cwd: cwd || '.', env: env ?? [] };
+}
+
+/** Runs the declared setup command in `path`; a command that ran is returned with its normalized `command`. */
+function runSetup(path, { run, env }) {
+  const result = runWorktreeCommand('setup', path, { run, env });
+  if (!result.ran) return result;
+  return { ...result, command: normalizedCommand(readManifestOptions(path).worktree.setup) };
+}
+
+/**
+ * Whether a reused issue worktree whose record shows a successful setup runs the declared setup again: a command is
+ * declared that no run recorded (`ran` not true, or no `command`), or one that differs from the recorded command. An
+ * unreadable manifest also runs it, so `runWorktreeCommand` reports the failure.
+ */
+function setupRerunNeeded(record, path) {
+  let declared;
+  try { declared = readManifestOptions(path).worktree?.setup ?? null; } catch { return true; }
+  if (!declared) return false;
+  return record.setup.ran !== true || !record.setup.command
+    || JSON.stringify(normalizedCommand(record.setup.command)) !== JSON.stringify(normalizedCommand(declared));
+}
+
 /**
  * Creates, or reuses, the worktree for `branch`. A new worktree starts from the remote branch when it exists,
  * otherwise from the freshly fetched remote default branch `base`; the invoking checkout is never switched. The
- * manifest's worktree setup command runs once per issue worktree, and again on reuse only if it has not yet succeeded;
- * a spec worktree (`spec/` branch) runs none.
+ * manifest's worktree setup command runs in a new issue worktree, and on reuse again when the recorded setup failed,
+ * ran no command while one is now declared, or ran a different command than the one now declared. A spec worktree
+ * (`spec/` branch) runs none.
  * Returns `{ path, branch, created, setup }`; throws with a `reasonCode` on failure.
  */
 export function ensureWorktree({ cwd = process.cwd(), branch, base, run = defaultRun, env = process.env, now = Date.now } = {}) {
@@ -151,9 +177,10 @@ export function ensureWorktree({ cwd = process.cwd(), branch, base, run = defaul
   }
   const record = readRecord(worktree.path);
   let setup = record?.setup ?? null;
-  if (!setup?.ok) {
-    // A spec worktree holds only the spec's Markdown files, so the project's setup is not run for it.
-    setup = branch.startsWith(SPEC_BRANCH_PREFIX) ? SPEC_SETUP_SKIPPED : runWorktreeCommand('setup', worktree.path, { run, env });
+  // A spec worktree holds only the spec's Markdown files, so the project's setup is not run for it.
+  const spec = branch.startsWith(SPEC_BRANCH_PREFIX);
+  if (!setup?.ok || (!spec && setupRerunNeeded(record, worktree.path))) {
+    setup = spec ? SPEC_SETUP_SKIPPED : runSetup(worktree.path, { run, env });
     writeRecord(worktree.path, { schemaVersion: 1, branch, createdAt: record?.createdAt ?? now(), setup });
     if (!setup.ok) throw fail('worktree_setup_failed', setup.summary);
   }

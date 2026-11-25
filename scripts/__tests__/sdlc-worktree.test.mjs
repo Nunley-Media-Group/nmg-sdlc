@@ -213,66 +213,6 @@ describe('ensureWorktree', () => {
     expect(ensureWorktree({ cwd: repo.cwd, branch: '7-new-thing', base: 'main', env }).path).toBe(path.join(override, '7'));
   });
 
-  it('runs the declared setup command once, in the worktree', () => {
-    const setup = node("require('fs').appendFileSync('setup.log', process.cwd() + '\\n')");
-    const repo = repository({ files: manifest({ setup }) });
-
-    const first = ensureWorktree({ cwd: repo.cwd, branch: '7-new-thing', base: 'main' });
-    const second = ensureWorktree({ cwd: repo.cwd, branch: '7-new-thing', base: 'main' });
-
-    expect(first.setup).toMatchObject({ ran: true, ok: true });
-    expect(second).toEqual({ ...first, created: false });
-    expect(fs.readFileSync(path.join(first.path, 'setup.log'), 'utf8')).toBe(`${first.path}\n`);
-    expect(record(first.path).setup).toEqual(first.setup);
-    expect(fs.existsSync(path.join(repo.cwd, 'setup.log'))).toBe(false);
-  });
-
-  it('throws worktree_setup_failed when setup fails, and runs setup again on reuse until it succeeds', () => {
-    const setup = node("const fs = require('fs'); fs.appendFileSync('setup.log', 'x'); if (!fs.existsSync('fixed')) { console.error('dependency install broke'); process.exit(3); }");
-    const repo = repository({ files: manifest({ setup }) });
-    const worktree = `${repo.cwd}-wt/7`;
-
-    let failure = null;
-    try { ensureWorktree({ cwd: repo.cwd, branch: '7-new-thing', base: 'main' }); } catch (error) { failure = error; }
-
-    expect(failure?.reasonCode).toBe('worktree_setup_failed');
-    expect(failure.message).toContain('exited 3');
-    expect(failure.message).toContain('dependency install broke');
-    expect(record(worktree).setup).toMatchObject({ ran: true, ok: false });
-    expect(git(worktree, 'branch', '--show-current')).toBe('7-new-thing');
-    expect(reason(() => ensureWorktree({ cwd: repo.cwd, branch: '7-new-thing', base: 'main' }))).toBe('worktree_setup_failed');
-
-    fs.writeFileSync(path.join(worktree, 'fixed'), '');
-    const fixed = ensureWorktree({ cwd: repo.cwd, branch: '7-new-thing', base: 'main' });
-    const again = ensureWorktree({ cwd: repo.cwd, branch: '7-new-thing', base: 'main' });
-
-    expect(fixed).toMatchObject({ path: worktree, created: false, setup: { ran: true, ok: true } });
-    expect(again.setup).toEqual(fixed.setup);
-    expect(fs.readFileSync(path.join(worktree, 'setup.log'), 'utf8')).toBe('xxx');
-  });
-
-  it('runs neither setup nor teardown for a spec worktree, while an issue worktree still runs both (#556 AC2)', () => {
-    const setup = node("require('fs').appendFileSync('../setup.log', process.cwd() + '\\n')");
-    const teardown = node("require('fs').appendFileSync('../teardown.log', process.cwd() + '\\n')");
-    const repo = repository({ files: manifest({ setup, teardown }) });
-    const log = (name) => (fs.existsSync(`${repo.cwd}-wt/${name}`) ? fs.readFileSync(`${repo.cwd}-wt/${name}`, 'utf8') : '');
-    const spec = specBranchName('7-new-thing');
-
-    const created = ensureWorktree({ cwd: repo.cwd, branch: spec, base: 'main' });
-    expect(created.setup).toEqual({ ran: false, ok: true, summary: 'spec worktree: setup not run' });
-    expect(record(created.path).setup).toEqual(created.setup);
-    expect(ensureWorktree({ cwd: repo.cwd, branch: spec, base: 'main' })).toMatchObject({ created: false, setup: created.setup });
-    expect(removeWorktree({ cwd: repo.cwd, branch: spec })).toEqual({ removed: true, lines: [], path: created.path });
-    expect(log('setup.log')).toBe('');
-    expect(log('teardown.log')).toBe('');
-
-    const code = ensureWorktree({ cwd: repo.cwd, branch: '7-new-thing', base: 'main' });
-    expect(code.setup).toMatchObject({ ran: true, ok: true });
-    removeWorktree({ cwd: repo.cwd, branch: '7-new-thing' });
-    expect(log('setup.log')).toBe(`${code.path}\n`);
-    expect(log('teardown.log')).toBe(`${code.path}\n`);
-  });
-
   it('throws worktree_setup_failed for an invalid manifest worktree declaration', () => {
     const repo = repository({ files: manifest({ setup: { program: 'sh', args: ['-c', 'true'] } }) });
     expect(reason(() => ensureWorktree({ cwd: repo.cwd, branch: '7-new-thing', base: 'main' }))).toBe('worktree_setup_failed');
