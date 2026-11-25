@@ -39,7 +39,7 @@ Feature: Type pytest-bdd scenario binding files as bdd in the test-layer classif
       | tests/test_helpers.py             | from pytest_bdd import given               | unit        |
       | tests/integration/test_api.py     | import requests                            | integration |
       | tests/steps/cart_steps.py         | from pytest_bdd import given               | bdd         |
-      | tests/test_tagged.py              | # @SCN001                                  | bdd         |
+      | tests/test_tagged.py              | an @-prefixed SCN tag comment              | bdd         |
       | features/cart.feature             | Feature: Cart                              | bdd         |
 
   @SCN005 @regression
