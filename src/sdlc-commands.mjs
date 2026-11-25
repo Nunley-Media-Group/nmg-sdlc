@@ -5,7 +5,7 @@ import {
 } from "./sdlc-prompt-snippets.mjs";
 import { packageRoot } from "./sdlc-workflows.mjs";
 import { materializeControllerPaths } from "../scripts/plugin-controller-path.mjs";
-import { SDLC_EFFORTS, SDLC_MODELS } from "./host-events.mjs";
+import { SDLC_EFFORTS, SDLC_MODELS, materializePluginRootCommand } from "./host-events.mjs";
 
 export { packageRoot, workflowBody } from "./sdlc-workflows.mjs";
 export { materializeControllerPaths } from "../scripts/plugin-controller-path.mjs";
@@ -48,7 +48,48 @@ export function renderInteractiveWorkflow(command, root, provenanceRoot) {
   if (typeof projectRoot === "string" && projectRoot.length > 0) {
     writePromptProvenance(projectRoot, provenance);
   }
-  return materializeControllerPaths(text, pluginRoot);
+  return materializeRenderedPluginRoot(materializeControllerPaths(text, pluginRoot), pluginRoot);
+}
+
+const PLUGIN_ROOT_PLACEHOLDER = "<plugin-root>";
+// A fenced code block: an opening run of three or more backticks (whose info
+// string holds no backtick), its body, and the matching closing fence, or the
+// end of the text when the fence is never closed.
+const FENCED_BLOCK_RE = /^ {0,3}(`{3,})[^`\n]*\n[\s\S]*?(?:^ {0,3}\1`*[ \t]*$|(?![\s\S]))/gm;
+// An inline code span on one line, or a bare placeholder in prose.
+const PROSE_PLACEHOLDER_RE = /`([^`\n]*)`|<plugin-root>/g;
+
+function materializeProseRoot(text, bareRoot) {
+  return text.replace(PROSE_PLACEHOLDER_RE, (match, span) => {
+    if (span === undefined) return bareRoot;
+    if (!span.includes(PLUGIN_ROOT_PLACEHOLDER)) return match;
+    // A span with whitespace is a command; a single path or token takes the bare root unquoted.
+    const content = /\s/.test(span)
+      ? materializePluginRootCommand(span, bareRoot)
+      : span.replaceAll(PLUGIN_ROOT_PLACEHOLDER, bareRoot);
+    return `\`${content}\``;
+  });
+}
+
+/**
+ * Substitutes the absolute plugin root for every `<plugin-root>` in rendered
+ * Markdown. Fenced code blocks and command-like inline spans pass through
+ * `materializePluginRootCommand`, so an unquoted shell operand becomes one
+ * quoted word and a glob tail stays unquoted. Prose and single-token spans take
+ * the bare root. Text without the placeholder, or without a root, is returned unchanged.
+ */
+export function materializeRenderedPluginRoot(text, root) {
+  if (typeof text !== "string" || !text.includes(PLUGIN_ROOT_PLACEHOLDER)) return text;
+  if (typeof root !== "string" || root.length === 0) return text;
+  const bareRoot = root.replace(/[\\/]+$/, "");
+  let rewritten = "";
+  let last = 0;
+  for (const block of text.matchAll(FENCED_BLOCK_RE)) {
+    rewritten += materializeProseRoot(text.slice(last, block.index), bareRoot);
+    rewritten += materializePluginRootCommand(block[0], bareRoot);
+    last = block.index + block[0].length;
+  }
+  return rewritten + materializeProseRoot(text.slice(last), bareRoot);
 }
 
 /**

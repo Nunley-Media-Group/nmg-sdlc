@@ -254,8 +254,10 @@ const WORKFLOW_SOURCE_RE = /^workflows\/([a-z0-9-]+)\/(?:WORKFLOW\.md$|reference
 /**
  * Plugin path note for one consumer: inlined workflow text names packaged files
  * relative to its own workflow directory, so the rendered prompt states where
- * those paths resolve. `<plugin-root>` is materialized by the hooks module
- * (Bash commands and Read paths) and by `${CLAUDE_PLUGIN_ROOT}` in command files.
+ * those paths resolve. Rendered interactive prompts substitute the absolute root
+ * for `<plugin-root>`. Elsewhere the hooks module materializes the literal
+ * placeholder in Bash commands, Read paths, and the `path` of Glob and Grep
+ * calls, and command files use `${CLAUDE_PLUGIN_ROOT}`.
  */
 export function pluginPathsNote(workflows) {
   const lines = [
