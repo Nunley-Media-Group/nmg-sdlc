@@ -1,0 +1,33 @@
+**Issue**: #619
+**Date**: 2026-11-24
+**Status**: Approved
+**Author**: Claude Code
+
+# File: scripts/__tests__/publish-approved-spec.test.mjs
+# Generated from: specs/619-create-the-spec-directory-in-publish-approved-spec-prepare/requirements.md
+Feature: Create the spec directory in publish-approved-spec prepare
+
+  @SCN001 @regression
+  Scenario: prepare creates the spec directory
+    Given a repository whose default branch has no "specs/42-add-x/"
+    When "prepare --issue 42 --name 42-add-x" succeeds
+    Then the returned "specDir" exists as a directory
+    And the JSON output has the fields "ok", "branch", "worktree", "specDir" and "created" with their current values
+
+  @SCN002 @regression
+  Scenario: Reuse leaves existing spec files untouched
+    Given a spec worktree for "42-add-x" whose "specDir" already holds the four spec files
+    When "prepare --issue 42 --name 42-add-x" runs again
+    Then it succeeds with the same "branch", "worktree" and "specDir" and "created" false
+    And the content of every existing spec file is unchanged
+
+  @SCN003 @regression
+  Scenario Outline: The workflow states that specDir exists
+    Given the file "<file>"
+    When its description of the "prepare" output is read
+    Then it states that "specDir" exists after "prepare" succeeds
+
+    Examples:
+      | file                                       |
+      | workflows/write-spec/WORKFLOW.md           |
+      | workflows/write-spec/references/publish.md |
