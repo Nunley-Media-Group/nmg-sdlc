@@ -1,0 +1,53 @@
+**Issue**: #618
+**Date**: 2026-11-24
+**Status**: Approved
+**Author**: Claude Code
+
+# File: scripts/__tests__/rendered-plugin-root.test.mjs
+# Generated from: specs/618-substitute-the-absolute-plugin-root-for-plugin-root-in-rendered-interactive-command-prompts/requirements.md
+Feature: Substitute the absolute plugin root for <plugin-root> in rendered interactive command prompts
+
+  @SCN001 @regression
+  Scenario Outline: Interactive prompts carry the absolute plugin root
+    Given the plugin checkout as the plugin root
+    When the "<command>" prompt is rendered
+    Then the rendered text contains no "<plugin-root>" placeholder
+    And the plugin-paths preamble names the absolute root and "<workflow>" under it
+
+    Examples:
+      | command              | workflow        |
+      | sdlc-draft-issue     | draft-issue     |
+      | sdlc-write-spec      | write-spec      |
+      | sdlc-onboard-project | onboard-project |
+      | sdlc-upgrade-project | upgrade-project |
+      | sdlc-steering        | steering        |
+      | sdlc-run-retro       | run-retro       |
+      | sdlc-execute         | execute         |
+
+  @SCN002 @regression
+  Scenario Outline: Shell operands stay one word under a root with spaces
+    Given the plugin root "/Volumes/Fast Brick/plugins/nmg-sdlc"
+    And rendered prompt text "<text>"
+    When the remaining plugin-root placeholders are substituted
+    Then the text is "<substituted>"
+
+    Examples:
+      | text                                                             | substituted                                                                               |
+      | ```\ncat <plugin-root>/references/a.md\n```                      | ```\ncat "/Volumes/Fast Brick/plugins/nmg-sdlc/references/a.md"\n```                      |
+      | ```\nls <plugin-root>/workflows/draft-issue/references/*.md\n``` | ```\nls "/Volumes/Fast Brick/plugins/nmg-sdlc"/workflows/draft-issue/references/*.md\n``` |
+      | `ls <plugin-root>/workflows/*.md`                                | `ls "/Volumes/Fast Brick/plugins/nmg-sdlc"/workflows/*.md`                                |
+      | under <plugin-root>/references/                                  | under /Volumes/Fast Brick/plugins/nmg-sdlc/references/                                    |
+
+  @SCN003 @regression
+  Scenario: Existing controller-path rendering is preserved
+    Given the plugin checkout as the plugin root
+    When the "sdlc-steering" prompt is rendered
+    Then it contains the command node "<root>/scripts/sdlc-steering.mjs" inspect --project .
+    And text that names an already-absolute controller and no placeholder is substituted unchanged
+
+  @SCN004 @regression
+  Scenario: The plugin-path note describes current hook behavior
+    Given the source of "src/sdlc-prompt-snippets.mjs"
+    When the pluginPathsNote doc comment is read
+    Then it names Glob and Grep path rewriting
+    And it no longer says "(Bash commands and Read paths)"
