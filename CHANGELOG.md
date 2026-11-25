@@ -12,6 +12,10 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Rendered interactive command prompts name packaged plugin files by the absolute plugin root instead of the `<plugin-root>` placeholder, and a substituted shell operand is quoted so a root with spaces stays one word (#618)
+
 ## [4.22.6] - 2026-11-25
 
 ### Fixed
