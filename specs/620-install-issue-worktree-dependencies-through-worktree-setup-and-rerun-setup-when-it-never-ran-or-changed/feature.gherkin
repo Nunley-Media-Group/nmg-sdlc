@@ -1,0 +1,57 @@
+**Issue**: #620
+**Date**: 2026-11-25
+**Status**: Approved
+**Author**: Claude Code
+
+# File: scripts/__tests__/sdlc-worktree.test.mjs
+# Generated from: specs/620-install-issue-worktree-dependencies-through-worktree-setup-and-rerun-setup-when-it-never-ran-or-changed/requirements.md
+Feature: Install issue worktree dependencies through worktree setup and rerun setup when it never ran or changed
+
+  @SCN001 @regression
+  Scenario: This repository declares a dependency-installing setup
+    Given this repository's "steering/manifest.json"
+    When its optional settings are read and validated
+    Then "worktree.setup" is the command "npm" with args "ci" and cwd "scripts"
+    And validation does not fail
+
+  @SCN002 @regression
+  Scenario: A never-run setup runs on reuse
+    Given an issue worktree created while no setup command was declared
+    And its record shows setup succeeded without running a command
+    And the worktree's manifest now declares a setup command
+    When the worktree is reused
+    Then the declared setup command runs once in the worktree
+    And the record stores the result and the command that ran
+
+  @SCN003 @regression
+  Scenario: A changed setup command runs on reuse
+    Given an issue worktree whose record shows a successful run of setup command A
+    And the worktree's manifest now declares setup command B
+    When the worktree is reused
+    Then setup command B runs once
+    And the record stores command B
+
+  @SCN004 @regression
+  Scenario: An unchanged successful setup is not repeated
+    Given an issue worktree whose record shows a successful run of the declared setup command
+    When the worktree is reused with the same declaration
+    Then setup does not run again
+    And the record is unchanged
+
+  @SCN005 @regression
+  Scenario: Existing setup behavior is preserved
+    Given a project that declares setup and teardown commands
+    When a "spec/7-new-thing" worktree is created, reused and removed
+    Then neither setup nor teardown runs for it
+    And a failing setup on an issue worktree fails with "worktree_setup_failed" and runs again on the next reuse
+
+  @SCN006 @regression
+  Scenario Outline: The documentation describes when setup reruns
+    Given the file "<file>"
+    When its description of the worktree setup command is read
+    Then it contains "On a reused issue worktree, setup runs again when the recorded setup failed, ran no command while one is now declared, or ran a different command than the one now declared."
+
+    Examples:
+      | file                          |
+      | references/steering-schema.md |
+      | README.md                     |
