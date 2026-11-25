@@ -12,6 +12,12 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.22.5] - 2026-11-25
+
+### Fixed
+
+- A Python test file that imports `pytest_bdd` and binds scenarios with `scenarios(...)` or `@scenario(...)` is typed `bdd` before the path-token rules, so the test-layer inventory, candidates, batches and report no longer count its scenario tests as `unit`, `integration`, `property` or `doc` (#623)
+
 ## [4.22.4] - 2026-11-23
 
 ### Fixed
