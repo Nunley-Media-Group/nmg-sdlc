@@ -107,6 +107,15 @@
       ]
     }
   ],
+  "worktree": {
+    "setup": {
+      "program": "npm",
+      "args": [
+        "ci"
+      ],
+      "cwd": "scripts"
+    }
+  },
   "validations": [
     {
       "id": "repository.tests",

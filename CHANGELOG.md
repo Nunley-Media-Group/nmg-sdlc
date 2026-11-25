@@ -12,6 +12,12 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.22.9] - 2026-11-25
+
+### Fixed
+
+- A reused issue worktree reruns the declared worktree `setup` command when its recorded setup never ran a command or ran a different one, and this repository declares `npm ci` in `scripts`, so `repository.tests` finds Jest in a new issue worktree (#620)
+
 ## [4.22.8] - 2026-11-25
 
 ### Fixed
