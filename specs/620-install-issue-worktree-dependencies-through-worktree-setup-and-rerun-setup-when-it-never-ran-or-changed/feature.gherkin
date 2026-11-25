@@ -3,7 +3,7 @@
 **Status**: Approved
 **Author**: Claude Code
 
-# File: scripts/__tests__/sdlc-worktree.test.mjs
+# File: scripts/__tests__/worktree-setup-rerun.test.mjs
 # Generated from: specs/620-install-issue-worktree-dependencies-through-worktree-setup-and-rerun-setup-when-it-never-ran-or-changed/requirements.md
 Feature: Install issue worktree dependencies through worktree setup and rerun setup when it never ran or changed
 

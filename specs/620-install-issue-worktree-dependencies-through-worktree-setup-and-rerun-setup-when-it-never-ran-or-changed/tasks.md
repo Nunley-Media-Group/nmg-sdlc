@@ -41,20 +41,20 @@
 
 ### T004: Implement the Regression Scenarios
 
-**File(s)**: `scripts/__tests__/sdlc-worktree.test.mjs`
-**Type**: Modify
+**File(s)**: `scripts/__tests__/worktree-setup-rerun.test.mjs`, `scripts/__tests__/sdlc-worktree.test.mjs`
+**Type**: Create, Modify
 **Depends**: T001, T002, T003
 **Acceptance**:
-- Each `@SCN` tag is cited in a describe or test title. Fixtures use the file's existing `repository`, `manifest`, `node`, and `record` helpers, and change the declared command by rewriting `steering/manifest.json` inside the worktree.
+- Each `@SCN` tag is cited in a describe or test title. The scenarios are implemented in the new file `scripts/__tests__/worktree-setup-rerun.test.mjs`. Fixtures follow the `repository`, `manifest`, `node`, and `record` helpers of `scripts/__tests__/sdlc-worktree.test.mjs`, and change the declared command by rewriting `steering/manifest.json` inside the worktree.
 - `@SCN001` (AC1): `readManifestOptions(<repository root>).worktree.setup` equals `{ program: 'npm', args: ['ci'], cwd: 'scripts' }` and the call does not throw.
 - `@SCN002` (AC2): a worktree created with no declared command records `{ ran: false, ok: true }`. After a setup command that appends to `setup.log` is declared in the worktree's manifest, `ensureWorktree` returns `created: false` with `setup` matching `{ ran: true, ok: true }` and a `command` whose `program` and `args` are the declared ones, `setup.log` has one line, and the record's `setup` equals the returned `setup`.
 - `@SCN003` (AC3): after a successful run of command A, the worktree's manifest declares command B. The next `ensureWorktree` runs B once, and the record's `setup.command.args` are B's.
 - `@SCN004` (AC4): after a successful run of a declared command, a second `ensureWorktree` with the same declaration returns the same `setup`, and `setup.log` still has one line.
 - `@SCN005` (AC5): a `spec/7-new-thing` worktree with declared setup and teardown runs neither on create, reuse, or removal and records `{ ran: false, ok: true, summary: 'spec worktree: setup not run' }`. A failing setup throws `worktree_setup_failed`, records `{ ran: true, ok: false }`, and runs again on the next reuse.
 - `@SCN006` (AC6): `references/steering-schema.md` and `README.md` each contain the sentence in AC6.
-- Existing tests in the file that these scenarios replace are removed, so no acceptance criterion is tested twice.
+- Existing tests in `scripts/__tests__/sdlc-worktree.test.mjs` that these scenarios replace are removed, so no acceptance criterion is tested twice.
 - `@SCN002` and `@SCN003` fail without T002, `@SCN001` fails without T001, and `@SCN006` fails without T003.
-- `cd scripts && npm test -- __tests__/sdlc-worktree.test.mjs` passes.
+- `cd scripts && npm test -- __tests__/worktree-setup-rerun.test.mjs __tests__/sdlc-worktree.test.mjs` passes.
 
 ## Change History
 
