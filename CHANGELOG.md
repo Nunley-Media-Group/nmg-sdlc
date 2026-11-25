@@ -12,6 +12,8 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.22.6] - 2026-11-25
+
 ### Fixed
 
 - Smoke surface transcripts now record the whole interactive session from the sent command through completion, and a surface record whose transcript lacks its sent command fails the `repository.nmg-sdlc-smoke` gate with `nmg-sdlc-smoke surface not exercised` (#605)
