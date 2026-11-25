@@ -763,9 +763,15 @@ function insideDirectory(directory, path) {
   return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
 }
 
+// Whitespace is ignored because a long command wraps over several pane lines.
+function withoutWhitespace(text) {
+  return String(text).replace(/\s+/g, "");
+}
+
 // `{ schemaVersion: 1, repo, surface, headSha, status: "passed", command, transcript, issue? }`,
 // bound to the head under verification, with a non-empty regular transcript file under the
-// surface record directory. Returns `{ record, recordPath, transcriptPath }` or `{ reason }`.
+// surface record directory that contains the record's command.
+// Returns `{ record, recordPath, transcriptPath }` or `{ reason }`.
 function readSurfaceRecord(readFile, projectRoot, surface, headSha) {
   const directory = resolve(projectRoot, SURFACE_RECORD_DIR);
   const recordPath = join(directory, `${surface}.json`);
@@ -800,6 +806,7 @@ function readSurfaceRecord(readFile, projectRoot, surface, headSha) {
   const named = relative(directory, transcriptPath).toLowerCase();
   if (transcriptPath === recordPath || named === `${surface}.json`) return { reason: "transcript names the record" };
   if (recordNames.has(named)) return { reason: "transcript names a surface record" };
+  let transcript;
   try {
     if (!insideDirectory(directory, transcriptPath)) return { reason: "transcript outside record directory" };
     const stat = lstatSync(transcriptPath);
@@ -807,8 +814,12 @@ function readSurfaceRecord(readFile, projectRoot, surface, headSha) {
     const own = lstatSync(recordPath);
     if (stat.dev === own.dev && stat.ino === own.ino) return { reason: "transcript names the record" };
     if (!insideDirectory(realDirectory, realpathSync(transcriptPath))) return { reason: "transcript outside record directory" };
+    transcript = readFile(transcriptPath, "utf8");
   } catch {
     return { reason: "transcript missing" };
+  }
+  if (!withoutWhitespace(transcript).includes(withoutWhitespace(record.command))) {
+    return { reason: "transcript lacks the sent command" };
   }
   return { record, recordPath, transcriptPath };
 }

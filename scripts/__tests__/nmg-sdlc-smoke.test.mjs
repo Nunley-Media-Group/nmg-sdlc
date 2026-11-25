@@ -1570,7 +1570,6 @@ describe('@SCN011 this repository\'s smoke runs only the selected surfaces (#584
     fs.mkdirSync(directory, { recursive: true });
     for (const [surface, overrides] of Object.entries(records)) {
       const transcript = `.nmg-sdlc/smoke/surfaces/${surface}.log`;
-      fs.writeFileSync(path.join(root, transcript), `pane transcript for ${surface}\n`);
       const command = {
         'draft-issue': '/sdlc-draft-issue add a thing',
         'write-spec': `/sdlc-write-spec #${SPEC_ISSUE}`,
@@ -1579,7 +1578,7 @@ describe('@SCN011 this repository\'s smoke runs only the selected surfaces (#584
         steering: '/sdlc-steering',
         'run-retro': '/sdlc-run-retro',
       }[surface];
-      fs.writeFileSync(path.join(directory, `${surface}.json`), JSON.stringify({
+      const record = {
         schemaVersion: 1,
         repo: 'Nunley-Media-Group/nmg-sdlc-smoke',
         surface,
@@ -1589,7 +1588,10 @@ describe('@SCN011 this repository\'s smoke runs only the selected surfaces (#584
         transcript,
         ...(['draft-issue', 'write-spec'].includes(surface) ? { issue: SPEC_ISSUE } : {}),
         ...overrides,
-      }));
+      };
+      // A saved transcript holds the session output with the final command the record names.
+      fs.writeFileSync(path.join(root, transcript), `pane transcript for ${surface}\n${record.command}\n`);
+      fs.writeFileSync(path.join(directory, `${surface}.json`), JSON.stringify(record));
     }
     return root;
   }
@@ -1909,5 +1911,48 @@ describe('@SCN011 this repository\'s smoke runs only the selected surfaces (#584
       expect(deliveries(calls)).toHaveLength(1);
       onlySmokePrograms(calls);
     }
+  });
+
+  describe('#605 @SCN002 a transcript without the sent command fails the surface', () => {
+    it('fails a passed steering record whose transcript lacks its command', async () => {
+      const { provider, request, root } = scoped(['steering'], { records: { steering: {} } });
+      fs.writeFileSync(path.join(root, '.nmg-sdlc', 'smoke', 'surfaces', 'steering.log'), 'pane transcript for steering\n');
+
+      const outcome = await provider(request);
+
+      expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke surface not exercised: steering' });
+      expect(outcome.evidence.map((item) => item.summary)).toEqual(['steering: transcript lacks the sent command']);
+    });
+  });
+
+  describe('#605 @SCN003 a complete transcript still passes', () => {
+    it('passes a draft-issue record whose transcript holds the command wrapped across lines, and names the transcript', async () => {
+      const { provider, request, root } = scoped(['draft-issue'], { records: { 'draft-issue': {} } });
+      const transcript = path.join(root, '.nmg-sdlc', 'smoke', 'surfaces', 'draft-issue.log');
+      fs.writeFileSync(transcript, '> /sdlc-draft-issue add a\n  thing\n');
+
+      const outcome = await provider(request);
+
+      expect(outcome.status).toBe('passed');
+      expect(outcome.summary).toBe('nmg-sdlc-smoke exercised draft-issue');
+      const entry = outcome.evidence.find((item) => item.kind === 'surface' && item.summary.startsWith('draft-issue exercised'));
+      expect(entry).toBeDefined();
+      expect(entry.summary).toContain(`transcript ${transcript}`);
+      expect(entry.artifact).toBe(transcript);
+    });
+  });
+});
+
+describe('#605 @SCN001 saved transcripts cover the whole session', () => {
+  const snippet = fs.readFileSync(path.join(SOURCE_ROOT, 'steering/snippets/project-smoke.md'), 'utf8');
+
+  it('empties each log before its command is sent, appends captures from the typed command through completion, and never overwrites the log', () => {
+    expect(snippet).toContain(': > .nmg-sdlc/smoke/surfaces/<surface>.log');
+    expect(snippet.indexOf(': > .nmg-sdlc/smoke/surfaces/<surface>.log'))
+      .toBeLessThan(snippet.indexOf('Type the command with `tmux send-keys -t <session>'));
+    expect(snippet).toContain('tmux capture-pane -p -J -S - -t <session> >> .nmg-sdlc/smoke/surfaces/<surface>.log');
+    expect(snippet).toContain('After the command is typed and before `Enter` is sent, append a capture of the pane with `tmux capture-pane -p -J -S - -t <session> >> .nmg-sdlc/smoke/surfaces/<surface>.log`');
+    expect(snippet).toContain('Append the same capture at every poll and once more when the command finishes.');
+    expect(snippet).not.toContain('tmux capture-pane -p -S - -t <session> > .nmg-sdlc/smoke/surfaces/<surface>.log');
   });
 });
