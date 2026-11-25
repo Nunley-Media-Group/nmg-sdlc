@@ -1,0 +1,52 @@
+**Issue**: #623
+**Date**: 2026-11-25
+**Status**: Approved
+**Author**: Claude Code
+**Related Spec**: specs/572-add-an-sdlc-upgrade-project-item-that-migrates-non-kept-test-layers-into-bdd-scenarios-under-a-coverage-guarantee/
+
+# File: scripts/__tests__/pytest-bdd-binding.test.mjs
+# Generated from: specs/623-type-pytest-bdd-scenario-binding-files-as-bdd-in-the-test-layer-classifier/requirements.md
+Feature: Type pytest-bdd scenario binding files as bdd in the test-layer classifier
+
+  @SCN001 @regression
+  Scenario: A scenarios() binding file is typed bdd
+    Given "tests/features/test_cart_bdd.py" imports pytest_bdd and calls scenarios("cart.feature")
+    When the file is classified
+    Then its type is "bdd"
+
+  @SCN002 @regression
+  Scenario: An @scenario binding file is typed bdd
+    Given "tests/features/test_cart_bdd.py" imports pytest_bdd and decorates a test with @scenario("cart.feature", "add item")
+    When the file is classified
+    Then its type is "bdd"
+
+  @SCN003 @regression
+  Scenario: A binding file under a contract path is typed bdd, not doc
+    Given "tests/features/test_contract_rules_bdd.py" imports pytest_bdd and calls scenarios("contract_rules.feature")
+    When the file is classified
+    Then its type is "bdd"
+
+  @SCN004 @regression
+  Scenario Outline: Files that do not bind pytest-bdd scenarios keep their type
+    Given the test file "<path>" with content "<content>"
+    When the file is classified
+    Then its type is "<type>"
+
+    Examples:
+      | path                              | content                                    | type        |
+      | tests/test_cart.py                | def test_add(): pass                       | unit        |
+      | tests/contract/test_rules.py      | def test_rule(): pass                      | doc         |
+      | tests/test_helpers.py             | from pytest_bdd import given               | unit        |
+      | tests/integration/test_api.py     | import requests                            | integration |
+      | tests/steps/cart_steps.py         | from pytest_bdd import given               | bdd         |
+      | tests/test_tagged.py              | # @SCN001                                  | bdd         |
+      | features/cart.feature             | Feature: Cart                              | bdd         |
+
+  @SCN005 @regression
+  Scenario: Tests reported under a binding file count as kept BDD
+    Given a project whose kept layer is bdd
+    And per-test coverage reports tests under the binding file "test/features/test_cart_bdd.py"
+    And a unit test whose coverage is a subset of one of those binding tests
+    When test-layers candidates are computed
+    Then no test of the binding file appears as a duplicate or convert candidate or as unmatched
+    And the unit test is a duplicate candidate covered by that binding test
