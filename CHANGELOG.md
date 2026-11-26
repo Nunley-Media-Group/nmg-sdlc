@@ -12,6 +12,10 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Plugin-root rewriting leaves an escaped `$NMG_SDLC_PLUGIN_ROOT` or `${NMG_SDLC_PLUGIN_ROOT}` inside double quotes unchanged, and a command substitution inside double quotes is scanned as its own context, so a placeholder inside it keeps the quoting rule of its own context and stays one word (#621)
+
 ## [4.22.9] - 2026-11-25
 
 ### Fixed
