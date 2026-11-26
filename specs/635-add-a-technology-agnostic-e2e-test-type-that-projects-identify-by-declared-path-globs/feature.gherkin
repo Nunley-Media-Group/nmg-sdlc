@@ -1,0 +1,90 @@
+**Issue**: #635
+**Date**: 2026-11-25
+**Status**: Approved
+**Author**: Claude Code
+**Related Spec**: specs/571-make-bdd-scenarios-the-single-acceptance-test-layer-with-a-kept-test-types-steering-setting/
+
+# File: scripts/__tests__/e2e-test-type.test.mjs
+# Generated from: specs/635-add-a-technology-agnostic-e2e-test-type-that-projects-identify-by-declared-path-globs/requirements.md
+Feature: Add a technology-agnostic e2e test type that projects identify by declared path globs
+
+  @SCN001
+  Scenario: e2e is a valid kept type
+    Given "steering/test-layers.json" keeps "e2e" and "bdd"
+    When the file is loaded and the kept-types rule is rendered
+    Then the normalized kept set is "bdd, e2e"
+    And the rule describes "e2e" as automated tests that drive the running app or UI through a device, emulator, simulator or browser
+
+  @SCN002
+  Scenario: Declared globs classify files regardless of stack
+    Given "steering/test-layers.json" declares the e2e glob "mobile/integration_test/**"
+    And the project has "mobile/integration_test/offline_banner_test.dart" and "mobile/integration_test/robots/home_robot.dart"
+    When the test inventory is built
+    Then both files are in the inventory with type "e2e"
+    And a file under that glob that cites a scenario tag is also typed "e2e"
+
+  @SCN003
+  Scenario: Undeclared files keep their classification and a two-type match is rejected
+    Given "steering/test-layers.json" declares globs for "e2e" only
+    When these files that match no declared glob are classified
+      | path                               | type        |
+      | test/e2e/login.test.js             | e2e         |
+      | test/integration/api.test.js       | integration |
+      | test/component/button.test.js      | integration |
+      | test/cart.test.js                  | unit        |
+      | test/steps/cart_steps.js           | bdd         |
+      | features/cart.feature              | bdd         |
+    Then each file has the listed type
+    And a file that matches a glob of "e2e" and a glob of "unit" is rejected with "test_layers_invalid" naming the file and both types
+
+  @SCN004
+  Scenario: Kept e2e tests are never migration candidates or check violations
+    Given a project that keeps "bdd" and "e2e"
+    And the e2e file "mobile/integration_test/checkout_test.dart" pairs by name with "features/checkout.feature"
+    When the upgrade detects test layers, candidates are computed and the kept-layer check runs
+    Then the detected pairs and the recorded inventory pairs do not list the e2e file
+    And none of its tests is a duplicate, convert or unmatched candidate
+    And the kept-layer check reports no violation
+
+  @SCN005
+  Scenario: An e2e test that cites a scenario counts as that scenario's implementation
+    Given a kept e2e test file under a declared e2e glob that cites a scenario tag
+    When the file is classified, the migration gate computes kept-type coverage and the verify report format is read
+    Then the file's type is "e2e"
+    And the gate accepts removing a test whose lines, branches and outcomes only that e2e test covers
+    And the verify report lists a kept e2e test citing a scenario tag as that AC's implementation
+
+  @SCN006
+  Scenario: Write-spec and implement workers may use an e2e test
+    Given a project that keeps "bdd" and "e2e" and declares the e2e glob "cypress/**"
+    When the kept-types rule is rendered and an implement handoff justifies a test of type "e2e"
+    Then the rule states that an e2e test citing a scenario tag is that scenario's implementation
+    And the rule lists the glob "cypress/**" for "e2e"
+    And the handoff is accepted
+
+  @SCN007
+  Scenario Outline: Invalid paths declarations fail closed
+    Given "steering/test-layers.json" has paths <paths>
+    When the file is loaded
+    Then loading fails with "test_layers_invalid" naming the field "<field>"
+
+    Examples:
+      | paths                                   | field         |
+      | ["cypress/**"]                          | paths         |
+      | { "smoke": ["smoke/**"] }               | paths.smoke   |
+      | { "e2e": "cypress/**" }                 | paths.e2e     |
+      | { "e2e": [7] }                          | paths.e2e[0]  |
+      | { "e2e": [""] }                         | paths.e2e[0]  |
+      | { "e2e": ["/abs/cypress/**"] }          | paths.e2e[0]  |
+      | { "e2e": ["cypress/../unit/**"] }       | paths.e2e[0]  |
+      | { "e2e": ["cypress/**", "cypress/**"] } | paths.e2e[1]  |
+      | { "e2e": ["a/**"], "unit": ["a/**"] }   | paths.unit[0] |
+
+  @SCN008
+  Scenario: Upgrade proposes e2e when globs are declared
+    Given a project whose declared e2e globs match files
+    When the upgrade detects the test-layers category and the approved apply runs with kept "bdd,e2e"
+    Then the detected types report an "e2e" count
+    And the kept-types question offers "e2e" first among the non-bdd options
+    And "steering/test-layers.json" records kept "bdd, e2e" with its paths unchanged
+    And the same apply on an invalid existing file fails and leaves the file unchanged
