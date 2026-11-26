@@ -138,6 +138,8 @@ Among the test files the branch added or changed:
 - Non-kept type: `path/to/test` is a `[type]` test, which the project does not keep — [none]
 - Justified: `path/to/test` (`[type]`): [justification from the implement handoff's `justifiedTests`] — [none]
 
+A kept `e2e` test that cites a scenario's `@SCN` tag is listed in that AC's Implementation column marked `(e2e)`, and is neither a Duplicate nor a Non-kept type finding.
+
 ---
 
 ## Exercise Test Results

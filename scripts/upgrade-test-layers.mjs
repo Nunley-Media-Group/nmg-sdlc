@@ -12,7 +12,14 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { TEST_LAYER_TYPES, TEST_LAYERS_PATH, loadTestLayers, writeTestLayers } from './test-layers.mjs';
+import {
+  TEST_LAYER_TYPES,
+  TEST_LAYERS_PATH,
+  declaredTestType,
+  loadTestLayers,
+  testLayersWithKept,
+  writeTestLayers,
+} from './test-layers.mjs';
 import {
   COVERAGE_OUTPUT_ENV,
   TEST_COVERAGE_PATH,
@@ -41,7 +48,8 @@ const SOURCE_EXTENSIONS = new Set([
 ]);
 const TEST_BASENAME_RES = [/\.(test|spec)\.[^.]+$/, /_test\.[^.]+$/, /^test_.+\.[^.]+$/, /Tests?\.[^.]+$/];
 const TYPE_TOKENS = [
-  ['integration', new Set(['integration', 'component', 'e2e'])],
+  ['e2e', new Set(['e2e'])],
+  ['integration', new Set(['integration', 'component'])],
   ['property', new Set(['property', 'properties', 'fuzz'])],
   ['doc', new Set(['doc', 'docs', 'contract', 'steering'])],
 ];
@@ -117,10 +125,13 @@ function isPytestBddBindingFile(rel, text) {
 }
 
 /**
- * First matching type in vocabulary priority: bdd (feature files, step directories, @SCN tags, feature `# File:`
- * headers and pytest-bdd binding files), integration, property, doc, then unit.
+ * The type of a declared path glob (steering/test-layers.json `paths`) when one matches `rel`, otherwise the first
+ * matching built-in type in vocabulary priority: bdd (feature files, step directories, @SCN tags, feature `# File:`
+ * headers and pytest-bdd binding files), e2e (the `e2e` path token), integration, property, doc, then unit.
  */
-export function classifyTestFile(rel, text = '', featureFileRefs = new Set()) {
+export function classifyTestFile(rel, text = '', featureFileRefs = new Set(), config = undefined) {
+  const declared = declaredTestType(config, rel);
+  if (declared) return declared;
   const segments = rel.split('/');
   const body = text ?? '';
   if (isFeature(rel)
@@ -167,7 +178,9 @@ function listFiles(root) {
   return [...files].sort(byWalkOrder);
 }
 
-function scan(root) {
+// A file joins the inventory when a declared glob types it or the built-in test-path rules match it. A path matching
+// the globs of two types throws the declaredTestType diagnostic.
+function scan(root, config) {
   const all = listFiles(root);
   const refs = new Set();
   for (const rel of all) {
@@ -176,17 +189,23 @@ function scan(root) {
     for (const match of text.matchAll(FILE_HEADER_RE)) refs.add(match[1].replace(/^\.\//, ''));
   }
   const files = [];
-  for (const rel of all.filter(isTestPath)) {
+  for (const rel of all) {
+    if (!declaredTestType(config, rel) && !isTestPath(rel)) continue;
     const bytes = readBytes(root, rel);
     if (!bytes) continue;
-    files.push({ path: rel, type: classifyTestFile(rel, isFeature(rel) ? '' : bytes.toString('utf8'), refs), sha256: sha256(bytes) });
+    files.push({
+      path: rel,
+      type: classifyTestFile(rel, isFeature(rel) ? '' : bytes.toString('utf8'), refs, config),
+      sha256: sha256(bytes),
+    });
   }
   return { files, refs };
 }
 
-/** Sorted `[{ path, type, sha256 }]` for every test file under `root`. */
-export function inventoryTestFiles(root) {
-  return scan(root).files;
+/** Sorted `[{ path, type, sha256 }]` for every test file under `root`, typed with the declared globs of `config` when
+ * it is given. */
+export function inventoryTestFiles(root, config = undefined) {
+  return scan(root, config).files;
 }
 
 /** Basename without the extension and test markers, lower-cased, with `-`, `_` and case boundaries folded to `-`. */
@@ -197,16 +216,18 @@ export function normalizedStem(rel) {
   return stem.replace(/([a-z0-9])([A-Z])/g, '$1-$2').replace(/[-_.\s]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
 }
 
-/** Each non-bdd test file whose normalized stem equals a `.feature` file's, with that feature. */
-export function pairWithFeatures(inventory) {
+/** Each non-bdd test file whose normalized stem equals a `.feature` file's, with that feature. Files of a kept `e2e`
+ * type are not paired: they are never migration candidates. */
+export function pairWithFeatures(inventory, kept = ['bdd']) {
   const features = new Map();
   for (const file of inventory) {
     if (!isFeature(file.path)) continue;
     const stem = normalizedStem(file.path);
     if (stem && !features.has(stem)) features.set(stem, file.path);
   }
+  const e2eKept = kept.includes('e2e');
   return inventory
-    .filter((file) => file.type !== 'bdd' && features.has(normalizedStem(file.path)))
+    .filter((file) => file.type !== 'bdd' && !(e2eKept && file.type === 'e2e') && features.has(normalizedStem(file.path)))
     .map((file) => ({ path: file.path, type: file.type, feature: features.get(normalizedStem(file.path)) }));
 }
 
@@ -244,9 +265,28 @@ function steeringBytesDigest(hash, root, rel) {
   }
 }
 
-/** The digest-bound `test-layers:<sha256>` upgrade item, or null when the project has no test file. */
+/** The recorded steering config, or null with the diagnostic when the file is invalid. */
+function recordedLayers(root) {
+  try {
+    return { config: loadTestLayers(root).config };
+  } catch (error) {
+    return { config: undefined, configError: error.message };
+  }
+}
+
+/** The digest-bound `test-layers:<sha256>` upgrade item, or null when the project has no test file. Detection is
+ * read-only and tolerant: an invalid steering file or a declared-glob conflict is reported as `configError`, and the
+ * inventory then uses the built-in classification. */
 export function detectTestLayers(root) {
-  const inventory = inventoryTestFiles(root);
+  const recorded = recordedLayers(root);
+  let configError = recorded.configError;
+  let inventory;
+  try {
+    inventory = inventoryTestFiles(root, recorded.config);
+  } catch (error) {
+    configError ??= error.message;
+    inventory = inventoryTestFiles(root);
+  }
   if (inventory.length === 0) return null;
   const hash = createHash('sha256');
   for (const file of inventory) hash.update(`${file.path}\0${file.type}\0${file.sha256}\n`);
@@ -257,7 +297,8 @@ export function detectTestLayers(root) {
     const count = inventory.filter((file) => file.type === type).length;
     if (count) detectedTypes[type] = count;
   }
-  const kept = recordedKept(root);
+  // An invalid file or a declared-glob conflict records no usable kept set.
+  const kept = configError ? null : recordedKept(root);
   const coverageConfig = coverageConfigState(root);
   return {
     id: `test-layers:${hash.digest('hex')}`,
@@ -267,8 +308,9 @@ export function detectTestLayers(root) {
     actionable: true,
     detectedTypes,
     recordedKept: kept,
-    pairs: pairWithFeatures(inventory),
+    pairs: pairWithFeatures(inventory, kept ?? ['bdd']),
     coverageConfig,
+    ...(configError ? { configError } : {}),
   };
 }
 
@@ -303,41 +345,46 @@ function readState(root, ...parts) {
 /** Applies an approved item: records `kept` (or keeps the recorded set) and the inventory; reports a coverage gap. */
 export function applyTestLayers(root, item, kept) {
   let config;
+  let scanned;
   const updated = [];
   try {
     if (kept) {
+      // The inventory is scanned with the config that will be written, so a declared-glob conflict fails before any write.
+      const next = testLayersWithKept(root, kept);
+      scanned = scan(root, next);
       config = writeTestLayers(root, kept);
       updated.push(TEST_LAYERS_PATH);
     } else {
       const recorded = loadTestLayers(root);
       if (recorded.missing) return { id: item.id, status: 'skipped:kept_types_unrecorded' };
       config = recorded.config;
+      scanned = scan(root, config);
     }
   } catch (error) {
     return { id: item.id, status: `failed:${error.message}` };
   }
-  const { files, refs } = scan(root);
+  const { files, refs } = scanned;
   const inventory = writeState(root, ['inventory.json'], {
     version: 1,
     kept: config.kept,
     files,
     featureFileRefs: [...refs].sort(),
-    pairs: pairWithFeatures(files),
+    pairs: pairWithFeatures(files, config.kept),
   });
   const gap = coverageGap(root);
   return { id: item.id, status: 'applied', kept: config.kept, updated, inventory, ...(gap ? { gap } : {}) };
 }
 
-function typeResolver(root) {
-  const { files, refs } = scan(root);
+function typeResolver(root, layers) {
+  const { files, refs } = scan(root, layers);
   const byPath = new Map(files.map((file) => [file.path, file.type]));
   return (rel) => byPath.get(rel)
-    ?? classifyTestFile(rel, isFeature(rel) ? '' : readBytes(root, rel)?.toString('utf8') ?? '', refs);
+    ?? classifyTestFile(rel, isFeature(rel) ? '' : readBytes(root, rel)?.toString('utf8') ?? '', refs, layers);
 }
 
 /** Runs the coverage command with a fresh NMG_SDLC_COVERAGE_OUTPUT file and reads its report: the v2 file when the
  * command wrote one, otherwise its v1 stdout. Tests come back in the compact form with their file's `type`. */
-function collectCoverage(root, config) {
+function collectCoverage(root, config, layers) {
   const output = createCoverageOutput();
   try {
     const run = runCommand(root, config.coverage, { [COVERAGE_OUTPUT_ENV]: output.file });
@@ -346,7 +393,7 @@ function collectCoverage(root, config) {
     }
     try {
       const report = readCoverageRun({ outputFile: output.file, stdout: run.stdout });
-      const typeOf = typeResolver(root);
+      const typeOf = typeResolver(root, layers);
       return { tests: report.tests.map((test) => ({ ...test, type: typeOf(test.file) })) };
     } catch (error) {
       return { error: { reasonCode: 'test_layers_coverage_failed', message: String(error.message) } };
@@ -365,7 +412,7 @@ function covers(big, small) {
  * the next number above every id in `priorIds` and `usedIds` (ids already spent, such as accepted batches). */
 export function computeCandidates(inventory, kept, coverage, priorIds = new Map(), usedIds = []) {
   const keptSet = new Set(kept);
-  const pairs = new Map(pairWithFeatures(inventory).map((pair) => [pair.path, pair.feature]));
+  const pairs = new Map(pairWithFeatures(inventory, kept).map((pair) => [pair.path, pair.feature]));
   const bdd = coverage.filter((test) => test.type === 'bdd');
   const byFile = new Map();
   const unmatched = [];
@@ -535,23 +582,29 @@ function counts(tests) {
 }
 
 function preconditions(root) {
-  let kept;
+  let layers;
   try {
     const recorded = loadTestLayers(root);
     if (recorded.missing) return { refusal: { reasonCode: 'kept_types_unrecorded', path: TEST_LAYERS_PATH } };
-    kept = recorded.config.kept;
+    layers = recorded.config;
   } catch (error) {
     return { refusal: { reasonCode: 'test_layers_invalid', path: TEST_LAYERS_PATH, key: error.key, message: error.message } };
   }
   const gap = coverageGap(root);
   if (gap) return { refusal: gap };
-  return { kept, config: loadTestCoverageConfig(root).config };
+  try {
+    // A declared-glob conflict is reported here, before any suite or coverage run.
+    inventoryTestFiles(root, layers);
+  } catch (error) {
+    return { refusal: { reasonCode: 'test_layers_invalid', path: TEST_LAYERS_PATH, key: error.key, message: error.message } };
+  }
+  return { kept: layers.kept, layers, config: loadTestCoverageConfig(root).config };
 }
 
-function measure(root, config) {
+function measure(root, config, layers) {
   const suite = runCommand(root, config.suite);
   if (suite.status !== 0) return { suite, error: { reasonCode: 'test_layers_suite_failed', suiteStatus: suite.status } };
-  const coverage = collectCoverage(root, config);
+  const coverage = collectCoverage(root, config, layers);
   return { suite, ...coverage };
 }
 
@@ -592,9 +645,9 @@ function priorBatchIds(root) {
 export function testLayersCandidates(root) {
   const pre = preconditions(root);
   if (pre.refusal) return { ok: true, batches: [], unmatched: [], refused: [pre.refusal] };
-  const measured = measure(root, pre.config);
+  const measured = measure(root, pre.config, pre.layers);
   if (measured.error) return { ok: false, ...measured.error };
-  const inventory = inventoryTestFiles(root);
+  const inventory = inventoryTestFiles(root, pre.layers);
   const prior = priorBatchIds(root);
   const { batches, unmatched } = computeCandidates(inventory, pre.kept, measured.tests, prior.ids, prior.used);
   let baseline = readState(root, 'baseline.json')?.before;
@@ -630,7 +683,7 @@ export function beginTestLayersBatch(root, batchId) {
   } catch (error) {
     return { ok: false, batch: batchId, reasonCode: error.reasonCode ?? 'test_layers_snapshot_failed', message: error.message };
   }
-  const coverage = collectCoverage(root, pre.config);
+  const coverage = collectCoverage(root, pre.config, pre.layers);
   if (coverage.error) return { ok: false, batch: batchId, ...coverage.error };
   writeBeginTests(root, batchId, coverage.tests);
   // The record keeps the batch's identity only: its candidate test list grows with the suite.
@@ -686,7 +739,7 @@ export function gateTestLayersBatch(root, batchId) {
   } else {
     const before = { tests: beginTests(root, batchId, begun) };
     const suite = runCommand(root, pre.config.suite);
-    const after = suite.status === 0 ? collectCoverage(root, pre.config) : { tests: [] };
+    const after = suite.status === 0 ? collectCoverage(root, pre.config, pre.layers) : { tests: [] };
     decision = gateBatch(before, after, suite, begun.batch, pre.kept);
   }
   if (decision.status === 'refused') restore(root, begun.tree, batchId);
@@ -704,7 +757,7 @@ export function testLayersReport(root) {
   if (pre.refusal) return { ok: false, ...pre.refusal };
   const baseline = readState(root, 'baseline.json');
   if (!baseline?.before) return { ok: false, reasonCode: 'test_layers_baseline_missing', path: `${TEST_LAYERS_STATE_DIR}/baseline.json` };
-  const measured = measure(root, pre.config);
+  const measured = measure(root, pre.config, pre.layers);
   if (measured.error) return { ok: false, ...measured.error };
   const after = { ...counts(measured.tests), wallMs: measured.suite.wallMs };
   const records = batchRecordNames(root)

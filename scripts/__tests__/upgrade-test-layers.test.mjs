@@ -148,7 +148,7 @@ describe('@SCN001 operator chooses kept test types', () => {
   it('adds bdd when the answer omits it, and rejects unknown kept types with exit 2', () => {
     const root = project({ coverage: null });
     expect(apply(root, ['unit']).kept).toEqual(['bdd', 'unit']);
-    const bad = cli(root, 'apply', '--approve', item(root).id, '--kept', 'bdd,e2e');
+    const bad = cli(root, 'apply', '--approve', item(root).id, '--kept', 'bdd,smoke');
     expect(bad.status).toBe(2);
     expect(bad.stderr).toContain('test_layers_cli_invalid');
   });

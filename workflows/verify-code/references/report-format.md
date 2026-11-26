@@ -85,6 +85,8 @@ Use this Markdown structure:
 |----|----------|----------------|--------|
 | AC1 | `@SCN001` | `path/to/step-definitions-or-scenario-test` | Implemented / Missing / Failing |
 
+A kept `e2e` test that cites a scenario's `@SCN` tag is listed in that AC's Implementation column marked `(e2e)`, and is neither a Duplicate nor a Non-kept type finding. The existing table rows are unchanged.
+
 - Test-layer findings: [duplicates, non-kept types, and justified tests, or none]
 - Test execution: [Pass / Fail / Not run]
 

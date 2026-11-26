@@ -33,7 +33,7 @@ function rejection(callback) {
 // @SCN002 (AC2): the kept-test-types setting is read and validated.
 describe('@SCN002 test-layers reader', () => {
   it('accepts known kept types including bdd and orders them as the vocabulary', () => {
-    expect(TEST_LAYER_TYPES).toEqual(['bdd', 'unit', 'integration', 'property', 'doc']);
+    expect(TEST_LAYER_TYPES).toEqual(['bdd', 'e2e', 'unit', 'integration', 'property', 'doc']);
     expect(validateTestLayers({ version: 1, kept: ['unit', 'bdd'] })).toEqual({ version: 1, kept: ['bdd', 'unit'] });
     expect(validateTestLayers({ version: 1, kept: [...TEST_LAYER_TYPES].reverse() }).kept).toEqual(TEST_LAYER_TYPES);
   });
@@ -41,7 +41,7 @@ describe('@SCN002 test-layers reader', () => {
   it.each([
     [{ version: 2, kept: ['bdd'] }, 'version', 'steering/test-layers.json: version = 2: must be 1'],
     [{ version: 1, kept: ['bdd'], extra: true }, 'extra', 'steering/test-layers.json: extra = true: unknown key'],
-    [{ version: 1, kept: ['bdd', 'e2e'] }, 'kept[1]', 'steering/test-layers.json: kept[1] = "e2e": unknown test type'],
+    [{ version: 1, kept: ['bdd', 'smoke'] }, 'kept[1]', 'steering/test-layers.json: kept[1] = "smoke": unknown test type'],
     [{ version: 1, kept: ['bdd', 'bdd'] }, 'kept[1]', 'steering/test-layers.json: kept[1] = "bdd": duplicate test type'],
     [{ version: 1, kept: [] }, 'kept', 'steering/test-layers.json: kept = []: must be a non-empty array'],
     [{ version: 1, kept: ['unit'] }, 'kept', 'steering/test-layers.json: kept = ["unit"]: must include bdd'],

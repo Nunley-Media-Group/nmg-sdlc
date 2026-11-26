@@ -5,6 +5,7 @@ import path from 'node:path';
 import { TEST_LAYER_DEFAULTS, TEST_LAYERS_PATH, TestLayersError, validateTestLayers } from '../src/test-layers.mjs';
 
 export {
+  declaredTestType,
   TEST_LAYER_DEFAULTS,
   TEST_LAYER_TYPES,
   TEST_LAYERS_PATH,
@@ -41,11 +42,23 @@ export function loadTestLayers(root) {
   return { config: validateTestLayers(parsed), missing: false };
 }
 
-/** Writes `{ version: 1, kept }` (bdd always included) through the validator, refusing a symlinked target, and
- * re-validates the written file. Returns the normalized config. */
-export function writeTestLayers(root, kept) {
+/** The normalized config that writeTestLayers writes: `kept` (bdd always included) with the `paths` map of a valid
+ * existing file. An invalid existing file throws its TestLayersError, so a caller that checks first writes nothing. */
+export function testLayersWithKept(root, kept) {
   const list = Array.isArray(kept) ? kept : [kept];
-  const config = validateTestLayers({ version: 1, kept: list.includes('bdd') ? list : ['bdd', ...list] });
+  const recorded = loadTestLayers(root);
+  const paths = recorded.missing ? undefined : recorded.config.paths;
+  return validateTestLayers({
+    version: 1,
+    kept: list.includes('bdd') ? list : ['bdd', ...list],
+    ...(paths ? { paths } : {}),
+  });
+}
+
+/** Writes the config of testLayersWithKept, refusing a symlinked target, and re-validates the written file. Returns the
+ * normalized config. */
+export function writeTestLayers(root, kept) {
+  const config = testLayersWithKept(root, kept);
   const target = path.join(path.resolve(root), TEST_LAYERS_PATH);
   let stat = null;
   try {
