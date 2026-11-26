@@ -222,56 +222,150 @@ function controllerPath(root, scriptName) {
  * Rewrites plugin-root placeholders in a shell command to the installed
  * plugin's absolute path: `<plugin-root>`, `${NMG_SDLC_PLUGIN_ROOT}`, and
  * `$NMG_SDLC_PLUGIN_ROOT`. One left-to-right scan follows the quoting context.
- * Inside single or double quotes the bare path is spliced raw (a `'` in a
- * single-quoted splice becomes `'\''`). In unquoted text a
+ * Inside single quotes the bare path is spliced raw (a `'` in it becomes
+ * `'\''`). Inside double quotes it is spliced raw too, but a backslash before
+ * `$`, `"` or another backslash escapes the next character, so an escaped
+ * placeholder is left unchanged, and any other backslash is ordinary text. A
+ * `$(` inside double quotes starts a nested command context, scanned with these
+ * same rules up to its matching unquoted `)`, after which the double-quoted
+ * segment continues; a `$(` with no matching `)` before the end of the line is
+ * ordinary double-quoted text. In unquoted text a
  * `<plugin-root>/scripts/<name>.mjs` operand becomes a JSON-quoted path, and an
  * operand whose tail has glob characters keeps that tail unquoted so the shell
- * still expands it. An unquoted backslash escapes the next character, and a
- * `\"` stays inside its double-quoted segment. A quoted segment must close on
- * the same line.
+ * still expands it. An unquoted backslash escapes the next character, so a
+ * `\"` opens no quoted segment. A quoted segment must close on the same line;
+ * one that does not is copied as ordinary text, its opening quote included.
  */
 export function materializePluginRootCommand(command, root) {
   if (typeof command !== "string" || typeof root !== "string" || root.length === 0) return command;
   const token = /<plugin-root>|\$\{NMG_SDLC_PLUGIN_ROOT\}|\$NMG_SDLC_PLUGIN_ROOT\b/;
   if (!token.test(command)) return command;
   const bareRoot = String(root).replace(/[\\/]+$/, "");
-  const everyToken = new RegExp(token.source, "g");
-  const singleQuotedRoot = bareRoot.replace(/'/g, "'\\''");
-  const operand = /(<plugin-root>|\$\{NMG_SDLC_PLUGIN_ROOT\}|\$NMG_SDLC_PLUGIN_ROOT\b)(\/[^\s"'`;|&)<>\\]*)?/y;
-  const doubleQuoted = /"((?:[^"\\\r\n]|\\[^\r\n])*)"/y;
-  const singleQuoted = /'([^'\r\n]*)'/y;
-  let rewritten = "";
-  let at = 0;
-  while (at < command.length) {
+  // A segment's or substitution's result depends only on where it starts, so the maps scan each start once.
+  const scan = {
+    command,
+    bareRoot,
+    singleQuotedRoot: bareRoot.replace(/'/g, "'\\''"),
+    everyToken: new RegExp(token.source, "g"),
+    tokenAt: new RegExp(token.source, "y"),
+    operand: /(<plugin-root>|\$\{NMG_SDLC_PLUGIN_ROOT\}|\$NMG_SDLC_PLUGIN_ROOT\b)(\/[^\s"'`;|&)<>\\]*)?/y,
+    singleQuote: /'([^'\r\n]*)'/y,
+    doubleQuoted: new Map(),
+    substitutions: new Map(),
+  };
+  return scanCommand(scan, 0, command.length, false).text;
+}
+
+/** The index of the first line break at or after `from`, or the command length when none follows. */
+function lineEndAt(command, from) {
+  const lineBreak = /[\r\n]/g;
+  lineBreak.lastIndex = from;
+  const found = lineBreak.exec(command);
+  return found === null ? command.length : found.index;
+}
+
+/**
+ * Scans command text from `from` to `end` in unquoted context. A top-level scan
+ * (`nested` false) returns `{ text }` for the range. A nested scan is the body of
+ * a substitution: it returns `{ text, close }`, where `close` is the index after
+ * the unquoted `)` at depth zero that ends it, or null when `end` comes first.
+ */
+function scanCommand(scan, from, end, nested) {
+  const { command } = scan;
+  let text = "";
+  let depth = 0;
+  let at = from;
+  while (at < end) {
     const char = command[at];
     // An unquoted backslash escapes the next character, so an escaped quote opens no quoted segment.
-    if (char === "\\" && at + 1 < command.length) {
-      rewritten += command.slice(at, at + 2);
+    if (char === "\\" && at + 1 < end) {
+      text += command.slice(at, at + 2);
       at += 2;
       continue;
     }
-    const segment = char === '"' ? doubleQuoted : char === "'" ? singleQuoted : null;
-    if (segment !== null) {
-      segment.lastIndex = at;
-      const quotedSegment = segment.exec(command);
-      if (quotedSegment !== null) {
-        const spliced = char === '"' ? bareRoot : singleQuotedRoot;
-        rewritten += `${char}${quotedSegment[1].replace(everyToken, () => spliced)}${char}`;
-        at += quotedSegment[0].length;
-        continue;
-      }
+    if (nested && char === "(") depth += 1;
+    if (nested && char === ")") {
+      if (depth === 0) return { text, close: at + 1 };
+      depth -= 1;
     }
-    operand.lastIndex = at;
-    const placeholder = operand.exec(command);
+    const quoted = char === '"' ? scanDoubleQuoted(scan, at) : char === "'" ? scanSingleQuoted(scan, at) : null;
+    if (quoted !== null) {
+      text += quoted.text;
+      at = quoted.end;
+      continue;
+    }
+    scan.operand.lastIndex = at;
+    const placeholder = scan.operand.exec(command);
     if (placeholder !== null) {
-      rewritten += materializedOperand(placeholder[2] ?? "", bareRoot);
+      text += materializedOperand(placeholder[2] ?? "", scan.bareRoot);
       at += placeholder[0].length;
       continue;
     }
-    rewritten += char;
+    text += char;
     at += 1;
   }
-  return rewritten;
+  return nested ? null : { text };
+}
+
+/** The single-quoted segment opening at `start`, or null when it does not close on the same line. */
+function scanSingleQuoted(scan, start) {
+  scan.singleQuote.lastIndex = start;
+  const quoted = scan.singleQuote.exec(scan.command);
+  if (quoted === null) return null;
+  const body = quoted[1].replace(scan.everyToken, () => scan.singleQuotedRoot);
+  return { text: `'${body}'`, end: start + quoted[0].length };
+}
+
+/**
+ * The double-quoted segment opening at `start`, or null when it does not close on
+ * the same line. Placeholders are spliced raw; a `$(` starts a nested command context.
+ */
+function scanDoubleQuoted(scan, start) {
+  if (scan.doubleQuoted.has(start)) return scan.doubleQuoted.get(start);
+  const { command } = scan;
+  const lineEnd = lineEndAt(command, start);
+  let text = '"';
+  let at = start + 1;
+  let segment = null;
+  while (at < lineEnd) {
+    const char = command[at];
+    if (char === "\\" && at + 1 < lineEnd && /[$"\\]/.test(command[at + 1])) {
+      text += command.slice(at, at + 2);
+      at += 2;
+      continue;
+    }
+    if (char === '"') {
+      segment = { text: `${text}"`, end: at + 1 };
+      break;
+    }
+    if (char === "$" && command[at + 1] === "(") {
+      const substitution = scanSubstitution(scan, at + 2);
+      if (substitution !== null) {
+        text += `$(${substitution.text})`;
+        at = substitution.close;
+        continue;
+      }
+    }
+    scan.tokenAt.lastIndex = at;
+    const placeholder = scan.tokenAt.exec(command);
+    if (placeholder !== null) {
+      text += scan.bareRoot;
+      at += placeholder[0].length;
+      continue;
+    }
+    text += char;
+    at += 1;
+  }
+  scan.doubleQuoted.set(start, segment);
+  return segment;
+}
+
+/** The nested command context whose body starts at `from`, scanned to its matching `)` on the same line. */
+function scanSubstitution(scan, from) {
+  if (!scan.substitutions.has(from)) {
+    scan.substitutions.set(from, scanCommand(scan, from, lineEndAt(scan.command, from), true));
+  }
+  return scan.substitutions.get(from);
 }
 
 /** The replacement for an unquoted placeholder operand whose `/...` tail is `tail`. */
