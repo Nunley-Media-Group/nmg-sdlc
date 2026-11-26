@@ -12,6 +12,10 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+### Added
+
+- Technology-agnostic `e2e` test type: `steering/test-layers.json` may keep `e2e` and declare a `paths` map of repository-relative globs per type, so projects identify their automated app or UI tests by path (for example `mobile/integration_test/**` or `cypress/**`) without any built-in framework list; a declared glob takes precedence over the built-in rules, invalid declarations fail closed with `test_layers_invalid`, a path matching two types' globs is rejected, kept `e2e` tests are never migration candidates or check violations, and an `e2e` test that cites a scenario's `@SCN` tag counts as that scenario's implementation (#635)
+
 ## [4.22.10] - 2026-11-26
 
 ### Fixed

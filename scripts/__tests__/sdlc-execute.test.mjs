@@ -396,14 +396,14 @@ describe('@SCN002 kept test layers (steering/test-layers.json)', () => {
   it('stops with exit 2 and the diagnostic before any spawn, Git, or GitHub call on an invalid file', () => {
     const f = fixture();
     fs.mkdirSync(path.join(f.root, 'steering'), { recursive: true });
-    fs.writeFileSync(path.join(f.root, 'steering/test-layers.json'), '{"version":1,"kept":["bdd","e2e"]}\n');
+    fs.writeFileSync(path.join(f.root, 'steering/test-layers.json'), '{"version":1,"kept":["bdd","smoke"]}\n');
     const calls = [];
     const response = f.execute('', {
       run: (command, args, options) => { calls.push(command); return f.run(command, args, options); },
       host: { spawn: () => { throw new Error('spawn_called'); } },
     });
     expect(response).toEqual({ status: 2, stdout: '', stderr:
-      'steering/test-layers.json: kept[1] = "e2e": unknown test type; must be one of bdd, unit, integration, property, doc\n' });
+      'steering/test-layers.json: kept[1] = "smoke": unknown test type; must be one of bdd, e2e, unit, integration, property, doc\n' });
     expect(calls).toEqual([]);
     expect(f.state.starts).toEqual([]);
   });
@@ -426,13 +426,13 @@ describe('@SCN002 kept test layers (steering/test-layers.json)', () => {
       roots.push(`${f.root}-wt`);
       const worktree = ensureWorktree({ cwd: f.root, branch: '42-example', base: 'main' });
       git(worktree.path, 'push', '-u', 'origin', '42-example');
-      fs.writeFileSync(path.join(worktree.path, 'steering/test-layers.json'), '{"version":1,"kept":["bdd","e2e"]}\n');
+      fs.writeFileSync(path.join(worktree.path, 'steering/test-layers.json'), '{"version":1,"kept":["bdd","smoke"]}\n');
       f.state.workdir = worktree.path;
       return { status: 'passed', next: 'implement' };
     });
     const response = f.execute('#42');
     expect(response.status).not.toBe(0);
-    expect(response.stderr).toContain('test_layers_invalid: steering/test-layers.json: kept[1] = "e2e": unknown test type');
+    expect(response.stderr).toContain('test_layers_invalid: steering/test-layers.json: kept[1] = "smoke": unknown test type');
     expect(f.state.starts.map((start) => start.step)).toEqual(['start']);
   });
 });

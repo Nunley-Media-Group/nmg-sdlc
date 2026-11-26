@@ -90,7 +90,7 @@ describe('@SCN002 kept-test-types setting is read and validated', () => {
 
   it.each([
     ['{"version":2,"kept":["bdd"]}', 'steering/test-layers.json: version = 2: must be 1'],
-    ['{"version":1,"kept":["bdd","e2e"]}', 'steering/test-layers.json: kept[1] = "e2e": unknown test type'],
+    ['{"version":1,"kept":["bdd","smoke"]}', 'steering/test-layers.json: kept[1] = "smoke": unknown test type'],
     ['{"version":1,"kept":["unit"]}', 'steering/test-layers.json: kept = ["unit"]: must include bdd'],
   ])('fails the render of %s with test_layers_invalid naming the file and field', (contents, message) => {
     const root = project(contents);
@@ -104,7 +104,7 @@ describe('@SCN002 kept-test-types setting is read and validated', () => {
   });
 
   it('blocks only the four rule consumers, never another command, on an invalid file', () => {
-    const root = project('{"version":1,"kept":["bdd","e2e"]}');
+    const root = project('{"version":1,"kept":["bdd","smoke"]}');
     for (const consumer of ['sdlc-draft-issue', 'sdlc-run-retro', 'sdlc-execute']) {
       expect(renderPromptCli(['--consumer', consumer, '--project', root], { root: repoRoot }).status).toBe(0);
     }
@@ -114,7 +114,7 @@ describe('@SCN002 kept-test-types setting is read and validated', () => {
     }
     for (const consumer of RULE_CONSUMERS) {
       expect(() => defaultPromptRegistry(repoRoot, { projectRoot: root, consumer }))
-        .toThrow('steering/test-layers.json: kept[1] = "e2e": unknown test type');
+        .toThrow('steering/test-layers.json: kept[1] = "smoke": unknown test type');
     }
   });
 });
@@ -143,7 +143,7 @@ describe('@SCN003 implement workers justify any non-scenario test', () => {
 
   it.each([
     [{ path: 'a.test.mjs', type: 'bdd', justification: 'scenario' }],
-    [{ path: 'a.test.mjs', type: 'e2e', justification: 'why' }],
+    [{ path: 'a.test.mjs', type: 'smoke', justification: 'why' }],
     [{ path: 'a.test.mjs', type: 'unit', justification: '' }],
     [{ path: '', type: 'unit', justification: 'why' }],
     [{ path: 'a.test.mjs', type: 'unit', justification: 'why', extra: 1 }],

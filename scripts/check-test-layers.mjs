@@ -42,12 +42,13 @@ function loadAllowlist(root) {
 
 /** `{ ok, kept, violations }`; each violation is `{ reasonCode, path?, type?, message }`. */
 export function checkTestLayers(root) {
-  let kept;
+  let layers;
   try {
-    kept = loadTestLayers(root).config.kept;
+    layers = loadTestLayers(root).config;
   } catch (error) {
     return { ok: false, violations: [{ reasonCode: 'test_layers_invalid', path: 'steering/test-layers.json', message: error.message }] };
   }
+  const kept = layers.kept;
   const allowlist = loadAllowlist(root);
   if (allowlist.error) {
     return {
@@ -58,7 +59,14 @@ export function checkTestLayers(root) {
   }
   const keptSet = new Set(kept);
   const allowed = new Set(allowlist.files);
-  const inventory = new Map(inventoryTestFiles(root).map((file) => [file.path, file.type]));
+  let files;
+  try {
+    files = inventoryTestFiles(root, layers);
+  } catch (error) {
+    // A path that matches the declared globs of two types names the file and both types.
+    return { ok: false, kept, violations: [{ reasonCode: 'test_layers_invalid', path: 'steering/test-layers.json', message: error.message }] };
+  }
+  const inventory = new Map(files.map((file) => [file.path, file.type]));
   const violations = [];
   for (const [file, type] of inventory) {
     if (keptSet.has(type) || allowed.has(file)) continue;

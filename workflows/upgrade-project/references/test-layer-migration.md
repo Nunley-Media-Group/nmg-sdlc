@@ -6,7 +6,7 @@ All commands run from the project root and print one JSON object. Exit 0 means `
 
 ## Prerequisites
 
-- `steering/test-layers.json` records the kept set (written by `apply --approve test-layers:<digest> --kept <types>`).
+- `steering/test-layers.json` records the kept set (written by `apply --approve test-layers:<digest> --kept <types>`). It may also declare a `paths` map of repository-relative globs per type (for example `{ "e2e": ["cypress/**"] }`); `apply` preserves it. A kept `e2e` test is never a candidate, because the declared glob types it as a kept type.
 - `steering/test-coverage.json` declares the suite and per-test coverage commands as argument arrays:
 
   ```json
