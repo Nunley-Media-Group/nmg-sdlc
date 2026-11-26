@@ -51,7 +51,12 @@ function validatePaths(paths) {
       if (typeof glob !== 'string') throw new TestLayersError(field, glob, 'must be a string');
       if (glob === '') throw new TestLayersError(field, glob, 'must not be empty');
       if (glob.startsWith('/')) throw new TestLayersError(field, glob, 'must be repository-relative, not absolute');
-      if (glob.split('/').includes('..')) throw new TestLayersError(field, glob, 'must not contain a `..` segment');
+      const segments = glob.split('/');
+      if (segments.includes('..')) throw new TestLayersError(field, glob, 'must not contain a `..` segment');
+      // A leading `./`, a trailing `/` or `//` could never match a repository-relative path.
+      if (segments.some((segment) => segment === '' || segment === '.')) {
+        throw new TestLayersError(field, glob, 'must not contain an empty or `.` segment (no leading `./`, trailing `/` or `//`)');
+      }
       if (firstField.has(glob)) throw new TestLayersError(field, glob, `repeats the glob at ${firstField.get(glob)}`);
       firstField.set(glob, field);
     });

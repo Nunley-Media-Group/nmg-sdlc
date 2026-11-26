@@ -297,7 +297,8 @@ export function detectTestLayers(root) {
     const count = inventory.filter((file) => file.type === type).length;
     if (count) detectedTypes[type] = count;
   }
-  const kept = recordedKept(root);
+  // An invalid file or a declared-glob conflict records no usable kept set.
+  const kept = configError ? null : recordedKept(root);
   const coverageConfig = coverageConfigState(root);
   return {
     id: `test-layers:${hash.digest('hex')}`,

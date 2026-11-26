@@ -1,6 +1,7 @@
 // Scenario implementations for specs/635-…/feature.gherkin: the technology-agnostic e2e test type that projects
 // identify by declared path globs.
 import { afterEach, describe, expect, it } from '@jest/globals';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -41,6 +42,60 @@ function project(files) {
 }
 
 const steering = (config) => `${JSON.stringify(config, null, 2)}\n`;
+
+const upgradeScript = path.join(repoRoot, 'scripts/sdlc-upgrade.mjs');
+
+// The coverage command reads `TEST <id> lines=… outcomes=…` markers from every file under features/, cypress/ and
+// test/, so deleting a test file removes its tests.
+const MARKER_COVERAGE_SCRIPT = `import fs from 'node:fs';
+import path from 'node:path';
+const tests = [];
+const split = (value) => value.split(',').filter(Boolean);
+const visit = (dir) => {
+  if (!fs.existsSync(dir)) return;
+  for (const name of fs.readdirSync(dir).sort()) {
+    const rel = path.posix.join(dir, name);
+    if (fs.statSync(rel).isDirectory()) { visit(rel); continue; }
+    for (const m of fs.readFileSync(rel, 'utf8').matchAll(/TEST (\\S+) lines=(\\S*) outcomes=(\\S*)/g)) {
+      tests.push({ id: m[1], file: rel, lines: split(m[2]), branches: [], outcomes: split(m[3]) });
+    }
+  }
+};
+['features', 'cypress', 'test'].forEach(visit);
+process.stdout.write(JSON.stringify({ version: 1, tests }));
+`;
+
+/** A committed Git project with a kept, glob-declared e2e suite, a paired unit test, and the coverage gate config. */
+function gateProject() {
+  const root = fs.realpathSync.native(project({
+    '.gitignore': '.nmg-sdlc/\n',
+    'steering/test-layers.json': steering({ version: 1, kept: ['bdd', 'e2e'], paths: { e2e: ['cypress/**'] } }),
+    'steering/test-coverage.json': steering({
+      version: 1,
+      suite: { program: process.execPath, args: ['-e', ''] },
+      coverage: { program: process.execPath, args: ['tools/coverage.mjs'] },
+    }),
+    'tools/coverage.mjs': MARKER_COVERAGE_SCRIPT,
+    'src/cart.js': 'export const cart = [];\n',
+    'features/cart.feature': 'Feature: Cart\n  # TEST cart.feature:view lines=src/cart.js:9 outcomes=views-cart\n',
+    'cypress/cart.cy.js': '// TEST cart.e2e:add lines=src/cart.js:1 outcomes=adds-item\n',
+    'test/cart.test.js': '// TEST cart.unit:add lines=src/cart.js:1 outcomes=adds-item\n',
+  }));
+  const git = (...args) => {
+    const result = spawnSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=t', ...args], { cwd: root, encoding: 'utf8' });
+    if (result.status !== 0) throw new Error(result.stderr);
+  };
+  git('init', '-q');
+  git('add', '-A');
+  git('commit', '-q', '-m', 'fixture');
+  return root;
+}
+
+/** Runs one test-layers gate CLI subcommand of scripts/sdlc-upgrade.mjs in `root`. */
+function gateCli(root, ...args) {
+  const result = spawnSync(process.execPath, [upgradeScript, ...args, '--root', root], { cwd: root, encoding: 'utf8' });
+  return { status: result.status, out: result.stdout ? JSON.parse(result.stdout) : null, stderr: result.stderr };
+}
 
 /** A compact coverage test with its file's type, as the migration gate sees it. */
 const coverageTest = (id, file, type, lines, outcomes = []) => ({
@@ -121,6 +176,13 @@ describe('@SCN003 undeclared files keep their classification and a two-type matc
     expect(result.violations).toEqual([expect.objectContaining({ reasonCode: 'test_layers_invalid' })]);
     expect(result.violations[0].message).toContain('test/e2e/login.test.js');
     expect(result.violations[0].message).toMatch(/both e2e and unit/);
+
+    const item = detectTestLayers(root);
+    expect(item.configError).toContain('steering/test-layers.json');
+    expect(item.configError).toContain('test/e2e/login.test.js');
+    expect(item.configError).toMatch(/both e2e and unit/);
+    expect(item.recordedKept).toBeNull();
+    expect(item.detectedTypes).toEqual({ e2e: 1 });
   });
 });
 
@@ -156,6 +218,19 @@ describe('@SCN004 kept e2e tests are never migration candidates or check violati
     expect(candidates.unmatched).toEqual([]);
     expect(checkTestLayers(root)).toMatchObject({ ok: true });
   });
+
+  it('lists only the non-kept unit file through the test-layers-candidates CLI', () => {
+    const root = gateProject();
+    const { status, out } = gateCli(root, 'test-layers-candidates');
+    expect(status).toBe(0);
+    expect(out.batches).toEqual([expect.objectContaining({
+      id: 'batch-001',
+      file: 'test/cart.test.js',
+      type: 'unit',
+      tests: [{ id: 'cart.unit:add', label: 'convert', target: 'features/cart.feature' }],
+    })]);
+    expect(out.unmatched).toEqual([]);
+  });
 });
 
 // @SCN005 (AC5): an e2e test that cites a scenario counts as that scenario's implementation.
@@ -172,6 +247,17 @@ describe('@SCN005 an e2e test that cites a scenario counts as that scenario\'s i
     const result = gateBatch(before, after, { status: 0 }, { file: 'test/cart.test.js' }, ['bdd', 'e2e']);
     expect(result.status).toBe('accepted');
     expect(result.deleted).toEqual([expect.objectContaining({ id: 'cart.unit', coveredBy: ['checkout.e2e'] })]);
+  });
+
+  it('accepts the same removal through the test-layers-batch begin and gate CLI', () => {
+    const root = gateProject();
+    expect(gateCli(root, 'test-layers-candidates').status).toBe(0);
+    expect(gateCli(root, 'test-layers-batch', 'begin', '--batch', 'batch-001')).toMatchObject({ status: 0, out: { status: 'begun' } });
+    fs.rmSync(path.join(root, 'test/cart.test.js'));
+    const gate = gateCli(root, 'test-layers-batch', 'gate', '--batch', 'batch-001');
+    expect(gate.status).toBe(0);
+    expect(gate.out).toMatchObject({ ok: true, status: 'accepted' });
+    expect(gate.out.deleted).toEqual([expect.objectContaining({ id: 'cart.unit:add', coveredBy: ['cart.e2e:add'] })]);
   });
 
   it('gives the verify report format and template the e2e implementation rule', () => {
@@ -211,6 +297,9 @@ describe('@SCN007 invalid paths declarations fail closed', () => {
     [{ e2e: [''] }, 'paths.e2e[0]'],
     [{ e2e: ['/abs/cypress/**'] }, 'paths.e2e[0]'],
     [{ e2e: ['cypress/../unit/**'] }, 'paths.e2e[0]'],
+    [{ e2e: ['./cypress/**'] }, 'paths.e2e[0]'],
+    [{ e2e: ['cypress/'] }, 'paths.e2e[0]'],
+    [{ e2e: ['cypress//**'] }, 'paths.e2e[0]'],
     [{ e2e: ['cypress/**', 'cypress/**'] }, 'paths.e2e[1]'],
     [{ e2e: ['a/**'], unit: ['a/**'] }, 'paths.unit[0]'],
   ])('rejects paths %j naming the field %s', (paths, field) => {
