@@ -569,7 +569,7 @@ async function serviceRequest($: Engine, state: Bridge, request: Request): Promi
   const agentId = request.agentId ?? ''
   if (request.kind === 'append') return appendToWorker($, agentId, request.text ?? '')
   if (request.kind === 'send') return sendToWorker($, agentId, request.text ?? '')
-  return stopWorker($, agentId)
+  return stopWorker($, state.dir, agentId)
 }
 
 // Registers `execute-<entry>` with the request's model, effort and permission mode, and the stage agent's body as its
@@ -652,8 +652,10 @@ async function sendToWorker($: Engine, agentId: string, text: string): Promise<F
 
 // Stops the subagent: its further tool calls are denied from now on. The stop is confirmed unless the subagent
 // is still pending, running or waiting after TaskStop; a settled (idle) or no longer listed subagent is stopped.
-// A failed list read confirms nothing: the subagent's status is unknown.
-async function stopWorker($: Engine, agentId: string): Promise<Fields> {
+// A failed list read confirms nothing: the subagent's status is unknown. The agent record is marked stopped: a worker
+// this module spawned under its own session, or one it never saw spawn (an earlier session's, after a resume) whose
+// record the requesting session already keeps; no record is created for an unknown id.
+async function stopWorker($: Engine, requestDir: string, agentId: string): Promise<Fields> {
   stopped.add(agentId)
   try {
     await $.tool.call({ tool: 'TaskStop', task_id: agentId } as never)
@@ -662,10 +664,11 @@ async function stopWorker($: Engine, agentId: string): Promise<Fields> {
   }
   const listed = await $.agent.list().catch(() => null)
   const status = listed?.find((agent) => agent.id === agentId)?.status
-  const worker = workers.get(agentId)
-  if (worker !== undefined) {
+  const dir = workers.get(agentId)?.dir
+    ?? ((await readJsonFile<AgentRecord>($, agentPath(requestDir, agentId))) === null ? undefined : requestDir)
+  if (dir !== undefined) {
     const at = await $.clock.now()
-    await queueAgent(agentId, () => updateAgent($, worker.dir, agentId, (record) => ({
+    await queueAgent(agentId, () => updateAgent($, dir, agentId, (record) => ({
       ...record, status: status ?? record.status, stopped: true, updatedAt: at,
     })))
   }

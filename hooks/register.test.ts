@@ -741,6 +741,30 @@ describe('stage subagents', () => {
     })
   }
 
+  // #638 AC4: the hooks-level stop marks the finished worker's agent record stopped. The kit starts no subagent, so the
+  // worker's record is the one its spawn would have written in the session directory, and the list shows it running.
+  test('@SCN004 a stop of a finished stage worker sets stopped true on its agent record', async ($, on) => {
+    const world = engine(on)
+    await start($, world)
+    const root = await pluginRoot($, world)
+    await startExecute($, world, root)
+    const session = uuid(31)
+    const recordPath = `${executeDir(session)}/agent-worker-31.json`
+    world.files[recordPath] = JSON.stringify({ ...emptyAgentRecord('worker-31', 0), status: 'running' })
+    await supervise($, world, root, session)
+    world.agents['worker-31'] = 'running'
+
+    writeRequest(world, session, 1, { kind: 'stop', agentId: 'worker-31' })
+    await world.clock.advance(1_000)
+    expect(world.stops).toEqual(['worker-31'])
+    expect(response(world, session, 1)).toEqual({ schemaVersion: 1, session, n: 1, ok: true })
+    expect(JSON.parse(world.files[recordPath] ?? '{}')).toEqual(expect.objectContaining({ status: 'killed', stopped: true }))
+    // A stop of an id with no record creates none.
+    writeRequest(world, session, 2, { kind: 'stop', agentId: 'worker-unknown' })
+    await world.clock.advance(1_000)
+    expect(world.files[`${executeDir(session)}/agent-worker-unknown.json`]).toBeUndefined()
+  })
+
   test('a stop request calls TaskStop, reports the worker killed, and denies its later tool calls', async ($, on) => {
     const world = engine(on)
     await start($, world)
@@ -1214,6 +1238,80 @@ describe('write-spec Finished', () => {
     await ask($, FINISHED)
     await endTurn($, world, { isAborted: true, reason: 'aborted' })
     expect(world.prompts).toEqual([])
+  })
+})
+
+// #638 AC8 and the write-spec Continue: the toast-raising paths and the Continue reach the same outcome on a terminal
+// roster and on a Claude Desktop roster whose session reported isInteractive false; with no surface the Continue waits.
+describe('write-spec on terminal and desktop rosters (#638)', () => {
+  const DUAL = ROSTERS.filter(({ label }) => label === 'terminal' || label === 'desktop')
+
+  async function publish($: Dollar, world: World, issue: number) {
+    const root = await pluginRoot($, world)
+    world.bash.push({ command: mergeCommand(root, issue), stdout: `{"ok":true,"merged":true,"pr":${issue + 1},"issue":${issue},"dir":"specs/${issue}-slug-${issue}"}` })
+    await $.tool.call({ tool: 'Bash', command: mergeCommand(root, issue), tool_use_id: `p${issue}` } as never)
+  }
+
+  for (const roster of DUAL) {
+    test(`@SCN008 the pending-continuation notice reaches the same outcome on a ${roster.label} roster`, async ($, on) => {
+      const world = engine(on, { interactive: roster.interactive, surfaces: roster.surfaces })
+      await start($, world, roster.interactive)
+      await run($, world, 'sdlc-write-spec')
+      world.prompts.length = 0
+      world.plans.length = 0
+      await publish($, world, 430)
+      world.draft = 'my draft'
+      await endTurn($, world)
+      expect(world.plans).toEqual([])
+      expect(world.prompts).toEqual([])
+      expect(world.toasts.at(-1)).toContain('NMG SDLC: write-spec published #430;')
+    })
+
+    test(`@SCN008 the Finished exit warning reaches the same outcome on a ${roster.label} roster`, async ($, on) => {
+      const world = engine(on, { interactive: roster.interactive, surfaces: roster.surfaces })
+      await start($, world, roster.interactive)
+      await run($, world, 'sdlc-write-spec')
+      world.prompts.length = 0
+      await ask($, FINISHED)
+      await endTurn($, world)
+      await endTurn($, world)
+      expect(world.prompts).toEqual([{ text: 'write-spec Finished: call ExitPlanMode now as your only action, with no other output.' }])
+      expect(world.toasts.at(-1)).toBe('NMG SDLC: write-spec finished, but plan mode is still active; Shift+Tab exits it.')
+    })
+  }
+
+  for (const roster of DUAL) {
+    test(`@SCN001 a merged publication submits the plan-mode Continue on a ${roster.label} roster`, async ($, on) => {
+      const world = engine(on, { interactive: roster.interactive, surfaces: roster.surfaces })
+      await start($, world, roster.interactive)
+      await run($, world, 'sdlc-write-spec', '#440')
+      world.plans.length = 0
+      world.prompts.length = 0
+      await publish($, world, 440)
+      await endTurn($, world)
+      expect(world.plans).toEqual(['/plan'])
+      expect(world.prompts).toHaveLength(1)
+      expect(world.prompts[0]?.text).toContain('published[] = [{"issue":440,"slug":"slug-440"}]')
+    })
+  }
+
+  test('@SCN003 with no attached surface a merged publication keeps the Continue pending and shows the notice', async ($, on) => {
+    const world = engine(on, { interactive: true })
+    await start($, world)
+    await run($, world, 'sdlc-write-spec', '#450')
+    world.plans.length = 0
+    world.prompts.length = 0
+    await publish($, world, 450)
+    world.surfaces = []
+    await endTurn($, world)
+    expect(world.plans).toEqual([])
+    expect(world.prompts).toEqual([])
+    expect(world.toasts.at(-1)).toContain('NMG SDLC: write-spec published #450;')
+
+    world.surfaces = ['desktop']
+    await endTurn($, world)
+    expect(world.plans).toEqual(['/plan'])
+    expect(world.prompts).toHaveLength(1)
   })
 })
 
