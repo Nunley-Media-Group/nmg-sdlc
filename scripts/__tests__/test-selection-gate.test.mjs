@@ -789,7 +789,7 @@ describe('@SCN010 full-run fallbacks give providers every surface (#584 AC9)', (
   }, TIMEOUT);
 });
 
-describe('a fallback path changed only by the project version step', () => {
+describe('a fallback path changed only by the project version step (#642)', () => {
   const manifestJson = (version, extra = {}) => `${JSON.stringify({ name: 'demo', version, ...extra }, null, 2)}\n`;
   const versioned = () => project({ selection: { docPaths: ['docs/**', 'VERSION'], fallbackPaths: ['package.json', 'app.yaml'] },
     baseline: { 'VERSION': '1.0.0\n', 'package.json': manifestJson('1.0.0'), 'app.yaml': 'name: demo\nversion: 1.0.0+7\n' } });
@@ -799,7 +799,7 @@ describe('a fallback path changed only by the project version step', () => {
     report(root, { version: 1, executableLines: ['src/app.js:1'], tests: [{ id: 'tests/app.test.js', file: 'tests/app.test.js', lines: ['src/app.js:1'], branches: [], outcomes: [] }] });
   };
 
-  it('asks Claude and runs the selected tests when the version mirrors only move to the new version', async () => {
+  it('@SCN001 asks Claude and runs the selected tests when the version mirrors only move to the new version', async () => {
     const root = await versioned();
     coveredChange(root);
     fs.writeFileSync(path.join(root, 'app.yaml'), 'name: demo\nversion: 1.1.0+8\n');
@@ -814,7 +814,7 @@ describe('a fallback path changed only by the project version step', () => {
     expect(byId(artifact)['unit.tests'].effectiveStatus).toBe('passed');
   }, TIMEOUT);
 
-  it('selects nothing for the version step alone', async () => {
+  it('@SCN002 selects nothing for the version step alone', async () => {
     const root = await versioned();
     fs.writeFileSync(path.join(root, 'package.json'), manifestJson('1.1.0'));
     change(root, 'VERSION', '1.1.0\n');
@@ -845,7 +845,7 @@ describe('a fallback path changed only by the project version step', () => {
       fs.writeFileSync(path.join(root, 'package.json'), manifestJson('1.1.0-rc.1'));
       change(root, 'VERSION', '1.1.0\n');
     }],
-  ])('still runs everything when %s', async (_name, edit) => {
+  ])('@SCN003 still runs everything when %s', async (_name, edit) => {
     const root = await versioned();
     coveredChange(root);
     edit(root);
