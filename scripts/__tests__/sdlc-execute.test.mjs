@@ -1271,6 +1271,71 @@ describe('branch-first execute', () => {
   });
 });
 
+// #638 FR3/FR4 and AC4-AC6: every stage worker is stopped once its stage finishes and before the next one starts, every
+// worker a run spawned is stopped when the run ends, and a stop that stays unconfirmed fails the run and is named.
+describe('stage worker disposal (#638)', () => {
+  const agentIds = (f) => f.state.starts.map((entry) => entry.agentId);
+  const activeIds = (f) => agentIds(f).filter((id) => ['pending', 'running', 'waiting'].includes(f.host.activity(id)?.status));
+
+  it('@SCN004 stops a finished stage worker before the next stage worker is spawned', () => {
+    const f = fixture();
+    expect(f.execute('#42')).toMatchObject({ status: 0 });
+    const ids = agentIds(f);
+    expect(ids.length).toBeGreaterThan(1);
+    ids.forEach((id, index) => {
+      expect(f.state.log.indexOf(`stop:${id}`)).toBeGreaterThan(f.state.log.indexOf(`spawn:${id}`));
+      if (index + 1 < ids.length) {
+        expect(f.state.log.indexOf(`stop:${id}`)).toBeLessThan(f.state.log.indexOf(`spawn:${ids[index + 1]}`));
+      }
+    });
+    expect(f.host.activity(ids[0]).status).toBe('killed');
+  });
+
+  it.each([
+    ['success', 0, (f) => f.execute('#42')],
+    ['failure', 1, (f) => {
+      f.setWorker(({ step }) => ({ status: 'failed', intervention: true, reasonCode: 'provider_unavailable',
+        summary: `${step} cannot reach the required provider`, artifacts: [] }));
+      return f.execute('#42');
+    }],
+    ['halt', 1, (f) => f.execute('#42', { supervise: () => ({ action: 'halt', text: 'host disk full' }) })],
+  ])('@SCN005 stops every worker the run spawned when it ends by %s', (_ending, status, runEnding) => {
+    const f = fixture();
+    expect(runEnding(f)).toMatchObject({ status });
+    expect(agentIds(f).length).toBeGreaterThan(0);
+    expect(f.state.stops).toEqual(expect.arrayContaining(agentIds(f)));
+    expect(activeIds(f)).toEqual([]);
+  });
+
+  it('@SCN006 stops a worker twice, fails the run with worker_stop_failed, and names the unconfirmed worker', () => {
+    const f = fixture();
+    f.hooks.stopDeny = 'nmg-sdlc: stop not confirmed for agent-1: status running';
+    const result = f.execute('#42');
+    expect(result).toMatchObject({ status: 1, stderr: expect.stringContaining('worker_stop_failed') });
+    expect(f.state.stops).toEqual(['agent-1', 'agent-1']);
+    expect(f.state.starts).toHaveLength(1);
+    expect(result.stdout.split('\n')).toContain('stage worker agent-1: stop not confirmed');
+  });
+
+  it('@SCN006 retries a refused stop once, and a confirmed retry lets the run finish', () => {
+    const f = fixture();
+    const stop = f.host.stop;
+    let refusals = 1;
+    f.host.stop = (agentId) => {
+      if (refusals > 0) {
+        refusals -= 1;
+        f.state.stops.push(agentId);
+        throw new Error('worker_stop_failed: stop not confirmed yet');
+      }
+      return stop(agentId);
+    };
+    expect(f.execute('#42')).toMatchObject({ status: 0 });
+    expect(f.state.stops.slice(0, 2)).toEqual(['agent-1', 'agent-1']);
+    expect(f.state.stops).toHaveLength(agentIds(f).length + 1);
+    expect(activeIds(f)).toEqual([]);
+  });
+});
+
 describe('worker supervision while its background work runs (#470)', () => {
   const marker = (f) => path.join(f.root, '.nmg-sdlc/handoffs/42-verify.json.waiting');
   const deliver = ({ state }) => { state.merged = true; state.closed = true; return { status: 'passed', next: null }; };
@@ -1304,7 +1369,8 @@ describe('worker supervision while its background work runs (#470)', () => {
     expect(f.state.starts.map((entry) => entry.step)).toEqual(['verify', 'deliver']);
     expect(f.state.waits).toContainEqual({ agentId: f.state.starts[0].agentId, until: 'started', timeoutMs: 60000 });
     expect(f.state.reminders).toEqual([]);
-    expect(f.state.stops).toEqual([]);
+    // Each stage's worker is stopped once its stage finishes (#638 FR3), so every spawned worker ends stopped.
+    expect(f.state.stops).toEqual(f.state.starts.map((entry) => entry.agentId));
   });
 
   it('removes a stale waiting marker and reminds a settled worker once before it counts as stopped', () => {
@@ -1429,7 +1495,8 @@ describe('Opus supervisor decisions (#491)', () => {
     expect(steps(f)).toEqual(['implement', 'verify', 'deliver']);
     expect(reports.map((report) => `${report.kind}:${report.stage}`)).toEqual(['stage:implement', 'stage:verify', 'stage:deliver']);
     reports.forEach((report, index) => {
-      expect(report.stopsAtReport).toEqual([]);
+      // A stage's worker is stopped when its stage finishes, so a later report finds every earlier worker stopped.
+      expect(report.stopsAtReport).toEqual(f.state.starts.slice(0, index).map((entry) => entry.agentId));
       expect(report.startsAtReport).toBe(index + 1);
       expect(report).toMatchObject({ issue: 42, worker: f.state.starts[index].name, agentId: f.state.starts[index].agentId,
         decisions: ['accept', 'prompt', 'redispatch', 'halt'], failureHistory: [] });
@@ -1446,7 +1513,7 @@ describe('Opus supervisor decisions (#491)', () => {
     expect(verify.gate).toBe('pass');
     expect(verify.verification).toMatchObject({ report: 'specs/42-example/verification-report.md',
       readiness: { status: 'pass', reasonCode: 'ordinary_pass', gaps: [] }, issues: [] });
-    expect(f.state.stops).toEqual([]);
+    expect(f.state.stops).toEqual(f.state.starts.map((entry) => entry.agentId));
   });
 
   it('reports a verify stage with its readiness gaps and the report critical and remaining issues', () => {
@@ -1503,7 +1570,7 @@ describe('Opus supervisor decisions (#491)', () => {
       (index === 0 ? { action: 'redispatch', text: 'use the existing parser' } : null));
     expect(f.execute('#42', { supervise })).toMatchObject({ status: 0 });
     expect(steps(f)).toEqual(['implement', 'implement', 'verify', 'deliver']);
-    expect(f.state.stops).toEqual([f.state.starts[0].agentId]);
+    expect(f.state.stops).toEqual(f.state.starts.map((entry) => entry.agentId));
     expect(f.state.log.slice(0, 3)).toEqual(['spawn:agent-1', 'stop:agent-1', 'spawn:agent-2']);
     expect(f.state.prompts[1].prompt).toContain('Supervisor guidance: use the existing parser');
     expect(f.state.prompts[1].prompt).toContain('tests_failed: parser tests failed');
@@ -1705,7 +1772,7 @@ describe('Opus supervisor decisions (#491)', () => {
     expect(f.state.appends[0]).toEqual({ agentId: f.state.starts[0].agentId, prompt: expect.stringContaining('skip the flaky retry') });
     expect(f.state.appends[0].prompt).toContain('Act on this guidance within the current step');
     expect(f.state.delivered).toBe(f.state.appends[0].prompt);
-    expect(f.state.stops).toEqual([]);
+    expect(f.state.stops).toEqual(f.state.starts.map((entry) => entry.agentId));
     expect(reports.filter((report) => report.kind === 'stage').map((report) => report.stage)).toEqual(['verify', 'deliver']);
     expect(steps(f)).toEqual(['verify', 'deliver']);
   });
@@ -1719,7 +1786,7 @@ describe('Opus supervisor decisions (#491)', () => {
       (index === 0 ? { action: 'redispatch', text: 'the worker is looping; start verification again' } : null));
     expect(f.execute('#42', { supervise, now: () => clock.now, checkInMs: 30_000 })).toMatchObject({ status: 0 });
     expect(reports[0]).toMatchObject({ kind: 'checkin', stage: 'verify' });
-    expect(f.state.stops).toEqual([f.state.starts[0].agentId]);
+    expect(f.state.stops).toEqual(f.state.starts.map((entry) => entry.agentId));
     expect(f.state.log.slice(0, 3)).toEqual(['spawn:agent-1', 'stop:agent-1', 'spawn:agent-2']);
     expect(steps(f)).toEqual(['verify', 'verify', 'deliver']);
     expect(f.state.prompts[1].prompt).toContain('Supervisor guidance: the worker is looping; start verification again');

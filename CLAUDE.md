@@ -45,6 +45,10 @@ When making changes that affect how users interact with the plugin (new commands
 - Workflows live in `workflows/{name}/WORKFLOW.md`
 - `specs/` files must be committed with their feature branches, not left as untracked local files
 
+## Desktop and CLI
+
+nmg-sdlc must work in both Claude Desktop and the Claude Code CLI. Desktop may offer richer UI than the CLI, but every behavior must degrade gracefully on the CLI: the same outcome through a terminal-supported presentation (text, toast, or status line).
+
 ## nmg-sdlc Spec Context
 
 For SDLC work, project-root `specs/` is the canonical working-tree BDD archive and contains only current contracts with genuine GitHub issue owners. Specs use directories of the form `specs/{N}-{slug}/` where `N` is the GitHub issue number. Always identify the active spec first (leading directory number must match the issue and every file must declare singular `**Issue**: #N`), then use bounded relevant-spec discovery to load only the neighboring specs that can affect the change. Do not load the full archive by default. Superseded specs remain in Git history. A breaking repository rewrite may document unowned rewrite-only behavior in `references/rewrite-contract.{json,md}` but must not assign it a synthetic issue number or treat it as an executable issue spec. Legacy `.codex/specs/` directories are inputs to `/sdlc-upgrade-project` only.

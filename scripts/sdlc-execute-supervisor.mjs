@@ -183,15 +183,21 @@ function terminalResult(dir, session) {
 function workerOutput(worker) {
   return `NMG_SDLC_EXECUTE_WORKER: ${JSON.stringify({ issue: worker.issue, stage: worker.stage, agentId: worker.agentId })}\n`;
 }
+const UNCONFIRMED_STOP_LINE = /^stage worker \S+: stop not confirmed$/;
 /** The controller's final result lines: each delivered issue's `MERGED and CLOSED` line on success, otherwise one
- * `/sdlc-execute stopped:` line naming the diagnosis. */
+ * `/sdlc-execute stopped:` line naming the diagnosis. Every stage worker whose stop was not confirmed is named after
+ * those lines, on either branch. */
 export function resultLines(result) {
+  const lines = result.stdout.split(/\r?\n/);
+  const unconfirmed = lines.filter((line) => UNCONFIRMED_STOP_LINE.test(line));
   if (result.status === 0) {
-    const merged = result.stdout.split(/\r?\n/).filter((line) => /^#\d+: MERGED and CLOSED$/.test(line));
-    return merged.length ? merged : result.stdout.split(/\r?\n/).filter((line) => line.trim().length > 0);
+    const merged = lines.filter((line) => /^#\d+: MERGED and CLOSED$/.test(line));
+    const delivered = merged.length ? merged : lines.filter((line) => line.trim().length > 0 && !UNCONFIRMED_STOP_LINE.test(line));
+    return [...delivered, ...unconfirmed];
   }
-  const detail = `${result.stderr}\n${result.stdout}`.split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? 'controller_failed';
-  return [`/sdlc-execute stopped: ${detail}`];
+  const detail = `${result.stderr}\n${result.stdout}`.split(/\r?\n/)
+    .map((line) => line.trim()).find((line) => line && !UNCONFIRMED_STOP_LINE.test(line)) ?? 'controller_failed';
+  return [`/sdlc-execute stopped: ${detail}`, ...unconfirmed];
 }
 /** Records the terminal result under the Claude session that ran `/sdlc-execute`, when that session id is known. */
 function writeResultRecord(cwd, session, result) {

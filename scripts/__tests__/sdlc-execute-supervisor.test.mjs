@@ -683,7 +683,8 @@ posix('execute CLI cancellation of its stage subagent and lease', () => {
     const next = await awaitReport(value, session, 1);
     expect(next).toMatchObject({ session, seq: 2, kind: 'stage', stage: 'implement' });
     expect(readJson(value.leasePath)).toEqual(lease);
-    expect(readJson(path.join(sessionDir, 'report-2.json'))).toMatchObject({ agentId: 'agent-2',
+    // The accepted stage's worker is stopped (request 2) before the next worker is requested (request 3).
+    expect(readJson(path.join(sessionDir, 'report-2.json'))).toMatchObject({ agentId: 'agent-3',
       failureHistory: [expect.objectContaining({ step: 'implement', reasonCode: 'tests_failed' })] });
 
     const again = await cli(value, ['decide', '--session', session, '--seq', '1', 'accept']);
@@ -693,7 +694,7 @@ posix('execute CLI cancellation of its stage subagent and lease', () => {
     const halted = await awaitTerminal(value, session, haltDecided);
     expect(halted).toEqual({ code: 1, stdout: '', stderr: 'supervisor_halt: tests need a fixture fix outside the spec\n' });
     // The controller stops the running subagent before it exits, and waits for the hooks module to confirm.
-    expect(value.responder.stops.map((request) => request.agentId)).toEqual(['agent-2']);
+    expect(value.responder.stops.map((request) => request.agentId)).toEqual(['agent-1', 'agent-3']);
     expect(value.responder.invalid).toEqual([]);
     expect(fs.existsSync(value.leasePath)).toBe(false);
     expect(fs.existsSync(sessionDir)).toBe(false);
@@ -718,7 +719,8 @@ posix('execute CLI cancellation of its stage subagent and lease', () => {
     const refused = await awaitTerminal(value, session, decided);
     expect(refused).toMatchObject({ code: 1, stderr: expect.stringContaining('worker_stop_failed: nmg-sdlc: stop refused by fixture') });
     expect(fs.existsSync(value.leasePath)).toBe(false);
-    expect(value.responder.stops.map((request) => request.agentId)).toEqual(['agent-1']);
+    // The refused stop is attempted twice (#638 AC6) before the run fails with worker_stop_failed.
+    expect(value.responder.stops.map((request) => request.agentId)).toEqual(['agent-1', 'agent-1']);
   }, 60_000);
 
   it('records the terminal result under the Claude session that ran /sdlc-execute', async () => {
@@ -834,6 +836,16 @@ describe('fileSupervisor (file transport)', () => {
 });
 
 describe('resultLines', () => {
+  it('@SCN006 names each stage worker whose stop was not confirmed, after the run\'s own lines, on either outcome', () => {
+    const unconfirmed = 'stage worker agent-1: stop not confirmed';
+    expect(resultLines({ status: 0, stdout: `#42: MERGED and CLOSED\n${unconfirmed}\n`, stderr: '' }))
+      .toEqual(['#42: MERGED and CLOSED', unconfirmed]);
+    expect(resultLines({ status: 0, stdout: `No open spec-created issues.\n${unconfirmed}\n`, stderr: '' }))
+      .toEqual(['No open spec-created issues.', unconfirmed]);
+    expect(resultLines({ status: 1, stdout: `${unconfirmed}\n`, stderr: 'worker_stop_failed: nmg-sdlc: stop refused by fixture\n' }))
+      .toEqual(['/sdlc-execute stopped: worker_stop_failed: nmg-sdlc: stop refused by fixture', unconfirmed]);
+  });
+
   it('lists each delivered issue on success, or the output lines when nothing merged', () => {
     expect(resultLines({ status: 0, stdout: '#42: verify passed\n#42: MERGED and CLOSED\n#42: branch cleanup: deleted 42-example and fast-forwarded main\n', stderr: '' }))
       .toEqual(['#42: MERGED and CLOSED']);
