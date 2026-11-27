@@ -2,7 +2,7 @@
 
 **Consumed by**: every interactive and automated workflow.
 
-nmg-sdlc runs as a Claude Code plugin. Its hooks module (`hooks/register.ts`) registers the interactive `/sdlc-*` commands, enters native plan mode for them, registers `/sdlc-execute` outside plan mode, and materializes `<plugin-root>` in Bash commands (unquoted, double-quoted, single-quoted, and glob operands alike), Read paths, and the `path` of Glob and Grep calls. The other automated commands are plugin command files under `commands/`. `/sdlc-execute` runs in the TUI or headless under `claude -p`, and starts each delivery stage as a background subagent (`nmg-sdlc:execute-<entry>`) that runs with the supervising session's plugins.
+nmg-sdlc runs as a Claude Code plugin. Its hooks module (`hooks/register.ts`) registers the interactive `/sdlc-*` commands, enters native plan mode for them (in the TUI, Claude Desktop, and remote-attached sessions; a session with no attached surface gets the `Run /<command> in the TUI.` refusal instead), registers `/sdlc-execute` outside plan mode, and materializes `<plugin-root>` in Bash commands (unquoted, double-quoted, single-quoted, and glob operands alike), Read paths, and the `path` of Glob and Grep calls. The other automated commands are plugin command files under `commands/`. `/sdlc-execute` runs in the TUI or headless under `claude -p`, and starts each delivery stage as a background subagent (`nmg-sdlc:execute-<entry>`) that runs with the supervising session's plugins.
 
 | Need | Tool |
 |------|------|

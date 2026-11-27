@@ -35,6 +35,8 @@ type World = {
   seen: string[]
   envSet: Record<string, string | undefined>
   sessionModel: string
+  // The surface roster `session.surfaces` answers with, read at command time; independent of `isInteractive`.
+  surfaces: string[]
   steps: { model: string; effort?: unknown; agentId?: string }[]
   origins: string[]
   configWrites: string[]
@@ -67,11 +69,12 @@ function fsKey(path: string): string {
 
 // The engine beneath the plugin: every `$` call the module makes is answered
 // here, and what it asked for is recorded on the returned world.
-function engine(on: On, { interactive = true, env = {} as Record<string, string> } = {}): World {
+function engine(on: On, { interactive = true, surfaces = interactive ? ['terminal'] : [], env = {} as Record<string, string> }:
+  { interactive?: boolean; surfaces?: string[]; env?: Record<string, string> } = {}): World {
   const world: World = {
     plans: [], prompts: [], toasts: [], renders: [], draft: '', renderFails: false, bash: [], bashInputs: [],
     files: {}, writes: [], seen: [], envSet: {},
-    sessionModel: 'claude-sonnet-5-5', steps: [], origins: [], configWrites: [], modelFails: false,
+    sessionModel: 'claude-sonnet-5-5', surfaces: [...surfaces], steps: [], origins: [], configWrites: [], modelFails: false,
     registered: [], registrations: [], spawns: [], spawnDeny: 'no subagent starts under the test kit',
     appended: [], appendDeny: false, sends: [], sendDelivered: true,
     stops: [], stopStatus: 'killed', listFails: false, agents: {}, messages: {},
@@ -84,7 +87,7 @@ function engine(on: On, { interactive = true, env = {} as Record<string, string>
   on('command.register', (_, e) => { world.registered.push({ ...e }); return { value: { command: e.name } } })
   on('command.list', () => ({ value: [{ name: 'goal' }] as never }))
   on('session.cwd', () => ({ value: CWD }))
-  on('session.surfaces', () => ({ value: interactive ? ['terminal'] as const : [] }))
+  on('session.surfaces', () => ({ value: [...world.surfaces] as never }))
   on('session.model', () => {
     if (world.modelFails) throw new Error('host unavailable')
     return { value: world.sessionModel }
@@ -282,7 +285,7 @@ async function supervise($: Dollar, world: World, root: string, session: string,
 }
 
 describe('interactive commands', () => {
-  test('a headless session fails closed without rendering', async ($, on) => {
+  test('@SCN003 a session with no attached surface fails closed without rendering', async ($, on) => {
     const world = engine(on, { interactive: false })
     await start($, world, false)
     const result = await run($, world, 'sdlc-draft-issue', 'a parser bug')
@@ -375,6 +378,74 @@ describe('interactive commands', () => {
     expect(execute?.argumentHint).toBe('[--check-in-seconds N] [#N ...]')
     expect(world.registered.map(({ argumentHint }) => String(argumentHint ?? '')).join(' ')).not.toContain('--retain-worker')
   })
+})
+
+// The surface rosters a hooks-module command runs on (#638): a TUI, a Claude Desktop, a mixed remote-attached roster, and
+// a session with no surface. `isInteractive` follows each roster as the engine reports it.
+const ROSTERS = [
+  { label: 'terminal', interactive: true, surfaces: ['terminal'] },
+  { label: 'desktop', interactive: false, surfaces: ['desktop'] },
+  { label: 'mixed', interactive: false, surfaces: ['terminal', 'mobile'] },
+  { label: 'empty', interactive: false, surfaces: [] as string[] },
+]
+
+describe('surface rosters (#638)', () => {
+  test('@SCN001 an interactive command runs in a Claude Desktop session that reported isInteractive false', async ($, on) => {
+    const world = engine(on, { interactive: false, surfaces: ['desktop'] })
+    await start($, world, false)
+    const result = await run($, world, 'sdlc-draft-issue', 'a parser bug')
+    expect(JSON.stringify(result ?? {})).not.toContain('in the TUI')
+    expect(world.toasts).toEqual([])
+    expect(world.renders.at(-1)).toEqual(expect.arrayContaining(['--consumer', 'sdlc-draft-issue', '--args', 'a parser bug']))
+    expect(world.plans).toEqual(['/plan'])
+    expect(world.prompts).toEqual([{ text: '# sdlc-draft-issue workflow', asUser: true }])
+  })
+
+  for (const surfaces of [['terminal', 'mobile'], ['mobile']]) {
+    test(`@SCN002 an interactive command runs in a session whose surface roster is ${surfaces.join(' and ')}`, async ($, on) => {
+      const world = engine(on, { interactive: false, surfaces })
+      await start($, world, false)
+      await run($, world, 'sdlc-steering', 'tighten the tech snippet')
+      expect(world.renders.at(-1)).toEqual(expect.arrayContaining(['--consumer', 'sdlc-steering']))
+      expect(world.plans).toEqual(['/plan'])
+      expect(world.prompts).toEqual([{ text: '# sdlc-steering workflow', asUser: true }])
+    })
+  }
+
+  test('@SCN007 every registered hooks-module command reaches the same workflow submission on a terminal roster and a desktop roster', async ($, on) => {
+    const world = engine(on, { surfaces: ['terminal'] })
+    await start($, world)
+    world.sessionModel = 'claude-opus-5-5'
+    const names = world.registered.map((entry) => String(entry.name)).sort()
+    expect(names).toEqual(['sdlc-draft-issue', 'sdlc-execute', 'sdlc-onboard-project', 'sdlc-run-retro', 'sdlc-steering',
+      'sdlc-upgrade-project', 'sdlc-write-spec'])
+    const submissions = async () => {
+      const seen: Record<string, unknown> = {}
+      for (const name of names) {
+        world.plans.length = 0
+        world.prompts.length = 0
+        world.renders.length = 0
+        const result = await run($, world, name, name === 'sdlc-execute' ? '#42' : '#7')
+        seen[name] = {
+          refused: JSON.stringify(result ?? {}).includes('in the TUI'),
+          renders: world.renders.map((argv) => argv.join(' ')),
+          plans: [...world.plans],
+          prompts: world.prompts.map((prompt) => prompt.text),
+        }
+      }
+      return seen
+    }
+    const terminal = await submissions()
+    world.surfaces = ['desktop']
+    await start($, world, false)
+    const desktop = await submissions()
+    expect(Object.keys(desktop).sort()).toEqual(names)
+    expect(desktop).toEqual(terminal)
+    for (const name of names) {
+      expect(terminal[name]).toEqual(expect.objectContaining({ refused: false, prompts: [`# ${name} workflow`] }))
+    }
+  })
+
 })
 
 describe('pasted interactive commands', () => {
@@ -650,6 +721,25 @@ describe('stage subagents', () => {
     await world.clock.advance(1_000)
     expect(response(world, session, 4)).toEqual({ schemaVersion: 1, session, n: 4, ok: false, deny: 'the agent is not running' })
   })
+
+  // #638 AC5: a stage worker's stop is confirmed on every roster the engine can report. The kit starts no subagent, so
+  // the worker is one the test lists as running, as the stop test below does.
+  for (const roster of ROSTERS) {
+    test(`@SCN005 a stop request is confirmed on a ${roster.label} roster`, async ($, on) => {
+      const world = engine(on, { interactive: roster.interactive, surfaces: roster.surfaces })
+      await start($, world, roster.interactive)
+      const root = await pluginRoot($, world)
+      await startExecute($, world, root)
+      const session = uuid(3)
+      await supervise($, world, root, session)
+      world.agents['worker-1'] = 'running'
+      writeRequest(world, session, 1, { kind: 'stop', agentId: 'worker-1' })
+      await world.clock.advance(1_000)
+      expect(world.stops).toEqual(['worker-1'])
+      expect(response(world, session, 1)).toEqual({ schemaVersion: 1, session, n: 1, ok: true })
+      expect(world.agents['worker-1']).toBe('killed')
+    })
+  }
 
   test('a stop request calls TaskStop, reports the worker killed, and denies its later tool calls', async ($, on) => {
     const world = engine(on)

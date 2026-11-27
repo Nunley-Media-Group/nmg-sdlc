@@ -16,7 +16,7 @@ Run from the root of the GitHub repository you intend to change.
 | Authenticated GitHub CLI (`gh`) | `gh auth status`; account needs the repository permissions required to create issues/PRs, push branches, read checks, and merge |
 | Configured project toolchain | Install the dependencies and tools used by the project's steering validations |
 
-Interactive commands need a Claude Code **TUI** session. Under `claude -p` or the Agent SDK they print `Run /<command> in the TUI.` and exit 2, because headless sessions have no plan-mode or question tools (see [Headless runs](#headless-runs)). `/sdlc-execute` runs in a TUI session or headless under `claude -p` and needs no environment variables of its own.
+Interactive commands run in the Claude Code **TUI**, in Claude Desktop, and in remote-attached sessions, because each attached surface provides the plan mode and questions they need. Only a session with no attached surface refuses: under `claude -p` or the Agent SDK with no client they print `Run /<command> in the TUI.` and exit 2 (see [Headless runs](#headless-runs)). `/sdlc-execute` runs in a TUI session or headless under `claude -p` and needs no environment variables of its own.
 
 Private-repository access must work for both Git transport and `gh`. A token with read-only access is not sufficient for delivery. Repository rules, required checks, and human-review permissions remain authoritative.
 
@@ -70,7 +70,7 @@ Replace `42` with the actual GitHub issue number. Review and approve the interac
 
 `/sdlc-status`, `/sdlc-verify-code`, `/sdlc-open-pr`, and `/sdlc-verify-full` are plugin command files (`commands/*.md`). They expand in the TUI and under `claude -p`, and they never call `AskUserQuestion` or `ExitPlanMode`.
 
-`/sdlc-execute` runs each delivery stage as a background subagent named `nmg-sdlc:execute-<entry>`. The hooks module starts it inside the supervising session, so it uses that session's plugins and gets its model and effort from `steering/sdlc-models.json` (see [Per-project stage models](#per-project-stage-models)).
+`/sdlc-execute` runs each delivery stage as a background subagent named `nmg-sdlc:execute-<entry>`. The hooks module starts it inside the supervising session, so it uses that session's plugins and gets its model and effort from `steering/sdlc-models.json` (see [Per-project stage models](#per-project-stage-models)). `/sdlc-execute` stops each stage worker when its stage finishes, whatever the outcome, before the next stage starts, so only the supervising session stays alive between stages. A stop the hooks module cannot confirm is retried once; if it stays unconfirmed the run fails with `worker_stop_failed`, and the run result names that worker on a line `stage worker <agentId>: stop not confirmed`. Every worker a run spawned is stopped before its result is recorded.
 
 The stage permission mode defaults to `auto`. Set `NMG_SDLC_WORKER_PERMISSION_MODE` in the controller's environment to `default`, `acceptEdits`, `auto`, `dontAsk`, or `bypassPermissions` to override it; any other value falls back to `auto`. Stage subagents inherit your Claude Code settings and permission rules, so a stricter mode can stop a stage at a permission prompt.
 
@@ -621,7 +621,7 @@ Status is read-only: current branch/spec, verification, GitHub issue/PR state, a
 | `specs/<N>-<slug>/verification-report.md` | Durable acceptance and verification report |
 
 - **Commands missing or controller paths unresolved:** check in `/plugin` that `nmg-sdlc` is installed and enabled (or that the session was started with `claude --plugin-dir <checkout>`); use a fresh session with the intended version, then apply project upgrades.
-- **`Run /sdlc-… in the TUI.`:** an interactive command was run under `claude -p` or the SDK; run it in a Claude Code TUI session.
+- **`Run /sdlc-… in the TUI.`:** an interactive command was run in a session with no attached surface, such as `claude -p` or an SDK client with none; run it in a Claude Code TUI, Claude Desktop, or remote-attached session.
 - **`steering/sdlc-models.json:` diagnostic:** `/sdlc-execute` stopped before any Git or GitHub call because the stage configuration is invalid. Fix the key and value the diagnostic names (see [Per-project stage models](#per-project-stage-models)), then rerun.
 - **`steering/test-layers.json:` diagnostic or `test_layers_invalid`:** the kept-test-types file is invalid. Fix the field the diagnostic names (see [Kept test layers](#kept-test-layers)), then rerun.
 - **`Warning: steering/sdlc-models.json is missing …`:** plugin default stage models are in use. Run `/sdlc-upgrade-project` to create the file or add its missing keys.

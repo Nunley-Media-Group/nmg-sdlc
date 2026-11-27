@@ -12,6 +12,11 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+### Changed
+
+- Interactive `/sdlc-*` commands run in Claude Desktop and remote-attached sessions as well as the TUI: the surface roster read when the command runs decides, not `isInteractive`, and only a session with no attached surface refuses with `Run /<command> in the TUI.` and exit 2; the write-spec Continue follows the same roster rule, and the project states the Desktop-and-CLI rule in `CLAUDE.md` and product steering (#638)
+- `/sdlc-execute` stops each stage worker as soon as its stage finishes, before the next worker starts, sweeps every worker the run spawned at run end, and names any stop it cannot confirm in the run result as `stage worker <agentId>: stop not confirmed` with a `worker_stop_failed` failure (#638)
+
 ## [4.23.0] - 2026-11-26
 
 ### Added

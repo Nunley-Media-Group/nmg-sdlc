@@ -1068,6 +1068,46 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
     }
   };
   const output = [];
+  // Every stage worker this run spawned: its stop attempts so far, and whether the hooks module confirmed the stop.
+  const spawned = new Map();
+  const STOP_ATTEMPTS = 2;
+  // Up to two stop attempts for one worker; returns the last failure, or null once the stop is confirmed.
+  const stopWorker = (agentId) => {
+    const worker = spawned.get(agentId);
+    let failure = null;
+    while (!worker.confirmed && worker.attempts < STOP_ATTEMPTS) {
+      worker.attempts += 1;
+      try {
+        host.stop(agentId);
+        worker.confirmed = true;
+      } catch (error) {
+        failure = error;
+      }
+    }
+    return failure;
+  };
+  // A finished stage's worker is stopped before the next one starts; a stop that stays unconfirmed fails the run.
+  const dispose = (agentId) => {
+    const failure = stopWorker(agentId);
+    if (!spawned.get(agentId).confirmed) {
+      throw failure ?? new Error(`worker_stop_failed: stop not confirmed for ${agentId}`);
+    }
+  };
+  // The run-end sweep: a worker not yet confirmed gets its remaining attempts, and each one still unconfirmed is named
+  // in the result. An unconfirmed stop turns a successful result into a `worker_stop_failed` failure.
+  const settleWorkers = (result) => {
+    const unconfirmed = [];
+    for (const [agentId, worker] of spawned) {
+      stopWorker(agentId);
+      if (!worker.confirmed) unconfirmed.push(agentId);
+    }
+    if (unconfirmed.length === 0) return result;
+    const named = unconfirmed.map((agentId) => `stage worker ${agentId}: stop not confirmed`);
+    const stdout = `${result.stdout}${result.stdout === '' || result.stdout.endsWith('\n') ? '' : '\n'}${named.join('\n')}\n`;
+    return result.status === 0
+      ? { status: 1, stdout, stderr: 'worker_stop_failed\n' }
+      : { ...result, stdout };
+  };
   try {
     const first = checkout(cwd, run);
     let active = parseIssueBranch(first.branch);
@@ -1341,6 +1381,7 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
           effort: stageEffort(step, failure, stageModels.config) ?? null,
           permissionMode: workerPermissionMode(env), prompt: instructions, cwd: at,
         });
+        spawned.set(agentId, { attempts: 0, confirmed: false });
         forced = null;
         guidance = null;
         const { handoff, state, decision } = supervise
@@ -1349,8 +1390,8 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
         host.finish();
         // A verify stage that completed without a redispatch or halt is answered, so its intent no longer applies.
         if (step === 'verify' && !decision) clearGateIntent(at, issue);
-        // A redispatch or halt stops the running subagent before its replacement starts or the run stops.
-        if (decision?.action === 'redispatch' || decision?.action === 'halt') host.stop(agentId);
+        // Every outcome stops the finished stage's worker before the next worker spawns or the run stops.
+        dispose(agentId);
         if (decision?.action === 'halt') throw new Error(`supervisor_halt: ${decision.text}`);
         if (decision?.action === 'redispatch') {
           if (handoff && handoff.status !== 'passed') {
@@ -1493,13 +1534,13 @@ export function runExecute({ args = '', cwd = process.cwd(), env = process.env, 
         if (queued) leaveQueue();
       }
     }
-    return warned({ status: 0, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: '' });
+    return settleWorkers(warned({ status: 0, stdout: `${output.join('\n')}${output.length ? '\n' : ''}`, stderr: '' }));
   } catch (error) {
     // A diagnostic beyond the bare reason code, such as the file and field of an invalid setting, is shown too.
     const reasonCode = error?.reasonCode;
     const message = error?.message;
-    return warned(fail(reasonCode && message && message !== reasonCode ? `${reasonCode}: ${message}`
-      : reasonCode ?? message ?? 'controller_failed'));
+    return settleWorkers(warned(fail(reasonCode && message && message !== reasonCode ? `${reasonCode}: ${message}`
+      : reasonCode ?? message ?? 'controller_failed')));
   }
   finally {
     dropLease();

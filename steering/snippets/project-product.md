@@ -18,7 +18,7 @@ It is not a Codex plugin. Users invoke `/sdlc-draft-issue`, `/sdlc-write-spec`, 
 
 | Characteristic | Implication |
 |----------------|-------------|
-| Uses Claude Code daily | Public commands are `/sdlc-*`; interactive ones enter native plan mode with `AskUserQuestion` and `ExitPlanMode` |
+| Uses Claude Code daily, in the CLI or Claude Desktop | Public commands are `/sdlc-*`; interactive ones enter native plan mode with `AskUserQuestion` and `ExitPlanMode` on any attached surface |
 | Runs automated delivery from Claude Code | Each delivery stage runs as a background stage subagent (`nmg-sdlc:execute-<entry>`) started by the hooks module; `/sdlc-execute` also runs headless under `claude -p` |
 | Works from GitHub issues | Work is issue-driven with linked branches and traceable specs |
 | Wants structured process | BDD specs provide guardrails without excessive ceremony |
@@ -57,6 +57,7 @@ It is not a Codex plugin. Users invoke `/sdlc-draft-issue`, `/sdlc-write-spec`, 
 | Spec as source of truth | Implementation and verification trace back to an approved spec directory |
 | Coordination is not a type | Sequencing uses official GitHub blocked-by edges between ordinary issues; there is no epic |
 | Preserve project ownership | Do not overwrite unrelated files, workflows, templates, history, or metadata |
+| Desktop and CLI | Every command works in Claude Desktop and the CLI; Desktop may add richer UI, and the CLI always gets a graceful fallback with the same outcome |
 | Dogfooding | Skill changes are verified through contracts and executable exercises |
 
 ### Bounded Consumer Experiments
@@ -157,6 +158,7 @@ Classify failures before repair. Fix plugin defects in the plugin; preserve and 
 | Spec as source of truth | Changed paths map to approved tasks or acceptance criteria | Compare diff with `tasks.md` and `requirements.md` |
 | Preserve project ownership | Managed paths and overwrite predicates are exact | Run collision, preservation, and repeat-run fixtures |
 | Dogfooding | Skill behavior is exercised, not inferred from text alone | Record fixture or live exercise evidence |
+| Desktop and CLI | Every hooks-module command reaches the same outcome on terminal-only and Desktop surface rosters | Run the hooks-module surface matrix in hooks/register.test.ts |
 
 ### Skill Pipeline Contracts
 

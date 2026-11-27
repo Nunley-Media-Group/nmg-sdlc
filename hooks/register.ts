@@ -308,7 +308,8 @@ function recordBackgrounded(toolUseId: string, text: unknown): void {
 async function submitContinuation($: Engine): Promise<void> {
   try {
     const box = await $.prompt.read()
-    if (!interactive || box.text !== '') {
+    // Plan mode needs a surface; the roster decides, as it does for interactive commands.
+    if ((await $.session.surfaces()).length === 0 || box.text !== '') {
       $.ui.toast(pendingContinuationNotice(writeSpec.published))
       return
     }
@@ -748,9 +749,12 @@ async function executeResult($: Engine): Promise<{ text: string; exitCode: numbe
 async function runInteractive($: Engine, name: string, args: string): Promise<CommandRunResult> {
   // `--result` reads the recorded outcome of an earlier run; it mutates nothing and needs no model gate.
   if (name === 'sdlc-execute' && args.trim() === '--result') return executeResult($)
-  const headless = !interactive || (await $.session.surfaces()).length === 0
-  // Interactive commands need plan mode and AskUserQuestion, which a headless session lacks.
-  if (headless && name !== 'sdlc-execute') {
+  // The roster read at command time decides: a terminal, Claude Desktop, or remote-attached surface is a UI with plan
+  // mode and AskUserQuestion, whatever `isInteractive` reported (the engine clears it for every SDK-hosted session).
+  const noSurface = (await $.session.surfaces()).length === 0
+  const headless = !interactive || noSurface
+  // Interactive commands need plan mode and AskUserQuestion, which only a session with no surface lacks.
+  if (noSurface && name !== 'sdlc-execute') {
     return { text: interactiveHeadlessMessage(name).trimEnd(), exitCode: 2 }
   }
   if (name === 'sdlc-execute') {
