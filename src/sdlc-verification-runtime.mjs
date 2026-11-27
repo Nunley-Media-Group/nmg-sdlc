@@ -5,7 +5,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { canonicalJson, loadSteeringRuntime, SteeringError, validationTier } from "./sdlc-steering-runtime.mjs";
 import { acquireHeavySlot } from "./heavy-pool.mjs";
 import { globRegex, matches } from "./sdlc-glob.mjs";
-import { MAX_UNTRACKED_FILE_BYTES, rebaseTestId, rejectionOf, rejectionSummary, resolveChangeSelection, selectedTestPaths, unaccountedPaths } from "./sdlc-test-selection.mjs";
+import { MAX_UNTRACKED_FILE_BYTES, rebaseTestId, rejectionOf, rejectionSummary, resolveChangeSelection, selectedTestPaths, unaccountedPaths, fallbackPathsOf, versionOnlyChanges } from "./sdlc-test-selection.mjs";
 import { StageModelsError } from "./stage-models.mjs";
 import { loadStageModels } from "./stage-models-file.mjs";
 import { COVERAGE_OUTPUT_ENV, createCoverageOutput, hasLine, loadTestCoverageConfig, readCoverageRun, removeCoverageOutput, unionRanges } from "./test-coverage.mjs";
@@ -534,6 +534,11 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
   try {
     runtime = await loadSteeringRuntime(root);
     const paths = whole ? [] : changedPaths(root, baseRef);
+    // A fallback path whose only change is the project version step is no change for the selection: it forces no
+    // full run, and needs no test, surface or coverage. Conditions and the recorded changed paths still see it.
+    const versionOnly = whole || !runtime.selection ? []
+      : versionOnlyChanges(root, baseRef, paths.filter((path) => matches(path, fallbackPathsOf(runtime))));
+    const selectionPaths = versionOnly.length ? paths.filter((path) => !versionOnly.includes(path)) : paths;
     const applies = (validation) => runsInTier(runtime.tiered, validation, tier)
       && ((whole && validation.when.kind === "changed_paths") || evaluateCondition(validation.when, { projectRoot: root, paths }));
     const resultById = new Map();
@@ -544,7 +549,7 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
     let rejection = null;
     let docsOnly = false;
     if (tier === "change" && !whole && runtime.selection) {
-      selection = await resolveChangeSelection({ projectRoot: root, issue, baseRef, paths, runtime, signal, limits: limits.selection,
+      selection = await resolveChangeSelection({ projectRoot: root, issue, baseRef, paths: selectionPaths, runtime, signal, limits: limits.selection,
         models: models ?? selectionModels(root), ...(runSelection ? { runSelection } : {}) });
       if (selection.mode === "selected") {
         const isDoc = (path) => matches(path, runtime.selection.docPaths ?? []);
@@ -553,7 +558,7 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
         else if (!selection.tests.length && !selection.surfaces.length) {
           // A path the change deletes leaves nothing to cover (and its surface was checked above), so only the
           // remaining paths outside docPaths need a selection. Without docPaths, every remaining path does.
-          const code = paths.filter((path) => !isDoc(path) && existsSync(resolve(root, path)));
+          const code = selectionPaths.filter((path) => !isDoc(path) && existsSync(resolve(root, path)));
           docsOnly = !code.length;
           if (!docsOnly) rejection = rejectionOf("selection_empty_code_change", { unaccounted: code });
         }
@@ -673,7 +678,7 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
       }
       if (checks && !rejection) {
         const chosen = runtime.surfaces.filter((surface) => selection.surfaces.includes(surface.id));
-        const unaccounted = unaccountedPaths({ paths, reportPaths, testPaths: [...selectedTestPaths(selection.tests), ...reportTestFiles],
+        const unaccounted = unaccountedPaths({ paths: selectionPaths, reportPaths, testPaths: [...selectedTestPaths(selection.tests), ...reportTestFiles],
           surfaceSources: chosen.flatMap((surface) => surface.sources),
           docPaths: runtime.selection.docPaths ?? [],
           exists: (path) => existsSync(resolve(root, path)) });
@@ -720,7 +725,8 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
     const artifact = { schemaVersion: 1, issue: whole ? null : Number(issue), generatedAt: new Date().toISOString(), identity: setupIdentity(root, specDir, runtime), baseRef: whole ? null : baseRef, ...(runtime.tiered || whole ? { tier: recordedTier } : {}), ceiling: worseCeiling(verificationCeiling(results, coverage), selectionCeiling), changedPaths: paths, coverage,
       ...(selection ? { selection: { prompt: selection.prompt, model: selection.model, effort: selection.effort, mode: selection.mode,
         reason: docsOnly ? "selection_empty" : selection.reason, fallbackPath: selection.fallbackPath, tests: selection.tests, surfaces: selectedSurfaces,
-        requiredSurfaces: selection.requiredSurfaces, guidanceSupplied: selection.guidanceSupplied, reused: selection.reused, detail: selection.detail, rejection } } : {}),
+        requiredSurfaces: selection.requiredSurfaces, guidanceSupplied: selection.guidanceSupplied, reused: selection.reused, detail: selection.detail, rejection,
+        ...(versionOnly.length ? { versionOnlyPaths: versionOnly } : {}) } } : {}),
       results };
     writeVerificationArtifact(root, key, artifact);
     return artifact;

@@ -82,7 +82,7 @@ function runCoverage(args) {
 describe('@SCN013 This repository adopts scoped verification: the Jest per-test coverage command', () => {
   it('declares the suite and the per-test coverage command in steering/test-coverage.json', () => {
     expect(loadTestCoverageConfig(repoRoot)).toEqual({ config: { version: 1,
-      suite: { program: 'npm', args: ['--prefix', 'scripts', 'test', '--', '--runInBand'] },
+      suite: { program: 'npm', args: ['--prefix', 'scripts', 'test', '--'] },
       coverage: { program: 'node', args: ['scripts/jest-per-test-coverage.mjs'] } } });
   });
 
@@ -113,5 +113,29 @@ describe('@SCN013 This repository adopts scoped verification: the Jest per-test 
     const tail = (file) => jestArguments(file, '/tmp/results.json', '/tmp/cov').slice(-2);
     expect(tail('scripts/__tests__/a.test.mjs')).toEqual(['--runTestsByPath', '__tests__/a.test.mjs']);
     expect(tail('scripts/--config=evil.json')).toEqual(['--runTestsByPath', './--config=evil.json']);
+  });
+});
+
+describe('this repository runs its contract suite in parallel and checks it before the implement handoff (#642)', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'steering', 'manifest.json'), 'utf8'));
+  it.each(['repository.tests', 'repository.tests.full'])('@SCN004 %s runs Jest with its parallel workers in a heavy-job slot', (id) => {
+    const validation = manifest.validations.find((entry) => entry.id === id);
+    expect(validation.config).toMatchObject({ program: 'npm', args: ['test', '--'], cwd: 'scripts' });
+    expect(validation.heavy).toBe(true);
+  });
+
+  it('@SCN004 the coverage suite command runs Jest with its parallel workers', () => {
+    expect(loadTestCoverageConfig(repoRoot).config.suite).toEqual({ program: 'npm', args: ['--prefix', 'scripts', 'test', '--'] });
+  });
+
+  it('@SCN006 technical steering requires the whole contract suite before a passed implement handoff', () => {
+    const tech = fs.readFileSync(path.join(repoRoot, 'steering', 'snippets', 'project-tech.md'), 'utf8');
+    const start = tech.indexOf('### Checks Before the Implement Handoff');
+    expect(start).toBeGreaterThanOrEqual(0);
+    const section = tech.slice(start, tech.indexOf('\n## ', start));
+    for (const required of ['Before writing a passed implement handoff', 'npm --prefix scripts test', 'sdlc-heavy-pool.mjs run',
+      'claude plugin test .', 'scripts/verify-plugin-surface.mjs', 'scripts/check-test-layers.mjs', 'Repair every failure before the handoff']) {
+      expect(section).toContain(required);
+    }
   });
 });

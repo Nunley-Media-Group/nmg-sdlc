@@ -84,6 +84,8 @@ Kill each tmux session (`tmux kill-session -t <session>`), remove each clone, an
 - **Environmental:** a missing `tmux` or `claude` binary, an unreadable pane, a dialog you cannot identify, or a GitHub or network failure. Report it as environmental and do not retry blindly.
 - **nmg-sdlc defect:** an exercised command (`/sdlc-draft-issue`, `/sdlc-write-spec` or another selected surface) whose workflow errors, ignores its gates, or produces a malformed issue, spec or result. Record it as a finding in the verification report.
 
+A permission block in the smoke session is neither. When the session's auto mode blocks a helper command that the surface's own approved plan names (for example the `/sdlc-upgrade-project` apply command after you approved its plan), run that exact command in the same session with the `!` prefix, inside the smoke clone, and let the workflow continue from its output. Record the block and the command in the verification report. Never use `!` for a command the approved plan does not name or one that reaches outside the smoke clone.
+
 In either case, do not hand-edit the smoke repository to manufacture provisioning, do not write a passed surface record for a command that did not complete, and leave the smoke gate non-passing.
 
 ## 9. Bound the work

@@ -300,6 +300,8 @@ exit 1
     env: {
       ...process.env,
       PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+      // The readiness loop is observed through the fake gh's call log, not through elapsed time.
+      NMG_SDLC_PUBLICATION_POLL_MS: '20',
     },
   };
 }
@@ -1692,4 +1694,22 @@ describe('publish-approved-spec', () => {
       expect(log).not.toContain('pr merge 99');
     });
   });
+});
+
+describe('the readiness poll interval (#642)', () => {
+  it('@SCN005 waits NMG_SDLC_PUBLICATION_POLL_MS between readiness looks', () => {
+    const { root, env } = makeRepo();
+    const tree = prepareSpec(root, env);
+    writeApproved(path.join(tree, 'specs', '42-add-x'), 42);
+    expect(run(root, ['commit-push', '--issue', '42', '--dir', 'specs/42-add-x'], env).status).toBe(0);
+    const begun = Date.now();
+    const result = run(root, ['merge', '--issue', '42', '--dir', 'specs/42-add-x'], { ...env, GH_PENDING_CI: '1', NMG_SDLC_PUBLICATION_POLL_MS: '1200' });
+    const elapsed = Date.now() - begun;
+    expect(result.status).toBe(0);
+    // Two looks find CI unreported and then pending before the two passing ones, so the helper waits twice.
+    expect(fs.readFileSync(path.join(root, '.gh-log'), 'utf8').match(/pr checks 99 --required/g)).toHaveLength(4);
+    expect(elapsed).toBeGreaterThanOrEqual(2400);
+    // The 5 s default would take at least 10 s for the same two waits.
+    expect(elapsed).toBeLessThan(10000);
+  }, 30000);
 });

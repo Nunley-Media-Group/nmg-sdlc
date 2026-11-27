@@ -12,6 +12,16 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.25.0] - 2026-11-27
+
+### Changed
+
+- The pre-merge gate no longer runs everything when a `fallbackPaths` file changed only by the project version step: when `VERSION` moves to a new version and every changed line of a committed version mirror (`package.json`, `pyproject.toml`, `pubspec.yaml`, a lockfile) only replaces the old version with the new one, the file is left out of the selection and listed in the gate artifact as `selection.versionOnlyPaths`; any other changed line in it still forces the full run (#642)
+- This repository's `repository.tests` and `repository.tests.full` validations and the `steering/test-coverage.json` suite command run Jest with its parallel workers instead of `--runInBand`; with the two changes below the full local suite takes about 3 minutes instead of 18 (#642)
+- `publish-approved-spec.mjs merge` reads its readiness poll interval from `NMG_SDLC_PUBLICATION_POLL_MS` (a positive whole number of milliseconds; default 5000, unchanged), so its tests no longer wait in real time (#642)
+- The contract tests' Jest configuration moves from `scripts/package.json` to `scripts/jest.config.mjs`, and a global setup puts the git binary that macOS's `/usr/bin/git` shim selects first on `PATH` for the test run (#642)
+- Technical steering requires the whole contract suite, the hooks tests when `hooks/` changed, and the plugin-surface and test-layer checks before a passed implement handoff; smoke steering says how to continue when a smoke session's auto mode blocks a command its approved plan names (#642)
+
 ## [4.24.0] - 2026-11-27
 
 ### Changed

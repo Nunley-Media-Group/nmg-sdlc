@@ -128,8 +128,7 @@
         "program": "npm",
         "args": [
           "test",
-          "--",
-          "--runInBand"
+          "--"
         ],
         "cwd": "scripts",
         "env": [
@@ -137,7 +136,8 @@
         ]
       },
       "tier": "change",
-      "selection": true
+      "selection": true,
+      "heavy": true
     },
     {
       "id": "repository.nmg-sdlc-smoke",
@@ -165,15 +165,15 @@
         "program": "npm",
         "args": [
           "test",
-          "--",
-          "--runInBand"
+          "--"
         ],
         "cwd": "scripts",
         "env": [
           "CI"
         ]
       },
-      "tier": "full"
+      "tier": "full",
+      "heavy": true
     },
     {
       "id": "repository.nmg-sdlc-smoke.full",

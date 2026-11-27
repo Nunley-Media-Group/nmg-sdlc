@@ -789,6 +789,74 @@ describe('@SCN010 full-run fallbacks give providers every surface (#584 AC9)', (
   }, TIMEOUT);
 });
 
+describe('a fallback path changed only by the project version step (#642)', () => {
+  const manifestJson = (version, extra = {}) => `${JSON.stringify({ name: 'demo', version, ...extra }, null, 2)}\n`;
+  const versioned = () => project({ selection: { docPaths: ['docs/**', 'VERSION'], fallbackPaths: ['package.json', 'app.yaml'] },
+    baseline: { 'VERSION': '1.0.0\n', 'package.json': manifestJson('1.0.0'), 'app.yaml': 'name: demo\nversion: 1.0.0+7\n' } });
+  const coveredChange = (root) => {
+    change(root, 'src/app.js', 'const a = 1;\n');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
+    report(root, { version: 1, executableLines: ['src/app.js:1'], tests: [{ id: 'tests/app.test.js', file: 'tests/app.test.js', lines: ['src/app.js:1'], branches: [], outcomes: [] }] });
+  };
+
+  it('@SCN001 asks Claude and runs the selected tests when the version mirrors only move to the new version', async () => {
+    const root = await versioned();
+    coveredChange(root);
+    fs.writeFileSync(path.join(root, 'app.yaml'), 'name: demo\nversion: 1.1.0+8\n');
+    fs.writeFileSync(path.join(root, 'package.json'), manifestJson('1.1.0'));
+    change(root, 'VERSION', '1.1.0\n');
+    const artifact = await verify(root);
+    expect(calls).toHaveLength(1);
+    expect(artifact.selection).toMatchObject({ mode: 'selected', reason: 'selected', fallbackPath: null, rejection: null,
+      versionOnlyPaths: ['app.yaml', 'package.json'] });
+    expect(artifact.changedPaths).toEqual(['VERSION', 'app.yaml', 'package.json', 'src/app.js']);
+    expect(ranWith(root)).toEqual(['tests/app.test.js']);
+    expect(byId(artifact)['unit.tests'].effectiveStatus).toBe('passed');
+  }, TIMEOUT);
+
+  it('@SCN002 selects nothing for the version step alone', async () => {
+    const root = await versioned();
+    fs.writeFileSync(path.join(root, 'package.json'), manifestJson('1.1.0'));
+    change(root, 'VERSION', '1.1.0\n');
+    answer = { mode: 'selected', tests: [], surfaces: [] };
+    const artifact = await verify(root);
+    expect(artifact.selection).toMatchObject({ mode: 'selected', reason: 'selection_empty', rejection: null, versionOnlyPaths: ['package.json'] });
+    expect(ranWith(root)).toBeNull();
+  }, TIMEOUT);
+
+  it.each([
+    ['another line of the file changes with the version', (root) => {
+      fs.writeFileSync(path.join(root, 'package.json'), manifestJson('1.1.0', { dependencies: { left: '2.0.0' } }));
+      change(root, 'VERSION', '1.1.0\n');
+    }],
+    ['a line moves between versions that are not the project version step', (root) => {
+      fs.writeFileSync(path.join(root, 'package.json'), manifestJson('1.2.0'));
+      change(root, 'VERSION', '1.1.0\n');
+    }],
+    ['the project version did not change', (root) => {
+      change(root, 'package.json', manifestJson('1.1.0'));
+    }],
+    ['the file also holds an uncommitted edit', (root) => {
+      fs.writeFileSync(path.join(root, 'package.json'), manifestJson('1.1.0'));
+      change(root, 'VERSION', '1.1.0\n');
+      fs.writeFileSync(path.join(root, 'package.json'), manifestJson('1.1.0', { private: true }));
+    }],
+    ['the version only gains a prefix or suffix that is not build metadata', (root) => {
+      fs.writeFileSync(path.join(root, 'package.json'), manifestJson('1.1.0-rc.1'));
+      change(root, 'VERSION', '1.1.0\n');
+    }],
+  ])('@SCN003 still runs everything when %s', async (_name, edit) => {
+    const root = await versioned();
+    coveredChange(root);
+    edit(root);
+    const artifact = await verify(root);
+    expect(calls).toHaveLength(0);
+    expect(artifact.selection).toMatchObject({ mode: 'all', reason: 'fallback_path', fallbackPath: 'package.json' });
+    expect(artifact.selection.versionOnlyPaths).toBeUndefined();
+    expect(ranWith(root)).toEqual([]);
+  }, TIMEOUT);
+});
+
 describe('@SCN010 an unsafe answer runs everything (#584 AC9)', () => {
   it('fails an id that becomes an option once normalized as selection_failed, never appending it', async () => {
     const root = await project();

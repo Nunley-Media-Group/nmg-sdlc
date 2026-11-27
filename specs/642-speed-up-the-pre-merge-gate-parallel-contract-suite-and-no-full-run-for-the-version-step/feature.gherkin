@@ -1,0 +1,57 @@
+**Issue**: #642
+**Date**: 2026-11-27
+**Status**: Approved
+**Author**: Claude Code
+
+# File: scripts/__tests__/test-selection-gate.test.mjs, scripts/__tests__/repository-surfaces.test.mjs, scripts/__tests__/publish-approved-spec.test.mjs
+# Generated from: specs/642-speed-up-the-pre-merge-gate-parallel-contract-suite-and-no-full-run-for-the-version-step/requirements.md
+Feature: Speed up the pre-merge gate: parallel contract suite and no full run for the version step
+
+  @SCN001
+  Scenario: A version mirror changed only by the version step forces no full run
+    Given a project whose "package.json" and "app.yaml" are fallback paths holding version "1.0.0"
+    And a branch that changes "src/app.js" and moves "VERSION" and both files to "1.1.0"
+    When the pre-merge gate runs
+    Then Claude is asked once and the selected test runs
+    And the artifact lists "app.yaml" and "package.json" in "selection.versionOnlyPaths" and keeps them in "changedPaths"
+
+  @SCN002
+  Scenario: The version step alone selects nothing
+    Given a branch that only moves "VERSION" and "package.json" from "1.0.0" to "1.1.0"
+    When the pre-merge gate runs and Claude selects nothing
+    Then the selection reason is "selection_empty" with no rejection
+    And no test command runs
+
+  @SCN003
+  Scenario Outline: Any other change to a fallback path still runs everything
+    Given a branch that changes "src/app.js" and where <condition>
+    When the pre-merge gate runs
+    Then the selection is "all" with reason "fallback_path" for "package.json"
+    And Claude is not asked and "versionOnlyPaths" is absent
+
+    Examples:
+      | condition                                                              |
+      | another line of the file changes with the version                      |
+      | a line moves between versions that are not the project version step    |
+      | the project version did not change                                     |
+      | the file also holds an uncommitted edit                                |
+      | the version only gains a prefix or suffix that is not build metadata   |
+
+  @SCN004
+  Scenario: This repository's contract suite runs in parallel in a heavy-job slot
+    Given this repository's "steering/manifest.json" and "steering/test-coverage.json"
+    When the "repository.tests" and "repository.tests.full" validations and the coverage suite command are read
+    Then none passes "--runInBand" to Jest
+    And both validations are "heavy: true"
+
+  @SCN005
+  Scenario: The publish readiness poll interval is configurable
+    Given a spec PR whose checks are unreported and then pending before they pass
+    When "publish-approved-spec.mjs merge" runs with "NMG_SDLC_PUBLICATION_POLL_MS" set to "1200"
+    Then it merges after waiting at least 2400 ms and less than the 10 s the default takes
+
+  @SCN006
+  Scenario: Steering requires the whole suite before the implement handoff
+    Given this repository's "steering/snippets/project-tech.md"
+    When its "Checks Before the Implement Handoff" section is read
+    Then it names the whole contract suite through the heavy-job pool wrapper, the hooks tests, and the plugin-surface and test-layer checks
