@@ -12,6 +12,8 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.24.0] - 2026-11-27
+
 ### Changed
 
 - Interactive `/sdlc-*` commands run in Claude Desktop and remote-attached sessions as well as the TUI: the surface roster read when the command runs decides, not `isInteractive`, and only a session with no attached surface refuses with `Run /<command> in the TUI.` and exit 2; the write-spec Continue follows the same roster rule, and the project states the Desktop-and-CLI rule in `CLAUDE.md` and product steering (#638)
