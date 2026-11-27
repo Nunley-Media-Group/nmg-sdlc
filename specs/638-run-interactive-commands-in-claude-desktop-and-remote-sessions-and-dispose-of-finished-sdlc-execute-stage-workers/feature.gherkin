@@ -1,0 +1,84 @@
+**Issue**: #638
+**Date**: 2026-11-27
+**Status**: Approved
+**Author**: Claude Code
+**Related Spec**: specs/491-make-the-sdlc-execute-session-an-opus-supervisor-that-inspects-and-steers-every-worker-stage/
+
+# File: hooks/register.test.ts, scripts/__tests__/sdlc-execute.test.mjs, scripts/__tests__/sdlc-execute-supervisor.test.mjs, scripts/__tests__/dual-surface-contract.test.mjs
+# Generated from: specs/638-run-interactive-commands-in-claude-desktop-and-remote-sessions-and-dispose-of-finished-sdlc-execute-stage-workers/requirements.md
+Feature: Run interactive commands in Claude Desktop and remote sessions, and dispose of finished /sdlc-execute stage workers
+
+  @SCN001
+  Scenario: An interactive command runs in a Claude Desktop session
+    Given a session whose start reported isInteractive false
+    And whose surface roster is "desktop" when the command runs
+    When "/sdlc-draft-issue" runs
+    Then its workflow is rendered, "/plan" runs, and the workflow is submitted as the person's prompt
+    And "Run /sdlc-draft-issue in the TUI." is not printed
+
+  @SCN002
+  Scenario Outline: An interactive command runs in a remotely attached session
+    Given a session whose surface roster is "<roster>" when the command runs
+    When an interactive "/sdlc-*" command runs
+    Then its workflow is rendered, "/plan" runs, and the workflow is submitted as the person's prompt
+
+    Examples:
+      | roster          |
+      | terminal,mobile |
+      | mobile          |
+
+  @SCN003
+  Scenario: A headless session keeps refusing interactive commands
+    Given a session whose surface roster is empty when the command runs
+    When "/sdlc-draft-issue" runs
+    Then it answers "Run /sdlc-draft-issue in the TUI." with exit code 2
+    And no workflow is rendered
+
+  @SCN004
+  Scenario: A finished stage worker is stopped before the next stage starts
+    Given an execute run whose implement worker wrote a passed handoff with no redispatch or halt decision
+    When the controller advances to verify
+    Then the implement worker is stopped before the verify worker is spawned
+    And the implement worker's agent record has "stopped" true
+
+  @SCN005
+  Scenario Outline: No worker outlives its run
+    Given an execute run that ends by <ending>
+    When the controller records the run's result
+    Then every stage worker the run spawned was stopped
+    And none is listed as pending, running or waiting
+
+    Examples:
+      | ending  |
+      | success |
+      | failure |
+      | halt    |
+
+  @SCN006
+  Scenario: An unconfirmed stop is reported, not hidden
+    Given a stage worker whose stop cannot be confirmed
+    When the controller finishes that stage
+    Then the stop is attempted once more
+    And the run fails with "worker_stop_failed"
+    And the recorded run result includes "stage worker <agentId>: stop not confirmed"
+
+  @SCN007
+  Scenario: Every hooks-module command works on both the CLI and Desktop
+    Given each command the hooks module registers
+    When it runs once with a "terminal" roster and once with a "desktop" roster
+    Then both runs reach the same workflow submission
+    And the commands exercised are exactly the registered commands
+
+  @SCN008
+  Scenario: UI degrades gracefully on a terminal-only roster
+    Given a hooks-module path that shows a toast
+    When the session's roster is "terminal" only
+    Then the command reaches the same outcome as on a "desktop" roster without an error
+    And the hooks module calls no "$.ui" member other than "toast" and "log"
+
+  @SCN009
+  Scenario: The project states the dual-surface rule
+    Given the repository after this change
+    When "CLAUDE.md" and "steering/snippets/project-product.md" are read
+    Then "CLAUDE.md" has a "Desktop and CLI" section stating both surfaces are supported, Desktop may offer richer UI, and the CLI degrades gracefully
+    And the Product Principles and Intent Verification tables each have a "Desktop and CLI" row
