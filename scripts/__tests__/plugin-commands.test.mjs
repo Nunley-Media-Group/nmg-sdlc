@@ -45,7 +45,7 @@ describe('Claude Code plugin commands', () => {
     // Headless interactive commands always refuse (AC9): autopilot is removed.
     expect(source).toContain('if (DIRECT_COMMANDS.includes(name)) {');
     expect(source).toContain('$.clock.after(1, () => { void $.prompt.submit({ text: rendered.text, asUser: true }) })');
-    expect(source).toContain("if (headless && name !== 'sdlc-execute') {");
+    expect(source).toContain("if (noSurface && name !== 'sdlc-execute') {");
     expect(source).not.toContain('NMG_SDLC_AUTOPILOT');
     expect(source).not.toMatch(/return \{ text: `\$\{name === 'sdlc-execute'/);
     expect(source).toContain('scripts/sdlc-render-prompt.mjs');
