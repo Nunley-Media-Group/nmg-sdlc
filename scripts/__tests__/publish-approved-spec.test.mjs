@@ -300,6 +300,8 @@ exit 1
     env: {
       ...process.env,
       PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+      // The readiness loop is observed through the fake gh's call log, not through elapsed time.
+      NMG_SDLC_PUBLICATION_POLL_MS: '20',
     },
   };
 }

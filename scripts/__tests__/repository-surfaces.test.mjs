@@ -82,7 +82,7 @@ function runCoverage(args) {
 describe('@SCN013 This repository adopts scoped verification: the Jest per-test coverage command', () => {
   it('declares the suite and the per-test coverage command in steering/test-coverage.json', () => {
     expect(loadTestCoverageConfig(repoRoot)).toEqual({ config: { version: 1,
-      suite: { program: 'npm', args: ['--prefix', 'scripts', 'test', '--', '--runInBand'] },
+      suite: { program: 'npm', args: ['--prefix', 'scripts', 'test', '--'] },
       coverage: { program: 'node', args: ['scripts/jest-per-test-coverage.mjs'] } } });
   });
 

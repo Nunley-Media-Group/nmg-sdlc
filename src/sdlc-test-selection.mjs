@@ -109,6 +109,67 @@ export function changeDiffWithDigest(projectRoot, baseRef) {
 /** The change's diff as the prompt receives it, capped with a truncation marker. */
 export function changeDiff(projectRoot, baseRef) { return changeDiffWithDigest(projectRoot, baseRef).text; }
 
+/** The file delivery writes the project version to; a change to it names the version step a branch took. */
+const VERSION_FILE = "VERSION";
+const VERSION_RE = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?$/;
+const VERSION_TOKEN_CHAR = /[0-9A-Za-z.+-]/;
+function gitQuiet(projectRoot, args) {
+  const result = spawnSync("git", args, { cwd: projectRoot, encoding: "utf8", shell: false, maxBuffer: 64 * 1024 * 1024 });
+  return result.error || result.status !== 0 ? null : result.stdout;
+}
+/** Whether `token` is the version itself or the version followed by build metadata, as in `1.2.3+45`. */
+function isVersionToken(token, version) {
+  return token === version || (token.startsWith(`${version}+`) && /^[0-9A-Za-z.-]+$/.test(token.slice(version.length + 1)));
+}
+/** Whether two lines differ only in one token that holds the old version on one side and the new version on the other. */
+function versionOnlyLine(removed, added, before, after) {
+  const shortest = Math.min(removed.length, added.length);
+  let start = 0;
+  while (start < shortest && removed[start] === added[start]) start += 1;
+  let tail = 0;
+  while (tail < shortest - start && removed[removed.length - 1 - tail] === added[added.length - 1 - tail]) tail += 1;
+  // Grow the differing span to the whole token on both sides; the text around it is common to both lines.
+  while (start > 0 && VERSION_TOKEN_CHAR.test(removed[start - 1])) start -= 1;
+  while (tail > 0 && VERSION_TOKEN_CHAR.test(removed[removed.length - tail])) tail -= 1;
+  return isVersionToken(removed.slice(start, removed.length - tail), before) && isVersionToken(added.slice(start, added.length - tail), after);
+}
+/** Whether a zero-context diff of one file changes nothing but the project version: every removed line pairs with an added one. */
+export function versionOnlyDiff(diff, before, after) {
+  const hunks = [];
+  for (const line of String(diff).split("\n")) {
+    if (line.startsWith("@@")) hunks.push({ removed: [], added: [] });
+    else if (!hunks.length) continue;
+    else if (line.startsWith("-")) hunks.at(-1).removed.push(line.slice(1));
+    else if (line.startsWith("+")) hunks.at(-1).added.push(line.slice(1));
+    else if (line !== "") return false;
+  }
+  return hunks.length > 0 && hunks.every(({ removed, added }) => removed.length > 0 && removed.length === added.length
+    && removed.every((line, index) => versionOnlyLine(line, added[index], before, after)));
+}
+/**
+ * The `candidates` whose whole change since the merge base is the project version step: `VERSION` went from one
+ * semantic version to another, and every changed line of the file replaces exactly the old version with the new one
+ * (build metadata after `+` may differ). Such a file is a version mirror that delivery's version step rewrote, so its
+ * change reaches nothing a test or surface could exercise. A file with any other changed line, an uncommitted change,
+ * or a project whose `VERSION` did not change is never listed.
+ */
+export function versionOnlyChanges(projectRoot, baseRef, candidates) {
+  if (!candidates.length) return [];
+  const root = resolve(projectRoot);
+  const mergeBase = gitQuiet(root, ["merge-base", baseRef, "HEAD"])?.trim();
+  if (!mergeBase) return [];
+  const before = gitQuiet(root, ["show", `${mergeBase}:${VERSION_FILE}`])?.trim();
+  const after = gitQuiet(root, ["show", `HEAD:${VERSION_FILE}`])?.trim();
+  if (!before || !after || before === after || !VERSION_RE.test(before) || !VERSION_RE.test(after)) return [];
+  return candidates.filter((path) => {
+    const spec = `:(literal,top)${path}`;
+    // The working tree must hold the committed file: an uncommitted or untracked edit is not the version step.
+    if (gitQuiet(root, ["status", "--porcelain=v1", "--untracked-files=all", "--", spec]) !== "") return false;
+    const diff = gitQuiet(root, ["-c", "core.quotepath=off", "diff", "--no-color", "--no-ext-diff", "--no-renames", "-U0", mergeBase, "HEAD", "--", spec]);
+    return diff !== null && versionOnlyDiff(diff, before, after);
+  });
+}
+
 /**
  * The manifest-level fallback globs plus the validation-level ones of each validation opted into the selection: a
  * validation that does not opt in runs its full command anyway, so its fallback globs never force everything else.

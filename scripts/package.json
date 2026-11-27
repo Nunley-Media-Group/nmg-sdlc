@@ -6,10 +6,6 @@
     "test": "node --experimental-vm-modules node_modules/.bin/jest",
     "compat": "node ../scripts/verify-plugin-surface.mjs --root .. --label repository --claude-validate"
   },
-  "jest": {
-    "transform": {},
-    "testMatch": ["**/__tests__/**/*.mjs", "**/?(*.)+(spec|test).mjs"]
-  },
   "devDependencies": {
     "jest": "^29.7.0",
     "@jest/globals": "^29.7.0"

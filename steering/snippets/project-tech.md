@@ -296,13 +296,23 @@ Never infer a stronger layer from a weaker one.
 
 ---
 
+### Checks Before the Implement Handoff
+
+A red pre-merge gate sends the branch back to implement and runs every selected validation again, so a failure the gate would find in the contract suite is found here first. Before writing a passed implement handoff, at the head that will be pushed:
+
+1. Run the whole contract suite, `npm --prefix scripts test`, through the heavy-job pool wrapper (`node <plugin-root>/scripts/sdlc-heavy-pool.mjs run --label "implement #N" -- npm --prefix scripts test`). It runs in Jest's parallel workers and takes a few minutes. A narrow run of the changed test files is for the edit loop only: other suites assert this repository's source text, generated files and steering, and they fail on changes their names do not suggest.
+2. Run `claude plugin test .` when `hooks/` or `src/host-events.mjs` changed.
+3. Run `node scripts/verify-plugin-surface.mjs --root . --label repository` and `node scripts/check-test-layers.mjs --root .`.
+
+Repair every failure before the handoff and name each command and its result in the handoff summary. These runs do not replace the gate, which runs the registered validations again at the queue head.
+
 ## Verification Gates
 
 `verify-code` enforces applicable gates as hard requirements:
 
 | Gate | Condition | Action | Pass Criteria |
 |------|-----------|--------|---------------|
-| Contract tests | `scripts/__tests__/` exists | `repository.tests` (`change` tier, `selection: true`): the gate runs only the tests the `gate:selection` Claude call selects, then `node scripts/jest-per-test-coverage.mjs <tests>` (from `steering/test-coverage.json`) to prove they hit every changed executable line; a `selection.fallbackPaths` change or an `all` answer runs `cd scripts && npm test -- --runInBand` in full | Exit 0; no unexpected skips or orphaned imports; no selection rejection |
+| Contract tests | `scripts/__tests__/` exists | `repository.tests` (`change` tier, `selection: true`): the gate runs only the tests the `gate:selection` Claude call selects, then `node scripts/jest-per-test-coverage.mjs <tests>` (from `steering/test-coverage.json`) to prove they hit every changed executable line; a `selection.fallbackPaths` change or an `all` answer runs `cd scripts && npm test` in full, with Jest's parallel workers | Exit 0; no unexpected skips or orphaned imports; no selection rejection |
 | Live smoke project | Always, scoped to the selected surfaces: smoke is bound to the `draft-issue`, `write-spec`, `onboard-project`, `upgrade-project`, `steering`, `run-retro` and `execute` surfaces, passes as `surface_not_selected` when none is selected, requires a passed head-bound `.nmg-sdlc/smoke/surfaces/<surface>.json` record for each selected interactive surface, and runs the delivery below only when `execute` is selected | Use the explicit queue in `NMG_SDLC_SMOKE_ISSUES` when set; otherwise deliver the issue the verify worker recorded in `.nmg-sdlc/smoke/provisioned.json` (a missing, invalid or stale record fails with `nmg-sdlc-smoke smoke issue not provisioned`); clone `https://github.com/Nunley-Media-Group/nmg-sdlc-smoke.git` without shallow history; record each configured issue's exact closing-PR baseline; then run `/sdlc-execute` once for the configured issues in order in a headless session, `claude -p --session-id &lt;uuid&gt; --plugin-dir &lt;plugin-root&gt; --model opus "/sdlc-execute #N [...]"`, and read its result with `claude -p --resume &lt;uuid&gt; "/sdlc-execute --result"` (a rerun after execute delivered only a leading part of the queue resumes the undelivered remainder in the retained clone under the same invocation token), with cwd set to the clone and `NMG_SDLC_SMOKE_OWNED=1`; read each workflow-recorded pre-merge delivery proof before accepting controller success | For every configured issue, an exact closing PR outside the pre-run baseline is GitHub `MERGED`, its number and `headRefOid` exactly equal the invocation's pre-merge delivery proof, and the issue is GitHub `CLOSED`; a nonzero headless execute exit may pass only when all current-invocation proof is exact; pre-existing merged PRs and status JSON cannot pass |
 | Skill inventory | Skill/reference/agent surface changed | `node scripts/skill-inventory-audit.mjs --check` | Exit 0 and baseline current |
 | Claude Code plugin surface | Plugin surface changed | `node scripts/verify-plugin-surface.mjs --root . --label repository` | Exit 0 |
@@ -401,6 +411,7 @@ Path accounting follows the #584 accounting list, with one clarification: a path
 
 | Variable | Purpose |
 |----------|---------|
+| `NMG_SDLC_PUBLICATION_POLL_MS` | Positive whole number of milliseconds between two readiness looks of `publish-approved-spec.mjs merge`; any other value or unset means 5000. Set only by the helper's tests |
 | `NMG_SDLC_WORKER_PERMISSION_MODE` | Permission mode for execute stage subagents: one of `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`; any other value or unset means `auto` |
 
 No environment variable changes interactive plan-mode behavior or broadens mutation scope.

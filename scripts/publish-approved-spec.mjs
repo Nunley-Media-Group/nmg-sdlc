@@ -19,6 +19,13 @@ import { ensureWorktree, fastForwardPrimary, primaryCheckout, removeWorktree, sp
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+/**
+ * How long merge waits between two readiness looks at the spec PR. NMG_SDLC_PUBLICATION_POLL_MS overrides the 5 s
+ * default with a positive whole number of milliseconds, so the helper's tests need not wait in real time.
+ */
+const READINESS_POLL_MS = /^[1-9]\d*$/.test(process.env.NMG_SDLC_PUBLICATION_POLL_MS ?? '')
+  ? Number(process.env.NMG_SDLC_PUBLICATION_POLL_MS) : 5_000;
+
 function fail(reasonCode, extra = {}) {
   process.stdout.write(`${JSON.stringify({ ok: false, reasonCode, ...extra })}\n`);
   process.exit(1);
@@ -470,7 +477,7 @@ async function awaitPublicationReady(pr, branch, base, head) {
   for (;;) {
     if (publicationSnapshot(pr, branch, base, head)
       && publicationSnapshot(pr, branch, base, head)) return head;
-    await new Promise((resolve) => setTimeout(resolve, 5_000));
+    await new Promise((resolve) => setTimeout(resolve, READINESS_POLL_MS));
   }
 }
 

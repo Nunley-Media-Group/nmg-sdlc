@@ -2,7 +2,7 @@
   "version": 1,
   "suite": {
     "program": "npm",
-    "args": ["--prefix", "scripts", "test", "--", "--runInBand"]
+    "args": ["--prefix", "scripts", "test", "--"]
   },
   "coverage": {
     "program": "node",
