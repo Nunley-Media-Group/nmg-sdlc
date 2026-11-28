@@ -1,6 +1,6 @@
 // The pre-merge gate's selection checks and surface binding: @SCN001, @SCN002, @SCN004-@SCN010
 // (#584 AC1, AC2, AC4, AC5, AC5a, AC6, AC7, AC8, AC9), plus `--mode select`.
-import { afterEach, describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -778,14 +778,197 @@ describe('@SCN009 only a docs-only change may select nothing (#584 AC8)', () => 
 });
 
 describe('@SCN010 full-run fallbacks give providers every surface (#584 AC9)', () => {
-  it('passes every declared surface on a fallback path and runs bound validations', async () => {
+  it('passes every declared surface on a fallback path whose surface call fails, and runs bound validations', async () => {
     const root = await project();
     change(root, 'package.json', '{}\n');
     const artifact = await verify(root);
-    expect(calls).toHaveLength(0);
+    expect(calls).toHaveLength(1);
     expect(artifact.selection).toMatchObject({ mode: 'all', reason: 'fallback_path', fallbackPath: 'package.json', surfaces: ['app', 'site', 'other'] });
+    expect(artifact.selection.detail).toEqual(expect.any(String));
     expect(providerRequests.map((request) => request.selection.surfaces)).toEqual([['app', 'site', 'other'], ['app', 'site', 'other']]);
     expect(ranWith(root)).toEqual([]);
+    // A failed call is not stored, so the next run asks again.
+    await verify(root, { reuse: false });
+    expect(calls).toHaveLength(2);
+  }, TIMEOUT);
+
+  it('passes every declared surface on a fallback path answered `all`', async () => {
+    const root = await project();
+    change(root, 'package.json', '{}\n');
+    answer = { mode: 'all', tests: [], surfaces: [] };
+    const artifact = await verify(root);
+    expect(artifact.selection).toMatchObject({ mode: 'all', reason: 'fallback_path', surfaces: ['app', 'site', 'other'], detail: 'the selection call answered all' });
+  }, TIMEOUT);
+});
+
+describe('surfaces of a fallback-path run (#643)', () => {
+  it('@SCN003 runs every test and only the surfaces the change requires or the call names', async () => {
+    const root = await project();
+    change(root, 'package.json', '{}\n');
+    change(root, 'site/index.html', '<p>one</p>\n');
+    // The answer's tests are ignored on a fallback path, even ones that name no file.
+    answer = { mode: 'selected', tests: ['tests/missing.test.js'], surfaces: ['other'] };
+    const artifact = await verify(root);
+    expect(calls).toHaveLength(1);
+    // The call is told that every test runs and that it chooses surfaces only.
+    expect(calls[0].input).toContain('Fallback path:\nThe changed path `package.json` cannot be mapped to tests');
+    expect(calls[0].input).toContain('Leave `tests` empty and choose only surfaces');
+    expect(artifact.selection).toMatchObject({ mode: 'all', reason: 'fallback_path', fallbackPath: 'package.json', tests: [],
+      surfaces: ['site', 'other'], requiredSurfaces: ['site'], rejection: null, detail: null });
+    expect(ranWith(root)).toEqual([]);
+    expect(artifact.ceiling).toBeNull();
+    expect(byId(artifact)['site.smoke'].selection).toBeNull();
+    expect(providerRequests.map((request) => request.selection.surfaces)).toEqual([['site', 'other'], ['site', 'other']]);
+  }, TIMEOUT);
+
+  it('@SCN003 passes a surface-bound validation as surface_not_selected when the fallback change touches no surface', async () => {
+    const root = await project();
+    change(root, 'package.json', '{}\n');
+    answer = { mode: 'selected', tests: [], surfaces: [] };
+    const artifact = await verify(root);
+    expect(artifact.selection).toMatchObject({ mode: 'all', reason: 'fallback_path', surfaces: [] });
+    expect(ranWith(root)).toEqual([]);
+    expect(byId(artifact)['site.smoke']).toMatchObject({ effectiveStatus: 'passed', selection: { reason: 'surface_not_selected' } });
+    expect(byId(artifact)['unit.tests']).toMatchObject({ effectiveStatus: 'passed', selection: { reason: 'fallback_path', selectedCount: null } });
+    expect(artifact.ceiling).toBeNull();
+    // The stored fallback selection is reused while the change is unchanged.
+    const again = await verify(root);
+    expect(calls).toHaveLength(1);
+    expect(again.selection).toMatchObject({ reason: 'fallback_path', surfaces: [], reused: true });
+  }, TIMEOUT);
+
+  it('@SCN004 asks nothing and selects every surface when no surface binds a validation', async () => {
+    const root = await project({ surfaces: [{ id: 'app', sources: ['src/**'] }, { id: 'other', sources: ['other/**'] }] });
+    change(root, 'package.json', '{}\n');
+    answer = { mode: 'selected', tests: [], surfaces: [] };
+    const artifact = await verify(root);
+    expect(calls).toHaveLength(0);
+    expect(artifact.selection).toMatchObject({ mode: 'all', reason: 'fallback_path', fallbackPath: 'package.json', surfaces: ['app', 'other'] });
+    expect(ranWith(root)).toEqual([]);
+  }, TIMEOUT);
+});
+
+describe('a gate rerun reuses what already passed (#643)', () => {
+  const failLintOnce = () => {
+    let lintRuns = 0;
+    const passing = globalThis.__nmg584Provider;
+    globalThis.__nmg584Provider = (request) => {
+      if (request.validationId !== 'lint') return passing(request);
+      lintRuns += 1;
+      providerRequests.push(JSON.parse(JSON.stringify(request)));
+      return { schemaVersion: 1, status: lintRuns === 1 ? 'failed' : 'passed', summary: 'lint', identity: request.identity, evidence: [{ kind: 'test', summary: 'lint' }] };
+    };
+  };
+  const ranIds = () => providerRequests.map((request) => request.validationId);
+  const fallbackChange = (root) => {
+    change(root, 'package.json', '{}\n');
+    change(root, 'site/index.html', '<p>one</p>\n');
+    answer = { mode: 'selected', tests: [], surfaces: [] };
+  };
+
+  it('@SCN001 runs only the validation that failed when the gate reruns at an unchanged head', async () => {
+    const root = await project();
+    fallbackChange(root);
+    failLintOnce();
+    const first = await verify(root);
+    expect(first.ceiling).toBe('Fail');
+    expect(ranWith(root)).toEqual([]);
+    expect(ranIds()).toEqual(['site.smoke', 'lint']);
+    fs.rmSync(path.join(root, 'ran.json'));
+    providerRequests.length = 0;
+    const second = await verify(root, { verificationRunId: 'run-2' });
+    expect(second.ceiling).toBeNull();
+    // The full command and the surface-bound provider are not run again; only the failed validation is.
+    expect(ranWith(root)).toBeNull();
+    expect(ranIds()).toEqual(['lint']);
+    expect(slots).toEqual([]);
+    const results = byId(second);
+    expect(results['unit.tests']).toMatchObject({ effectiveStatus: 'passed', reused: { generatedAt: first.generatedAt }, selection: { reason: 'fallback_path' } });
+    expect(results['site.smoke']).toMatchObject({ effectiveStatus: 'passed', reused: { generatedAt: first.generatedAt } });
+    expect(results.lint.reused).toBeUndefined();
+    // A reused result carries this run's request, so every result of the artifact names one run.
+    expect(second.results.map((entry) => entry.request.verification.runId)).toEqual(['run-2', 'run-2', 'run-2']);
+    expect(results['unit.tests'].result).toEqual(byId(first)['unit.tests'].result);
+    // A third run keeps the time of the run that produced the result.
+    const third = await verify(root, { verificationRunId: 'run-3' });
+    expect(byId(third)['unit.tests'].reused).toEqual({ generatedAt: first.generatedAt });
+    expect(byId(third).lint.reused).toEqual({ generatedAt: second.generatedAt });
+  }, TIMEOUT);
+
+  it.each([
+    ['the head moved', (root) => change(root, 'docs/notes.md', 'note\n'), {}],
+    ['the working tree changed', (root) => fs.writeFileSync(path.join(root, 'site/index.html'), '<p>two</p>\n'), {}],
+    ['the spec changed', (root) => fs.writeFileSync(path.join(root, 'specs/42-test/design.md'), 'changed\n'), {}],
+    ['reuse is turned off', () => {}, { reuse: false }],
+  ])('@SCN002 reuses nothing when %s', async (_name, edit, extra) => {
+    const root = await project();
+    fallbackChange(root);
+    await verify(root);
+    fs.rmSync(path.join(root, 'ran.json'));
+    providerRequests.length = 0;
+    edit(root);
+    const second = await verify(root, extra);
+    expect(ranWith(root)).toEqual([]);
+    expect(ranIds()).toEqual(['site.smoke', 'lint']);
+    expect(second.results.every((entry) => entry.reused === undefined)).toBe(true);
+    expect(second.ceiling).toBeNull();
+  }, TIMEOUT);
+
+  it('@SCN002 always runs the selected tests and their coverage check, and reuses the other passed results', async () => {
+    const root = await project();
+    change(root, 'src/app.js', 'const a = 1;\n');
+    answer = { mode: 'selected', tests: ['tests/app.test.js'], surfaces: ['app'] };
+    report(root, testReport(['src/app.js:1'], { executableLines: ['src/app.js:1'] }));
+    const first = await verify(root);
+    expect(first.ceiling).toBeNull();
+    fs.rmSync(path.join(root, 'ran.json'));
+    fs.rmSync(path.join(root, 'coverage-args.json'));
+    providerRequests.length = 0;
+    const second = await verify(root);
+    expect(ranWith(root)).toEqual(['tests/app.test.js']);
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'coverage-args.json'), 'utf8'))).toEqual(['tests/app.test.js']);
+    expect(byId(second)['unit.tests'].reused).toBeUndefined();
+    expect(byId(second).lint.reused).toEqual({ generatedAt: first.generatedAt });
+    expect(ranIds()).toEqual([]);
+    expect(second.ceiling).toBeNull();
+  }, TIMEOUT);
+
+  it('@SCN002 --fresh true runs every validation again, and any other value is refused', async () => {
+    const root = await project();
+    fallbackChange(root);
+    const args = ['--project', root, '--issue', '42', '--spec', 'specs/42-test', '--base', 'main'];
+    const write = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      await verifySteering(args, { runSelection, models: {} });
+      fs.rmSync(path.join(root, 'ran.json'));
+      await verifySteering(args, { runSelection, models: {} });
+      expect(ranWith(root)).toBeNull();
+      await verifySteering([...args, '--fresh', 'true'], { runSelection, models: {} });
+      expect(ranWith(root)).toEqual([]);
+      await expect(verifySteering([...args, '--fresh', 'yes'], { runSelection, models: {} })).rejects.toThrow('invalid_arguments');
+    } finally {
+      write.mockRestore();
+      process.exitCode = 0;
+    }
+  }, TIMEOUT);
+
+  it('@SCN002 never reuses a result that did not pass, or one of a run that failed to start', async () => {
+    const root = await project();
+    fallbackChange(root);
+    fs.writeFileSync(path.join(root, 'fail-tests'), '');
+    const first = await verify(root);
+    expect(byId(first)['unit.tests'].effectiveStatus).toBe('failed');
+    fs.rmSync(path.join(root, 'fail-tests'));
+    fs.rmSync(path.join(root, 'ran.json'));
+    const second = await verify(root);
+    expect(ranWith(root)).toEqual([]);
+    expect(second.results.every((entry) => entry.reused === undefined)).toBe(true);
+    expect(second.ceiling).toBeNull();
+    fs.writeFileSync(path.join(root, '.nmg-sdlc/verification/42.json'), '{ not json');
+    fs.rmSync(path.join(root, 'ran.json'));
+    const third = await verify(root);
+    expect(ranWith(root)).toEqual([]);
+    expect(third.results.every((entry) => entry.reused === undefined)).toBe(true);
   }, TIMEOUT);
 });
 
@@ -850,8 +1033,9 @@ describe('a fallback path changed only by the project version step (#642)', () =
     coveredChange(root);
     edit(root);
     const artifact = await verify(root);
-    expect(calls).toHaveLength(0);
-    expect(artifact.selection).toMatchObject({ mode: 'all', reason: 'fallback_path', fallbackPath: 'package.json' });
+    // The one call chooses surfaces only (#643): every test still runs.
+    expect(calls).toHaveLength(1);
+    expect(artifact.selection).toMatchObject({ mode: 'all', reason: 'fallback_path', fallbackPath: 'package.json', tests: [] });
     expect(artifact.selection.versionOnlyPaths).toBeUndefined();
     expect(ranWith(root)).toEqual([]);
   }, TIMEOUT);

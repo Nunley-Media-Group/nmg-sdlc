@@ -23,6 +23,8 @@ function parse(argv) {
   if (options.base !== undefined && (options.base.startsWith("-") || !/^[A-Za-z0-9._/@^~-]+$/.test(options.base))) throw new Error("invalid_arguments");
   // `--mode select` resolves and stores the change selection without running any validation.
   if (options.mode !== undefined && (options.mode !== "select" || options.tier === "full")) throw new Error("invalid_arguments");
+  // `--fresh true` runs every applicable validation again, reusing no result that passed for this exact tree.
+  if (options.fresh !== undefined && !["true", "false"].includes(options.fresh)) throw new Error("invalid_arguments");
   return options;
 }
 
@@ -59,6 +61,7 @@ export async function main(argv = process.argv.slice(2), { signal, runSelection,
       runSelection,
       models,
       selectOnly: options.mode === "select",
+      reuse: options.fresh !== "true",
     });
     if (options.mode === "select") {
       process.stdout.write(`${JSON.stringify({ ok: true, selection: artifact.selection }, null, 2)}\n`);

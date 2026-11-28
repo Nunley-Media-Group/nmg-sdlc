@@ -329,6 +329,10 @@ Exercise live proof uses `claude -p --plugin-dir <checkout>` loading this reposi
 
 `steering/snippets/project-selection.md` is routed to `gate:selection`: it tells the selection call that test ids are repository-relative `scripts/__tests__/<name>.test.mjs` files.
 
+A changed `fallbackPaths` file runs the whole suite but no longer selects every smoke surface (#643): the selection call chooses surfaces, and every surface whose sources match a changed path is required. `hooks/register.ts` and `hooks/hooks.json` are sources of every interactive surface and of `execute`, because the hooks module registers and gates all of them, and `steering/extensions/**` is a source of `execute`, because it holds the smoke provider. A change to `.gitignore`, `tsconfig.json`, `scripts/package.json`, `steering/manifest.json`, `src/*.d.mts` or `hooks/register.test.ts` therefore drives only the surfaces the change affects.
+
+A gate rerun at an unchanged head reuses the results that passed (`reused` in the gate artifact), and the smoke provider accepts an interactive surface record from an earlier head while only tests, specs, documentation and the version changed since; `project-smoke.md` gives the rule.
+
 This repository's lists differ from the #584 design in three places:
 
 - `fallbackPaths` adds `src/*.d.mts`. The type declarations feed only `tsc` checks of `hooks/register.ts`, which no Jest test exercises, so a change to one runs the full suite.

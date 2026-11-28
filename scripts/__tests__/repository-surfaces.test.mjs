@@ -57,7 +57,7 @@ describe('@SCN013 This repository adopts scoped verification', () => {
       'Provision (steps 2–5) only when `execute`, `draft-issue` or `write-spec` is selected.',
       'When `draft-issue` or `write-spec` is selected, provision a fresh smoke issue',
       '.nmg-sdlc/smoke/surfaces/<surface>.json',
-      'Surface records are bound to `<head>`.',
+      'Surface records are bound to the head they were made at.',
     ]) {
       expect(snippet).toContain(required);
     }
@@ -137,5 +137,54 @@ describe('this repository runs its contract suite in parallel and checks it befo
       'claude plugin test .', 'scripts/verify-plugin-surface.mjs', 'scripts/check-test-layers.mjs', 'Repair every failure before the handoff']) {
       expect(section).toContain(required);
     }
+  });
+});
+
+describe('this repository scopes fallback surfaces and keeps its suite parallel (#643)', () => {
+  const INTERACTIVE = ['draft-issue', 'write-spec', 'onboard-project', 'upgrade-project', 'steering', 'run-retro'];
+  const SMOKE = [...INTERACTIVE, 'execute'];
+
+  it('@SCN006 a change to the hooks module or the smoke provider requires every surface it serves', async () => {
+    const runtime = await loadSteeringRuntime(repoRoot, { metadataOnly: true });
+    const docPaths = runtime.selection.docPaths;
+    const bound = (paths) => requiredSurfaces(runtime.surfaces, paths, docPaths).filter((id) => SMOKE.includes(id));
+    expect(bound(['hooks/register.ts'])).toEqual(SMOKE);
+    expect(bound(['hooks/hooks.json'])).toEqual(SMOKE);
+    expect(bound(['steering/extensions/nmg-sdlc-smoke.mjs'])).toEqual(['execute']);
+    // Fallback paths that no live command reads require no smoke surface of their own.
+    for (const file of ['.gitignore', 'tsconfig.json', 'scripts/package.json', 'scripts/package-lock.json', 'steering/manifest.json',
+      'hooks/register.test.ts', 'src/host-events.d.mts']) {
+      expect(matches(file, runtime.selection.fallbackPaths)).toBe(true);
+      expect(bound([file])).toEqual([]);
+    }
+  });
+
+  it('@SCN006 smoke steering tells the verify worker which earlier surface records still count', () => {
+    const smoke = fs.readFileSync(path.join(repoRoot, 'steering', 'snippets', 'project-smoke.md'), 'utf8');
+    for (const required of ['A record made at an earlier head still proves its surface', 'git diff --name-only <record head> <head>',
+      'scripts/__tests__/', 'only its `"version"` line changed', 'do not exercise that surface again', 'Any other changed path makes the record stale']) {
+      expect(smoke).toContain(required);
+    }
+  });
+
+  it('@SCN007 the /sdlc-execute controller tests are spread over four files that share one fixture module', () => {
+    const files = ['sdlc-execute.test.mjs', 'sdlc-execute-dispatch.test.mjs', 'sdlc-execute-supervision.test.mjs', 'sdlc-execute-queue.test.mjs'];
+    let cases = 0;
+    for (const file of files) {
+      const text = fs.readFileSync(path.join(repoRoot, 'scripts', '__tests__', file), 'utf8');
+      expect(text).toContain("from '../__fixtures__/sdlc-execute-fixture.mjs'");
+      expect(text.split('\n').length).toBeLessThan(900);
+      cases += (text.match(/^\s*(?:\(process\.platform[^\n]*\)|it|it\.each\([^\n]*)\(/gm) ?? []).length;
+    }
+    expect(cases).toBeGreaterThanOrEqual(120);
+    // The fixture module is no test file: Jest collects only files under a __tests__ directory or named *.test.mjs.
+    expect(fs.existsSync(path.join(repoRoot, 'scripts', '__fixtures__', 'sdlc-execute-fixture.mjs'))).toBe(true);
+  });
+
+  it('@SCN007 CI runs no job that selects tests by a name no test has', () => {
+    const workflow = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'nmg-sdlc-verify.yml'), 'utf8');
+    expect(workflow).not.toContain('--testNamePattern');
+    expect(workflow).not.toContain('checkpoint-portability');
+    expect(workflow).toContain('npm test');
   });
 });

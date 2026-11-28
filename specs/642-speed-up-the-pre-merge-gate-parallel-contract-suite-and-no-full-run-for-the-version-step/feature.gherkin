@@ -27,7 +27,7 @@ Feature: Speed up the pre-merge gate: parallel contract suite and no full run fo
     Given a branch that changes "src/app.js" and where <condition>
     When the pre-merge gate runs
     Then the selection is "all" with reason "fallback_path" for "package.json"
-    And Claude is not asked and "versionOnlyPaths" is absent
+    And every test runs and "versionOnlyPaths" is absent
 
     Examples:
       | condition                                                              |

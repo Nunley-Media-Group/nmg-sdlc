@@ -1691,8 +1691,10 @@ describe('@SCN011 this repository\'s smoke runs only the selected surfaces (#584
   });
 
   it('fails a missing and a stale record with nmg-sdlc-smoke surface not exercised', async () => {
+    // The stale record's head is no ancestor of the head under verification.
     const { provider, request, calls } = scoped(['steering', 'run-retro', 'onboard-project'], {
       records: { steering: {}, 'run-retro': { headSha: 'b'.repeat(40) } },
+      override: (program, args) => (program === 'git' && args[0] === 'merge-base' ? result(1) : undefined),
     });
 
     const outcome = await provider(request);
@@ -1704,7 +1706,77 @@ describe('@SCN011 this repository\'s smoke runs only the selected surfaces (#584
       'run-retro: record stale',
       expect.stringMatching(/^steering exercised by \/sdlc-steering/),
     ]));
-    expect(calls).toHaveLength(0);
+    expect(calls.map(({ program, args }) => `${program} ${args.join(' ')}`)).toEqual([`git merge-base --is-ancestor ${'b'.repeat(40)} ${HEAD}`]);
+  });
+
+  // #643 AC5: a record made at an earlier head still proves its surface while nothing a live command runs changed.
+  describe('@SCN005 a surface record carried forward from an earlier head (#643)', () => {
+    const realGit = (root, ...args) => {
+      const run = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+      return { status: run.status, signal: null, stdout: run.stdout, stderr: run.stderr };
+    };
+    const commit = (root, files, message) => {
+      for (const [file, text] of Object.entries(files)) {
+        fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+        fs.writeFileSync(path.join(root, file), text);
+      }
+      realGit(root, 'add', '.');
+      realGit(root, 'commit', '-q', '-m', message);
+      return realGit(root, 'rev-parse', 'HEAD').stdout.trim();
+    };
+    const manifest = (version, extra = '') => `{\n  "name": "nmg-sdlc",\n  "version": "${version}"${extra}\n}\n`;
+    // A real repository whose records were made at its first commit; `later` commits follow.
+    function carried(later, { surfaces = ['steering', 'run-retro'], detach = false } = {}) {
+      const root = surfaceProject();
+      realGit(root, 'init', '-q', '-b', 'main');
+      realGit(root, 'config', 'user.email', 'test@example.com');
+      realGit(root, 'config', 'user.name', 'Test');
+      const recordHead = commit(root, { '.gitignore': '.nmg-sdlc/\n', 'package.json': manifest('1.0.0'), '.claude-plugin/plugin.json': manifest('1.0.0'),
+        'workflows/steering/WORKFLOW.md': 'one\n' }, 'baseline');
+      const recordRoot = surfaceProject(Object.fromEntries(surfaces.map((surface) => [surface, { headSha: recordHead }])));
+      fs.cpSync(path.join(recordRoot, '.nmg-sdlc'), path.join(root, '.nmg-sdlc'), { recursive: true });
+      if (detach) realGit(root, 'checkout', '-q', '--orphan', 'other');
+      let head = recordHead;
+      for (const [index, files] of later.entries()) head = commit(root, files, `later ${index}`);
+      const fixture = scoped(surfaces, { projectRoot: root, override: (program, args, options) => (program === 'git' ? realGit(options.cwd, ...args) : undefined) });
+      return { ...fixture, request: { ...fixture.request, identity: { ...fixture.request.identity, headSha: head } }, recordHead, head };
+    }
+
+    it('passes when only tests, specs, documentation and the version changed since the record', async () => {
+      const { provider, request, recordHead, head, calls } = carried([
+        { 'scripts/__tests__/a.test.mjs': 'test\n', 'hooks/register.test.ts': 'test\n', 'specs/1-a/design.md': 'spec\n', 'docs/decisions/a.md': 'adr\n' },
+        { 'VERSION': '1.1.0\n', 'CHANGELOG.md': 'log\n', 'README.md': 'readme\n', 'package.json': manifest('1.1.0'), '.claude-plugin/plugin.json': manifest('1.1.0') },
+      ]);
+      const outcome = await provider(request);
+      expect(outcome.summary).toBe('nmg-sdlc-smoke exercised steering, run-retro');
+      expect(outcome.status).toBe('passed');
+      expect(head).not.toBe(recordHead);
+      const entry = outcome.evidence.find((item) => item.summary.startsWith('steering exercised'));
+      expect(entry.summary).toContain(`at ${recordHead}, carried forward to ${head}`);
+      // One ancestry check and one path listing serve both records of the same head.
+      expect(calls.filter(({ args }) => args[0] === 'merge-base')).toHaveLength(1);
+    });
+
+    it.each([
+      ['a workflow file changed', [{ 'workflows/steering/WORKFLOW.md': 'two\n' }], {}],
+      ['a source file changed', [{ 'scripts/__tests__/a.test.mjs': 'test\n' }, { 'src/host-events.mjs': 'export {};\n' }], {}],
+      ['the hooks module changed', [{ 'hooks/register.ts': 'export {};\n' }], {}],
+      ['a version mirror changed another line', [{ 'package.json': manifest('1.1.0', ',\n  "type": "module"') }], {}],
+      ['a test moved out of the test directory', [{ 'scripts/a.test.mjs': 'test\n' }], {}],
+      ['the record head is not an ancestor of the head', [{ 'README.md': 'readme\n' }], { detach: true }],
+    ])('leaves the record stale when %s', async (_name, later, options) => {
+      const { provider, request } = carried(later, { surfaces: ['steering'], ...options });
+      const outcome = await provider(request);
+      expect(outcome).toMatchObject({ status: 'failed', summary: 'nmg-sdlc-smoke surface not exercised: steering' });
+      expect(outcome.evidence.map((item) => item.summary)).toContain('steering: record stale');
+    });
+
+    it('leaves the record stale when git cannot list the changed paths', async () => {
+      const fixture = scoped(['steering'], { records: { steering: { headSha: 'b'.repeat(40) } },
+        override: (program, args) => (program === 'git' && args[0] === 'diff' ? result(128) : undefined) });
+      const outcome = await fixture.provider(fixture.request);
+      expect(outcome.evidence.map((item) => item.summary)).toContain('steering: record stale');
+    });
   });
 
   it('fails a failed, malformed, issue-less or transcript-less record', async () => {

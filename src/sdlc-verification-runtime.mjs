@@ -311,6 +311,29 @@ function writeVerificationArtifact(root, issue, artifact) {
   writeFileSync(temporary, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
   renameSync(temporary, path);
 }
+/** A request as the artifact records it, without the run id: two runs of one unchanged tree compare equal. */
+function comparableRequest(request) {
+  const { changedPaths: _changedPaths, verification, ...rest } = request;
+  return canonicalJson({ ...rest, verification: verification ? { issue: verification.issue, specPath: verification.specPath } : null });
+}
+/**
+ * The passed results of the last pre-merge run of `key`, by validation id. A result is reused only for an identical
+ * request: the same head, working tree, spec, steering, validation configuration, command arguments and selection.
+ */
+function priorPassedResults(root, key) {
+  const passed = new Map();
+  try {
+    const artifact = JSON.parse(readFileSync(join(root, ".nmg-sdlc", "verification", `${key}.json`), "utf8"));
+    if (artifact?.schemaVersion !== 1 || artifact.runtimeError || !Array.isArray(artifact.results)) return passed;
+    for (const entry of artifact.results) {
+      if (entry?.applicable === true && entry.effectiveStatus === "passed" && entry.result?.status === "passed" && entry.request
+        && Array.isArray(entry.result.evidence) && entry.result.evidence.length) {
+        passed.set(entry.id, { entry, generatedAt: entry.reused?.generatedAt ?? artifact.generatedAt ?? null });
+      }
+    }
+  } catch {}
+  return passed;
+}
 function setupIdentity(root, specDir, runtime) {
   let headSha = null;
   let currentSpecHash = null;
@@ -522,7 +545,7 @@ function selectionModels(projectRoot) {
 }
 export async function runSteeringValidations({ projectRoot, issue, specDir, baseRef = "main", verificationRunId = null, signal, spawnCommand,
   tier: requestedTier = "pre-merge", acquireSlot = acquireHeavySlot, runCoverage = runCoverageCommand, runSelection, models, selectOnly = false,
-  limits = {} } = {}) {
+  limits = {}, reuse = true } = {}) {
   const root = resolve(projectRoot);
   // `pre-merge` runs the untiered and `change` validations; `full` runs only the `full` ones.
   const tier = requestedTier === "full" ? "full" : "change";
@@ -533,6 +556,8 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
   let runtime;
   try {
     runtime = await loadSteeringRuntime(root);
+    // Read before this run overwrites the artifact. Only a pre-merge gate reuses: a full run is a deliberate rerun.
+    const prior = reuse && tier === "change" && !whole && !selectOnly ? priorPassedResults(root, key) : new Map();
     const paths = whole ? [] : changedPaths(root, baseRef);
     // A fallback path whose only change is the project version step is no change for the selection: it forces no
     // full run, and needs no test, surface or coverage. Conditions and the recorded changed paths still see it.
@@ -565,7 +590,7 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
       }
     }
     if (selectOnly) return { selection };
-    const selectedSurfaces = !selection ? null : selection.mode === "all" ? runtime.surfaces.map((surface) => surface.id) : docsOnly ? [] : selection.surfaces;
+    const selectedSurfaces = !selection ? null : docsOnly ? [] : selection.surfaces;
     const boundSurfaces = (validation) => runtime.surfaces.filter((surface) => surface.validations.includes(validation.id)).map((surface) => surface.id);
     const optedIn = (validation) => Boolean(selection) && validation.selection === true;
     const surfaceBound = (validation) => Boolean(selection) && boundSurfaces(validation).length > 0;
@@ -615,6 +640,17 @@ export async function runSteeringValidations({ projectRoot, issue, specDir, base
           result = resultEnvelope("passed", "the selection selected no tests for this change", request.identity,
             [{ kind: "selection", summary: "selection_empty: 0 tests selected", headSha: request.identity.headSha }]);
         } else {
+          // A result that passed for this exact request is not run again: a rerun at an unchanged head repeats only
+          // what did not pass. The selected tests always run, because this run's coverage checks read them, and a
+          // built-in artifact or external-evidence check reads files outside the identity.
+          const earlier = prior.get(validation.id);
+          if (earlier && (validation.provider === "builtin.command" || !String(validation.provider).startsWith("builtin."))
+            && !(optedIn(validation) && selection.mode === "selected")
+            && canonicalJson(earlier.entry.result.identity) === canonicalJson(request.identity)
+            && comparableRequest(earlier.entry.request) === comparableRequest(request)) {
+            return { ...base(validation), applicable: true, effectiveStatus: "passed", ...recorded,
+              reused: { generatedAt: earlier.generatedAt }, request, result: earlier.entry.result };
+          }
           if (validation.heavy === true) {
             held = await acquireSlot({ label: whole ? `${validation.id} (full)` : `${validation.id} (#${issue})`, projectRoot: root, issue: whole ? null : Number(issue), signal });
             pool = { slot: held.slot, waitedMs: held.waitedMs };
