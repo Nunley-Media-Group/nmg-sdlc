@@ -36,7 +36,8 @@ Delivering #638 took about two hours. `repository.tests` took 1092 s locally aga
 
 **Given** a `fallbackPaths` file with another changed line, an uncommitted edit, an unchanged `VERSION`, a version pair that is not the project's step, or a version with a prefix or suffix that is not build metadata
 **When** the gate resolves its selection
-**Then** the selection is `all` with reason `fallback_path`, Claude is not asked, and `versionOnlyPaths` is absent
+**Then** the selection is `all` with reason `fallback_path`, every test runs, and `versionOnlyPaths` is absent
+**And** Claude is asked only for surfaces, and only when a surface binds a validation (#643)
 
 ### AC4: This repository's contract suite runs in parallel in a heavy-job slot
 
@@ -82,3 +83,4 @@ Delivering #638 took about two hours. `repository.tests` took 1092 s locally aga
 | Issue | Date | Summary |
 |-------|------|---------|
 | #642 | 2026-11-27 | Initial requirements |
+| #643 | 2026-11-27 | AC3: a fallback path asks Claude for surfaces when a surface binds a validation |

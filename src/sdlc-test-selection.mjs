@@ -442,7 +442,12 @@ function selectedReason(tests, surfaces) { return tests.length || surfaces.lengt
 /** Whether a stored selection still satisfies the answer contract and names existing tests, so it can be reused. */
 function reusable(selection, root, declaredIds) {
   try {
-    if (selection.mode !== "selected") return selection.mode === "all" && selection.reason === "selection_all";
+    if (selection.mode !== "selected") {
+      if (selection.mode !== "all") return false;
+      // A fallback run keeps the surfaces chosen for it, so they must still be declared ids.
+      return selection.reason === "selection_all" || (selection.reason === "fallback_path" && Array.isArray(selection.surfaces)
+        && selection.surfaces.every((id) => declaredIds.includes(id)));
+    }
     const answer = validateAnswer({ mode: selection.mode, tests: selection.tests, surfaces: selection.surfaces }, declaredIds);
     requireTestFiles(root, answer.tests);
     return canonicalJson(answer.tests) === canonicalJson(selection.tests) && selection.reason === selectedReason(answer.tests, answer.surfaces);
@@ -453,7 +458,9 @@ function reusable(selection, root, declaredIds) {
  * Resolves the selection for one change-tier gate run of a manifest that declares `selection`. Returns
  * `{ mode, reason, fallbackPath, tests, surfaces, requiredSurfaces, model, effort, prompt, guidanceSupplied, reused, detail }`:
  * `mode` is `selected` or `all`; `reason` is `selected`, `selection_empty`, `fallback_path`, `selection_failed` or
- * `selection_all`. In `all` mode `surfaces` is every declared surface id.
+ * `selection_all`. In `all` mode `surfaces` is every declared surface id, with one exception: a `fallback_path` run of
+ * a project whose surfaces bind validations runs every test but asks which surfaces the change affects, and selects
+ * those plus every required surface. A failed call or an `all` answer there selects every surface.
  */
 export async function resolveChangeSelection({ projectRoot, issue, baseRef, paths, runtime, models, runSelection = defaultRunSelection,
   packageRoot = defaultPackageRoot, headSha, signal, limits = {} } = {}) {
@@ -468,7 +475,10 @@ export async function resolveChangeSelection({ projectRoot, issue, baseRef, path
   const all = (reason, extra = {}) => ({ mode: "all", reason, fallbackPath: null, tests: [], surfaces: [...declaredIds], requiredSurfaces: required,
     model, effort, prompt: null, guidanceSupplied: false, reused: false, detail: null, ...extra });
   const fallbackPath = paths.find((path) => matches(path, fallbackPathsOf(runtime)));
-  if (fallbackPath !== undefined) return all("fallback_path", { fallbackPath });
+  // A fallback path cannot be mapped to tests, so every test runs. Surfaces declare their own sources, so they are
+  // still chosen for the change; a project with no surface-bound validation has nothing to choose and is not asked.
+  const fallback = fallbackPath !== undefined;
+  if (fallback && !surfaces.some((surface) => (surface.validations ?? []).length)) return all("fallback_path", { fallbackPath });
 
   const guidance = readGuidance(root, issue, head);
   // A prompt or diff that cannot be built is a failed selection, like a failed call: everything runs.
@@ -479,7 +489,8 @@ export async function resolveChangeSelection({ projectRoot, issue, baseRef, path
     rendered = renderSelectionPrompt(runtime, packageRoot);
     ({ text: diff, digest: diffDigest } = changeDiffWithDigest(root, baseRef));
   } catch (error) {
-    return all("selection_failed", { guidanceSupplied: Boolean(guidance), detail: String(error?.message ?? error).slice(0, 500) });
+    return all(fallback ? "fallback_path" : "selection_failed", { ...(fallback ? { fallbackPath } : {}), guidanceSupplied: Boolean(guidance),
+      detail: String(error?.message ?? error).slice(0, 500) });
   }
   const prompt = { consumer: SELECTION_CONSUMER, fragments: rendered.provenance.fragments.map(({ id, hash: fragmentHash }) => ({ id, hash: fragmentHash })) };
   const binding = {
@@ -501,6 +512,7 @@ export async function resolveChangeSelection({ projectRoot, issue, baseRef, path
   const input = selectionInput({ text: rendered.text, baseRef, paths, diff, surfaces, inventory: testInventory(root, runtime), guidance });
   const command = claudeSelectionCommand({ model, effort });
   let selection;
+  let failed = false;
   try {
     const response = await runSelection({ ...command, input, cwd: root, timeout: timeoutMs, maxOutput: maxOutputBytes, ...(signal ? { signal } : {}) });
     if (!response || response.error || response.status !== 0) {
@@ -511,15 +523,20 @@ export async function resolveChangeSelection({ projectRoot, issue, baseRef, path
     // A test file the change deletes cannot run: it is dropped, and its path is accounted for like any changed path.
     const deleted = new Set(paths.filter((path) => !existsSync(join(root, path))));
     const tests = answer.tests.filter((test) => !deleted.has(testIdPath(test)));
-    if (answer.mode === "selected") requireTestFiles(root, tests);
-    selection = answer.mode === "all"
+    if (answer.mode === "selected" && !fallback) requireTestFiles(root, tests);
+    selection = fallback
+      ? all("fallback_path", { ...shared, fallbackPath, ...(answer.mode === "all" ? {}
+        : { surfaces: declaredIds.filter((id) => required.includes(id) || answer.surfaces.includes(id)) }) })
+      : answer.mode === "all"
       ? all("selection_all", shared)
       : { mode: "selected", reason: selectedReason(tests, answer.surfaces), fallbackPath: null, tests, surfaces: answer.surfaces, ...shared, detail: null };
   } catch (error) {
-    selection = all("selection_failed", { ...shared, detail: String(error.message).slice(0, 500) });
+    failed = true;
+    selection = all(fallback ? "fallback_path" : "selection_failed", { ...shared, ...(fallback ? { fallbackPath } : {}),
+      detail: String(error.message).slice(0, 500) });
   }
   // A failed call is not stored, so the next run asks again.
-  if (selection.reason !== "selection_failed") try {
+  if (!failed) try {
     writeJson(selectionPath(root, issue), { schemaVersion: 1, issue: Number(issue), binding, selection, storedAt: new Date().toISOString() });
   } catch {}
   return selection;

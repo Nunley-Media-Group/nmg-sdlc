@@ -12,6 +12,19 @@ The only other major bumps are owner-approved repository rewrites (3.1.0 and 4.0
 
 ## [Unreleased]
 
+## [4.26.0] - 2026-11-27
+
+### Changed
+
+- A pre-merge gate that runs again for an unchanged head, working tree, spec, steering and selection repeats only what did not pass: a command or project-provider result that passed in the previous run is reused and recorded with `reused`; the selected tests of a `selected` run always run, and `sdlc-verify-steering.mjs --fresh true` reuses nothing (#643)
+- A changed `fallbackPaths` path still runs every test but no longer selects every surface when a surface binds a validation: the run selects the surfaces whose sources match a changed path plus those the selection call names, and a failed call selects every surface (#643)
+- This repository's smoke gate accepts an interactive surface record from an earlier head while only tests, specs, documentation and the version changed since, and the hooks module and smoke provider are sources of every surface they serve (#643)
+- The `/sdlc-execute` controller tests are split over four files that run in parallel (#643)
+
+### Removed
+
+- The "Checkpoint portability" CI job, which has matched no test since #436 (#643)
+
 ## [4.25.0] - 2026-11-27
 
 ### Changed

@@ -768,11 +768,38 @@ function withoutWhitespace(text) {
   return String(text).replace(/\s+/g, "");
 }
 
+// Paths whose change cannot alter what a live interactive command does: tests, specs and project documentation.
+const INERT_PATHS = [/^scripts\/__tests__\//, /^specs\//, /^docs\//, /^hooks\/[^/]+\.test\.ts$/,
+  /^(?:README|CHANGELOG|CONTRIBUTING|CLAUDE)\.md$/, /^VERSION$/];
+const VERSION_MIRRORS = new Set(["package.json", ".claude-plugin/plugin.json"]);
+const VERSION_LINE = /^[+-]\s*"version"\s*:\s*"[^"]+",?\s*$/;
+
+// Whether a record made at `recordHead` still proves its surface at the head under verification: `recordHead` is an
+// ancestor of that head, and every path changed since is a test, a spec, project documentation or a version mirror
+// whose only changed lines are its `"version"` line. Any other changed path, or a git failure, answers false.
+async function carriesForward(executeCommand, env, request, recordHead) {
+  const head = request.identity?.headSha;
+  const git = (args) => executeCommand("git", args, { cwd: request.projectRoot, env, signal: request.signal });
+  const ancestor = await git(["merge-base", "--is-ancestor", recordHead, head]);
+  if (ancestor?.status !== 0) return false;
+  const names = await git(["diff", "--name-only", "--no-renames", "-z", recordHead, head]);
+  if (names?.status !== 0) return false;
+  for (const path of String(names.stdout ?? "").split("\0").filter(Boolean)) {
+    if (INERT_PATHS.some((pattern) => pattern.test(path))) continue;
+    if (!VERSION_MIRRORS.has(path)) return false;
+    const diff = await git(["diff", "-U0", "--no-color", "--no-ext-diff", recordHead, head, "--", path]);
+    if (diff?.status !== 0) return false;
+    const changed = String(diff.stdout ?? "").split(/\r?\n/).filter((line) => /^[+-]/.test(line) && !/^(?:\+\+\+|---) /.test(line));
+    if (!changed.length || !changed.every((line) => VERSION_LINE.test(line))) return false;
+  }
+  return true;
+}
+
 // `{ schemaVersion: 1, repo, surface, headSha, status: "passed", command, transcript, issue? }`,
-// bound to the head under verification, with a non-empty regular transcript file under the
-// surface record directory that contains the record's command.
-// Returns `{ record, recordPath, transcriptPath }` or `{ reason }`.
-function readSurfaceRecord(readFile, projectRoot, surface, headSha) {
+// bound to the head under verification (or to `acceptedHead`, an earlier head that `carriesForward` accepted), with a
+// non-empty regular transcript file under the surface record directory that contains the record's command.
+// Returns `{ record, recordPath, transcriptPath }` or `{ reason }`; a stale record also returns its `recordHead`.
+function readSurfaceRecord(readFile, projectRoot, surface, headSha, acceptedHead = null) {
   const directory = resolve(projectRoot, SURFACE_RECORD_DIR);
   const recordPath = join(directory, `${surface}.json`);
   let realDirectory;
@@ -789,8 +816,10 @@ function readSurfaceRecord(readFile, projectRoot, surface, headSha) {
   if (record.schemaVersion !== 1) return { reason: "record schemaVersion invalid" };
   if (record.repo !== SMOKE_SLUG) return { reason: "record repo invalid" };
   if (record.surface !== surface) return { reason: "record surface mismatch" };
-  if (!SHA.test(record.headSha ?? "") || !SHA.test(headSha ?? "")
-    || record.headSha.toLowerCase() !== headSha.toLowerCase()) return { reason: "record stale" };
+  if (!SHA.test(record.headSha ?? "") || !SHA.test(headSha ?? "")) return { reason: "record stale" };
+  if (record.headSha.toLowerCase() !== headSha.toLowerCase() && record.headSha.toLowerCase() !== acceptedHead) {
+    return { reason: "record stale", recordHead: record.headSha.toLowerCase() };
+  }
   if (record.status !== "passed") return { reason: `record status ${JSON.stringify(record.status ?? null)}` };
   if (typeof record.command !== "string" || !record.command.includes(INTERACTIVE_SURFACES[surface])) {
     return { reason: "record command invalid" };
@@ -830,8 +859,14 @@ async function checkInteractiveSurfaces(executeCommand, readFile, env, request, 
   const failed = [];
   const incomplete = [];
   const evidence = [];
+  const head = request.identity?.headSha;
+  const carried = new Map();
   for (const surface of surfaces) {
-    const checked = readSurfaceRecord(readFile, request.projectRoot, surface, request.identity?.headSha);
+    let checked = readSurfaceRecord(readFile, request.projectRoot, surface, head);
+    if (checked.recordHead) {
+      if (!carried.has(checked.recordHead)) carried.set(checked.recordHead, await carriesForward(executeCommand, env, request, checked.recordHead));
+      if (carried.get(checked.recordHead)) checked = readSurfaceRecord(readFile, request.projectRoot, surface, head, checked.recordHead);
+    }
     if (!checked.record) {
       failed.push(surface);
       evidence.push({ kind: "surface", summary: `${surface}: ${checked.reason}`, artifact: join(SURFACE_RECORD_DIR, `${surface}.json`) });
@@ -850,6 +885,7 @@ async function checkInteractiveSurfaces(executeCommand, readFile, env, request, 
     evidence.push({
       kind: "surface",
       summary: `${surface} exercised by ${record.command} at ${record.headSha.toLowerCase()}`
+        + `${record.headSha.toLowerCase() === String(head).toLowerCase() ? "" : `, carried forward to ${String(head).toLowerCase()} (only tests, specs, documentation and the version changed since)`}`
         + `${record.issue ? ` (issue #${record.issue})` : ""}; record ${checked.recordPath}; transcript ${checked.transcriptPath}`,
       artifact: checked.transcriptPath,
     });

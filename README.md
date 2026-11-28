@@ -288,6 +288,8 @@ By default every required validation runs before merge. A project whose full sui
 
 Each result in `.nmg-sdlc/verification/<N>.json` records `tier`, `selection` (`{ provider, reason, fallbackPath, selectedCount }`) and, for a heavy validation, `heavy` (`{ slot, waitedMs }`).
 
+A pre-merge gate that runs again for an unchanged tree repeats only what did not pass. A command or project-provider result that passed in the last run is reused when its request is identical (the same head, working tree, spec, steering, validation configuration, command arguments and selection), and is recorded with `reused: { generatedAt }`. The selected tests of a `selected` run always run, because that run's coverage checks read them, and so do built-in artifact and external-evidence checks. `sdlc-verify-steering.mjs --fresh true` reuses nothing. A full-tier run never reuses.
+
 #### Scoped selection
 
 A project scopes each pre-merge gate to its change with two top-level manifest keys, which `/sdlc-onboard-project` and `/sdlc-upgrade-project` detect and propose from the project's structure:
@@ -307,6 +309,7 @@ Before any validation runs, the gate makes one headless Claude call. The prompt 
 - Validations with `selection: true` run only the selected tests. A validation named in a surface's `validations` runs only when one of its surfaces is selected, and otherwise passes as `surface_not_selected`.
 - Project providers receive `changedPaths` and `selection: { mode, reason, surfaces }`.
 - A changed `fallbackPaths` path, a failed or malformed call, or an `all` answer runs everything.
+- On a changed `fallbackPaths` path every test runs, but surfaces declare their own sources: when a surface binds a validation, the call still chooses surfaces, and the run selects those whose sources match a changed path plus those Claude names. A failed call or an `all` answer there selects every surface. A project with no surface-bound validation is not asked.
 - The version step is exempt: when `VERSION` moves to a new version, a committed `fallbackPaths` file whose every changed line only replaces the old version with the new one (a version mirror such as `package.json`, `pyproject.toml` or `pubspec.yaml`) forces no full run and needs no test or surface. The gate artifact lists it in `selection.versionOnlyPaths`. Any other changed line in the file still runs everything.
 
 The answer is then checked deterministically:

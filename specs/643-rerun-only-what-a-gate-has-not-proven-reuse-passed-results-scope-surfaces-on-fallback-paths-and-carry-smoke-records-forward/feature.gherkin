@@ -1,0 +1,102 @@
+**Issue**: #643
+**Date**: 2026-11-27
+**Status**: Approved
+**Author**: Claude Code
+
+# File: scripts/__tests__/test-selection-gate.test.mjs, scripts/__tests__/nmg-sdlc-smoke.test.mjs, scripts/__tests__/repository-surfaces.test.mjs
+# Generated from: specs/643-rerun-only-what-a-gate-has-not-proven-reuse-passed-results-scope-surfaces-on-fallback-paths-and-carry-smoke-records-forward/requirements.md
+Feature: Rerun only what a gate has not proven: reuse passed results, scope surfaces on fallback paths, and carry smoke records forward
+
+  @SCN001
+  Scenario: A gate rerun at an unchanged tree runs only what did not pass
+    Given a pre-merge gate in which the test command and one provider passed and another provider failed
+    When the gate runs again at the same head with a new run id
+    Then only the failed provider runs
+    And the passed results are recorded with the new request and "reused" naming the first run
+
+  @SCN002
+  Scenario Outline: Nothing is reused when <condition>
+    Given a pre-merge gate that passed
+    And <condition>
+    When the gate runs again
+    Then every applicable validation runs and no result is "reused"
+
+    Examples:
+      | condition                    |
+      | the head moved               |
+      | the working tree changed     |
+      | the spec changed             |
+      | reuse is turned off          |
+      | "--fresh true" is passed     |
+
+  @SCN002
+  Scenario: The selected tests always run
+    Given a "selected" gate run that passed
+    When the gate runs again at the same head
+    Then the selected tests and their coverage check run again
+    And the other passed results are reused
+
+  @SCN002
+  Scenario: A result that did not pass is never reused
+    Given a gate run whose test command failed, or whose artifact cannot be read
+    When the gate runs again
+    Then the test command runs
+
+  @SCN003
+  Scenario: A fallback path runs every test and only the surfaces the change affects
+    Given a project whose "site" surface binds a validation and whose "package.json" is a fallback path
+    And a branch that changes "package.json" and "site/index.html"
+    When the gate runs and the selection call names the surface "other"
+    Then the selection is "all" with reason "fallback_path" and every test runs
+    And the surfaces are "site" and "other"
+
+  @SCN003
+  Scenario: A fallback change that touches no surface selects none
+    Given a branch that changes only "package.json"
+    When the gate runs and the selection call names no surface
+    Then every test runs and the surface-bound validation passes as "surface_not_selected"
+
+  @SCN004
+  Scenario: A project with no surface-bound validation is not asked
+    Given a project in which no surface names a validation
+    And a branch that changes the fallback path "package.json"
+    When the gate runs
+    Then Claude is not asked and every declared surface is selected
+
+  @SCN005
+  Scenario: A smoke surface record is carried forward over inert changes
+    Given a surface record made at an earlier head
+    And only tests, specs, documentation and the version changed since
+    When the smoke gate checks the surface
+    Then the record proves it and the evidence names both heads
+
+  @SCN005
+  Scenario Outline: A smoke surface record goes stale when <change>
+    Given a surface record made at an earlier head
+    And <change>
+    When the smoke gate checks the surface
+    Then the gate fails with "nmg-sdlc-smoke surface not exercised"
+
+    Examples:
+      | change                                          |
+      | a workflow file changed                         |
+      | a source file changed                           |
+      | the hooks module changed                        |
+      | a version mirror changed another line           |
+      | a test moved out of the test directory          |
+      | the record head is not an ancestor of the head  |
+      | git cannot list the changed paths               |
+
+  @SCN006
+  Scenario: The hooks module and the smoke provider require every surface they serve
+    Given this repository's steering manifest
+    When "hooks/register.ts", "hooks/hooks.json" or the smoke provider changes
+    Then every smoke surface the file serves is required
+    And smoke steering says which earlier surface records still count
+
+  @SCN007
+  Scenario: The controller tests run in parallel and CI runs no empty job
+    Given the contract suite and the CI workflow
+    When the suite runs
+    Then the controller tests are spread over four files sharing one fixture module
+    And CI has no job that selects tests by a name no test has

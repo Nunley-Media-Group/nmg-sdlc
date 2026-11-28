@@ -120,7 +120,7 @@ The prompt registry (`src/sdlc-prompt-snippets.mjs`) already renders plugin frag
 **When** a changed path matches `fallbackPaths`, or Claude exits non-zero, times out, prints malformed output or answers `mode: "all"`
 **Then** the opted-in test validations run their full commands and record `fallback_path`, `selection_failed` or `selection_all`
 **And** project providers receive every declared surface
-**And** Claude is not asked when a fallback path matches
+**And** when a fallback path matches, Claude is not asked for tests; since #643 it is asked for surfaces when a surface binds a validation, and providers then receive the surfaces the change requires plus those it names
 
 ### AC10: This repository's smoke runs only the selected surfaces
 
