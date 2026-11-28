@@ -327,7 +327,7 @@ export function renderSelectionPrompt(runtime, packageRoot = defaultPackageRoot)
   return renderPrompt(registry, { consumer: SELECTION_CONSUMER });
 }
 
-function selectionInput({ text, baseRef, paths, diff, surfaces, inventory, guidance }) {
+function selectionInput({ text, baseRef, paths, diff, surfaces, inventory, guidance, fallbackPath }) {
   const sections = [
     text.trimEnd(),
     "## Input",
@@ -337,6 +337,8 @@ function selectionInput({ text, baseRef, paths, diff, surfaces, inventory, guida
     `Test files (project-relative files named like tests):\n${inventory.files.map((path) => `- ${path}`).join("\n") || "(none found)"}${inventory.omitted ? `\n(and ${inventory.omitted} more)` : ""}`,
     `Diff:\n\`\`\`diff\n${diff}\n\`\`\``,
   ];
+  // On a fallback path every test runs whatever the answer, so the call is told to choose surfaces only.
+  if (fallbackPath !== undefined) sections.push(`Fallback path:\nThe changed path \`${fallbackPath}\` cannot be mapped to tests, so the gate runs every test for this change whatever you answer. Leave \`tests\` empty and choose only surfaces: answer \`selected\` with each declared surface whose behavior this change can affect, or with no surface when it can affect none. Answer \`all\` only when you cannot tell which surfaces the change reaches.`);
   if (guidance) sections.push(`Supervisor guidance:\n${guidance}`);
   return `${sections.join("\n\n")}\n`;
 }
@@ -509,7 +511,8 @@ export async function resolveChangeSelection({ projectRoot, issue, baseRef, path
   }
 
   const shared = { requiredSurfaces: required, model, effort, prompt, guidanceSupplied: Boolean(guidance), reused: false };
-  const input = selectionInput({ text: rendered.text, baseRef, paths, diff, surfaces, inventory: testInventory(root, runtime), guidance });
+  const input = selectionInput({ text: rendered.text, baseRef, paths, diff, surfaces, inventory: testInventory(root, runtime), guidance,
+    ...(fallback ? { fallbackPath } : {}) });
   const command = claudeSelectionCommand({ model, effort });
   let selection;
   let failed = false;
@@ -525,7 +528,7 @@ export async function resolveChangeSelection({ projectRoot, issue, baseRef, path
     const tests = answer.tests.filter((test) => !deleted.has(testIdPath(test)));
     if (answer.mode === "selected" && !fallback) requireTestFiles(root, tests);
     selection = fallback
-      ? all("fallback_path", { ...shared, fallbackPath, ...(answer.mode === "all" ? {}
+      ? all("fallback_path", { ...shared, fallbackPath, ...(answer.mode === "all" ? { detail: "the selection call answered all" }
         : { surfaces: declaredIds.filter((id) => required.includes(id) || answer.surfaces.includes(id)) }) })
       : answer.mode === "all"
       ? all("selection_all", shared)

@@ -797,7 +797,7 @@ describe('@SCN010 full-run fallbacks give providers every surface (#584 AC9)', (
     change(root, 'package.json', '{}\n');
     answer = { mode: 'all', tests: [], surfaces: [] };
     const artifact = await verify(root);
-    expect(artifact.selection).toMatchObject({ mode: 'all', reason: 'fallback_path', surfaces: ['app', 'site', 'other'], detail: null });
+    expect(artifact.selection).toMatchObject({ mode: 'all', reason: 'fallback_path', surfaces: ['app', 'site', 'other'], detail: 'the selection call answered all' });
   }, TIMEOUT);
 });
 
@@ -810,8 +810,11 @@ describe('surfaces of a fallback-path run (#643)', () => {
     answer = { mode: 'selected', tests: ['tests/missing.test.js'], surfaces: ['other'] };
     const artifact = await verify(root);
     expect(calls).toHaveLength(1);
+    // The call is told that every test runs and that it chooses surfaces only.
+    expect(calls[0].input).toContain('Fallback path:\nThe changed path `package.json` cannot be mapped to tests');
+    expect(calls[0].input).toContain('Leave `tests` empty and choose only surfaces');
     expect(artifact.selection).toMatchObject({ mode: 'all', reason: 'fallback_path', fallbackPath: 'package.json', tests: [],
-      surfaces: ['site', 'other'], requiredSurfaces: ['site'], rejection: null });
+      surfaces: ['site', 'other'], requiredSurfaces: ['site'], rejection: null, detail: null });
     expect(ranWith(root)).toEqual([]);
     expect(artifact.ceiling).toBeNull();
     expect(byId(artifact)['site.smoke'].selection).toBeNull();
